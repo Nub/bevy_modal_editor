@@ -1,3 +1,5 @@
+use avian3d::prelude::Physics;
+use avian3d::schedule::PhysicsTime;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
@@ -8,43 +10,8 @@ pub struct PanelsPlugin;
 
 impl Plugin for PanelsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, (draw_title_bar, draw_status_bar));
+        app.add_systems(EguiPrimaryContextPass, draw_status_bar);
     }
-}
-
-/// Draw title bar showing current file and save status
-fn draw_title_bar(mut contexts: EguiContexts, scene_file: Res<SceneFile>) -> Result {
-    let ctx = contexts.ctx_mut()?;
-
-    egui::TopBottomPanel::top("title_bar")
-        .frame(egui::Frame::new().fill(egui::Color32::from_rgb(45, 45, 48)))
-        .show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(4.0);
-
-                // File icon
-                ui.label(egui::RichText::new("📄").size(14.0));
-
-                // File name
-                let file_name = scene_file.display_name();
-                ui.label(
-                    egui::RichText::new(file_name)
-                        .size(14.0)
-                        .color(egui::Color32::from_rgb(220, 220, 220)),
-                );
-
-                // Modified indicator
-                if scene_file.modified {
-                    ui.label(
-                        egui::RichText::new("●")
-                            .size(12.0)
-                            .color(egui::Color32::from_rgb(255, 180, 100)),
-                    );
-                }
-            });
-        });
-
-    Ok(())
 }
 
 /// Draw status bar showing current mode and editor state
@@ -54,6 +21,8 @@ fn draw_status_bar(
     editor_state: Res<EditorState>,
     transform_op: Res<TransformOperation>,
     axis_constraint: Res<AxisConstraint>,
+    scene_file: Res<SceneFile>,
+    physics_time: Res<Time<Physics>>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -121,7 +90,43 @@ fn draw_status_bar(
                 ui.label("Rot: Off");
             }
 
-            // Right side is now empty - use command palette Help for shortcuts
+            ui.separator();
+
+            // Physics status
+            if physics_time.is_paused() {
+                ui.colored_label(
+                    egui::Color32::from_rgb(200, 100, 100),
+                    "Physics: OFF",
+                );
+            } else {
+                ui.colored_label(
+                    egui::Color32::from_rgb(100, 200, 100),
+                    "Physics: ON",
+                );
+            }
+
+            // Right-justified file info
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // Modified indicator (appears first due to RTL layout)
+                if scene_file.modified {
+                    ui.label(
+                        egui::RichText::new("●")
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(255, 180, 100)),
+                    );
+                }
+
+                // File name
+                let file_name = scene_file.display_name();
+                ui.label(
+                    egui::RichText::new(file_name)
+                        .size(13.0)
+                        .color(egui::Color32::from_rgb(180, 180, 180)),
+                );
+
+                // File icon
+                ui.label(egui::RichText::new("📄").size(13.0));
+            });
         });
     });
     Ok(())

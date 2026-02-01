@@ -635,6 +635,7 @@ dependencies = [
  "bevy",
  "bevy-inspector-egui",
  "bevy_egui",
+ "bevy_infinite_grid",
  "dirs",
  "fuzzy-matcher",
  "ron 0.8.1",
@@ -1022,6 +1023,14 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "wgpu-types",
+]
+
+[[package]]
+name = "bevy_infinite_grid"
+version = "0.18.0"
+source = "git+https://github.com/ForesightMiningSoftwareCorporation/bevy_infinite_grid?branch=main#cc9ba3efe5a4a22b5d3869b2a4b7f4f4368a485a"
+dependencies = [
+ "bevy",
 ]
 
 [[package]]

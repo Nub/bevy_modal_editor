@@ -24,12 +24,25 @@ pub struct LoadSceneEvent {
     pub path: String,
 }
 
+/// Event to force save (skip overwrite check)
+#[derive(Message)]
+pub struct ForceSaveSceneEvent {
+    pub path: String,
+}
+
 /// Resource to store scene loading/saving errors for display
 #[derive(Resource, Default)]
 pub struct SceneErrorDialog {
     pub open: bool,
     pub title: String,
     pub message: String,
+}
+
+/// Resource for overwrite confirmation dialog
+#[derive(Resource, Default)]
+pub struct OverwriteConfirmDialog {
+    pub open: bool,
+    pub path: String,
 }
 
 /// Resource to track the current scene file and modification state
@@ -131,29 +144,59 @@ impl Plugin for SerializationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SceneErrorDialog>()
             .init_resource::<SceneFile>()
+            .init_resource::<OverwriteConfirmDialog>()
             .add_message::<SaveSceneEvent>()
             .add_message::<LoadSceneEvent>()
+            .add_message::<ForceSaveSceneEvent>()
             .add_systems(
                 Update,
                 (
                     handle_save_scene,
+                    handle_force_save_scene,
                     handle_load_scene,
                     detect_scene_changes,
                     update_window_title,
                 ),
             )
-            .add_systems(EguiPrimaryContextPass, draw_error_dialog);
+            .add_systems(EguiPrimaryContextPass, (draw_error_dialog, draw_overwrite_dialog));
     }
 }
 
-/// Handle save scene events by queuing a command
+/// Handle save scene events - check for existing file first
 fn handle_save_scene(
     mut events: MessageReader<SaveSceneEvent>,
     mut commands: Commands,
     camera_marks: Res<CameraMarks>,
+    scene_file: Res<SceneFile>,
+    mut overwrite_dialog: ResMut<OverwriteConfirmDialog>,
 ) {
     for event in events.read() {
-        // Queue the save operation as a command (needs exclusive world access for DynamicSceneBuilder)
+        let path = Path::new(&event.path);
+
+        // Check if file exists and it's not the currently open file
+        let is_current_file = scene_file.path.as_ref() == Some(&event.path);
+
+        if path.exists() && !is_current_file {
+            // Show confirmation dialog
+            overwrite_dialog.open = true;
+            overwrite_dialog.path = event.path.clone();
+        } else {
+            // No existing file or saving to current file - proceed directly
+            commands.queue(SaveSceneCommand {
+                path: event.path.clone(),
+                camera_marks: camera_marks.marks.clone(),
+            });
+        }
+    }
+}
+
+/// Handle force save events (after confirmation)
+fn handle_force_save_scene(
+    mut events: MessageReader<ForceSaveSceneEvent>,
+    mut commands: Commands,
+    camera_marks: Res<CameraMarks>,
+) {
+    for event in events.read() {
         commands.queue(SaveSceneCommand {
             path: event.path.clone(),
             camera_marks: camera_marks.marks.clone(),
@@ -534,4 +577,58 @@ fn update_window_title(
     let modified_indicator = if scene_file.modified { " *" } else { "" };
 
     window.title = format!("Bevy Avian3D Editor - {}{}", file_name, modified_indicator);
+}
+
+/// Draw the overwrite confirmation dialog
+fn draw_overwrite_dialog(
+    mut contexts: EguiContexts,
+    mut overwrite_dialog: ResMut<OverwriteConfirmDialog>,
+    mut force_save_events: MessageWriter<ForceSaveSceneEvent>,
+) -> Result {
+    if !overwrite_dialog.open {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+
+    let mut should_close = false;
+    let mut should_save = false;
+
+    egui::Window::new("Confirm Overwrite")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            let filename = Path::new(&overwrite_dialog.path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&overwrite_dialog.path);
+
+            ui.label(format!("File '{}' already exists.", filename));
+            ui.label("Do you want to overwrite it?");
+            ui.add_space(10.0);
+
+            ui.horizontal(|ui| {
+                if ui.button("Overwrite").clicked() {
+                    should_save = true;
+                    should_close = true;
+                }
+                if ui.button("Cancel").clicked() {
+                    should_close = true;
+                }
+            });
+        });
+
+    if should_save {
+        force_save_events.write(ForceSaveSceneEvent {
+            path: overwrite_dialog.path.clone(),
+        });
+    }
+
+    if should_close {
+        overwrite_dialog.open = false;
+        overwrite_dialog.path.clear();
+    }
+
+    Ok(())
 }

@@ -4,6 +4,7 @@ pub use transform::*;
 
 use bevy::gizmos::config::{DefaultGizmoConfigGroup, GizmoConfigStore};
 use bevy::prelude::*;
+use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin, InfiniteGridSettings};
 
 use crate::editor::EditorState;
 
@@ -12,8 +13,9 @@ pub struct EditorGizmosPlugin;
 impl Plugin for EditorGizmosPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TransformGizmoPlugin)
-            .add_systems(Startup, configure_gizmos)
-            .add_systems(Update, draw_grid);
+            .add_plugins(InfiniteGridPlugin)
+            .add_systems(Startup, (configure_gizmos, spawn_grid))
+            .add_systems(Update, draw_origin_axes);
     }
 }
 
@@ -23,32 +25,26 @@ fn configure_gizmos(mut config_store: ResMut<GizmoConfigStore>) {
     config.line.width = 3.0;
 }
 
-/// Draw editor grid
-fn draw_grid(mut gizmos: Gizmos, editor_state: Res<EditorState>) {
+/// Spawn the infinite grid
+fn spawn_grid(mut commands: Commands) {
+    commands.spawn(InfiniteGridBundle {
+        settings: InfiniteGridSettings {
+            x_axis_color: Color::srgb(0.8, 0.2, 0.2),
+            z_axis_color: Color::srgb(0.2, 0.2, 0.8),
+            minor_line_color: Color::srgba(0.3, 0.3, 0.3, 0.5),
+            major_line_color: Color::srgba(0.5, 0.5, 0.5, 0.7),
+            fadeout_distance: 200.0,
+            dot_fadeout_strength: 0.1,
+            scale: 1.0,
+        },
+        ..default()
+    });
+}
+
+/// Draw origin axis indicators
+fn draw_origin_axes(mut gizmos: Gizmos, editor_state: Res<EditorState>) {
     if !editor_state.gizmos_visible {
         return;
-    }
-
-    let grid_size = 10;
-    let grid_spacing = 1.0;
-    let color = Color::srgba(0.5, 0.5, 0.5, 0.3);
-
-    for i in -grid_size..=grid_size {
-        let pos = i as f32 * grid_spacing;
-
-        // Lines along X axis
-        gizmos.line(
-            Vec3::new(-grid_size as f32 * grid_spacing, 0.0, pos),
-            Vec3::new(grid_size as f32 * grid_spacing, 0.0, pos),
-            color,
-        );
-
-        // Lines along Z axis
-        gizmos.line(
-            Vec3::new(pos, 0.0, -grid_size as f32 * grid_spacing),
-            Vec3::new(pos, 0.0, grid_size as f32 * grid_spacing),
-            color,
-        );
     }
 
     // Axis indicators at origin

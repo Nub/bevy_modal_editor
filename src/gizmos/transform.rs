@@ -1,9 +1,14 @@
+use avian3d::prelude::{Sleeping, SleepingDisabled};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, TransformOperation};
 use crate::selection::Selected;
+
+/// Marker component for entities currently being edited (to track sleep state)
+#[derive(Component)]
+pub struct BeingEdited;
 
 /// Snap a value to the nearest grid increment
 fn snap_to_grid(value: f32, grid_size: f32) -> f32 {
@@ -38,6 +43,7 @@ impl Plugin for TransformGizmoPlugin {
                 handle_axis_keys,
                 handle_step_keys,
                 handle_transform_manipulation,
+                manage_editing_sleep_state,
             ),
         );
     }
@@ -584,6 +590,49 @@ fn handle_transform_manipulation(
                 transform.scale = transform.scale.clamp(Vec3::splat(0.1), Vec3::splat(100.0));
             }
             TransformOperation::None => {}
+        }
+    }
+}
+
+/// Manage sleeping state for entities being edited
+/// Adds Sleeping + SleepingDisabled when editing starts, removes them when done
+fn manage_editing_sleep_state(
+    mut commands: Commands,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mode: Res<State<EditorMode>>,
+    transform_op: Res<TransformOperation>,
+    selected: Query<Entity, With<Selected>>,
+    being_edited: Query<Entity, With<BeingEdited>>,
+    mut contexts: EguiContexts,
+) {
+    // Check if we should be in "editing" state
+    let in_edit_mode = *mode.get() == EditorMode::Edit;
+    let has_transform_op = *transform_op != TransformOperation::None;
+    let mouse_held = mouse_button.pressed(MouseButton::Left);
+
+    // Don't consider it editing if UI has pointer focus
+    let ui_has_pointer = contexts
+        .ctx_mut()
+        .map(|ctx| ctx.wants_pointer_input() || ctx.is_pointer_over_area())
+        .unwrap_or(false);
+
+    let should_be_editing = in_edit_mode && has_transform_op && mouse_held && !ui_has_pointer;
+
+    if should_be_editing {
+        // Start editing: add Sleeping and SleepingDisabled to selected entities
+        for entity in selected.iter() {
+            if !being_edited.contains(entity) {
+                commands
+                    .entity(entity)
+                    .insert((BeingEdited, Sleeping, SleepingDisabled));
+            }
+        }
+    } else {
+        // Stop editing: remove sleep components and wake the bodies
+        for entity in being_edited.iter() {
+            commands
+                .entity(entity)
+                .remove::<(BeingEdited, Sleeping, SleepingDisabled)>();
         }
     }
 }

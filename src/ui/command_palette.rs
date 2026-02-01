@@ -6,11 +6,12 @@ use fuzzy_matcher::FuzzyMatcher;
 
 use crate::editor::{
     CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
-    JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent, TogglePhysicsDebugEvent,
+    JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent, ToggleGridEvent, TogglePhysicsDebugEvent,
+    TogglePhysicsEvent,
 };
 use crate::scene::{
-    LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnGroupEvent, SpawnPointLightEvent,
-    SpawnPrimitiveEvent, UnparentSelectedEvent,
+    LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnDemoSceneEvent, SpawnGroupEvent,
+    SpawnPointLightEvent, SpawnPrimitiveEvent, UnparentSelectedEvent,
 };
 
 /// System parameter grouping all command palette event writers
@@ -26,7 +27,10 @@ struct CommandEvents<'w> {
     save_scene: MessageWriter<'w, SaveSceneEvent>,
     load_scene: MessageWriter<'w, LoadSceneEvent>,
     toggle_debug: MessageWriter<'w, TogglePhysicsDebugEvent>,
+    toggle_physics: MessageWriter<'w, TogglePhysicsEvent>,
+    toggle_grid: MessageWriter<'w, ToggleGridEvent>,
     start_insert: MessageWriter<'w, StartInsertEvent>,
+    spawn_demo: MessageWriter<'w, SpawnDemoSceneEvent>,
 }
 
 /// A command that can be executed from the palette
@@ -61,6 +65,9 @@ pub enum CommandAction {
     SpawnGroup,
     UnparentSelected,
     TogglePhysicsDebug,
+    TogglePhysics,
+    ToggleGrid,
+    SpawnDemoScene,
 }
 
 /// Resource to track command palette state
@@ -170,6 +177,13 @@ impl CommandRegistry {
             action: CommandAction::LoadScene,
             insertable: false,
         });
+        self.commands.push(Command {
+            name: "Spawn Demo Scene".to_string(),
+            keywords: vec!["example".into(), "sample".into(), "test".into(), "create".into()],
+            category: "Scene",
+            action: CommandAction::SpawnDemoScene,
+            insertable: false,
+        });
 
         // Groups (insertable)
         self.commands.push(Command {
@@ -212,12 +226,26 @@ impl CommandRegistry {
             insertable: false,
         });
 
-        // Debug
+        // Debug / View
         self.commands.push(Command {
             name: "Toggle Physics Debug".to_string(),
             keywords: vec!["collider".into(), "collision".into(), "gizmo".into(), "wireframe".into(), "avian".into()],
             category: "Debug",
             action: CommandAction::TogglePhysicsDebug,
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Toggle Physics Simulation".to_string(),
+            keywords: vec!["pause".into(), "play".into(), "freeze".into(), "stop".into(), "run".into()],
+            category: "Physics",
+            action: CommandAction::TogglePhysics,
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Toggle Grid".to_string(),
+            keywords: vec!["floor".into(), "infinite".into(), "hide".into(), "show".into(), "visible".into()],
+            category: "View",
+            action: CommandAction::ToggleGrid,
             insertable: false,
         });
 
@@ -645,6 +673,15 @@ fn draw_command_palette(
                 }
                 CommandAction::TogglePhysicsDebug => {
                     events.toggle_debug.write(TogglePhysicsDebugEvent);
+                }
+                CommandAction::TogglePhysics => {
+                    events.toggle_physics.write(TogglePhysicsEvent);
+                }
+                CommandAction::ToggleGrid => {
+                    events.toggle_grid.write(ToggleGridEvent);
+                }
+                CommandAction::SpawnDemoScene => {
+                    events.spawn_demo.write(SpawnDemoSceneEvent);
                 }
             }
         }

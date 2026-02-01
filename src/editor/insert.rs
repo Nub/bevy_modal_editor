@@ -206,10 +206,13 @@ fn get_object_offset(insert_state: &InsertState, surface_normal: Vec3) -> Vec3 {
 /// Handle click to confirm placement
 fn handle_insert_click(
     mouse_button: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mut insert_state: ResMut<InsertState>,
     mut next_mode: ResMut<NextState<EditorMode>>,
     preview_query: Query<&Transform, With<InsertPreview>>,
     mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
     mut spawn_primitive_events: MessageWriter<SpawnPrimitiveEvent>,
     mut spawn_light_events: MessageWriter<SpawnPointLightEvent>,
     mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
@@ -254,17 +257,24 @@ fn handle_insert_click(
         }
     }
 
-    // Remove preview entity
+    // Remove old preview entity
     commands.entity(preview_entity).despawn();
 
-    // Clear insert state
-    insert_state.object_type = None;
-    insert_state.preview_entity = None;
+    // Check if shift is held for multi-place mode
+    let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
-    // Return to View mode
-    next_mode.set(EditorMode::View);
-
-    info!("Placed {:?} at {:?}", object_type, position);
+    if shift_held {
+        // Create a new preview entity to continue placing
+        let new_preview = spawn_preview_entity(&mut commands, &mut meshes, &mut materials, object_type);
+        insert_state.preview_entity = Some(new_preview);
+        info!("Placed {:?} at {:?} (shift-placing)", object_type, position);
+    } else {
+        // Clear insert state and return to View mode
+        insert_state.object_type = None;
+        insert_state.preview_entity = None;
+        next_mode.set(EditorMode::View);
+        info!("Placed {:?} at {:?}", object_type, position);
+    }
 }
 
 /// Clean up preview if mode changes while inserting

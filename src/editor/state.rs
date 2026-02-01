@@ -1,6 +1,9 @@
 use avian3d::debug_render::PhysicsGizmos;
+use avian3d::prelude::Physics;
+use avian3d::schedule::PhysicsTime;
 use bevy::gizmos::config::GizmoConfigStore;
 use bevy::prelude::*;
+use bevy_infinite_grid::InfiniteGridSettings;
 
 use crate::scene::PrimitiveShape;
 
@@ -125,6 +128,14 @@ impl InsertState {
 #[derive(Message)]
 pub struct TogglePhysicsDebugEvent;
 
+/// Event to toggle physics simulation on/off
+#[derive(Message)]
+pub struct TogglePhysicsEvent;
+
+/// Event to toggle the infinite grid visibility
+#[derive(Message)]
+pub struct ToggleGridEvent;
+
 /// Event to start inserting an object in Insert mode
 #[derive(Message)]
 pub struct StartInsertEvent {
@@ -142,8 +153,17 @@ impl Plugin for EditorStatePlugin {
             .init_resource::<EditStepAmount>()
             .insert_resource(InsertState::new())
             .add_message::<TogglePhysicsDebugEvent>()
+            .add_message::<TogglePhysicsEvent>()
+            .add_message::<ToggleGridEvent>()
             .add_message::<StartInsertEvent>()
-            .add_systems(Update, handle_toggle_physics_debug);
+            .add_systems(
+                Update,
+                (
+                    handle_toggle_physics_debug,
+                    handle_toggle_physics,
+                    handle_toggle_grid,
+                ),
+            );
     }
 }
 
@@ -156,5 +176,44 @@ fn handle_toggle_physics_debug(
         let config = gizmo_config.config_mut::<PhysicsGizmos>().0;
         config.enabled = !config.enabled;
         info!("Physics debug: {}", if config.enabled { "ON" } else { "OFF" });
+    }
+}
+
+/// Handle toggling physics simulation
+fn handle_toggle_physics(
+    mut events: MessageReader<TogglePhysicsEvent>,
+    mut physics_time: ResMut<Time<Physics>>,
+) {
+    for _ in events.read() {
+        if physics_time.is_paused() {
+            physics_time.unpause();
+            info!("Physics simulation: RUNNING");
+        } else {
+            physics_time.pause();
+            info!("Physics simulation: PAUSED");
+        }
+    }
+}
+
+/// Handle toggling the infinite grid visibility
+fn handle_toggle_grid(
+    mut events: MessageReader<ToggleGridEvent>,
+    mut grids: Query<&mut Visibility, With<InfiniteGridSettings>>,
+) {
+    for _ in events.read() {
+        for mut visibility in grids.iter_mut() {
+            *visibility = match *visibility {
+                Visibility::Inherited | Visibility::Visible => Visibility::Hidden,
+                Visibility::Hidden => Visibility::Visible,
+            };
+            info!(
+                "Infinite grid: {}",
+                if *visibility == Visibility::Hidden {
+                    "HIDDEN"
+                } else {
+                    "VISIBLE"
+                }
+            );
+        }
     }
 }

@@ -59,9 +59,9 @@ fn handle_mode_input(
         return;
     }
 
-    // Escape returns to View mode
+    // Escape always returns to View mode from any mode
     if keyboard.just_pressed(KeyCode::Escape) {
-        if *current_mode.get() == EditorMode::Edit || *current_mode.get() == EditorMode::Insert {
+        if *current_mode.get() != EditorMode::View {
             next_mode.set(EditorMode::View);
             *transform_op = TransformOperation::None;
             *axis_constraint = AxisConstraint::None;
@@ -69,17 +69,29 @@ fn handle_mode_input(
         return;
     }
 
+    // E enters Edit mode from View, or sets Scale in Edit mode
+    if keyboard.just_pressed(KeyCode::KeyE) {
+        match current_mode.get() {
+            EditorMode::View => {
+                next_mode.set(EditorMode::Edit);
+            }
+            EditorMode::Edit => {
+                *transform_op = TransformOperation::Scale;
+                *axis_constraint = AxisConstraint::None;
+            }
+            EditorMode::Insert => {}
+        }
+        return;
+    }
+
     // Transform operations only in Edit mode
-    // Q = Translate, W = Rotate, E = Scale
+    // Q = Translate, W = Rotate
     if *current_mode.get() == EditorMode::Edit {
         if keyboard.just_pressed(KeyCode::KeyQ) {
             *transform_op = TransformOperation::Translate;
             *axis_constraint = AxisConstraint::None;
         } else if keyboard.just_pressed(KeyCode::KeyW) {
             *transform_op = TransformOperation::Rotate;
-            *axis_constraint = AxisConstraint::None;
-        } else if keyboard.just_pressed(KeyCode::KeyE) {
-            *transform_op = TransformOperation::Scale;
             *axis_constraint = AxisConstraint::None;
         }
         // Axis selection (A, S, D) is handled in gizmos/transform.rs
