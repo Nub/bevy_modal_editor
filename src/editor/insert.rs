@@ -1,0 +1,297 @@
+use avian3d::prelude::*;
+use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
+use bevy_egui::EguiContexts;
+
+use super::camera::EditorCamera;
+use super::state::{EditorMode, InsertObjectType, InsertPreview, InsertState, StartInsertEvent};
+use crate::scene::{
+    GroupMarker, PrimitiveMarker, PrimitiveShape, SpawnGroupEvent, SpawnPointLightEvent,
+    SpawnPrimitiveEvent,
+};
+
+pub struct InsertModePlugin;
+
+impl Plugin for InsertModePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            Update,
+            (
+                handle_start_insert,
+                update_preview_position,
+                handle_insert_click,
+                cleanup_on_mode_exit,
+            )
+                .run_if(in_state(EditorMode::Insert)),
+        )
+        .add_systems(OnExit(EditorMode::Insert), cleanup_preview);
+    }
+}
+
+/// Handle the StartInsertEvent to create a preview entity
+fn handle_start_insert(
+    mut events: MessageReader<StartInsertEvent>,
+    mut insert_state: ResMut<InsertState>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for event in events.read() {
+        // Clean up any existing preview
+        if let Some(old_preview) = insert_state.preview_entity.take() {
+            commands.entity(old_preview).despawn();
+        }
+
+        // Create new preview entity
+        let preview_entity =
+            spawn_preview_entity(&mut commands, &mut meshes, &mut materials, event.object_type);
+
+        insert_state.object_type = Some(event.object_type);
+        insert_state.preview_entity = Some(preview_entity);
+
+        info!("Insert mode: placing {:?}", event.object_type);
+    }
+}
+
+/// Create a preview entity for the given object type
+pub fn spawn_preview_entity(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    object_type: InsertObjectType,
+) -> Entity {
+    // Semi-transparent material for preview
+    let preview_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.3, 0.7, 1.0, 0.5),
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+
+    match object_type {
+        InsertObjectType::Primitive(shape) => {
+            let mesh = match shape {
+                PrimitiveShape::Cube => meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
+                PrimitiveShape::Sphere => meshes.add(Sphere::new(0.5)),
+                PrimitiveShape::Cylinder => meshes.add(Cylinder::new(0.5, 1.0)),
+                PrimitiveShape::Capsule => meshes.add(Capsule3d::new(0.25, 0.5)),
+                PrimitiveShape::Plane => meshes.add(Plane3d::default().mesh().size(2.0, 2.0)),
+            };
+
+            commands
+                .spawn((
+                    InsertPreview,
+                    PrimitiveMarker { shape },
+                    Mesh3d(mesh),
+                    MeshMaterial3d(preview_material),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
+        InsertObjectType::PointLight => {
+            // For lights, show a small sphere as preview
+            commands
+                .spawn((
+                    InsertPreview,
+                    Mesh3d(meshes.add(Sphere::new(0.3))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(1.0, 0.9, 0.5, 0.7),
+                        alpha_mode: AlphaMode::Blend,
+                        emissive: bevy::color::LinearRgba::new(1.0, 0.9, 0.5, 1.0) * 5.0,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
+        InsertObjectType::Group => {
+            // For groups, show a wireframe-ish cube indicator
+            commands
+                .spawn((
+                    InsertPreview,
+                    GroupMarker,
+                    Mesh3d(meshes.add(Cuboid::new(0.5, 0.5, 0.5))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(0.5, 1.0, 0.5, 0.3),
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
+    }
+}
+
+/// Update the preview entity position based on camera raycast
+fn update_preview_position(
+    insert_state: Res<InsertState>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
+    spatial_query: SpatialQuery,
+    mut preview_query: Query<&mut Transform, With<InsertPreview>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+) {
+    let Some(preview_entity) = insert_state.preview_entity else {
+        return;
+    };
+
+    let Ok(mut preview_transform) = preview_query.get_mut(preview_entity) else {
+        return;
+    };
+
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    let Ok(window) = window_query.single() else {
+        return;
+    };
+
+    // Get the center of the viewport
+    let viewport_center = Vec2::new(window.width() / 2.0, window.height() / 2.0);
+
+    // Create ray from camera through viewport center
+    let Ok(ray) = camera.viewport_to_world(camera_transform, viewport_center) else {
+        return;
+    };
+
+    // Cast ray against physics colliders (exclude preview entity)
+    let filter = SpatialQueryFilter::default().with_excluded_entities([preview_entity]);
+
+    let position = if let Some(hit) = spatial_query.cast_ray(
+        ray.origin,
+        ray.direction,
+        100.0,
+        true,
+        &filter,
+    ) {
+        // Hit a surface - position on top of it
+        let hit_point = ray.origin + ray.direction * hit.distance;
+        let surface_normal = hit.normal;
+
+        // Calculate offset to place object on top of surface
+        let offset = get_object_offset(&insert_state, surface_normal);
+        hit_point + offset
+    } else {
+        // No hit - position at default distance from camera
+        ray.origin + ray.direction * insert_state.default_distance
+    };
+
+    preview_transform.translation = position;
+}
+
+/// Get the offset to position the object on top of a surface
+fn get_object_offset(insert_state: &InsertState, surface_normal: Vec3) -> Vec3 {
+    let normal = surface_normal;
+
+    // Default half-height for objects
+    let half_height = match insert_state.object_type {
+        Some(InsertObjectType::Primitive(shape)) => match shape {
+            PrimitiveShape::Cube => 0.5,
+            PrimitiveShape::Sphere => 0.5,
+            PrimitiveShape::Cylinder => 0.5,
+            PrimitiveShape::Capsule => 0.5,
+            PrimitiveShape::Plane => 0.01,
+        },
+        Some(InsertObjectType::PointLight) => 0.3,
+        Some(InsertObjectType::Group) => 0.25,
+        None => 0.5,
+    };
+
+    // Offset along surface normal
+    normal * half_height
+}
+
+/// Handle click to confirm placement
+fn handle_insert_click(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mut insert_state: ResMut<InsertState>,
+    mut next_mode: ResMut<NextState<EditorMode>>,
+    preview_query: Query<&Transform, With<InsertPreview>>,
+    mut commands: Commands,
+    mut spawn_primitive_events: MessageWriter<SpawnPrimitiveEvent>,
+    mut spawn_light_events: MessageWriter<SpawnPointLightEvent>,
+    mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
+    mut contexts: EguiContexts,
+) {
+    // Only confirm on left click
+    if !mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Don't process if clicking on UI
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    let Some(object_type) = insert_state.object_type else {
+        return;
+    };
+
+    let Some(preview_entity) = insert_state.preview_entity else {
+        return;
+    };
+
+    let Ok(preview_transform) = preview_query.get(preview_entity) else {
+        return;
+    };
+
+    let position = preview_transform.translation;
+
+    // Spawn the actual object
+    match object_type {
+        InsertObjectType::Primitive(shape) => {
+            spawn_primitive_events.write(SpawnPrimitiveEvent { shape, position });
+        }
+        InsertObjectType::PointLight => {
+            spawn_light_events.write(SpawnPointLightEvent { position });
+        }
+        InsertObjectType::Group => {
+            spawn_group_events.write(SpawnGroupEvent { position });
+        }
+    }
+
+    // Remove preview entity
+    commands.entity(preview_entity).despawn();
+
+    // Clear insert state
+    insert_state.object_type = None;
+    insert_state.preview_entity = None;
+
+    // Return to View mode
+    next_mode.set(EditorMode::View);
+
+    info!("Placed {:?} at {:?}", object_type, position);
+}
+
+/// Clean up preview if mode changes while inserting
+fn cleanup_on_mode_exit(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut insert_state: ResMut<InsertState>,
+    mut commands: Commands,
+) {
+    // Cancel on Escape (handled in input.rs for mode change,
+    // but we need to clean up preview here)
+    if keyboard.just_pressed(KeyCode::Escape) {
+        if let Some(preview_entity) = insert_state.preview_entity.take() {
+            commands.entity(preview_entity).despawn();
+        }
+        insert_state.object_type = None;
+    }
+}
+
+/// Clean up preview entity when exiting Insert mode
+fn cleanup_preview(
+    mut insert_state: ResMut<InsertState>,
+    mut commands: Commands,
+    preview_query: Query<Entity, With<InsertPreview>>,
+) {
+    // Remove all preview entities
+    for entity in preview_query.iter() {
+        commands.entity(entity).despawn();
+    }
+
+    insert_state.object_type = None;
+    insert_state.preview_entity = None;
+}

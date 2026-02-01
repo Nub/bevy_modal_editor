@@ -3,6 +3,7 @@ use bevy_egui::EguiContexts;
 
 use super::state::{AxisConstraint, EditorMode, TransformOperation};
 use crate::scene::GroupSelectedEvent;
+use crate::ui::CommandPaletteState;
 
 pub struct EditorInputPlugin;
 
@@ -19,6 +20,7 @@ fn handle_mode_input(
     mut next_mode: ResMut<NextState<EditorMode>>,
     mut transform_op: ResMut<TransformOperation>,
     mut axis_constraint: ResMut<AxisConstraint>,
+    mut palette_state: ResMut<CommandPaletteState>,
     mut contexts: EguiContexts,
 ) {
     // Don't handle shortcuts when UI wants keyboard input
@@ -33,7 +35,7 @@ fn handle_mode_input(
             EditorMode::View => {
                 next_mode.set(EditorMode::Edit);
             }
-            EditorMode::Edit => {
+            EditorMode::Edit | EditorMode::Insert => {
                 next_mode.set(EditorMode::View);
                 *transform_op = TransformOperation::None;
                 *axis_constraint = AxisConstraint::None;
@@ -42,9 +44,24 @@ fn handle_mode_input(
         return;
     }
 
+    // I enters Insert mode and opens command palette
+    if keyboard.just_pressed(KeyCode::KeyI) {
+        if *current_mode.get() != EditorMode::Insert {
+            next_mode.set(EditorMode::Insert);
+            *transform_op = TransformOperation::None;
+            *axis_constraint = AxisConstraint::None;
+            // Open command palette automatically
+            palette_state.open = true;
+            palette_state.query.clear();
+            palette_state.selected_index = 0;
+            palette_state.just_opened = true;
+        }
+        return;
+    }
+
     // Escape returns to View mode
     if keyboard.just_pressed(KeyCode::Escape) {
-        if *current_mode.get() == EditorMode::Edit {
+        if *current_mode.get() == EditorMode::Edit || *current_mode.get() == EditorMode::Insert {
             next_mode.set(EditorMode::View);
             *transform_op = TransformOperation::None;
             *axis_constraint = AxisConstraint::None;

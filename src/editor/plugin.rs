@@ -6,13 +6,14 @@ use bevy_inspector_egui::DefaultInspectorConfigPlugin;
 
 use super::camera::EditorCameraPlugin;
 use super::input::EditorInputPlugin;
+use super::insert::InsertModePlugin;
 use super::marks::CameraMarksPlugin;
 use super::state::EditorStatePlugin;
 use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
 use crate::patterns::PatternsPlugin;
 use crate::prefabs::PrefabsPlugin;
-use crate::scene::{LoadSceneEvent, ScenePlugin};
+use crate::scene::ScenePlugin;
 use crate::selection::SelectionPlugin;
 use crate::ui::UiPlugin;
 
@@ -32,6 +33,7 @@ impl Plugin for EditorPlugin {
             .add_plugins(EditorInputPlugin)
             .add_plugins(EditorCameraPlugin)
             .add_plugins(CameraMarksPlugin)
+            .add_plugins(InsertModePlugin)
             // Editor systems
             .add_plugins(SelectionPlugin)
             .add_plugins(EditorGizmosPlugin)

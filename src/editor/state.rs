@@ -2,6 +2,8 @@ use avian3d::debug_render::PhysicsGizmos;
 use bevy::gizmos::config::GizmoConfigStore;
 use bevy::prelude::*;
 
+use crate::scene::PrimitiveShape;
+
 /// The current editor mode (vim-like modal editing)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, States)]
 pub enum EditorMode {
@@ -10,6 +12,8 @@ pub enum EditorMode {
     View,
     /// Edit mode: transform manipulation active
     Edit,
+    /// Insert mode: adding new objects to the scene
+    Insert,
 }
 
 /// The active transform operation in Edit mode
@@ -84,9 +88,48 @@ impl Default for EditStepAmount {
     }
 }
 
+/// Type of object being inserted in Insert mode
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertObjectType {
+    Primitive(PrimitiveShape),
+    PointLight,
+    Group,
+}
+
+/// Marker component for preview entities in Insert mode
+#[derive(Component)]
+pub struct InsertPreview;
+
+/// State for Insert mode
+#[derive(Resource, Default)]
+pub struct InsertState {
+    /// The type of object being inserted (None if not inserting)
+    pub object_type: Option<InsertObjectType>,
+    /// The preview entity being positioned
+    pub preview_entity: Option<Entity>,
+    /// Default distance from camera when no surface is hit
+    pub default_distance: f32,
+}
+
+impl InsertState {
+    pub fn new() -> Self {
+        Self {
+            object_type: None,
+            preview_entity: None,
+            default_distance: 10.0,
+        }
+    }
+}
+
 /// Event to toggle physics debug rendering
 #[derive(Message)]
 pub struct TogglePhysicsDebugEvent;
+
+/// Event to start inserting an object in Insert mode
+#[derive(Message)]
+pub struct StartInsertEvent {
+    pub object_type: InsertObjectType,
+}
 
 pub struct EditorStatePlugin;
 
@@ -97,7 +140,9 @@ impl Plugin for EditorStatePlugin {
             .init_resource::<AxisConstraint>()
             .init_resource::<EditorState>()
             .init_resource::<EditStepAmount>()
+            .insert_resource(InsertState::new())
             .add_message::<TogglePhysicsDebugEvent>()
+            .add_message::<StartInsertEvent>()
             .add_systems(Update, handle_toggle_physics_debug);
     }
 }

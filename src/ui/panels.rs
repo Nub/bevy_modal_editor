@@ -63,10 +63,12 @@ fn draw_status_bar(
             let mode_text = match mode.get() {
                 EditorMode::View => "VIEW",
                 EditorMode::Edit => "EDIT",
+                EditorMode::Insert => "INSERT",
             };
             let mode_color = match mode.get() {
                 EditorMode::View => egui::Color32::from_rgb(100, 149, 237),
                 EditorMode::Edit => egui::Color32::from_rgb(255, 165, 0),
+                EditorMode::Insert => egui::Color32::from_rgb(100, 200, 100),
             };
             ui.colored_label(mode_color, format!("[{}]", mode_text));
 

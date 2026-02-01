@@ -1,16 +1,33 @@
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
 use crate::editor::{
-    CameraMarks, EditorState, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
-    TogglePhysicsDebugEvent,
+    CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
+    JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent, TogglePhysicsDebugEvent,
 };
 use crate::scene::{
     LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnGroupEvent, SpawnPointLightEvent,
     SpawnPrimitiveEvent, UnparentSelectedEvent,
 };
+
+/// System parameter grouping all command palette event writers
+#[derive(SystemParam)]
+struct CommandEvents<'w> {
+    spawn_primitive: MessageWriter<'w, SpawnPrimitiveEvent>,
+    spawn_group: MessageWriter<'w, SpawnGroupEvent>,
+    spawn_light: MessageWriter<'w, SpawnPointLightEvent>,
+    unparent: MessageWriter<'w, UnparentSelectedEvent>,
+    set_mark: MessageWriter<'w, SetCameraMarkEvent>,
+    jump_mark: MessageWriter<'w, JumpToMarkEvent>,
+    jump_last: MessageWriter<'w, JumpToLastPositionEvent>,
+    save_scene: MessageWriter<'w, SaveSceneEvent>,
+    load_scene: MessageWriter<'w, LoadSceneEvent>,
+    toggle_debug: MessageWriter<'w, TogglePhysicsDebugEvent>,
+    start_insert: MessageWriter<'w, StartInsertEvent>,
+}
 
 /// A command that can be executed from the palette
 #[derive(Clone)]
@@ -23,6 +40,8 @@ pub struct Command {
     pub category: &'static str,
     /// The action to perform
     pub action: CommandAction,
+    /// Whether this command is available in Insert mode (creates objects)
+    pub insertable: bool,
 }
 
 /// Actions that commands can perform
@@ -90,44 +109,50 @@ impl CommandRegistry {
     pub fn build_static_commands(&mut self) {
         self.commands.clear();
 
-        // Primitive spawning
+        // Primitive spawning (insertable)
         self.commands.push(Command {
             name: "Add Cube".to_string(),
             keywords: vec!["box".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Cube),
+            insertable: true,
         });
         self.commands.push(Command {
             name: "Add Sphere".to_string(),
             keywords: vec!["ball".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Sphere),
+            insertable: true,
         });
         self.commands.push(Command {
             name: "Add Cylinder".to_string(),
             keywords: vec!["tube".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Cylinder),
+            insertable: true,
         });
         self.commands.push(Command {
             name: "Add Capsule".to_string(),
             keywords: vec!["pill".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Capsule),
+            insertable: true,
         });
         self.commands.push(Command {
             name: "Add Plane".to_string(),
             keywords: vec!["floor".into(), "ground".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Plane),
+            insertable: true,
         });
 
-        // Lights
+        // Lights (insertable)
         self.commands.push(Command {
             name: "Add Point Light".to_string(),
             keywords: vec!["lamp".into(), "bulb".into(), "lighting".into()],
             category: "Lights",
             action: CommandAction::SpawnPointLight,
+            insertable: true,
         });
 
         // Scene operations
@@ -136,26 +161,30 @@ impl CommandRegistry {
             keywords: vec!["export".into(), "file".into()],
             category: "Scene",
             action: CommandAction::SaveScene,
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Load Scene".to_string(),
             keywords: vec!["import".into(), "open".into(), "file".into()],
             category: "Scene",
             action: CommandAction::LoadScene,
+            insertable: false,
         });
 
-        // Groups
+        // Groups (insertable)
         self.commands.push(Command {
             name: "Add Group".to_string(),
             keywords: vec!["folder".into(), "container".into(), "nest".into()],
             category: "Primitives",
             action: CommandAction::SpawnGroup,
+            insertable: true,
         });
         self.commands.push(Command {
             name: "Unparent Selected".to_string(),
             keywords: vec!["detach".into(), "remove".into(), "parent".into()],
             category: "Hierarchy",
             action: CommandAction::UnparentSelected,
+            insertable: false,
         });
 
         // Camera marks
@@ -164,12 +193,14 @@ impl CommandRegistry {
             keywords: vec!["back".into(), "previous".into(), "camera".into()],
             category: "Camera",
             action: CommandAction::JumpToLastPosition,
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Set Custom Camera Mark".to_string(),
             keywords: vec!["save".into(), "bookmark".into(), "name".into(), "camera".into()],
             category: "Camera",
             action: CommandAction::ShowCustomMarkDialog,
+            insertable: false,
         });
 
         // Help
@@ -178,6 +209,7 @@ impl CommandRegistry {
             keywords: vec!["hotkeys".into(), "keys".into(), "bindings".into(), "controls".into()],
             category: "Help",
             action: CommandAction::ShowHelp,
+            insertable: false,
         });
 
         // Debug
@@ -186,6 +218,7 @@ impl CommandRegistry {
             keywords: vec!["collider".into(), "collision".into(), "gizmo".into(), "wireframe".into(), "avian".into()],
             category: "Debug",
             action: CommandAction::TogglePhysicsDebug,
+            insertable: false,
         });
 
         // Grid snap
@@ -194,30 +227,35 @@ impl CommandRegistry {
             keywords: vec!["disable".into(), "none".into()],
             category: "Snapping",
             action: CommandAction::SetGridSnap(0.0),
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Grid Snap: 0.25".to_string(),
             keywords: vec!["quarter".into()],
             category: "Snapping",
             action: CommandAction::SetGridSnap(0.25),
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Grid Snap: 0.5".to_string(),
             keywords: vec!["half".into()],
             category: "Snapping",
             action: CommandAction::SetGridSnap(0.5),
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Grid Snap: 1.0".to_string(),
             keywords: vec!["one".into(), "unit".into()],
             category: "Snapping",
             action: CommandAction::SetGridSnap(1.0),
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Grid Snap: 2.0".to_string(),
             keywords: vec!["two".into()],
             category: "Snapping",
             action: CommandAction::SetGridSnap(2.0),
+            insertable: false,
         });
 
         // Rotation snap
@@ -226,24 +264,28 @@ impl CommandRegistry {
             keywords: vec!["angle".into(), "disable".into(), "none".into()],
             category: "Snapping",
             action: CommandAction::SetRotationSnap(0.0),
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Rotation Snap: 15°".to_string(),
             keywords: vec!["angle".into(), "degrees".into()],
             category: "Snapping",
             action: CommandAction::SetRotationSnap(15.0),
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Rotation Snap: 45°".to_string(),
             keywords: vec!["angle".into(), "degrees".into()],
             category: "Snapping",
             action: CommandAction::SetRotationSnap(45.0),
+            insertable: false,
         });
         self.commands.push(Command {
             name: "Rotation Snap: 90°".to_string(),
             keywords: vec!["angle".into(), "degrees".into(), "right".into()],
             category: "Snapping",
             action: CommandAction::SetRotationSnap(90.0),
+            insertable: false,
         });
     }
 
@@ -261,6 +303,7 @@ impl CommandRegistry {
                 keywords: vec!["goto".into(), "camera".into()],
                 category: "Camera Marks",
                 action: CommandAction::JumpToMark(name.clone()),
+                insertable: false,
             });
         }
 
@@ -271,27 +314,37 @@ impl CommandRegistry {
                 keywords: vec!["save".into(), "camera".into()],
                 category: "Camera Marks",
                 action: CommandAction::SetCameraMark(i.to_string()),
+                insertable: false,
             });
         }
     }
 }
 
 /// Get filtered and sorted commands based on query using skim fuzzy matcher
-fn filter_commands<'a>(commands: &'a [Command], query: &str) -> Vec<(usize, &'a Command, i64)> {
+fn filter_commands<'a>(
+    commands: &'a [Command],
+    query: &str,
+    insert_mode: bool,
+) -> Vec<(usize, &'a Command, i64)> {
     let matcher = SkimMatcherV2::default();
+
+    // First filter by insert mode if applicable
+    let mode_filtered: Vec<_> = commands
+        .iter()
+        .enumerate()
+        .filter(|(_, cmd)| !insert_mode || cmd.insertable)
+        .collect();
 
     if query.is_empty() {
         // Return all commands with score 0 when no query
-        return commands
-            .iter()
-            .enumerate()
+        return mode_filtered
+            .into_iter()
             .map(|(idx, cmd)| (idx, cmd, 0i64))
             .collect();
     }
 
-    let mut results: Vec<(usize, &Command, i64)> = commands
-        .iter()
-        .enumerate()
+    let mut results: Vec<(usize, &Command, i64)> = mode_filtered
+        .into_iter()
         .filter_map(|(idx, cmd)| {
             // Check name first
             if let Some(score) = matcher.fuzzy_match(&cmd.name, query) {
@@ -299,7 +352,9 @@ fn filter_commands<'a>(commands: &'a [Command], query: &str) -> Vec<(usize, &'a 
             }
 
             // Check keywords - find best match
-            let best_keyword_score = cmd.keywords.iter()
+            let best_keyword_score = cmd
+                .keywords
+                .iter()
                 .filter_map(|kw| matcher.fuzzy_match(kw, query))
                 .max();
 
@@ -370,16 +425,8 @@ fn draw_command_palette(
     mut custom_mark_state: ResMut<CustomMarkDialogState>,
     mut editor_state: ResMut<EditorState>,
     registry: Res<CommandRegistry>,
-    mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
-    mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
-    mut spawn_light_events: MessageWriter<SpawnPointLightEvent>,
-    mut unparent_events: MessageWriter<UnparentSelectedEvent>,
-    mut set_mark_events: MessageWriter<SetCameraMarkEvent>,
-    mut jump_mark_events: MessageWriter<JumpToMarkEvent>,
-    mut jump_last_events: MessageWriter<JumpToLastPositionEvent>,
-    mut save_events: MessageWriter<SaveSceneEvent>,
-    mut load_events: MessageWriter<LoadSceneEvent>,
-    mut toggle_debug_events: MessageWriter<TogglePhysicsDebugEvent>,
+    mode: Res<State<EditorMode>>,
+    mut events: CommandEvents,
 ) -> Result {
     if !state.open {
         return Ok(());
@@ -387,7 +434,8 @@ fn draw_command_palette(
 
     let ctx = contexts.ctx_mut()?;
 
-    let filtered = filter_commands(&registry.commands, &state.query);
+    let in_insert_mode = *mode.get() == EditorMode::Insert;
+    let filtered = filter_commands(&registry.commands, &state.query, in_insert_mode);
 
     // Clamp selected index
     if !filtered.is_empty() {
@@ -424,18 +472,48 @@ fn draw_command_palette(
         state.selected_index = state.selected_index.saturating_sub(1);
     }
 
-    egui::Window::new("Command Palette")
+    let title = if in_insert_mode {
+        "Insert Object"
+    } else {
+        "Command Palette"
+    };
+
+    let hint = if in_insert_mode {
+        "Type to search objects to insert..."
+    } else {
+        "Type to search commands..."
+    };
+
+    egui::Window::new(title)
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
         .anchor(egui::Align2::CENTER_TOP, [0.0, 100.0])
         .fixed_size([400.0, 300.0])
         .show(ctx, |ui| {
+            // Mode indicator for Insert mode
+            if in_insert_mode {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("INSERT MODE")
+                            .small()
+                            .strong()
+                            .color(egui::Color32::from_rgb(100, 200, 100)),
+                    );
+                    ui.label(
+                        egui::RichText::new("- Select object, then click to place")
+                            .small()
+                            .color(egui::Color32::GRAY),
+                    );
+                });
+                ui.add_space(4.0);
+            }
+
             // Search input
             let response = ui.add(
                 egui::TextEdit::singleline(&mut state.query)
-                    .hint_text("Type to search commands...")
-                    .desired_width(f32::INFINITY)
+                    .hint_text(hint)
+                    .desired_width(f32::INFINITY),
             );
 
             // Focus the input when just opened
@@ -494,63 +572,80 @@ fn draw_command_palette(
 
     // Execute action after UI
     if let Some(action) = action_to_execute {
-        match action {
-            CommandAction::SpawnPrimitive(shape) => {
-                spawn_events.write(SpawnPrimitiveEvent {
-                    shape,
-                    position: Vec3::ZERO,
+        // In Insert mode, send event to create preview entity
+        if in_insert_mode {
+            let object_type = match &action {
+                CommandAction::SpawnPrimitive(shape) => Some(InsertObjectType::Primitive(*shape)),
+                CommandAction::SpawnPointLight => Some(InsertObjectType::PointLight),
+                CommandAction::SpawnGroup => Some(InsertObjectType::Group),
+                _ => None,
+            };
+
+            if let Some(obj_type) = object_type {
+                events.start_insert.write(StartInsertEvent {
+                    object_type: obj_type,
                 });
             }
-            CommandAction::SpawnPointLight => {
-                spawn_light_events.write(SpawnPointLightEvent {
-                    position: Vec3::new(0.0, 3.0, 0.0),
-                });
-            }
-            CommandAction::SetCameraMark(name) => {
-                set_mark_events.write(SetCameraMarkEvent { name });
-            }
-            CommandAction::JumpToMark(name) => {
-                jump_mark_events.write(JumpToMarkEvent { name });
-            }
-            CommandAction::JumpToLastPosition => {
-                jump_last_events.write(JumpToLastPositionEvent);
-            }
-            CommandAction::SaveScene => {
-                // For now, save to a default location
-                save_events.write(SaveSceneEvent {
-                    path: "scene.ron".to_string(),
-                });
-            }
-            CommandAction::LoadScene => {
-                // For now, load from a default location
-                load_events.write(LoadSceneEvent {
-                    path: "scene.ron".to_string(),
-                });
-            }
-            CommandAction::ShowHelp => {
-                help_state.open = true;
-            }
-            CommandAction::SetGridSnap(value) => {
-                editor_state.grid_snap = value;
-            }
-            CommandAction::SetRotationSnap(value) => {
-                editor_state.rotation_snap = value;
-            }
-            CommandAction::ShowCustomMarkDialog => {
-                custom_mark_state.open = true;
-                custom_mark_state.name.clear();
-                custom_mark_state.just_opened = true;
-            }
-            CommandAction::SpawnGroup => {
-                spawn_group_events.write(SpawnGroupEvent {
-                    position: Vec3::ZERO,
-                });
-            }
-            CommandAction::UnparentSelected => {
-                unparent_events.write(UnparentSelectedEvent);
-            }
-            CommandAction::TogglePhysicsDebug => {
-                toggle_debug_events.write(TogglePhysicsDebugEvent);
+        } else {
+            // Normal mode - execute action immediately
+            match action {
+                CommandAction::SpawnPrimitive(shape) => {
+                    events.spawn_primitive.write(SpawnPrimitiveEvent {
+                        shape,
+                        position: Vec3::ZERO,
+                    });
+                }
+                CommandAction::SpawnPointLight => {
+                    events.spawn_light.write(SpawnPointLightEvent {
+                        position: Vec3::new(0.0, 3.0, 0.0),
+                    });
+                }
+                CommandAction::SetCameraMark(name) => {
+                    events.set_mark.write(SetCameraMarkEvent { name });
+                }
+                CommandAction::JumpToMark(name) => {
+                    events.jump_mark.write(JumpToMarkEvent { name });
+                }
+                CommandAction::JumpToLastPosition => {
+                    events.jump_last.write(JumpToLastPositionEvent);
+                }
+                CommandAction::SaveScene => {
+                    // For now, save to a default location
+                    events.save_scene.write(SaveSceneEvent {
+                        path: "scene.ron".to_string(),
+                    });
+                }
+                CommandAction::LoadScene => {
+                    // For now, load from a default location
+                    events.load_scene.write(LoadSceneEvent {
+                        path: "scene.ron".to_string(),
+                    });
+                }
+                CommandAction::ShowHelp => {
+                    help_state.open = true;
+                }
+                CommandAction::SetGridSnap(value) => {
+                    editor_state.grid_snap = value;
+                }
+                CommandAction::SetRotationSnap(value) => {
+                    editor_state.rotation_snap = value;
+                }
+                CommandAction::ShowCustomMarkDialog => {
+                    custom_mark_state.open = true;
+                    custom_mark_state.name.clear();
+                    custom_mark_state.just_opened = true;
+                }
+                CommandAction::SpawnGroup => {
+                    events.spawn_group.write(SpawnGroupEvent {
+                        position: Vec3::ZERO,
+                    });
+                }
+                CommandAction::UnparentSelected => {
+                    events.unparent.write(UnparentSelectedEvent);
+                }
+                CommandAction::TogglePhysicsDebug => {
+                    events.toggle_debug.write(TogglePhysicsDebugEvent);
+                }
             }
         }
     }
@@ -585,6 +680,7 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
             shortcut_row(ui, "C", "Open command palette");
             shortcut_row(ui, "F", "Find object in scene");
             shortcut_row(ui, "V", "Toggle View/Edit mode");
+            shortcut_row(ui, "I", "Enter Insert mode");
             shortcut_row(ui, "Esc", "Return to View mode / Cancel");
 
             ui.add_space(12.0);
@@ -605,6 +701,15 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
             shortcut_row(ui, "Shift+Click", "Multi-select");
             shortcut_row(ui, "G", "Group selected objects");
             shortcut_row(ui, "Delete", "Delete selected");
+
+            ui.add_space(12.0);
+            ui.heading("Insert Mode");
+            ui.add_space(4.0);
+            shortcut_row(ui, "I", "Enter Insert mode");
+            shortcut_row(ui, "Type", "Search for object to insert");
+            shortcut_row(ui, "Enter", "Select object type");
+            shortcut_row(ui, "Left Click", "Place object at cursor");
+            shortcut_row(ui, "Esc", "Cancel insertion");
 
             ui.add_space(12.0);
             ui.heading("Edit Mode - Transform");
