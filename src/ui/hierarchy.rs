@@ -21,7 +21,13 @@ impl Plugin for HierarchyPlugin {
 pub struct HierarchyState {
     /// Set of expanded group entities
     pub expanded: HashSet<Entity>,
+    /// Entity being dragged (if any)
+    pub dragging: Option<Entity>,
 }
+
+/// Payload for drag and drop operations
+#[derive(Clone, Copy)]
+struct DragPayload(Entity);
 
 /// Draw the scene hierarchy panel
 fn draw_hierarchy_panel(
@@ -45,6 +51,9 @@ fn draw_hierarchy_panel(
     let ctx = contexts.ctx_mut()?;
     let selected_entities: HashSet<Entity> = selected.iter().collect();
     let shift_held = ctx.input(|i| i.modifiers.shift);
+
+    // Track reparenting operation to apply after UI
+    let mut reparent_op: Option<(Entity, Option<Entity>)> = None;
 
     egui::SidePanel::left("hierarchy_panel")
         .default_width(200.0)
@@ -82,7 +91,7 @@ fn draw_hierarchy_panel(
                 });
 
                 for (entity, name, _, children, is_group, primitive, light) in root_entities {
-                    draw_entity_row(
+                    if let Some(op) = draw_entity_row(
                         ui,
                         entity,
                         name,
@@ -97,7 +106,9 @@ fn draw_hierarchy_panel(
                         &mut commands,
                         &selected,
                         &mut hierarchy_state,
-                    );
+                    ) {
+                        reparent_op = Some(op);
+                    }
                 }
             });
 
@@ -114,6 +125,16 @@ fn draw_hierarchy_panel(
                     .color(colors::TEXT_MUTED),
             );
         });
+
+    // Apply reparenting after UI is done
+    if let Some((child, new_parent)) = reparent_op {
+        if let Some(parent) = new_parent {
+            commands.entity(child).set_parent_in_place(parent);
+        } else {
+            commands.entity(child).remove_parent_in_place();
+        }
+    }
+
     Ok(())
 }
 
@@ -137,6 +158,7 @@ fn get_entity_icon(is_group: bool, primitive: Option<&PrimitiveMarker>, is_light
     "📦"
 }
 
+/// Returns Some((child, new_parent)) if a reparent operation should occur
 #[allow(clippy::too_many_arguments)]
 fn draw_entity_row(
     ui: &mut egui::Ui,
@@ -164,7 +186,9 @@ fn draw_entity_row(
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
     hierarchy_state: &mut ResMut<HierarchyState>,
-) {
+) -> Option<(Entity, Option<Entity>)> {
+    let mut reparent_op = None;
+
     let display_name = name
         .map(|n| n.as_str().to_string())
         .unwrap_or_else(|| format!("Entity {:?}", entity));
@@ -200,6 +224,7 @@ fn draw_entity_row(
     };
 
     let header_text = egui::RichText::new(format!("{} {}", icon, display_name)).color(text_color);
+    let drag_id = egui::Id::new(("hierarchy_drag", entity));
 
     if has_children {
         // Use CollapsingHeader for items with children
@@ -213,24 +238,53 @@ fn draw_entity_row(
 
         header
             .show_header(ui, |ui| {
-                let button = egui::Button::new(header_text)
-                    .fill(if is_selected { colors::SELECTION_BG } else { egui::Color32::TRANSPARENT })
-                    .stroke(egui::Stroke::NONE);
+                // Make this a drop target if it's a group
+                let response = if is_group {
+                    let (inner_response, payload) = ui.dnd_drop_zone::<DragPayload, _>(egui::Frame::NONE, |ui| {
+                        draw_draggable_button(
+                            ui,
+                            entity,
+                            drag_id,
+                            header_text.clone(),
+                            is_selected,
+                            shift_held,
+                            commands,
+                            selected_query,
+                        )
+                    });
 
-                if ui.add(button).clicked() {
-                    if shift_held {
-                        // Toggle selection
-                        if is_selected {
-                            commands.entity(entity).remove::<Selected>();
-                        } else {
-                            commands.entity(entity).insert(Selected);
+                    // Check if something was dropped on this group
+                    if let Some(payload) = payload {
+                        let dragged_entity = payload.0;
+                        // Don't parent to self
+                        if dragged_entity != entity {
+                            reparent_op = Some((dragged_entity, Some(entity)));
                         }
-                    } else {
-                        // Clear previous selection and select only this entity
-                        for selected_e in selected_query.iter() {
-                            commands.entity(selected_e).remove::<Selected>();
-                        }
-                        commands.entity(entity).insert(Selected);
+                    }
+
+                    inner_response.inner
+                } else {
+                    draw_draggable_button(
+                        ui,
+                        entity,
+                        drag_id,
+                        header_text.clone(),
+                        is_selected,
+                        shift_held,
+                        commands,
+                        selected_query,
+                    )
+                };
+
+                // Visual feedback when dragging over a group
+                if is_group && ui.ctx().dragged_id().is_some() {
+                    if response.hovered() {
+                        ui.painter().rect_stroke(
+                            response.rect,
+                            2.0,
+                            egui::Stroke::new(2.0, colors::ACCENT_BLUE),
+                            egui::StrokeKind::Inside,
+                        );
                     }
                 }
             })
@@ -239,7 +293,7 @@ fn draw_entity_row(
                     if let Ok((e, child_name, _, child_children, child_is_group, child_prim, child_light)) =
                         scene_entities.get(*child_entity)
                     {
-                        draw_entity_row(
+                        if let Some(op) = draw_entity_row(
                             ui,
                             e,
                             child_name,
@@ -254,7 +308,9 @@ fn draw_entity_row(
                             commands,
                             selected_query,
                             hierarchy_state,
-                        );
+                        ) {
+                            reparent_op = Some(op);
+                        }
                     }
                 }
             });
@@ -277,26 +333,81 @@ fn draw_entity_row(
             // Add indent to align with collapsing headers
             ui.add_space(18.0);
 
-            let button = egui::Button::new(header_text)
-                .fill(if is_selected { colors::SELECTION_BG } else { egui::Color32::TRANSPARENT })
-                .stroke(egui::Stroke::NONE);
-
-            if ui.add(button).clicked() {
-                if shift_held {
-                    // Toggle selection
-                    if is_selected {
-                        commands.entity(entity).remove::<Selected>();
-                    } else {
-                        commands.entity(entity).insert(Selected);
-                    }
-                } else {
-                    // Clear previous selection and select only this entity
-                    for selected_e in selected_query.iter() {
-                        commands.entity(selected_e).remove::<Selected>();
-                    }
-                    commands.entity(entity).insert(Selected);
-                }
-            }
+            draw_draggable_button(
+                ui,
+                entity,
+                drag_id,
+                header_text,
+                is_selected,
+                shift_held,
+                commands,
+                selected_query,
+            );
         });
     }
+
+    reparent_op
+}
+
+/// Draw a draggable button for an entity
+fn draw_draggable_button(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    drag_id: egui::Id,
+    text: egui::RichText,
+    is_selected: bool,
+    shift_held: bool,
+    commands: &mut Commands,
+    selected_query: &Query<Entity, With<Selected>>,
+) -> egui::Response {
+    let button = egui::Button::new(text.clone())
+        .fill(if is_selected { colors::SELECTION_BG } else { egui::Color32::TRANSPARENT })
+        .stroke(egui::Stroke::NONE);
+
+    let response = ui.add(button);
+
+    // Handle drag source
+    if response.dragged() {
+        ui.ctx().set_dragged_id(drag_id);
+    }
+
+    // Set drag payload when starting to drag
+    if ui.ctx().dragged_id() == Some(drag_id) {
+        ui.ctx().data_mut(|d| d.insert_temp(drag_id, DragPayload(entity)));
+
+        // Show dragged item preview
+        egui::Area::new(egui::Id::new("drag_preview"))
+            .fixed_pos(ui.ctx().pointer_hover_pos().unwrap_or_default())
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                egui::Frame::popup(ui.style())
+                    .fill(colors::BG_DARK)
+                    .show(ui, |ui| {
+                        ui.label(text);
+                    });
+            });
+
+        // Make the payload available for drop targets
+        ui.ctx().memory_mut(|mem| {
+            mem.data.insert_temp(egui::Id::NULL, DragPayload(entity));
+        });
+    }
+
+    // Handle click for selection
+    if response.clicked() {
+        if shift_held {
+            if is_selected {
+                commands.entity(entity).remove::<Selected>();
+            } else {
+                commands.entity(entity).insert(Selected);
+            }
+        } else {
+            for selected_e in selected_query.iter() {
+                commands.entity(selected_e).remove::<Selected>();
+            }
+            commands.entity(entity).insert(Selected);
+        }
+    }
+
+    response
 }
