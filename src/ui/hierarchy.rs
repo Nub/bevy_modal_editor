@@ -90,6 +90,13 @@ fn draw_hierarchy_panel(
                     name_a.to_lowercase().cmp(&name_b.to_lowercase())
                 });
 
+                // Make the whole scroll area a drop zone for unparenting
+                let scroll_response = ui.interact(
+                    ui.available_rect_before_wrap(),
+                    ui.id().with("root_drop"),
+                    egui::Sense::hover(),
+                );
+
                 for (entity, name, _, children, is_group, primitive, light) in root_entities {
                     if let Some(op) = draw_entity_row(
                         ui,
@@ -108,6 +115,16 @@ fn draw_hierarchy_panel(
                         &mut hierarchy_state,
                     ) {
                         reparent_op = Some(op);
+                    }
+                }
+
+                // Check for drops at root level (unparent)
+                if scroll_response.hovered() && ui.input(|i| i.pointer.any_released()) {
+                    if let Some(payload) = ui.ctx().memory(|mem| mem.data.get_temp::<DragPayload>(egui::Id::NULL)) {
+                        // Only unparent if not already at root
+                        if scene_entities.get(payload.0).ok().and_then(|e| e.2).is_some() {
+                            reparent_op = Some((payload.0, None));
+                        }
                     }
                 }
             });
@@ -133,6 +150,13 @@ fn draw_hierarchy_panel(
         } else {
             commands.entity(child).remove_parent_in_place();
         }
+    }
+
+    // Clear drag payload if pointer was released
+    if ctx.input(|i| i.pointer.any_released()) {
+        ctx.memory_mut(|mem| {
+            mem.data.remove::<DragPayload>(egui::Id::NULL);
+        });
     }
 
     Ok(())
@@ -238,54 +262,37 @@ fn draw_entity_row(
 
         header
             .show_header(ui, |ui| {
-                // Make this a drop target if it's a group
-                let response = if is_group {
-                    let (inner_response, payload) = ui.dnd_drop_zone::<DragPayload, _>(egui::Frame::NONE, |ui| {
-                        draw_draggable_button(
-                            ui,
-                            entity,
-                            drag_id,
-                            header_text.clone(),
-                            is_selected,
-                            shift_held,
-                            commands,
-                            selected_query,
-                        )
-                    });
+                let response = draw_draggable_button(
+                    ui,
+                    entity,
+                    drag_id,
+                    header_text.clone(),
+                    is_selected,
+                    shift_held,
+                    commands,
+                    selected_query,
+                );
 
-                    // Check if something was dropped on this group
-                    if let Some(payload) = payload {
+                // Check if something was dropped on this group
+                if is_group && response.hovered() && ui.input(|i| i.pointer.any_released()) {
+                    if let Some(payload) = ui.ctx().memory(|mem| mem.data.get_temp::<DragPayload>(egui::Id::NULL)) {
                         let dragged_entity = payload.0;
-                        // Don't parent to self
+                        // Don't parent to self or own children
                         if dragged_entity != entity {
                             reparent_op = Some((dragged_entity, Some(entity)));
                         }
                     }
-
-                    inner_response.inner
-                } else {
-                    draw_draggable_button(
-                        ui,
-                        entity,
-                        drag_id,
-                        header_text.clone(),
-                        is_selected,
-                        shift_held,
-                        commands,
-                        selected_query,
-                    )
-                };
+                }
 
                 // Visual feedback when dragging over a group
-                if is_group && ui.ctx().dragged_id().is_some() {
-                    if response.hovered() {
-                        ui.painter().rect_stroke(
-                            response.rect,
-                            2.0,
-                            egui::Stroke::new(2.0, colors::ACCENT_BLUE),
-                            egui::StrokeKind::Inside,
-                        );
-                    }
+                let is_dragging = ui.ctx().memory(|mem| mem.data.get_temp::<DragPayload>(egui::Id::NULL).is_some());
+                if is_group && is_dragging && response.hovered() {
+                    ui.painter().rect_stroke(
+                        response.rect,
+                        2.0,
+                        egui::Stroke::new(2.0, colors::ACCENT_BLUE),
+                        egui::StrokeKind::Inside,
+                    );
                 }
             })
             .body(|ui| {
@@ -360,16 +367,14 @@ fn draw_draggable_button(
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
 ) -> egui::Response {
-    // Use egui's drag source API
-    let response = ui.dnd_drag_source(drag_id, DragPayload(entity), |ui| {
-        let button = egui::Button::new(text)
-            .fill(if is_selected { colors::SELECTION_BG } else { egui::Color32::TRANSPARENT })
-            .stroke(egui::Stroke::NONE);
+    let button = egui::Button::new(text.clone())
+        .fill(if is_selected { colors::SELECTION_BG } else { egui::Color32::TRANSPARENT })
+        .stroke(egui::Stroke::NONE)
+        .sense(egui::Sense::click_and_drag());
 
-        ui.add(button)
-    }).response;
+    let response = ui.add(button);
 
-    // Handle click for selection
+    // Handle click for selection (only if not dragging)
     if response.clicked() {
         if shift_held {
             if is_selected {
@@ -383,6 +388,34 @@ fn draw_draggable_button(
             }
             commands.entity(entity).insert(Selected);
         }
+    }
+
+    // Handle drag
+    if response.drag_started() {
+        ui.ctx().memory_mut(|mem| {
+            mem.data.insert_temp(egui::Id::NULL, DragPayload(entity));
+        });
+    }
+
+    if response.dragged() {
+        // Show drag preview at cursor
+        if let Some(pos) = ui.ctx().pointer_hover_pos() {
+            egui::Area::new(drag_id.with("preview"))
+                .fixed_pos(pos + egui::vec2(10.0, 10.0))
+                .order(egui::Order::Tooltip)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style())
+                        .fill(colors::BG_DARK)
+                        .show(ui, |ui| {
+                            ui.label(text);
+                        });
+                });
+        }
+    }
+
+    // Clear drag payload when released (after a small delay to allow drop detection)
+    if response.drag_stopped() {
+        // The payload is read by drop targets on release, then cleared next frame
     }
 
     response
