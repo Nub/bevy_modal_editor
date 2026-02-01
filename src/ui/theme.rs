@@ -23,16 +23,16 @@ pub mod fonts {
 pub mod colors {
     use bevy_egui::egui::Color32;
 
-    // Backgrounds
-    pub const BG_DARKEST: Color32 = Color32::from_rgb(30, 30, 32);
-    pub const BG_DARK: Color32 = Color32::from_rgb(37, 37, 40);
-    pub const BG_MEDIUM: Color32 = Color32::from_rgb(45, 45, 48);
-    pub const BG_LIGHT: Color32 = Color32::from_rgb(55, 55, 58);
-    pub const BG_HIGHLIGHT: Color32 = Color32::from_rgb(65, 65, 70);
+    // Backgrounds (with slight transparency for floating windows)
+    pub const BG_DARKEST: Color32 = Color32::from_rgb(20, 20, 22);
+    pub const BG_DARK: Color32 = Color32::from_rgba_premultiplied(25, 25, 28, 250);
+    pub const BG_MEDIUM: Color32 = Color32::from_rgb(40, 40, 43);
+    pub const BG_LIGHT: Color32 = Color32::from_rgb(50, 50, 53);
+    pub const BG_HIGHLIGHT: Color32 = Color32::from_rgb(60, 60, 65);
 
     // Panel colors
-    pub const PANEL_BG: Color32 = Color32::from_rgb(37, 37, 40);
-    pub const PANEL_HEADER: Color32 = Color32::from_rgb(45, 45, 48);
+    pub const PANEL_BG: Color32 = Color32::from_rgba_premultiplied(25, 25, 28, 250);
+    pub const PANEL_HEADER: Color32 = Color32::from_rgb(40, 40, 43);
 
     // Text colors
     pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(220, 220, 220);

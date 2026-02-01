@@ -10,7 +10,7 @@ use super::reflect_editor::{component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::scene::{DirectionalLightMarker, Locked, SceneLightMarker};
 use crate::selection::Selected;
-use crate::ui::theme::{colors, fonts};
+use crate::ui::theme::colors;
 
 /// Represents the RigidBody type for UI selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -422,26 +422,34 @@ fn draw_inspector_panel(world: &mut World) {
         && ctx.input(|i| i.key_pressed(egui::Key::N));
     let name_field_id = egui::Id::new("inspector_name_field");
 
-    let panel_response = egui::SidePanel::right("inspector_panel")
-        .default_width(300.0)
+    // Floating window padding from edges
+    let window_padding = 8.0;
+    let status_bar_height = 24.0;
+    let available_height = ctx.content_rect().height() - status_bar_height - window_padding * 2.0;
+
+    let panel_response = egui::Window::new("Inspector")
+        .default_size([300.0, available_height])
+        .min_height(100.0)
+        .max_height(available_height)
+        .anchor(egui::Align2::RIGHT_TOP, [-window_padding, window_padding])
+        .resizable(true)
+        .collapsible(false)
+        .title_bar(true)
         .frame(
-            egui::Frame::side_top_panel(&ctx.style())
+            egui::Frame::window(&ctx.style())
                 .fill(colors::PANEL_BG)
-                .inner_margin(egui::Margin { left: 12, right: 8, top: 0, bottom: 8 })
+                .shadow(egui::Shadow {
+                    offset: [0, 2],
+                    blur: 4,
+                    spread: 0,
+                    color: egui::Color32::from_black_alpha(40),
+                }),
         )
         .show(&ctx, |ui| {
-            // Header
-            ui.add_space(8.0);
-            ui.vertical_centered(|ui| {
-                ui.label(
-                    egui::RichText::new("Inspector")
-                        .strong()
-                        .size(fonts::TITLE_SIZE)
-                        .color(colors::TEXT_PRIMARY),
-                );
-            });
-            ui.add_space(4.0);
-            ui.separator();
+            // Force the window content to fill available height
+            let title_bar_height = 28.0;
+            let bottom_padding = 30.0;
+            ui.set_min_height(available_height - title_bar_height - bottom_padding);
 
             match selection_count {
                 0 => {
@@ -708,8 +716,10 @@ fn draw_inspector_panel(world: &mut World) {
     }
 
     // Update the panel state resource with the actual panel width
-    if let Some(mut panel_state) = world.get_resource_mut::<InspectorPanelState>() {
-        panel_state.width = panel_response.response.rect.width();
+    if let Some(response) = &panel_response {
+        if let Some(mut panel_state) = world.get_resource_mut::<InspectorPanelState>() {
+            panel_state.width = response.response.rect.width();
+        }
     }
 
     // Draw component browser window if open

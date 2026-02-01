@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use crate::scene::{GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::selection::Selected;
-use crate::ui::theme::{colors, fonts};
+use crate::ui::theme::colors;
 
 pub struct HierarchyPlugin;
 
@@ -56,24 +56,34 @@ fn draw_hierarchy_panel(
     // Track reparenting operation to apply after UI
     let mut reparent_op: Option<(Entity, Option<Entity>)> = None;
 
-    egui::SidePanel::left("hierarchy_panel")
-        .default_width(200.0)
-        .frame(egui::Frame::side_top_panel(&ctx.style()).fill(colors::PANEL_BG))
-        .show(ctx, |ui| {
-            // Header
-            ui.add_space(8.0);
-            ui.vertical_centered(|ui| {
-                ui.label(
-                    egui::RichText::new("Scene")
-                        .strong()
-                        .size(fonts::TITLE_SIZE)
-                        .color(colors::TEXT_PRIMARY),
-                );
-            });
+    // Floating window padding from edges
+    let window_padding = 8.0;
+    let status_bar_height = 24.0;
+    let available_height = ctx.content_rect().height() - status_bar_height - window_padding * 2.0;
 
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
+    egui::Window::new("Scene")
+        .default_size([200.0, available_height])
+        .min_height(100.0)
+        .max_height(available_height)
+        .anchor(egui::Align2::LEFT_TOP, [window_padding, window_padding])
+        .resizable(true)
+        .collapsible(false)
+        .title_bar(true)
+        .frame(
+            egui::Frame::window(&ctx.style())
+                .fill(colors::PANEL_BG)
+                .shadow(egui::Shadow {
+                    offset: [0, 2],
+                    blur: 4,
+                    spread: 0,
+                    color: egui::Color32::from_black_alpha(40),
+                }),
+        )
+        .show(ctx, |ui| {
+            // Force the window content to fill available height
+            let title_bar_height = 28.0;
+            let footer_height = 30.0;
+            ui.set_min_height(available_height - title_bar_height - footer_height);
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // Find root entities (no parent or parent is not a SceneEntity)
