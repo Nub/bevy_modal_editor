@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::editor::{AxisConstraint, EditStepAmount, EditorMode, EditorState, TransformOperation};
+use crate::ui::theme::colors;
 
 pub struct EditInfoPlugin;
 
@@ -40,33 +41,35 @@ fn draw_edit_info_window(
         .resizable(false)
         .collapsible(false)
         .title_bar(false)
+        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::LEFT_BOTTOM, [hierarchy_offset, -status_bar_offset])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // Show current operation
-                let op_name = match *transform_op {
-                    TransformOperation::Translate => "Move",
-                    TransformOperation::Rotate => "Rotate",
-                    TransformOperation::Scale => "Scale",
-                    TransformOperation::None => "",
+                // Show current operation with color
+                let (op_name, op_color) = match *transform_op {
+                    TransformOperation::Translate => ("Move", colors::ACCENT_BLUE),
+                    TransformOperation::Rotate => ("Rotate", colors::ACCENT_GREEN),
+                    TransformOperation::Scale => ("Scale", colors::ACCENT_ORANGE),
+                    TransformOperation::None => ("", colors::TEXT_PRIMARY),
                 };
-                ui.strong(op_name);
+                ui.label(egui::RichText::new(op_name).strong().color(op_color));
 
                 ui.separator();
 
-                // Show current axis
-                let axis_name = match *axis_constraint {
-                    AxisConstraint::None => "All",
-                    AxisConstraint::X => "X",
-                    AxisConstraint::Y => "Y",
-                    AxisConstraint::Z => "Z",
+                // Show current axis with color
+                let (axis_name, axis_color) = match *axis_constraint {
+                    AxisConstraint::None => ("All", colors::TEXT_SECONDARY),
+                    AxisConstraint::X => ("X", colors::AXIS_X),
+                    AxisConstraint::Y => ("Y", colors::AXIS_Y),
+                    AxisConstraint::Z => ("Z", colors::AXIS_Z),
                 };
-                ui.label(format!("Axis: {}", axis_name));
+                ui.label(egui::RichText::new("Axis:").color(colors::TEXT_MUTED));
+                ui.label(egui::RichText::new(axis_name).strong().color(axis_color));
 
                 ui.separator();
 
                 // Show and edit step amount
-                ui.label("Step:");
+                ui.label(egui::RichText::new("Step:").color(colors::TEXT_MUTED));
                 match *transform_op {
                     TransformOperation::Translate => {
                         ui.add(egui::DragValue::new(&mut step_amount.translate)
@@ -78,7 +81,7 @@ fn draw_edit_info_window(
                         ui.add(egui::DragValue::new(&mut step_amount.rotate)
                             .speed(1.0)
                             .range(1.0..=90.0)
-                            .suffix(" deg"));
+                            .suffix("°"));
                     }
                     TransformOperation::Scale => {
                         ui.add(egui::DragValue::new(&mut step_amount.scale)
@@ -88,6 +91,8 @@ fn draw_edit_info_window(
                     TransformOperation::None => {}
                 }
             });
+
+            ui.add_space(4.0);
 
             // Snap controls
             ui.horizontal(|ui| {
@@ -117,7 +122,12 @@ fn draw_edit_info_window(
                 }
             });
 
-            ui.small("J/K: -/+ step | A/S/D: axis | Q/W/E: mode");
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new("J/K: -/+ step | A/S/D: axis | Q/W/E: mode")
+                    .small()
+                    .color(colors::TEXT_MUTED)
+            );
         });
 
     Ok(())

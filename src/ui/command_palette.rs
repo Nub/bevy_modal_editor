@@ -13,6 +13,8 @@ use crate::scene::{
     LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnDemoSceneEvent, SpawnGroupEvent,
     SpawnPointLightEvent, SpawnPrimitiveEvent, UnparentSelectedEvent,
 };
+use crate::ui::theme::colors;
+use crate::ui::SettingsWindowState;
 
 /// System parameter grouping all command palette event writers
 #[derive(SystemParam)]
@@ -59,6 +61,7 @@ pub enum CommandAction {
     SaveScene,
     LoadScene,
     ShowHelp,
+    OpenSettings,
     SetGridSnap(f32),
     SetRotationSnap(f32),
     ShowCustomMarkDialog,
@@ -223,6 +226,15 @@ impl CommandRegistry {
             keywords: vec!["hotkeys".into(), "keys".into(), "bindings".into(), "controls".into()],
             category: "Help",
             action: CommandAction::ShowHelp,
+            insertable: false,
+        });
+
+        // Settings
+        self.commands.push(Command {
+            name: "Settings".to_string(),
+            keywords: vec!["preferences".into(), "options".into(), "config".into(), "configuration".into()],
+            category: "Settings",
+            action: CommandAction::OpenSettings,
             insertable: false,
         });
 
@@ -450,6 +462,7 @@ fn draw_command_palette(
     mut contexts: EguiContexts,
     mut state: ResMut<CommandPaletteState>,
     mut help_state: ResMut<HelpWindowState>,
+    mut settings_state: ResMut<SettingsWindowState>,
     mut custom_mark_state: ResMut<CustomMarkDialogState>,
     mut editor_state: ResMut<EditorState>,
     registry: Res<CommandRegistry>,
@@ -516,6 +529,7 @@ fn draw_command_palette(
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
+        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::CENTER_TOP, [0.0, 100.0])
         .fixed_size([400.0, 300.0])
         .show(ctx, |ui| {
@@ -526,12 +540,12 @@ fn draw_command_palette(
                         egui::RichText::new("INSERT MODE")
                             .small()
                             .strong()
-                            .color(egui::Color32::from_rgb(100, 200, 100)),
+                            .color(colors::ACCENT_GREEN),
                     );
                     ui.label(
                         egui::RichText::new("- Select object, then click to place")
                             .small()
-                            .color(egui::Color32::GRAY),
+                            .color(colors::TEXT_MUTED),
                     );
                 });
                 ui.add_space(4.0);
@@ -557,7 +571,7 @@ fn draw_command_palette(
                 .max_height(250.0)
                 .show(ui, |ui| {
                     if filtered.is_empty() {
-                        ui.label("No matching commands");
+                        ui.label(egui::RichText::new("No matching commands").color(colors::TEXT_MUTED));
                     } else {
                         let mut current_category: Option<&str> = None;
 
@@ -566,12 +580,20 @@ fn draw_command_palette(
                             if current_category != Some(cmd.category) {
                                 current_category = Some(cmd.category);
                                 ui.add_space(4.0);
-                                ui.label(egui::RichText::new(cmd.category).small().color(egui::Color32::GRAY));
+                                ui.label(egui::RichText::new(cmd.category).small().color(colors::TEXT_MUTED));
                             }
 
                             let is_selected = display_idx == state.selected_index;
+                            let text_color = if is_selected {
+                                colors::TEXT_PRIMARY
+                            } else {
+                                colors::TEXT_SECONDARY
+                            };
 
-                            let response = ui.selectable_label(is_selected, &cmd.name);
+                            let response = ui.selectable_label(
+                                is_selected,
+                                egui::RichText::new(&cmd.name).color(text_color),
+                            );
 
                             if response.clicked() {
                                 action_to_execute = Some(cmd.action.clone());
@@ -590,11 +612,11 @@ fn draw_command_palette(
 
             // Help text
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Enter").small().strong());
-                ui.label(egui::RichText::new("to select").small());
+                ui.label(egui::RichText::new("Enter").small().strong().color(colors::ACCENT_BLUE));
+                ui.label(egui::RichText::new("to select").small().color(colors::TEXT_MUTED));
                 ui.add_space(10.0);
-                ui.label(egui::RichText::new("Esc").small().strong());
-                ui.label(egui::RichText::new("to close").small());
+                ui.label(egui::RichText::new("Esc").small().strong().color(colors::ACCENT_BLUE));
+                ui.label(egui::RichText::new("to close").small().color(colors::TEXT_MUTED));
             });
         });
 
@@ -652,6 +674,9 @@ fn draw_command_palette(
                 CommandAction::ShowHelp => {
                     help_state.open = true;
                 }
+                CommandAction::OpenSettings => {
+                    settings_state.open = true;
+                }
                 CommandAction::SetGridSnap(value) => {
                     editor_state.grid_snap = value;
                 }
@@ -707,12 +732,13 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
     egui::Window::new("Keyboard Shortcuts")
         .collapsible(false)
         .resizable(false)
+        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.set_min_width(350.0);
 
             // General
-            ui.heading("General");
+            ui.label(egui::RichText::new("General").strong().size(16.0).color(colors::TEXT_PRIMARY));
             ui.add_space(4.0);
             shortcut_row(ui, "C", "Open command palette");
             shortcut_row(ui, "F", "Find object in scene");
@@ -721,7 +747,7 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
             shortcut_row(ui, "Esc", "Return to View mode / Cancel");
 
             ui.add_space(12.0);
-            ui.heading("View Mode - Camera");
+            ui.label(egui::RichText::new("View Mode - Camera").strong().size(16.0).color(colors::TEXT_PRIMARY));
             ui.add_space(4.0);
             shortcut_row(ui, "W/A/S/D", "Move camera");
             shortcut_row(ui, "Space/Ctrl", "Move up/down");
@@ -732,7 +758,7 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
             shortcut_row(ui, "`", "Jump to last position");
 
             ui.add_space(12.0);
-            ui.heading("View Mode - Selection");
+            ui.label(egui::RichText::new("View Mode - Selection").strong().size(16.0).color(colors::TEXT_PRIMARY));
             ui.add_space(4.0);
             shortcut_row(ui, "Left Click", "Select object");
             shortcut_row(ui, "Shift+Click", "Multi-select");
@@ -740,7 +766,7 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
             shortcut_row(ui, "Delete", "Delete selected");
 
             ui.add_space(12.0);
-            ui.heading("Insert Mode");
+            ui.label(egui::RichText::new("Insert Mode").strong().size(16.0).color(colors::TEXT_PRIMARY));
             ui.add_space(4.0);
             shortcut_row(ui, "I", "Enter Insert mode");
             shortcut_row(ui, "Type", "Search for object to insert");
@@ -749,7 +775,7 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
             shortcut_row(ui, "Esc", "Cancel insertion");
 
             ui.add_space(12.0);
-            ui.heading("Edit Mode - Transform");
+            ui.label(egui::RichText::new("Edit Mode - Transform").strong().size(16.0).color(colors::TEXT_PRIMARY));
             ui.add_space(4.0);
             shortcut_row(ui, "Q", "Translate tool");
             shortcut_row(ui, "W", "Rotate tool");
@@ -790,9 +816,9 @@ fn shortcut_row(ui: &mut egui::Ui, key: &str, description: &str) {
             egui::RichText::new(key)
                 .monospace()
                 .strong()
-                .color(egui::Color32::from_rgb(200, 200, 100)),
+                .color(colors::ACCENT_ORANGE),
         );
-        ui.label(description);
+        ui.label(egui::RichText::new(description).color(colors::TEXT_SECONDARY));
     });
 }
 
@@ -827,9 +853,10 @@ fn draw_custom_mark_dialog(
     egui::Window::new("Set Camera Mark")
         .collapsible(false)
         .resizable(false)
+        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
-            ui.label("Enter a name for this camera mark:");
+            ui.label(egui::RichText::new("Enter a name for this camera mark:").color(colors::TEXT_SECONDARY));
             ui.add_space(8.0);
 
             let response = ui.add(

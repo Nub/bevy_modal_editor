@@ -30,7 +30,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            ui_scale: 1.5,
+            ui_scale: 2.0,
             camera_speed: 10.0,
             camera_sensitivity: 0.003,
             grid_snap: 0.0,
@@ -144,6 +144,7 @@ fn draw_settings_window(
     mut contexts: EguiContexts,
     mut settings: ResMut<Settings>,
     mut window_state: ResMut<SettingsWindowState>,
+    mut editor_state: ResMut<EditorState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -151,7 +152,9 @@ fn draw_settings_window(
         .open(&mut window_state.open)
         .resizable(false)
         .show(ctx, |ui| {
-            egui::Grid::new("settings_grid")
+            // UI Section
+            ui.heading("Interface");
+            egui::Grid::new("settings_ui_grid")
                 .num_columns(2)
                 .spacing([10.0, 8.0])
                 .show(ui, |ui| {
@@ -165,8 +168,19 @@ fn draw_settings_window(
                         settings.save();
                     }
                     ui.end_row();
+                });
 
-                    ui.label("Camera Speed:");
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // Camera Section
+            ui.heading("Camera");
+            egui::Grid::new("settings_camera_grid")
+                .num_columns(2)
+                .spacing([10.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("Movement Speed:");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.camera_speed, 1.0..=50.0)
                             .step_by(1.0),
@@ -187,10 +201,62 @@ fn draw_settings_window(
                     ui.end_row();
                 });
 
+            ui.add_space(8.0);
             ui.separator();
+            ui.add_space(4.0);
+
+            // Snapping Section
+            ui.heading("Snapping");
+            egui::Grid::new("settings_snap_grid")
+                .num_columns(2)
+                .spacing([10.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("Grid Snap:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.grid_snap, 0.0..=2.0)
+                            .step_by(0.25)
+                            .custom_formatter(|v, _| {
+                                if v == 0.0 {
+                                    "Off".to_string()
+                                } else {
+                                    format!("{:.2}", v)
+                                }
+                            }),
+                    );
+                    if response.changed() {
+                        editor_state.grid_snap = settings.grid_snap;
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Rotation Snap:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.rotation_snap, 0.0..=90.0)
+                            .step_by(15.0)
+                            .suffix("°")
+                            .custom_formatter(|v, _| {
+                                if v == 0.0 {
+                                    "Off".to_string()
+                                } else {
+                                    format!("{:.0}°", v)
+                                }
+                            }),
+                    );
+                    if response.changed() {
+                        editor_state.rotation_snap = settings.rotation_snap;
+                        settings.save();
+                    }
+                    ui.end_row();
+                });
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
 
             if ui.button("Reset to Defaults").clicked() {
                 *settings = Settings::default();
+                editor_state.grid_snap = settings.grid_snap;
+                editor_state.rotation_snap = settings.rotation_snap;
                 settings.save();
             }
         });

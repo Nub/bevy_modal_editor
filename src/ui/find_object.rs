@@ -5,6 +5,7 @@ use fuzzy_matcher::FuzzyMatcher;
 
 use crate::scene::SceneEntity;
 use crate::selection::Selected;
+use crate::ui::theme::colors;
 
 /// Resource to track find object palette state
 #[derive(Resource)]
@@ -157,6 +158,7 @@ fn draw_find_palette(
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
+        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::CENTER_TOP, [0.0, 100.0])
         .fixed_size([400.0, 300.0])
         .show(ctx, |ui| {
@@ -180,14 +182,22 @@ fn draw_find_palette(
                 .max_height(250.0)
                 .show(ui, |ui| {
                     if objects.is_empty() {
-                        ui.label("No objects in scene");
+                        ui.label(egui::RichText::new("No objects in scene").color(colors::TEXT_MUTED));
                     } else if filtered.is_empty() {
-                        ui.label("No matching objects");
+                        ui.label(egui::RichText::new("No matching objects").color(colors::TEXT_MUTED));
                     } else {
                         for (display_idx, (_, obj, _)) in filtered.iter().enumerate() {
                             let is_selected = display_idx == state.selected_index;
+                            let text_color = if is_selected {
+                                colors::TEXT_PRIMARY
+                            } else {
+                                colors::TEXT_SECONDARY
+                            };
 
-                            let response = ui.selectable_label(is_selected, &obj.name);
+                            let response = ui.selectable_label(
+                                is_selected,
+                                egui::RichText::new(&obj.name).color(text_color),
+                            );
 
                             if response.clicked() {
                                 entity_to_select = Some(obj.entity);
@@ -205,13 +215,13 @@ fn draw_find_palette(
 
             // Help text and count
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Enter").small().strong());
-                ui.label(egui::RichText::new("to select").small());
+                ui.label(egui::RichText::new("Enter").small().strong().color(colors::ACCENT_BLUE));
+                ui.label(egui::RichText::new("to select").small().color(colors::TEXT_MUTED));
                 ui.add_space(10.0);
-                ui.label(egui::RichText::new("Esc").small().strong());
-                ui.label(egui::RichText::new("to close").small());
+                ui.label(egui::RichText::new("Esc").small().strong().color(colors::ACCENT_BLUE));
+                ui.label(egui::RichText::new("to close").small().color(colors::TEXT_MUTED));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(egui::RichText::new(format!("{} objects", objects.len())).small());
+                    ui.label(egui::RichText::new(format!("{} objects", objects.len())).small().color(colors::TEXT_MUTED));
                 });
             });
         });

@@ -133,7 +133,7 @@ fn draw_view_gizmo(
 
                 // Draw label
                 if *is_positive {
-                    let font_size = if rotated.z < 0.0 { 10.0 } else { 12.0 };
+                    let font_size = if rotated.z < 0.0 { 12.0 } else { 14.0 };
                     let text_color = if rotated.z < 0.0 {
                         egui::Color32::from_gray(150)
                     } else {
@@ -180,7 +180,7 @@ fn draw_view_gizmo(
                 egui::pos2(center.x, response.rect.max.y + 5.0),
                 egui::Align2::CENTER_TOP,
                 view_name,
-                egui::FontId::proportional(10.0),
+                egui::FontId::proportional(12.0),
                 egui::Color32::from_gray(180),
             );
         });

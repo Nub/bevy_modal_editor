@@ -6,6 +6,7 @@ mod inspector;
 mod marks;
 mod panels;
 mod settings;
+mod theme;
 mod toolbar;
 mod view_gizmo;
 
@@ -17,6 +18,7 @@ pub use inspector::*;
 pub use marks::*;
 pub use panels::*;
 pub use settings::*;
+pub use theme::*;
 pub use toolbar::*;
 pub use view_gizmo::*;
 
@@ -33,6 +35,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InspectorPanelState>()
+            .add_plugins(ThemePlugin)
             .add_plugins(SettingsPlugin)
             .add_plugins(PanelsPlugin)
             .add_plugins(HierarchyPlugin)
