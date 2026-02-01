@@ -116,11 +116,12 @@ fn draw_inspector_panel(world: &mut World) {
     };
 
     // Get entity name and transform before borrowing for egui
-    let entity_name = selected_entity.and_then(|e| {
+    let mut entity_name = selected_entity.and_then(|e| {
         world.get::<Name>(e).map(|n| n.as_str().to_string())
     });
 
     let mut transform_copy = selected_entity.and_then(|e| world.get::<Transform>(e).copied());
+    let original_name = entity_name.clone();
 
     // Get egui context - scope it so the borrow ends before we use world in the closure
     let ctx = {
@@ -138,7 +139,11 @@ fn draw_inspector_panel(world: &mut World) {
 
     let panel_response = egui::SidePanel::right("inspector_panel")
         .default_width(300.0)
-        .frame(egui::Frame::side_top_panel(&ctx.style()).fill(colors::PANEL_BG))
+        .frame(
+            egui::Frame::side_top_panel(&ctx.style())
+                .fill(colors::PANEL_BG)
+                .inner_margin(egui::Margin { left: 12, right: 8, top: 0, bottom: 8 })
+        )
         .show(&ctx, |ui| {
             // Header
             ui.add_space(8.0);
@@ -154,18 +159,24 @@ fn draw_inspector_panel(world: &mut World) {
             ui.separator();
 
             if let Some(entity) = selected_entity {
-                let display_name =
-                    entity_name.clone().unwrap_or_else(|| format!("Entity {:?}", entity));
-
                 ui.add_space(4.0);
 
-                // Entity header
-                ui.label(
-                    egui::RichText::new(&display_name)
-                        .strong()
-                        .size(14.0)
-                        .color(colors::TEXT_PRIMARY),
-                );
+                // Editable entity name
+                if let Some(ref mut name) = entity_name {
+                    ui.add(
+                        egui::TextEdit::singleline(name)
+                            .font(egui::FontId::proportional(16.0))
+                            .text_color(colors::TEXT_PRIMARY)
+                            .margin(egui::vec2(8.0, 6.0)),
+                    );
+                } else {
+                    ui.label(
+                        egui::RichText::new(format!("Entity {:?}", entity))
+                            .strong()
+                            .size(14.0)
+                            .color(colors::TEXT_PRIMARY),
+                    );
+                }
                 ui.label(
                     egui::RichText::new(format!("ID: {:?}", entity))
                         .small()
@@ -186,15 +197,14 @@ fn draw_inspector_panel(world: &mut World) {
                     ui.separator();
                     ui.add_space(4.0);
 
-                    // Other components via bevy-inspector-egui
-                    ui.label(
-                        egui::RichText::new("Components")
-                            .strong()
-                            .color(colors::TEXT_SECONDARY),
-                    );
-                    ui.add_space(4.0);
-
-                    ui_for_entity(world, entity, ui);
+                    // Other components via bevy-inspector-egui (hidden by default)
+                    egui::CollapsingHeader::new(
+                        egui::RichText::new("Show All Components").color(colors::TEXT_SECONDARY),
+                    )
+                    .default_open(false)
+                    .show(ui, |ui| {
+                        ui_for_entity(world, entity, ui);
+                    });
                 });
             } else {
                 ui.add_space(20.0);
@@ -219,6 +229,15 @@ fn draw_inspector_panel(world: &mut World) {
         if let (Some(entity), Some(new_transform)) = (selected_entity, transform_copy) {
             if let Some(mut transform) = world.get_mut::<Transform>(entity) {
                 *transform = new_transform;
+            }
+        }
+    }
+
+    // Apply name changes back to the entity
+    if entity_name != original_name {
+        if let (Some(entity), Some(new_name)) = (selected_entity, entity_name) {
+            if let Some(mut name) = world.get_mut::<Name>(entity) {
+                name.set(new_name);
             }
         }
     }
