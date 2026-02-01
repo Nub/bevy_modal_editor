@@ -2,13 +2,49 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::editor::{AxisConstraint, EditorMode, EditorState, TransformOperation};
+use crate::scene::SceneFile;
 
 pub struct PanelsPlugin;
 
 impl Plugin for PanelsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, draw_status_bar);
+        app.add_systems(EguiPrimaryContextPass, (draw_title_bar, draw_status_bar));
     }
+}
+
+/// Draw title bar showing current file and save status
+fn draw_title_bar(mut contexts: EguiContexts, scene_file: Res<SceneFile>) -> Result {
+    let ctx = contexts.ctx_mut()?;
+
+    egui::TopBottomPanel::top("title_bar")
+        .frame(egui::Frame::new().fill(egui::Color32::from_rgb(45, 45, 48)))
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+
+                // File icon
+                ui.label(egui::RichText::new("📄").size(14.0));
+
+                // File name
+                let file_name = scene_file.display_name();
+                ui.label(
+                    egui::RichText::new(file_name)
+                        .size(14.0)
+                        .color(egui::Color32::from_rgb(220, 220, 220)),
+                );
+
+                // Modified indicator
+                if scene_file.modified {
+                    ui.label(
+                        egui::RichText::new("●")
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(255, 180, 100)),
+                    );
+                }
+            });
+        });
+
+    Ok(())
 }
 
 /// Draw status bar showing current mode and editor state
