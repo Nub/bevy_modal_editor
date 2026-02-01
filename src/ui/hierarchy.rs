@@ -360,38 +360,14 @@ fn draw_draggable_button(
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
 ) -> egui::Response {
-    let button = egui::Button::new(text.clone())
-        .fill(if is_selected { colors::SELECTION_BG } else { egui::Color32::TRANSPARENT })
-        .stroke(egui::Stroke::NONE);
+    // Use egui's drag source API
+    let response = ui.dnd_drag_source(drag_id, DragPayload(entity), |ui| {
+        let button = egui::Button::new(text)
+            .fill(if is_selected { colors::SELECTION_BG } else { egui::Color32::TRANSPARENT })
+            .stroke(egui::Stroke::NONE);
 
-    let response = ui.add(button);
-
-    // Handle drag source
-    if response.dragged() {
-        ui.ctx().set_dragged_id(drag_id);
-    }
-
-    // Set drag payload when starting to drag
-    if ui.ctx().dragged_id() == Some(drag_id) {
-        ui.ctx().data_mut(|d| d.insert_temp(drag_id, DragPayload(entity)));
-
-        // Show dragged item preview
-        egui::Area::new(egui::Id::new("drag_preview"))
-            .fixed_pos(ui.ctx().pointer_hover_pos().unwrap_or_default())
-            .order(egui::Order::Foreground)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::popup(ui.style())
-                    .fill(colors::BG_DARK)
-                    .show(ui, |ui| {
-                        ui.label(text);
-                    });
-            });
-
-        // Make the payload available for drop targets
-        ui.ctx().memory_mut(|mem| {
-            mem.data.insert_temp(egui::Id::NULL, DragPayload(entity));
-        });
-    }
+        ui.add(button)
+    }).response;
 
     // Handle click for selection
     if response.clicked() {
