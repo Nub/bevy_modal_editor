@@ -62,6 +62,13 @@ pub struct Settings {
     /// Font size settings
     #[serde(default)]
     pub fonts: FontSettings,
+    /// Show hotkey hints above status bar
+    #[serde(default = "default_show_hints")]
+    pub show_hints: bool,
+}
+
+fn default_show_hints() -> bool {
+    true
 }
 
 fn default_undo_history_size() -> usize {
@@ -78,6 +85,7 @@ impl Default for Settings {
             rotation_snap: 0.0,
             undo_history_size: 50,
             fonts: FontSettings::default(),
+            show_hints: true,
         }
     }
 }
@@ -215,6 +223,12 @@ fn draw_settings_window(
                             .suffix("x"),
                     );
                     if response.changed() {
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Show Hints:");
+                    if ui.checkbox(&mut settings.show_hints, "").changed() {
                         settings.save();
                     }
                     ui.end_row();
