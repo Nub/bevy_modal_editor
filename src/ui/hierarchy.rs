@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::HashSet;
 
-use crate::scene::{GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
+use crate::scene::{GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::{colors, fonts};
 
@@ -41,6 +41,7 @@ fn draw_hierarchy_panel(
             Option<&GroupMarker>,
             Option<&PrimitiveMarker>,
             Option<&SceneLightMarker>,
+            Option<&Locked>,
         ),
         With<SceneEntity>,
     >,
@@ -78,7 +79,7 @@ fn draw_hierarchy_panel(
                 // Find root entities (no parent or parent is not a SceneEntity)
                 let mut root_entities: Vec<_> = scene_entities
                     .iter()
-                    .filter(|(_, _, parent, _, _, _, _)| {
+                    .filter(|(_, _, parent, _, _, _, _, _)| {
                         parent.map_or(true, |p| scene_entities.get(p.get()).is_err())
                     })
                     .collect();
@@ -97,7 +98,7 @@ fn draw_hierarchy_panel(
                     egui::Sense::hover(),
                 );
 
-                for (entity, name, _, children, is_group, primitive, light) in root_entities {
+                for (entity, name, _, children, is_group, primitive, light, locked) in root_entities {
                     if let Some(op) = draw_entity_row(
                         ui,
                         entity,
@@ -106,6 +107,7 @@ fn draw_hierarchy_panel(
                         is_group.is_some(),
                         primitive,
                         light.is_some(),
+                        locked.is_some(),
                         0,
                         &selected_entities,
                         shift_held,
@@ -135,7 +137,7 @@ fn draw_hierarchy_panel(
 
             // Footer with counts
             let total = scene_entities.iter().count();
-            let groups = scene_entities.iter().filter(|(_, _, _, _, g, _, _)| g.is_some()).count();
+            let groups = scene_entities.iter().filter(|(_, _, _, _, g, _, _, _)| g.is_some()).count();
             ui.label(
                 egui::RichText::new(format!("{} entities, {} groups", total, groups))
                     .small()
@@ -192,6 +194,7 @@ fn draw_entity_row(
     is_group: bool,
     primitive: Option<&PrimitiveMarker>,
     is_light: bool,
+    is_locked: bool,
     depth: usize,
     selected_entities: &HashSet<Entity>,
     shift_held: bool,
@@ -204,6 +207,7 @@ fn draw_entity_row(
             Option<&GroupMarker>,
             Option<&PrimitiveMarker>,
             Option<&SceneLightMarker>,
+            Option<&Locked>,
         ),
         With<SceneEntity>,
     >,
@@ -239,15 +243,18 @@ fn draw_entity_row(
 
     // Entity icon
     let icon = get_entity_icon(is_group, primitive, is_light);
+    let lock_icon = if is_locked { "🔒 " } else { "" };
 
     // Build display text with icon and name
-    let text_color = if is_selected {
+    let text_color = if is_locked {
+        colors::TEXT_MUTED
+    } else if is_selected {
         colors::TEXT_PRIMARY
     } else {
         colors::TEXT_SECONDARY
     };
 
-    let header_text = egui::RichText::new(format!("{} {}", icon, display_name)).color(text_color);
+    let header_text = egui::RichText::new(format!("{}{} {}", lock_icon, icon, display_name)).color(text_color);
     let drag_id = egui::Id::new(("hierarchy_drag", entity));
 
     if has_children {
@@ -270,6 +277,7 @@ fn draw_entity_row(
                     is_selected,
                     shift_held,
                     is_group,
+                    is_locked,
                     &scene_children,
                     commands,
                     selected_query,
@@ -299,7 +307,7 @@ fn draw_entity_row(
             })
             .body(|ui| {
                 for child_entity in &scene_children {
-                    if let Ok((e, child_name, _, child_children, child_is_group, child_prim, child_light)) =
+                    if let Ok((e, child_name, _, child_children, child_is_group, child_prim, child_light, child_locked)) =
                         scene_entities.get(*child_entity)
                     {
                         if let Some(op) = draw_entity_row(
@@ -310,6 +318,7 @@ fn draw_entity_row(
                             child_is_group.is_some(),
                             child_prim,
                             child_light.is_some(),
+                            child_locked.is_some(),
                             depth + 1,
                             selected_entities,
                             shift_held,
@@ -350,6 +359,7 @@ fn draw_entity_row(
                 is_selected,
                 shift_held,
                 false,
+                is_locked,
                 &[],
                 commands,
                 selected_query,
@@ -369,6 +379,7 @@ fn draw_draggable_button(
     is_selected: bool,
     shift_held: bool,
     is_group: bool,
+    is_locked: bool,
     children: &[Entity],
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
@@ -379,6 +390,11 @@ fn draw_draggable_button(
         .sense(egui::Sense::click_and_drag());
 
     let response = ui.add(button);
+
+    // Skip selection/drag for locked entities
+    if is_locked {
+        return response;
+    }
 
     // Handle right-click on groups to select all children
     if response.secondary_clicked() && is_group && !children.is_empty() {

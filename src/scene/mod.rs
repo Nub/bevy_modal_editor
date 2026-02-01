@@ -29,6 +29,7 @@ impl Plugin for ScenePlugin {
             .register_type::<PrimitiveMarker>()
             .register_type::<PrimitiveShape>()
             .register_type::<GroupMarker>()
+            .register_type::<Locked>()
             .register_type::<SceneLightMarker>()
             .register_type::<DirectionalLightMarker>();
     }

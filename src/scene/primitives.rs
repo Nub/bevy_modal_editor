@@ -10,6 +10,11 @@ use crate::selection::Selected;
 #[reflect(Component)]
 pub struct GroupMarker;
 
+/// Marker component for locked entities (prevents editing)
+#[derive(Component, Serialize, Deserialize, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct Locked;
+
 /// Marker component for point lights
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Component)]

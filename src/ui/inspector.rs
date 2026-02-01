@@ -4,7 +4,7 @@ use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_inspector_egui::bevy_inspector::ui_for_entity;
 
 use super::InspectorPanelState;
-use crate::scene::{DirectionalLightMarker, SceneLightMarker};
+use crate::scene::{DirectionalLightMarker, Locked, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::{colors, fonts};
 
@@ -360,6 +360,10 @@ fn draw_inspector_panel(world: &mut World) {
     let mut transform_copy = single_entity.and_then(|e| world.get::<Transform>(e).copied());
     let original_name = entity_name.clone();
 
+    // Get locked state for single selection
+    let mut is_locked = single_entity.map(|e| world.get::<Locked>(e).is_some()).unwrap_or(false);
+    let original_locked = is_locked;
+
     // Get RigidBody types for all selected entities that have one
     let rigidbody_types: Vec<(Entity, RigidBodyType)> = selected_entities
         .iter()
@@ -478,11 +482,16 @@ fn draw_inspector_panel(world: &mut World) {
                                 .color(colors::TEXT_PRIMARY),
                         );
                     }
-                    ui.label(
-                        egui::RichText::new(format!("ID: {:?}", entity))
-                            .small()
-                            .color(colors::TEXT_MUTED),
-                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(format!("ID: {:?}", entity))
+                                .small()
+                                .color(colors::TEXT_MUTED),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.checkbox(&mut is_locked, "🔒");
+                        });
+                    });
 
                     ui.add_space(4.0);
                     ui.separator();
@@ -582,6 +591,17 @@ fn draw_inspector_panel(world: &mut World) {
         if let (Some(entity), Some(new_name)) = (single_entity, entity_name) {
             if let Some(mut name) = world.get_mut::<Name>(entity) {
                 name.set(new_name);
+            }
+        }
+    }
+
+    // Apply locked state changes
+    if is_locked != original_locked {
+        if let Some(entity) = single_entity {
+            if is_locked {
+                world.entity_mut(entity).insert(Locked);
+            } else {
+                world.entity_mut(entity).remove::<Locked>();
             }
         }
     }

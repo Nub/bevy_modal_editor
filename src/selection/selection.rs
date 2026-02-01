@@ -4,7 +4,7 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 
 use crate::editor::EditorCamera;
-use crate::scene::SceneEntity;
+use crate::scene::{Locked, SceneEntity};
 
 /// Marker component for selected entities
 #[derive(Component, Default)]
@@ -37,6 +37,7 @@ fn handle_click_selection(
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     spatial_query: SpatialQuery,
     scene_entities: Query<Entity, With<SceneEntity>>,
+    locked_entities: Query<Entity, With<Locked>>,
     selected: Query<Entity, With<Selected>>,
     selection_state: Res<SelectionState>,
     mut commands: Commands,
@@ -82,8 +83,8 @@ fn handle_click_selection(
     ) {
         let hit_entity = hit.entity;
 
-        // Only select scene entities
-        if scene_entities.get(hit_entity).is_ok() {
+        // Only select scene entities that are not locked
+        if scene_entities.get(hit_entity).is_ok() && locked_entities.get(hit_entity).is_err() {
             if !selection_state.multi_select {
                 // Clear previous selection
                 for entity in selected.iter() {
