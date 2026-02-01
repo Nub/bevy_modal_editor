@@ -5,12 +5,12 @@ use fuzzy_matcher::FuzzyMatcher;
 
 use crate::editor::{
     CameraMarks, EditorState, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
+    TogglePhysicsDebugEvent,
 };
 use crate::scene::{
     LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnGroupEvent, SpawnPointLightEvent,
-    SpawnPrimitiveEvent, UnparentEvent,
+    SpawnPrimitiveEvent, UnparentSelectedEvent,
 };
-use crate::selection::Selected;
 
 /// A command that can be executed from the palette
 #[derive(Clone)]
@@ -41,6 +41,7 @@ pub enum CommandAction {
     ShowCustomMarkDialog,
     SpawnGroup,
     UnparentSelected,
+    TogglePhysicsDebug,
 }
 
 /// Resource to track command palette state
@@ -177,6 +178,14 @@ impl CommandRegistry {
             keywords: vec!["hotkeys".into(), "keys".into(), "bindings".into(), "controls".into()],
             category: "Help",
             action: CommandAction::ShowHelp,
+        });
+
+        // Debug
+        self.commands.push(Command {
+            name: "Toggle Physics Debug".to_string(),
+            keywords: vec!["collider".into(), "collision".into(), "gizmo".into(), "wireframe".into(), "avian".into()],
+            category: "Debug",
+            action: CommandAction::TogglePhysicsDebug,
         });
 
         // Grid snap
@@ -364,13 +373,13 @@ fn draw_command_palette(
     mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
     mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
     mut spawn_light_events: MessageWriter<SpawnPointLightEvent>,
-    mut unparent_events: MessageWriter<UnparentEvent>,
+    mut unparent_events: MessageWriter<UnparentSelectedEvent>,
     mut set_mark_events: MessageWriter<SetCameraMarkEvent>,
     mut jump_mark_events: MessageWriter<JumpToMarkEvent>,
     mut jump_last_events: MessageWriter<JumpToLastPositionEvent>,
     mut save_events: MessageWriter<SaveSceneEvent>,
     mut load_events: MessageWriter<LoadSceneEvent>,
-    selected: Query<Entity, With<Selected>>,
+    mut toggle_debug_events: MessageWriter<TogglePhysicsDebugEvent>,
 ) -> Result {
     if !state.open {
         return Ok(());
@@ -538,9 +547,10 @@ fn draw_command_palette(
                 });
             }
             CommandAction::UnparentSelected => {
-                if let Ok(entity) = selected.single() {
-                    unparent_events.write(UnparentEvent { entity });
-                }
+                unparent_events.write(UnparentSelectedEvent);
+            }
+            CommandAction::TogglePhysicsDebug => {
+                toggle_debug_events.write(TogglePhysicsDebugEvent);
             }
         }
     }

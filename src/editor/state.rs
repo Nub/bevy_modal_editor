@@ -1,3 +1,5 @@
+use avian3d::debug_render::PhysicsGizmos;
+use bevy::gizmos::config::GizmoConfigStore;
 use bevy::prelude::*;
 
 /// The current editor mode (vim-like modal editing)
@@ -82,6 +84,10 @@ impl Default for EditStepAmount {
     }
 }
 
+/// Event to toggle physics debug rendering
+#[derive(Message)]
+pub struct TogglePhysicsDebugEvent;
+
 pub struct EditorStatePlugin;
 
 impl Plugin for EditorStatePlugin {
@@ -90,6 +96,20 @@ impl Plugin for EditorStatePlugin {
             .init_resource::<TransformOperation>()
             .init_resource::<AxisConstraint>()
             .init_resource::<EditorState>()
-            .init_resource::<EditStepAmount>();
+            .init_resource::<EditStepAmount>()
+            .add_message::<TogglePhysicsDebugEvent>()
+            .add_systems(Update, handle_toggle_physics_debug);
+    }
+}
+
+/// Handle toggling physics debug rendering
+fn handle_toggle_physics_debug(
+    mut events: MessageReader<TogglePhysicsDebugEvent>,
+    mut gizmo_config: ResMut<GizmoConfigStore>,
+) {
+    for _ in events.read() {
+        let config = gizmo_config.config_mut::<PhysicsGizmos>().0;
+        config.enabled = !config.enabled;
+        info!("Physics debug: {}", if config.enabled { "ON" } else { "OFF" });
     }
 }

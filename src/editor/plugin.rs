@@ -1,3 +1,4 @@
+use avian3d::debug_render::PhysicsDebugPlugin;
 use avian3d::prelude::PhysicsPlugins;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
@@ -23,6 +24,7 @@ impl Plugin for EditorPlugin {
             // Third-party plugins
             .add_plugins(EguiPlugin::default())
             .add_plugins(PhysicsPlugins::default())
+            .add_plugins(PhysicsDebugPlugin)
             // Editor core
             .add_plugins(EditorStatePlugin)
             .add_plugins(EditorInputPlugin)

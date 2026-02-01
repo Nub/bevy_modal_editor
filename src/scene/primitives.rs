@@ -80,6 +80,10 @@ pub struct UnparentEvent {
     pub entity: Entity,
 }
 
+/// Event to unparent all selected entities (move to root)
+#[derive(Message)]
+pub struct UnparentSelectedEvent;
+
 /// Event to group multiple selected entities into a new group
 #[derive(Message)]
 pub struct GroupSelectedEvent;
@@ -105,6 +109,7 @@ impl Plugin for PrimitivesPlugin {
             .add_message::<SpawnGroupEvent>()
             .add_message::<ParentToGroupEvent>()
             .add_message::<UnparentEvent>()
+            .add_message::<UnparentSelectedEvent>()
             .add_message::<GroupSelectedEvent>()
             .add_message::<SpawnPointLightEvent>()
             .add_systems(
@@ -114,6 +119,7 @@ impl Plugin for PrimitivesPlugin {
                     handle_spawn_group,
                     handle_parent_to_group,
                     handle_unparent,
+                    handle_unparent_selected,
                     handle_group_selected,
                     handle_spawn_point_light,
                 ),
@@ -321,6 +327,21 @@ fn handle_unparent(mut events: MessageReader<UnparentEvent>, mut commands: Comma
     for event in events.read() {
         commands.entity(event.entity).remove_parent_in_place();
         info!("Unparented entity");
+    }
+}
+
+fn handle_unparent_selected(
+    mut events: MessageReader<UnparentSelectedEvent>,
+    mut commands: Commands,
+    selected: Query<Entity, With<Selected>>,
+) {
+    for _ in events.read() {
+        for entity in selected.iter() {
+            commands.entity(entity).remove_parent_in_place();
+        }
+        if !selected.is_empty() {
+            info!("Unparented selected entities");
+        }
     }
 }
 
