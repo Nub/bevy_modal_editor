@@ -3,7 +3,6 @@ use avian3d::prelude::{Physics, PhysicsPlugins};
 use avian3d::schedule::PhysicsTime;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
-use bevy_inspector_egui::DefaultInspectorConfigPlugin;
 
 use super::camera::EditorCameraPlugin;
 use super::input::EditorInputPlugin;
@@ -26,7 +25,6 @@ impl Plugin for EditorPlugin {
         app
             // Third-party plugins
             .add_plugins(EguiPlugin::default())
-            .add_plugins(DefaultInspectorConfigPlugin)
             .add_plugins(PhysicsPlugins::default())
             .add_plugins(PhysicsDebugPlugin)
             // Editor core
