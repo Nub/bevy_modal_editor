@@ -1,9 +1,18 @@
-use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use super::EditorMode;
 use crate::ui::Settings;
+
+/// Minimum FOV before switching to orthographic (in degrees)
+const MIN_FOV_DEGREES: f32 = 5.0;
+/// Maximum FOV (in degrees)
+const MAX_FOV_DEGREES: f32 = 120.0;
+/// FOV change per scroll unit
+const FOV_SCROLL_SPEED: f32 = 5.0;
+/// Orthographic scale when in ortho mode
+const ORTHO_SCALE: f32 = 10.0;
 
 pub struct EditorCameraPlugin;
 
@@ -11,7 +20,7 @@ impl Plugin for EditorCameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SetCameraPresetEvent>()
             .add_systems(Startup, spawn_editor_camera)
-            .add_systems(Update, (camera_look, camera_movement, handle_camera_preset));
+            .add_systems(Update, (camera_look, camera_movement, camera_zoom, handle_camera_preset));
     }
 }
 
@@ -26,6 +35,8 @@ pub struct FlyCamera {
     pub pitch: f32,
     pub speed: f32,
     pub sensitivity: f32,
+    /// Current FOV in degrees (0 = orthographic)
+    pub fov_degrees: f32,
 }
 
 impl Default for FlyCamera {
@@ -35,6 +46,7 @@ impl Default for FlyCamera {
             pitch: -std::f32::consts::FRAC_PI_6, // Look slightly down
             speed: 10.0,
             sensitivity: 0.003,
+            fov_degrees: 60.0, // Default perspective FOV
         }
     }
 }
@@ -207,6 +219,53 @@ fn camera_movement(
             };
 
             transform.translation += velocity * settings.camera_speed * speed_mult * time.delta_secs();
+        }
+    }
+}
+
+/// Handle scroll wheel to adjust FOV / switch to orthographic
+fn camera_zoom(
+    scroll: Res<AccumulatedMouseScroll>,
+    mut query: Query<(&mut FlyCamera, &mut Projection), With<EditorCamera>>,
+    mut contexts: EguiContexts,
+) {
+    // Don't zoom when UI wants pointer input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    let scroll_y = scroll.delta.y;
+    if scroll_y == 0.0 {
+        return;
+    }
+
+    for (mut fly_cam, mut projection) in &mut query {
+        // Scroll up = zoom in (decrease FOV), scroll down = zoom out (increase FOV)
+        let new_fov = fly_cam.fov_degrees - scroll_y * FOV_SCROLL_SPEED;
+
+        if new_fov <= 0.0 {
+            // Switch to orthographic
+            fly_cam.fov_degrees = 0.0;
+            *projection = Projection::Orthographic(OrthographicProjection {
+                scale: ORTHO_SCALE,
+                ..OrthographicProjection::default_3d()
+            });
+        } else if new_fov >= MIN_FOV_DEGREES {
+            // Perspective mode
+            fly_cam.fov_degrees = new_fov.min(MAX_FOV_DEGREES);
+            *projection = Projection::Perspective(PerspectiveProjection {
+                fov: fly_cam.fov_degrees.to_radians(),
+                ..default()
+            });
+        } else if fly_cam.fov_degrees == 0.0 && scroll_y < 0.0 {
+            // Switching from ortho back to perspective
+            fly_cam.fov_degrees = MIN_FOV_DEGREES;
+            *projection = Projection::Perspective(PerspectiveProjection {
+                fov: fly_cam.fov_degrees.to_radians(),
+                ..default()
+            });
         }
     }
 }
