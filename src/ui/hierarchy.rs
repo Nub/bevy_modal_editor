@@ -53,7 +53,7 @@ fn draw_hierarchy_panel(
             ui.add_space(8.0);
             ui.vertical_centered(|ui| {
                 ui.label(
-                    egui::RichText::new("Scene Tree")
+                    egui::RichText::new("Scene")
                         .strong()
                         .size(fonts::TITLE_SIZE)
                         .color(colors::TEXT_PRIMARY),

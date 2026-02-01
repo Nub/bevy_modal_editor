@@ -10,8 +10,8 @@ use crate::editor::{
     TogglePhysicsEvent,
 };
 use crate::scene::{
-    LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnDemoSceneEvent, SpawnGroupEvent,
-    SpawnPointLightEvent, SpawnPrimitiveEvent, UnparentSelectedEvent,
+    LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnDemoSceneEvent, SpawnDirectionalLightEvent,
+    SpawnGroupEvent, SpawnPointLightEvent, SpawnPrimitiveEvent, UnparentSelectedEvent,
 };
 use crate::ui::theme::colors;
 use crate::ui::SettingsWindowState;
@@ -22,6 +22,7 @@ struct CommandEvents<'w> {
     spawn_primitive: MessageWriter<'w, SpawnPrimitiveEvent>,
     spawn_group: MessageWriter<'w, SpawnGroupEvent>,
     spawn_light: MessageWriter<'w, SpawnPointLightEvent>,
+    spawn_directional_light: MessageWriter<'w, SpawnDirectionalLightEvent>,
     unparent: MessageWriter<'w, UnparentSelectedEvent>,
     set_mark: MessageWriter<'w, SetCameraMarkEvent>,
     jump_mark: MessageWriter<'w, JumpToMarkEvent>,
@@ -55,6 +56,7 @@ pub struct Command {
 pub enum CommandAction {
     SpawnPrimitive(PrimitiveShape),
     SpawnPointLight,
+    SpawnDirectionalLight,
     SetCameraMark(String),
     JumpToMark(String),
     JumpToLastPosition,
@@ -162,6 +164,13 @@ impl CommandRegistry {
             keywords: vec!["lamp".into(), "bulb".into(), "lighting".into()],
             category: "Lights",
             action: CommandAction::SpawnPointLight,
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add Sun Light".to_string(),
+            keywords: vec!["directional".into(), "sun".into(), "lighting".into(), "shadow".into()],
+            category: "Lights",
+            action: CommandAction::SpawnDirectionalLight,
             insertable: true,
         });
 
@@ -627,6 +636,7 @@ fn draw_command_palette(
             let object_type = match &action {
                 CommandAction::SpawnPrimitive(shape) => Some(InsertObjectType::Primitive(*shape)),
                 CommandAction::SpawnPointLight => Some(InsertObjectType::PointLight),
+                CommandAction::SpawnDirectionalLight => Some(InsertObjectType::DirectionalLight),
                 CommandAction::SpawnGroup => Some(InsertObjectType::Group),
                 _ => None,
             };
@@ -648,6 +658,11 @@ fn draw_command_palette(
                 CommandAction::SpawnPointLight => {
                     events.spawn_light.write(SpawnPointLightEvent {
                         position: Vec3::new(0.0, 3.0, 0.0),
+                    });
+                }
+                CommandAction::SpawnDirectionalLight => {
+                    events.spawn_directional_light.write(SpawnDirectionalLightEvent {
+                        position: Vec3::new(4.0, 8.0, 4.0),
                     });
                 }
                 CommandAction::SetCameraMark(name) => {

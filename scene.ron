@@ -1,333 +1,28 @@
 (
   resources: {},
   entities: {
+    4294967202: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::DirectionalLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 1.0,
+            blue: 1.0,
+            alpha: 1.0,
+          )),
+          illuminance: 10000.0,
+          shadows_enabled: true,
+        ),
+        "bevy_ecs::name::Name": "Sun",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-0.543911, 4.840001, 12.477788),
+          rotation: (-0.11729957, 0.22064781, 0.6181903, 0.7452496),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
     4294967203: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cube,
-        ),
-        "bevy_ecs::name::Name": "Ground",
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, -0.6599998, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (20.0, 1.0, 20.0),
-        ),
-      },
-    ),
-    4294967204: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_ecs::name::Name": "Central Pillar",
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 2.0, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.5, 4.0, 1.5),
-        ),
-      },
-    ),
-    4294967205: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 1.5, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967206: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 1.5, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967207: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 1.5, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967208: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 1.5, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967209: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Sphere,
-        ),
-        "bevy_ecs::name::Name": "Bouncy Sphere 1",
-        "bevy_transform::components::transform::Transform": (
-          translation: (2.0, 0.3399733, 2.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967210: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Sphere,
-        ),
-        "bevy_ecs::name::Name": "Bouncy Sphere 2",
-        "bevy_transform::components::transform::Transform": (
-          translation: (-2.0, 0.3399733, -2.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967211: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Sphere,
-        ),
-        "bevy_ecs::name::Name": "Bouncy Sphere 3",
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.3399733, 3.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967212: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cube,
-        ),
-        "bevy_ecs::name::Name": "Falling Cube",
-        "bevy_transform::components::transform::Transform": (
-          translation: (-2.5289402, 0.33997324, -0.09035385),
-          rotation: (0.000000014651448, 0.053019933, -0.000000045335184, 0.99859345),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967213: (
-      components: {
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.95,
-            blue: 0.8,
-            alpha: 1.0,
-          )),
-          intensity: 80000.0,
-          range: 30.0,
-          shadows_enabled: true,
-        ),
-        "bevy_ecs::name::Name": "Central Light",
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 8.0, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967214: (
-      components: {
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.2,
-            blue: 0.2,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_ecs::name::Name": "Red Light",
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 4.0, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967215: (
-      components: {
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.2,
-            green: 0.4,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_ecs::name::Name": "Blue Light",
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 4.0, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967216: (
-      components: {
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.2,
-            green: 1.0,
-            blue: 0.3,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_ecs::name::Name": "Green Light",
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 4.0, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967217: (
-      components: {
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.9,
-            green: 0.2,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_ecs::name::Name": "Purple Light",
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 4.0, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967218: (
-      components: {
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.5,
-            green: 0.8,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
-        ),
-        "bevy_ecs::name::Name": "Accent Light 1",
-        "bevy_transform::components::transform::Transform": (
-          translation: (3.0, 0.5, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967219: (
-      components: {
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.5,
-            blue: 0.8,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
-        ),
-        "bevy_ecs::name::Name": "Accent Light 2",
-        "bevy_transform::components::transform::Transform": (
-          translation: (-3.0, 0.5, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967220: (
-      components: {
-        "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.8,
-            green: 1.0,
-            blue: 0.5,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
-        ),
-        "bevy_ecs::name::Name": "Accent Light 3",
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.5, 3.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967221: (
       components: {
         "bevy_avian3d_editor::scene::SceneEntity": (),
         "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
@@ -349,24 +44,329 @@
         ),
       },
     ),
-    8589934497: (
+    4294967204: (
       components: {
         "bevy_avian3d_editor::scene::SceneEntity": (),
-        "bevy_avian3d_editor::scene::primitives::DirectionalLightMarker": (
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.8,
+            green: 1.0,
+            blue: 0.5,
+            alpha: 1.0,
+          )),
+          intensity: 10000.0,
+          range: 8.0,
+          shadows_enabled: false,
+        ),
+        "bevy_ecs::name::Name": "Accent Light 3",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.5, 3.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967205: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
           color: Srgba((
             red: 1.0,
-            green: 1.0,
+            green: 0.5,
+            blue: 0.8,
+            alpha: 1.0,
+          )),
+          intensity: 10000.0,
+          range: 8.0,
+          shadows_enabled: false,
+        ),
+        "bevy_ecs::name::Name": "Accent Light 2",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-3.0, 0.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967206: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.5,
+            green: 0.8,
             blue: 1.0,
             alpha: 1.0,
           )),
-          illuminance: 10000.0,
+          intensity: 10000.0,
+          range: 8.0,
+          shadows_enabled: false,
+        ),
+        "bevy_ecs::name::Name": "Accent Light 1",
+        "bevy_transform::components::transform::Transform": (
+          translation: (3.0, 0.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967207: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.9,
+            green: 0.2,
+            blue: 1.0,
+            alpha: 1.0,
+          )),
+          intensity: 30000.0,
+          range: 15.0,
           shadows_enabled: true,
         ),
-        "bevy_ecs::name::Name": "Sun 2",
+        "bevy_ecs::name::Name": "Purple Light",
         "bevy_transform::components::transform::Transform": (
-          translation: (-0.543911, 4.840001, 12.477788),
-          rotation: (-0.11729957, 0.22064781, 0.6181903, 0.7452496),
+          translation: (6.0, 4.0, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967208: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.2,
+            green: 1.0,
+            blue: 0.3,
+            alpha: 1.0,
+          )),
+          intensity: 30000.0,
+          range: 15.0,
+          shadows_enabled: true,
+        ),
+        "bevy_ecs::name::Name": "Green Light",
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 4.0, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967209: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.2,
+            green: 0.4,
+            blue: 1.0,
+            alpha: 1.0,
+          )),
+          intensity: 30000.0,
+          range: 15.0,
+          shadows_enabled: true,
+        ),
+        "bevy_ecs::name::Name": "Blue Light",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 4.0, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967210: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 0.2,
+            blue: 0.2,
+            alpha: 1.0,
+          )),
+          intensity: 30000.0,
+          range: 15.0,
+          shadows_enabled: true,
+        ),
+        "bevy_ecs::name::Name": "Red Light",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 4.0, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967211: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 0.95,
+            blue: 0.8,
+            alpha: 1.0,
+          )),
+          intensity: 80000.0,
+          range: 30.0,
+          shadows_enabled: true,
+        ),
+        "bevy_ecs::name::Name": "Central Light",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 8.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967212: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_ecs::name::Name": "Falling Cube",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-2.5289407, 0.3399733, -0.090353705),
+          rotation: (0.000000014524793, 0.053020023, 0.000000008158204, 0.99859345),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967213: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Sphere,
+        ),
+        "bevy_ecs::name::Name": "Bouncy Sphere 3",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.3399733, 3.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967214: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Sphere,
+        ),
+        "bevy_ecs::name::Name": "Bouncy Sphere 2",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-2.0, 0.3399733, -2.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967215: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Sphere,
+        ),
+        "bevy_ecs::name::Name": "Bouncy Sphere 1",
+        "bevy_transform::components::transform::Transform": (
+          translation: (2.0, 0.3399733, 2.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967216: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_ecs::name::Name": "Corner Pillar",
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 1.5, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967217: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_ecs::name::Name": "Corner Pillar",
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 1.5, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967218: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_ecs::name::Name": "Corner Pillar",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 1.5, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967219: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_ecs::name::Name": "Corner Pillar",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 1.5, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967220: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_ecs::name::Name": "Central Pillar",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 2.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.5, 4.0, 1.5),
+        ),
+      },
+    ),
+    4294967221: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_ecs::name::Name": "Ground",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, -0.6599998, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (20.0, 1.0, 20.0),
         ),
       },
     ),

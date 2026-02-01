@@ -50,16 +50,6 @@ impl Plugin for EditorPlugin {
 
 /// Setup initial editor scene with lighting
 fn setup_editor_scene(mut commands: Commands) {
-    // Directional light
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 10000.0,
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(4.0, 8.0, 4.0).looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-
     // Ambient light (now a component in Bevy 0.18+)
     commands.spawn(AmbientLight {
         color: Color::WHITE,

@@ -10,7 +10,7 @@ use crate::selection::Selected;
 #[reflect(Component)]
 pub struct GroupMarker;
 
-/// Marker component for scene lights (to distinguish from editor lights)
+/// Marker component for point lights
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Component)]
 pub struct SceneLightMarker {
@@ -26,6 +26,25 @@ impl Default for SceneLightMarker {
             color: Color::WHITE,
             intensity: 100000.0,
             range: 20.0,
+            shadows_enabled: true,
+        }
+    }
+}
+
+/// Marker component for directional lights (sun)
+#[derive(Component, Serialize, Deserialize, Clone, Reflect)]
+#[reflect(Component)]
+pub struct DirectionalLightMarker {
+    pub color: Color,
+    pub illuminance: f32,
+    pub shadows_enabled: bool,
+}
+
+impl Default for DirectionalLightMarker {
+    fn default() -> Self {
+        Self {
+            color: Color::WHITE,
+            illuminance: 10000.0,
             shadows_enabled: true,
         }
     }
@@ -94,6 +113,12 @@ pub struct SpawnPointLightEvent {
     pub position: Vec3,
 }
 
+/// Event to spawn a directional light (sun)
+#[derive(Message)]
+pub struct SpawnDirectionalLightEvent {
+    pub position: Vec3,
+}
+
 /// Component to track what primitive shape an entity is
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Component)]
@@ -112,6 +137,7 @@ impl Plugin for PrimitivesPlugin {
             .add_message::<UnparentSelectedEvent>()
             .add_message::<GroupSelectedEvent>()
             .add_message::<SpawnPointLightEvent>()
+            .add_message::<SpawnDirectionalLightEvent>()
             .add_systems(
                 Update,
                 (
@@ -122,6 +148,7 @@ impl Plugin for PrimitivesPlugin {
                     handle_unparent_selected,
                     handle_group_selected,
                     handle_spawn_point_light,
+                    handle_spawn_directional_light,
                 ),
             );
     }
@@ -409,6 +436,31 @@ fn handle_spawn_point_light(
                 ..default()
             },
             Transform::from_translation(event.position),
+            Visibility::default(),
+        ));
+    }
+}
+
+fn handle_spawn_directional_light(
+    mut events: MessageReader<SpawnDirectionalLightEvent>,
+    mut commands: Commands,
+    existing_entities: Query<&Name, With<SceneEntity>>,
+) {
+    for event in events.read() {
+        let name = generate_unique_name("Sun", &existing_entities);
+        let light_marker = DirectionalLightMarker::default();
+
+        commands.spawn((
+            SceneEntity,
+            Name::new(name),
+            light_marker.clone(),
+            DirectionalLight {
+                color: light_marker.color,
+                illuminance: light_marker.illuminance,
+                shadows_enabled: light_marker.shadows_enabled,
+                ..default()
+            },
+            Transform::from_translation(event.position).looking_at(Vec3::ZERO, Vec3::Y),
             Visibility::default(),
         ));
     }

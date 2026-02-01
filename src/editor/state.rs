@@ -96,6 +96,7 @@ impl Default for EditStepAmount {
 pub enum InsertObjectType {
     Primitive(PrimitiveShape),
     PointLight,
+    DirectionalLight,
     Group,
 }
 

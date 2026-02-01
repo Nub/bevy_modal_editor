@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::{GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
+use super::{DirectionalLightMarker, GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::editor::{CameraMark, CameraMarks};
 
 /// Event to save the scene
@@ -231,6 +231,7 @@ impl Command for SaveSceneCommand {
             .allow_component::<PrimitiveMarker>()
             .allow_component::<GroupMarker>()
             .allow_component::<SceneLightMarker>()
+            .allow_component::<DirectionalLightMarker>()
             .allow_component::<RigidBody>()
             .allow_component::<ChildOf>()
             .allow_component::<Children>()
@@ -495,6 +496,29 @@ fn regenerate_meshes(world: &mut World) {
                     color: marker.color,
                     intensity: marker.intensity,
                     range: marker.range,
+                    shadows_enabled: marker.shadows_enabled,
+                    ..default()
+                },
+                Visibility::default(),
+            ));
+        }
+    }
+
+    // Also sync DirectionalLight from DirectionalLightMarker
+    let mut dir_lights_to_update: Vec<(Entity, DirectionalLightMarker)> = Vec::new();
+    {
+        let mut query = world.query_filtered::<(Entity, &DirectionalLightMarker), Without<DirectionalLight>>();
+        for (entity, marker) in query.iter(world) {
+            dir_lights_to_update.push((entity, marker.clone()));
+        }
+    }
+
+    for (entity, marker) in dir_lights_to_update {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert((
+                DirectionalLight {
+                    color: marker.color,
+                    illuminance: marker.illuminance,
                     shadows_enabled: marker.shadows_enabled,
                     ..default()
                 },

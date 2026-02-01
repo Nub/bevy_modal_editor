@@ -6,8 +6,8 @@ use bevy_egui::EguiContexts;
 use super::camera::EditorCamera;
 use super::state::{EditorMode, InsertObjectType, InsertPreview, InsertState, StartInsertEvent};
 use crate::scene::{
-    GroupMarker, PrimitiveMarker, PrimitiveShape, SpawnGroupEvent, SpawnPointLightEvent,
-    SpawnPrimitiveEvent,
+    GroupMarker, PrimitiveMarker, PrimitiveShape, SpawnDirectionalLightEvent, SpawnGroupEvent,
+    SpawnPointLightEvent, SpawnPrimitiveEvent,
 };
 
 pub struct InsertModePlugin;
@@ -88,7 +88,7 @@ pub fn spawn_preview_entity(
                 .id()
         }
         InsertObjectType::PointLight => {
-            // For lights, show a small sphere as preview
+            // For point lights, show a small sphere as preview
             commands
                 .spawn((
                     InsertPreview,
@@ -97,6 +97,22 @@ pub fn spawn_preview_entity(
                         base_color: Color::srgba(1.0, 0.9, 0.5, 0.7),
                         alpha_mode: AlphaMode::Blend,
                         emissive: bevy::color::LinearRgba::new(1.0, 0.9, 0.5, 1.0) * 5.0,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
+        InsertObjectType::DirectionalLight => {
+            // For directional lights (sun), show a larger glowing sphere
+            commands
+                .spawn((
+                    InsertPreview,
+                    Mesh3d(meshes.add(Sphere::new(0.5))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(1.0, 0.95, 0.4, 0.7),
+                        alpha_mode: AlphaMode::Blend,
+                        emissive: bevy::color::LinearRgba::new(1.0, 0.95, 0.4, 1.0) * 8.0,
                         ..default()
                     })),
                     Transform::from_translation(Vec3::ZERO),
@@ -195,6 +211,7 @@ fn get_object_offset(insert_state: &InsertState, surface_normal: Vec3) -> Vec3 {
             PrimitiveShape::Plane => 0.01,
         },
         Some(InsertObjectType::PointLight) => 0.3,
+        Some(InsertObjectType::DirectionalLight) => 0.5,
         Some(InsertObjectType::Group) => 0.25,
         None => 0.5,
     };
@@ -215,6 +232,7 @@ fn handle_insert_click(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut spawn_primitive_events: MessageWriter<SpawnPrimitiveEvent>,
     mut spawn_light_events: MessageWriter<SpawnPointLightEvent>,
+    mut spawn_directional_light_events: MessageWriter<SpawnDirectionalLightEvent>,
     mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
     mut contexts: EguiContexts,
 ) {
@@ -251,6 +269,9 @@ fn handle_insert_click(
         }
         InsertObjectType::PointLight => {
             spawn_light_events.write(SpawnPointLightEvent { position });
+        }
+        InsertObjectType::DirectionalLight => {
+            spawn_directional_light_events.write(SpawnDirectionalLightEvent { position });
         }
         InsertObjectType::Group => {
             spawn_group_events.write(SpawnGroupEvent { position });
