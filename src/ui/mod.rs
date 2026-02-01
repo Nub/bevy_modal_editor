@@ -6,6 +6,7 @@ mod hierarchy;
 mod inspector;
 mod marks;
 mod panels;
+mod reflect_editor;
 mod settings;
 mod theme;
 mod toolbar;
@@ -19,6 +20,7 @@ pub use hierarchy::*;
 pub use inspector::*;
 pub use marks::*;
 pub use panels::*;
+pub use reflect_editor::*;
 pub use settings::*;
 pub use theme::*;
 pub use toolbar::*;
@@ -37,6 +39,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InspectorPanelState>()
+            .init_resource::<ImmutableComponentCache>()
             .add_plugins(ThemePlugin)
             .add_plugins(SettingsPlugin)
             .add_plugins(PanelsPlugin)

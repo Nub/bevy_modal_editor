@@ -1,11 +1,12 @@
 use avian3d::prelude::RigidBody;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
-use bevy_inspector_egui::bevy_inspector::ui_for_entity;
+use std::any::TypeId;
 
 use super::component_browser::{
     add_component_by_type_id, draw_component_browser, open_component_browser, ComponentBrowserState,
 };
+use super::reflect_editor::{component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::scene::{DirectionalLightMarker, Locked, SceneLightMarker};
 use crate::selection::Selected;
@@ -59,12 +60,59 @@ impl Plugin for InspectorPlugin {
     }
 }
 
+/// Result of drawing a removable component section
+enum ComponentAction<T> {
+    None,
+    Update(T),
+    Remove,
+}
+
+/// Data for point light editing
+#[derive(Clone)]
+struct PointLightData {
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    shadows_enabled: bool,
+}
+
+impl From<&SceneLightMarker> for PointLightData {
+    fn from(marker: &SceneLightMarker) -> Self {
+        let color = marker.color.to_srgba();
+        Self {
+            color: [color.red, color.green, color.blue],
+            intensity: marker.intensity,
+            range: marker.range,
+            shadows_enabled: marker.shadows_enabled,
+        }
+    }
+}
+
+/// Data for directional light editing
+#[derive(Clone)]
+struct DirectionalLightData {
+    color: [f32; 3],
+    illuminance: f32,
+    shadows_enabled: bool,
+}
+
+impl From<&DirectionalLightMarker> for DirectionalLightData {
+    fn from(marker: &DirectionalLightMarker) -> Self {
+        let color = marker.color.to_srgba();
+        Self {
+            color: [color.red, color.green, color.blue],
+            illuminance: marker.illuminance,
+            shadows_enabled: marker.shadows_enabled,
+        }
+    }
+}
+
 /// Draw a transform section with colored X/Y/Z labels
 fn draw_transform_section(ui: &mut egui::Ui, transform: &mut Transform) -> bool {
     let mut changed = false;
 
     egui::CollapsingHeader::new(
-        egui::RichText::new("⊞ Transform").strong().color(colors::TEXT_PRIMARY),
+        egui::RichText::new("Transform").strong().color(colors::TEXT_PRIMARY),
     )
     .default_open(true)
     .show(ui, |ui| {
@@ -152,59 +200,12 @@ fn draw_transform_section(ui: &mut egui::Ui, transform: &mut Transform) -> bool 
     changed
 }
 
-/// Result of drawing a removable component section
-enum ComponentAction<T> {
-    None,
-    Update(T),
-    Remove,
-}
-
-/// Data for point light editing
-#[derive(Clone)]
-struct PointLightData {
-    color: [f32; 3],
-    intensity: f32,
-    range: f32,
-    shadows_enabled: bool,
-}
-
-impl From<&SceneLightMarker> for PointLightData {
-    fn from(marker: &SceneLightMarker) -> Self {
-        let color = marker.color.to_srgba();
-        Self {
-            color: [color.red, color.green, color.blue],
-            intensity: marker.intensity,
-            range: marker.range,
-            shadows_enabled: marker.shadows_enabled,
-        }
-    }
-}
-
-/// Data for directional light editing
-#[derive(Clone)]
-struct DirectionalLightData {
-    color: [f32; 3],
-    illuminance: f32,
-    shadows_enabled: bool,
-}
-
-impl From<&DirectionalLightMarker> for DirectionalLightData {
-    fn from(marker: &DirectionalLightMarker) -> Self {
-        let color = marker.color.to_srgba();
-        Self {
-            color: [color.red, color.green, color.blue],
-            illuminance: marker.illuminance,
-            shadows_enabled: marker.shadows_enabled,
-        }
-    }
-}
-
 /// Draw point light properties section
 fn draw_point_light_section(ui: &mut egui::Ui, data: &mut PointLightData) -> bool {
     let mut changed = false;
 
     egui::CollapsingHeader::new(
-        egui::RichText::new("💡 Point Light").strong().color(colors::TEXT_PRIMARY),
+        egui::RichText::new("Point Light").strong().color(colors::TEXT_PRIMARY),
     )
     .default_open(true)
     .show(ui, |ui| {
@@ -255,7 +256,7 @@ fn draw_directional_light_section(ui: &mut egui::Ui, data: &mut DirectionalLight
     let mut changed = false;
 
     egui::CollapsingHeader::new(
-        egui::RichText::new("☀ Directional Light").strong().color(colors::TEXT_PRIMARY),
+        egui::RichText::new("Directional Light").strong().color(colors::TEXT_PRIMARY),
     )
     .default_open(true)
     .show(ui, |ui| {
@@ -298,7 +299,7 @@ fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>
 
     ui.horizontal(|ui| {
         ui.collapsing(
-            egui::RichText::new("⚙ Physics").strong().color(colors::TEXT_PRIMARY),
+            egui::RichText::new("Physics").strong().color(colors::TEXT_PRIMARY),
             |ui| {
                 ui.add_space(4.0);
 
@@ -345,7 +346,7 @@ fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>
     action
 }
 
-/// Draw the component inspector panel using bevy-inspector-egui
+/// Draw the component inspector panel
 fn draw_inspector_panel(world: &mut World) {
     // Query for all selected entities
     let selected_entities: Vec<Entity> = {
@@ -492,7 +493,7 @@ fn draw_inspector_panel(world: &mut World) {
                                 .color(colors::TEXT_MUTED),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.checkbox(&mut is_locked, "🔒");
+                            ui.checkbox(&mut is_locked, "Locked");
                         });
                     });
 
@@ -505,7 +506,6 @@ fn draw_inspector_panel(world: &mut World) {
                         if is_locked {
                             ui.add_space(8.0);
                             ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("🔒").size(16.0));
                                 ui.label(
                                     egui::RichText::new("Entity is locked")
                                         .color(colors::TEXT_MUTED)
@@ -567,13 +567,13 @@ fn draw_inspector_panel(world: &mut World) {
                         ui.separator();
                         ui.add_space(4.0);
 
-                        // Other components via bevy-inspector-egui (hidden by default)
+                        // Show all components via reflection
                         egui::CollapsingHeader::new(
-                            egui::RichText::new("Show All Components").color(colors::TEXT_SECONDARY),
+                            egui::RichText::new("All Components").color(colors::TEXT_SECONDARY),
                         )
                         .default_open(false)
                         .show(ui, |ui| {
-                            ui_for_entity(world, entity, ui);
+                            draw_all_components(world, entity, ui);
                         });
                     });
                 }
@@ -715,5 +715,74 @@ fn draw_inspector_panel(world: &mut World) {
     // Draw component browser window if open
     if let Some((entity, type_id)) = draw_component_browser(world, &ctx) {
         add_component_by_type_id(world, entity, type_id);
+    }
+}
+
+/// Draw all components on an entity using reflection
+fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry_guard = type_registry.read();
+
+    // Collect component type IDs for this entity
+    let mut component_ids: Vec<(TypeId, String)> = {
+        let entity_ref = world.entity(entity);
+        let archetype = entity_ref.archetype();
+
+        archetype
+            .components()
+            .iter()
+            .filter_map(|&component_id| {
+                let component_info = world.components().get_info(component_id)?;
+                let type_id = component_info.type_id()?;
+
+                // Check if this type is registered for reflection
+                let registration = type_registry_guard.get(type_id)?;
+
+                // Check if it has ReflectComponent
+                if registration.data::<ReflectComponent>().is_none() {
+                    return None;
+                }
+
+                let short_name = registration
+                    .type_info()
+                    .type_path_table()
+                    .short_path()
+                    .to_string();
+
+                Some((type_id, short_name))
+            })
+            .collect()
+    };
+
+    // Sort components alphabetically by name
+    component_ids.sort_by(|a, b| a.1.cmp(&b.1));
+
+    drop(type_registry_guard);
+
+    if component_ids.is_empty() {
+        ui.label(
+            egui::RichText::new("No reflectable components")
+                .color(colors::TEXT_MUTED)
+                .italics(),
+        );
+        return;
+    }
+
+    let config = ReflectEditorConfig::default();
+
+    for (type_id, name) in component_ids {
+        // Skip components we already have custom editors for
+        if name == "Transform"
+            || name == "SceneLightMarker"
+            || name == "DirectionalLightMarker"
+            || name == "RigidBody"
+        {
+            continue;
+        }
+
+        ui.add_space(2.0);
+
+        // Draw the component using reflection
+        component_editor(world, entity, type_id, ui, &config);
     }
 }
