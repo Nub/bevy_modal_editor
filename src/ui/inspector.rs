@@ -148,43 +148,65 @@ fn draw_transform_section(ui: &mut egui::Ui, transform: &mut Transform) -> bool 
     changed
 }
 
-/// Draw a RigidBody type selector, returns Some(new_type) if changed
+/// Result of drawing a removable component section
+enum ComponentAction<T> {
+    None,
+    Update(T),
+    Remove,
+}
+
+/// Draw a RigidBody type selector with remove button
 /// current_type is None if entities have mixed types
-fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>) -> Option<RigidBodyType> {
-    let mut new_type = None;
+fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>) -> ComponentAction<RigidBodyType> {
+    let mut action = ComponentAction::None;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("⚙ Physics").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.collapsing(
+            egui::RichText::new("⚙ Physics").strong().color(colors::TEXT_PRIMARY),
+            |ui| {
+                ui.add_space(4.0);
 
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Body Type").color(colors::TEXT_SECONDARY));
-        });
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Body Type").color(colors::TEXT_SECONDARY));
+                });
 
-        let display_text = current_type.map(|t| t.label()).unwrap_or("Mixed");
+                let display_text = current_type.map(|t| t.label()).unwrap_or("Mixed");
 
-        egui::ComboBox::from_id_salt("rigidbody_type")
-            .selected_text(display_text)
-            .show_ui(ui, |ui| {
-                for rb_type in RigidBodyType::ALL {
-                    if ui.selectable_value(&mut new_type, Some(rb_type), rb_type.label()).clicked() {
-                        // Only set if different from current
-                        if current_type != Some(rb_type) {
-                            new_type = Some(rb_type);
-                        } else {
-                            new_type = None;
+                let mut new_type = None;
+                egui::ComboBox::from_id_salt("rigidbody_type")
+                    .selected_text(display_text)
+                    .show_ui(ui, |ui| {
+                        for rb_type in RigidBodyType::ALL {
+                            if ui.selectable_value(&mut new_type, Some(rb_type), rb_type.label()).clicked() {
+                                // Only set if different from current
+                                if current_type != Some(rb_type) {
+                                    new_type = Some(rb_type);
+                                } else {
+                                    new_type = None;
+                                }
+                            }
                         }
-                    }
-                }
-            });
+                    });
 
-        ui.add_space(4.0);
+                if let Some(t) = new_type {
+                    action = ComponentAction::Update(t);
+                }
+
+                ui.add_space(4.0);
+            },
+        );
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.small_button(egui::RichText::new("✕").color(colors::TEXT_MUTED))
+                .on_hover_text("Remove Physics component")
+                .clicked()
+            {
+                action = ComponentAction::Remove;
+            }
+        });
     });
 
-    new_type
+    action
 }
 
 /// Draw the component inspector panel using bevy-inspector-egui
@@ -239,7 +261,7 @@ fn draw_inspector_panel(world: &mut World) {
     };
 
     let mut transform_changed = false;
-    let mut new_rigidbody_type: Option<RigidBodyType> = None;
+    let mut rigidbody_action: ComponentAction<RigidBodyType> = ComponentAction::None;
 
     let panel_response = egui::SidePanel::right("inspector_panel")
         .default_width(300.0)
@@ -321,7 +343,7 @@ fn draw_inspector_panel(world: &mut World) {
 
                         // RigidBody type selector (only if entity has RigidBody)
                         if has_rigidbodies {
-                            new_rigidbody_type = draw_rigidbody_section(ui, common_rigidbody_type);
+                            rigidbody_action = draw_rigidbody_section(ui, common_rigidbody_type);
                             ui.add_space(4.0);
                         }
 
@@ -366,7 +388,7 @@ fn draw_inspector_panel(world: &mut World) {
                                 .color(colors::TEXT_MUTED),
                             );
                             ui.add_space(4.0);
-                            new_rigidbody_type = draw_rigidbody_section(ui, common_rigidbody_type);
+                            rigidbody_action = draw_rigidbody_section(ui, common_rigidbody_type);
                         } else {
                             ui.label(
                                 egui::RichText::new("No shared properties to edit")
@@ -397,12 +419,20 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
-    // Apply RigidBody type change to all selected entities with RigidBody
-    if let Some(new_type) = new_rigidbody_type {
-        for (entity, _) in &rigidbody_types {
-            world.entity_mut(*entity).remove::<RigidBody>();
-            world.entity_mut(*entity).insert(new_type.to_rigid_body());
+    // Apply RigidBody changes to all selected entities with RigidBody
+    match rigidbody_action {
+        ComponentAction::Update(new_type) => {
+            for (entity, _) in &rigidbody_types {
+                world.entity_mut(*entity).remove::<RigidBody>();
+                world.entity_mut(*entity).insert(new_type.to_rigid_body());
+            }
         }
+        ComponentAction::Remove => {
+            for (entity, _) in &rigidbody_types {
+                world.entity_mut(*entity).remove::<RigidBody>();
+            }
+        }
+        ComponentAction::None => {}
     }
 
     // Update the panel state resource with the actual panel width
