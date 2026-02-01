@@ -43,7 +43,8 @@ fn draw_hierarchy_panel(
     mut hierarchy_state: ResMut<HierarchyState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
-    let selected_entity = selected.single().ok();
+    let selected_entities: HashSet<Entity> = selected.iter().collect();
+    let shift_held = ctx.input(|i| i.modifiers.shift);
 
     egui::SidePanel::left("hierarchy_panel")
         .default_width(200.0)
@@ -90,7 +91,8 @@ fn draw_hierarchy_panel(
                         primitive,
                         light.is_some(),
                         0,
-                        selected_entity,
+                        &selected_entities,
+                        shift_held,
                         &scene_entities,
                         &mut commands,
                         &selected,
@@ -145,7 +147,8 @@ fn draw_entity_row(
     primitive: Option<&PrimitiveMarker>,
     is_light: bool,
     depth: usize,
-    selected_entity: Option<Entity>,
+    selected_entities: &HashSet<Entity>,
+    shift_held: bool,
     scene_entities: &Query<
         (
             Entity,
@@ -166,7 +169,7 @@ fn draw_entity_row(
         .map(|n| n.as_str().to_string())
         .unwrap_or_else(|| format!("Entity {:?}", entity));
 
-    let is_selected = selected_entity == Some(entity);
+    let is_selected = selected_entities.contains(&entity);
 
     // Get scene entity children and sort alphabetically
     let mut scene_children: Vec<_> = children
@@ -215,12 +218,20 @@ fn draw_entity_row(
                     .stroke(egui::Stroke::NONE);
 
                 if ui.add(button).clicked() {
-                    // Clear previous selection
-                    for selected_e in selected_query.iter() {
-                        commands.entity(selected_e).remove::<Selected>();
+                    if shift_held {
+                        // Toggle selection
+                        if is_selected {
+                            commands.entity(entity).remove::<Selected>();
+                        } else {
+                            commands.entity(entity).insert(Selected);
+                        }
+                    } else {
+                        // Clear previous selection and select only this entity
+                        for selected_e in selected_query.iter() {
+                            commands.entity(selected_e).remove::<Selected>();
+                        }
+                        commands.entity(entity).insert(Selected);
                     }
-                    // Select this entity
-                    commands.entity(entity).insert(Selected);
                 }
             })
             .body(|ui| {
@@ -237,7 +248,8 @@ fn draw_entity_row(
                             child_prim,
                             child_light.is_some(),
                             depth + 1,
-                            selected_entity,
+                            selected_entities,
+                            shift_held,
                             scene_entities,
                             commands,
                             selected_query,
@@ -270,12 +282,20 @@ fn draw_entity_row(
                 .stroke(egui::Stroke::NONE);
 
             if ui.add(button).clicked() {
-                // Clear previous selection
-                for selected_e in selected_query.iter() {
-                    commands.entity(selected_e).remove::<Selected>();
+                if shift_held {
+                    // Toggle selection
+                    if is_selected {
+                        commands.entity(entity).remove::<Selected>();
+                    } else {
+                        commands.entity(entity).insert(Selected);
+                    }
+                } else {
+                    // Clear previous selection and select only this entity
+                    for selected_e in selected_query.iter() {
+                        commands.entity(selected_e).remove::<Selected>();
+                    }
+                    commands.entity(entity).insert(Selected);
                 }
-                // Select this entity
-                commands.entity(entity).insert(Selected);
             }
         });
     }
