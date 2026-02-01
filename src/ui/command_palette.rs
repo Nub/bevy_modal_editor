@@ -864,99 +864,127 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
 
     let mut should_close = false;
 
-    let max_height = ctx.content_rect().height() - 100.0;
-
     egui::Window::new("Keyboard Shortcuts")
         .collapsible(false)
         .resizable(false)
         .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .max_height(max_height)
         .show(ctx, |ui| {
-            ui.set_min_width(350.0);
+            ui.horizontal(|ui| {
+                // Column 1: Modes & Camera
+                ui.vertical(|ui| {
+                    ui.set_min_width(220.0);
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                // General
-                ui.label(egui::RichText::new("General").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                shortcut_row(ui, "C", "Open command palette");
-                shortcut_row(ui, "F", "Find object in scene");
-                shortcut_row(ui, "V", "Toggle View/Edit mode");
-                shortcut_row(ui, "I", "Enter Insert mode (from View)");
-                shortcut_row(ui, "O", "Enter Object Inspector mode (from View)");
-                shortcut_row(ui, "H", "Enter Hierarchy mode (from View)");
-                shortcut_row(ui, "Shift+key", "Change mode from any mode");
-                shortcut_row(ui, "N", "Focus name field in Inspector");
-                shortcut_row(ui, "P", "Toggle preview mode (hide gizmos)");
-                shortcut_row(ui, "Esc", "Return to View mode / Cancel");
+                    help_section(ui, "Mode Switching");
+                    shortcut_row(ui, "V", "Toggle View/Edit mode");
+                    shortcut_row(ui, "I", "Insert mode");
+                    shortcut_row(ui, "O", "Object Inspector mode");
+                    shortcut_row(ui, "H", "Hierarchy mode");
+                    shortcut_row(ui, "Shift+key", "Switch from any mode");
+                    shortcut_row(ui, "Esc", "Return to View mode");
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("View Mode - Camera").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                shortcut_row(ui, "W/A/S/D", "Move camera");
-                shortcut_row(ui, "Space/Ctrl", "Move up/down (relative)");
-                shortcut_row(ui, "Shift", "Move faster");
-                shortcut_row(ui, "Right Mouse", "Look around");
-                shortcut_row(ui, "L", "Look at selected object");
-                shortcut_row(ui, "1-9", "Jump to camera mark");
-                shortcut_row(ui, "Shift+1-9", "Set camera mark");
-                shortcut_row(ui, "`", "Jump to last position");
+                    ui.add_space(12.0);
+                    help_section(ui, "Camera (View Mode)");
+                    shortcut_row(ui, "W/A/S/D", "Move camera");
+                    shortcut_row(ui, "Space/Ctrl", "Up/down (relative)");
+                    shortcut_row(ui, "Shift", "Move faster");
+                    shortcut_row(ui, "Right Mouse", "Look around");
+                    shortcut_row(ui, "L", "Look at selected");
+                    shortcut_row(ui, "1-9", "Jump to mark");
+                    shortcut_row(ui, "Shift+1-9", "Set mark");
+                    shortcut_row(ui, "`", "Last position");
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("View Mode - Selection").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                shortcut_row(ui, "Left Click", "Select object");
-                shortcut_row(ui, "Shift+Click", "Multi-select");
-                shortcut_row(ui, "G", "Group selected objects");
-                shortcut_row(ui, "Delete", "Delete selected");
+                    ui.add_space(12.0);
+                    help_section(ui, "Selection");
+                    shortcut_row(ui, "Click", "Select object");
+                    shortcut_row(ui, "Shift+Click", "Multi-select");
+                    shortcut_row(ui, "G", "Group selected");
+                    shortcut_row(ui, "Delete", "Delete selected");
+                });
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("Hierarchy Mode (H)").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                shortcut_row(ui, "H", "Enter Hierarchy mode");
-                shortcut_row(ui, "/", "Search objects in scene");
-                shortcut_row(ui, "Drag", "Reparent to group");
-                shortcut_row(ui, "Right Click", "Select group's children");
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(16.0);
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("Object Inspector Mode (O)").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                shortcut_row(ui, "O", "Enter Object Inspector mode");
-                shortcut_row(ui, "/", "Search components on entity");
-                shortcut_row(ui, "I", "Add component to entity");
+                // Column 2: Edit Mode & Commands
+                ui.vertical(|ui| {
+                    ui.set_min_width(220.0);
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("Insert Mode").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                shortcut_row(ui, "I", "Enter Insert mode");
-                shortcut_row(ui, "Type", "Search for object to insert");
-                shortcut_row(ui, "Enter", "Select object type");
-                shortcut_row(ui, "Left Click", "Place object at cursor");
-                shortcut_row(ui, "Esc", "Cancel insertion");
+                    help_section(ui, "Edit Mode - Transform");
+                    shortcut_row(ui, "Q", "Translate");
+                    shortcut_row(ui, "W", "Rotate");
+                    shortcut_row(ui, "E", "Scale");
+                    shortcut_row(ui, "R", "Place (raycast)");
+                    shortcut_row(ui, "A/S/D", "Constrain X/Y/Z");
+                    shortcut_row(ui, "J/K", "Step -/+");
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("Edit Mode - Transform").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                shortcut_row(ui, "Q", "Translate tool");
-                shortcut_row(ui, "W", "Rotate tool");
-                shortcut_row(ui, "E", "Scale tool");
-                shortcut_row(ui, "R", "Place tool (raycast)");
-                shortcut_row(ui, "A", "Constrain to X axis");
-                shortcut_row(ui, "S", "Constrain to Y axis");
-                shortcut_row(ui, "D", "Constrain to Z axis");
-                shortcut_row(ui, "J/K", "Step transform -/+");
+                    ui.add_space(12.0);
+                    help_section(ui, "Insert Mode (I)");
+                    shortcut_row(ui, "Type", "Search objects");
+                    shortcut_row(ui, "Enter", "Select type");
+                    shortcut_row(ui, "Click", "Place object");
+                    shortcut_row(ui, "Shift+Click", "Place multiple");
+                    shortcut_row(ui, "Esc", "Cancel");
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("Undo/Redo").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                shortcut_row(ui, "U", "Undo");
-                shortcut_row(ui, "Ctrl+R", "Redo");
+                    ui.add_space(12.0);
+                    help_section(ui, "Commands");
+                    shortcut_row(ui, "C", "Command palette");
+                    shortcut_row(ui, "F", "Find object");
+                    shortcut_row(ui, "U", "Undo");
+                    shortcut_row(ui, "Ctrl+R", "Redo");
+                    shortcut_row(ui, "P", "Preview mode");
+                    shortcut_row(ui, "Ctrl+S", "Save scene");
+                });
 
-                ui.add_space(12.0);
-                ui.label(egui::RichText::new("Components").strong().size(16.0).color(colors::TEXT_PRIMARY));
-                ui.add_space(4.0);
-                ui.label(egui::RichText::new("Use Inspector panel's 'Add Component' button").small().color(colors::TEXT_SECONDARY));
-                ui.label(egui::RichText::new("or search 'Add Component' in command palette").small().color(colors::TEXT_SECONDARY));
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(16.0);
+
+                // Column 3: Mode-specific
+                ui.vertical(|ui| {
+                    ui.set_min_width(220.0);
+
+                    help_section(ui, "Hierarchy Mode (H)");
+                    shortcut_row(ui, "/", "Search objects");
+                    shortcut_row(ui, "Drag", "Reparent to group");
+                    shortcut_row(ui, "Right Click", "Select children");
+
+                    ui.add_space(12.0);
+                    help_section(ui, "Inspector Mode (O)");
+                    shortcut_row(ui, "/", "Search components");
+                    shortcut_row(ui, "I", "Add component");
+                    shortcut_row(ui, "N", "Focus name field");
+
+                    ui.add_space(12.0);
+                    help_section(ui, "Scene File");
+                    shortcut_row(ui, "Ctrl+S", "Save");
+                    shortcut_row(ui, "Ctrl+Shift+S", "Save As");
+                    shortcut_row(ui, "Ctrl+O", "Open");
+                    shortcut_row(ui, "Ctrl+N", "New scene");
+
+                    ui.add_space(12.0);
+                    help_section(ui, "Physics");
+                    ui.label(
+                        egui::RichText::new("Use command palette (C):")
+                            .small()
+                            .color(colors::TEXT_MUTED),
+                    );
+                    ui.label(
+                        egui::RichText::new("  Toggle Physics")
+                            .small()
+                            .color(colors::TEXT_SECONDARY),
+                    );
+                    ui.label(
+                        egui::RichText::new("  Toggle Physics Debug")
+                            .small()
+                            .color(colors::TEXT_SECONDARY),
+                    );
+                    ui.label(
+                        egui::RichText::new("  Toggle Grid")
+                            .small()
+                            .color(colors::TEXT_SECONDARY),
+                    );
+                });
             });
 
             ui.add_space(8.0);
@@ -964,6 +992,11 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
             ui.add_space(4.0);
 
             ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Press ? or use command palette to open this help")
+                        .small()
+                        .color(colors::TEXT_MUTED),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Close").clicked() {
                         should_close = true;
@@ -984,10 +1017,20 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
     Ok(())
 }
 
+fn help_section(ui: &mut egui::Ui, title: &str) {
+    ui.label(
+        egui::RichText::new(title)
+            .strong()
+            .size(14.0)
+            .color(colors::TEXT_PRIMARY),
+    );
+    ui.add_space(4.0);
+}
+
 fn shortcut_row(ui: &mut egui::Ui, key: &str, description: &str) {
     ui.horizontal(|ui| {
         ui.label(
-            egui::RichText::new(key)
+            egui::RichText::new(format!("{:14}", key))
                 .monospace()
                 .strong()
                 .color(colors::ACCENT_ORANGE),
