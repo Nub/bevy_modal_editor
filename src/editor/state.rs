@@ -36,6 +36,8 @@ pub enum TransformOperation {
     Scale,
     /// Place mode (R key) - raycast-based placement like insert mode
     Place,
+    /// Snap to object (T key) - snap position and align rotation to surface
+    SnapToObject,
 }
 
 /// Axis constraint for transform operations

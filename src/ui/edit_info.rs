@@ -56,6 +56,7 @@ fn draw_edit_info_window(
                     TransformOperation::Rotate => ("Rotate", colors::ACCENT_GREEN),
                     TransformOperation::Scale => ("Scale", colors::ACCENT_ORANGE),
                     TransformOperation::Place => ("Place", colors::ACCENT_PURPLE),
+                    TransformOperation::SnapToObject => ("Snap", colors::ACCENT_PURPLE),
                     TransformOperation::None => ("", colors::TEXT_PRIMARY),
                 };
                 ui.label(egui::RichText::new(op_name).strong().color(op_color));
@@ -96,6 +97,9 @@ fn draw_edit_info_window(
                     }
                     TransformOperation::Place => {
                         ui.label(egui::RichText::new("Click to place").color(colors::TEXT_MUTED));
+                    }
+                    TransformOperation::SnapToObject => {
+                        ui.label(egui::RichText::new("Click to snap").color(colors::TEXT_MUTED));
                     }
                     TransformOperation::None => {}
                 }

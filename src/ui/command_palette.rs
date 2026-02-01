@@ -944,6 +944,7 @@ fn draw_help_window(
                     shortcut_row(ui, "W", "Rotate");
                     shortcut_row(ui, "E", "Scale");
                     shortcut_row(ui, "R", "Place (raycast)");
+                    shortcut_row(ui, "T", "Snap to surface");
                     shortcut_row(ui, "A/S/D", "Constrain X/Y/Z");
                     shortcut_row(ui, "J/K", "Step -/+");
 

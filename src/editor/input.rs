@@ -163,7 +163,7 @@ fn handle_mode_input(
     }
 
     // Transform operations only in Edit mode
-    // Q = Translate, W = Rotate, R = Place
+    // Q = Translate, W = Rotate, R = Place, T = Snap to Object
     if *current_mode.get() == EditorMode::Edit {
         if keyboard.just_pressed(KeyCode::KeyQ) {
             *transform_op = TransformOperation::Translate;
@@ -179,6 +179,15 @@ fn handle_mode_input(
                 });
             }
             *transform_op = TransformOperation::Place;
+            *axis_constraint = AxisConstraint::None;
+        } else if keyboard.just_pressed(KeyCode::KeyT) {
+            // Take snapshot before entering snap to object mode
+            if !selected.is_empty() {
+                commands.queue(TakeSnapshotCommand {
+                    description: "Snap to object".to_string(),
+                });
+            }
+            *transform_op = TransformOperation::SnapToObject;
             *axis_constraint = AxisConstraint::None;
         }
         // Axis selection (A, S, D) is handled in gizmos/transform.rs

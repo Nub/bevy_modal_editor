@@ -71,6 +71,7 @@ fn draw_status_bar(
                         TransformOperation::Rotate => "Rotate",
                         TransformOperation::Scale => "Scale",
                         TransformOperation::Place => "Place",
+                        TransformOperation::SnapToObject => "Snap",
                     };
                     if !op_text.is_empty() {
                         ui.separator();

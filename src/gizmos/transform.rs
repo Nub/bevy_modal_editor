@@ -51,6 +51,8 @@ impl Plugin for TransformGizmoPlugin {
                 handle_transform_manipulation,
                 handle_place_mode,
                 handle_place_mode_click,
+                handle_snap_to_object_mode,
+                handle_snap_to_object_click,
                 manage_editing_sleep_state,
             ),
         );
@@ -83,7 +85,7 @@ fn draw_selection_gizmos(
                 TransformOperation::Translate => draw_translate_gizmo(&mut gizmos, pos, scale, &axis_constraint),
                 TransformOperation::Rotate => draw_rotate_gizmo(&mut gizmos, pos, scale, &axis_constraint),
                 TransformOperation::Scale => draw_scale_gizmo(&mut gizmos, pos, scale, &axis_constraint),
-                TransformOperation::Place | TransformOperation::None => {}
+                TransformOperation::Place | TransformOperation::SnapToObject | TransformOperation::None => {}
             }
         }
     }
@@ -246,7 +248,7 @@ fn handle_step_keys(
                 }
                 transform.scale = transform.scale.max(Vec3::splat(0.01));
             }
-            TransformOperation::Place | TransformOperation::None => {}
+            TransformOperation::Place | TransformOperation::SnapToObject | TransformOperation::None => {}
         }
     }
 }
@@ -623,7 +625,7 @@ fn handle_transform_manipulation(
                 transform.scale = transform.scale.clamp(Vec3::splat(0.1), Vec3::splat(100.0));
             }
             // Place mode is handled separately, None means no operation
-            TransformOperation::Place | TransformOperation::None => {}
+            TransformOperation::Place | TransformOperation::SnapToObject | TransformOperation::None => {}
         }
     }
 }
@@ -641,7 +643,9 @@ fn manage_editing_sleep_state(
 ) {
     // Check if we should be in "editing" state
     let in_edit_mode = *mode.get() == EditorMode::Edit;
-    let has_transform_op = *transform_op != TransformOperation::None && *transform_op != TransformOperation::Place;
+    let has_transform_op = *transform_op != TransformOperation::None
+        && *transform_op != TransformOperation::Place
+        && *transform_op != TransformOperation::SnapToObject;
     let mouse_held = mouse_button.pressed(MouseButton::Left);
     let mouse_just_pressed = mouse_button.just_pressed(MouseButton::Left);
 
@@ -802,4 +806,147 @@ fn handle_place_mode_click(
     // Exit place mode
     *transform_op = TransformOperation::None;
     info!("Placement confirmed");
+}
+
+/// Handle snap to object mode - update position and rotation based on raycast
+/// Aligns the object so its local Y axis points along the surface normal
+fn handle_snap_to_object_mode(
+    mode: Res<State<EditorMode>>,
+    transform_op: Res<TransformOperation>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
+    spatial_query: SpatialQuery,
+    mut selected: Query<(Entity, &mut Transform), (With<Selected>, Without<Locked>)>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    mut contexts: EguiContexts,
+) {
+    // Only handle in Edit mode with SnapToObject operation
+    if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::SnapToObject {
+        return;
+    }
+
+    // Don't update when UI wants pointer input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    let Ok(window) = window_query.single() else {
+        return;
+    };
+
+    let Some(cursor_position) = window.cursor_position() else {
+        return;
+    };
+
+    // Create ray from camera through cursor position
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    // Collect selected entities for exclusion from raycast
+    let selected_entities: Vec<Entity> = selected.iter().map(|(e, _)| e).collect();
+
+    if selected_entities.is_empty() {
+        return;
+    }
+
+    // Cast ray against physics colliders (exclude selected entities)
+    let filter = SpatialQueryFilter::default().with_excluded_entities(selected_entities);
+
+    let Some(hit) = spatial_query.cast_ray(
+        ray.origin,
+        ray.direction,
+        100.0,
+        true,
+        &filter,
+    ) else {
+        // No hit - don't update position (keep object where it is)
+        return;
+    };
+
+    // Hit a surface - position on it and align to normal
+    let hit_point = ray.origin + ray.direction * hit.distance;
+    let surface_normal = hit.normal.normalize();
+
+    // Calculate rotation to align object's Y axis with surface normal
+    // This makes the object "stand" on the surface
+    let rotation = rotation_from_normal(surface_normal);
+
+    // Offset slightly along surface normal to place on top
+    let position = hit_point + surface_normal * 0.5;
+
+    // Apply to all selected entities
+    if selected.iter().count() == 1 {
+        // Single entity - apply directly
+        for (_, mut transform) in selected.iter_mut() {
+            transform.translation = position;
+            transform.rotation = rotation;
+        }
+    } else {
+        // Multiple entities - calculate center offset and apply rotation to all
+        let center: Vec3 = selected.iter().map(|(_, t)| t.translation).sum::<Vec3>()
+            / selected.iter().count() as f32;
+        let offset = position - center;
+
+        for (_, mut transform) in selected.iter_mut() {
+            transform.translation += offset;
+            transform.rotation = rotation;
+        }
+    }
+}
+
+/// Calculate a rotation quaternion that aligns the local Y axis with the given normal
+fn rotation_from_normal(normal: Vec3) -> Quat {
+    let up = Vec3::Y;
+
+    // Handle the case where normal is nearly parallel to Y axis
+    if normal.dot(up).abs() > 0.999 {
+        // Normal is nearly vertical
+        if normal.y > 0.0 {
+            // Pointing up - identity rotation
+            Quat::IDENTITY
+        } else {
+            // Pointing down - rotate 180 degrees around X or Z
+            Quat::from_rotation_x(std::f32::consts::PI)
+        }
+    } else {
+        // General case: rotate from Y axis to the normal
+        Quat::from_rotation_arc(up, normal)
+    }
+}
+
+/// Handle click to confirm snap to object mode
+fn handle_snap_to_object_click(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mode: Res<State<EditorMode>>,
+    mut transform_op: ResMut<TransformOperation>,
+    mut contexts: EguiContexts,
+) {
+    // Only handle in Edit mode with SnapToObject operation
+    if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::SnapToObject {
+        return;
+    }
+
+    // Confirm on left click
+    if !mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Don't confirm if clicking on UI
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    // Snapshot was already taken when entering snap mode (T key)
+
+    // Exit snap to object mode
+    *transform_op = TransformOperation::None;
+    info!("Snap to object confirmed");
 }
