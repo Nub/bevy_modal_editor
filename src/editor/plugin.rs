@@ -1,5 +1,6 @@
 use avian3d::debug_render::PhysicsDebugPlugin;
-use avian3d::prelude::PhysicsPlugins;
+use avian3d::prelude::{Physics, PhysicsPlugins};
+use avian3d::schedule::PhysicsTime;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::DefaultInspectorConfigPlugin;
@@ -44,7 +45,7 @@ impl Plugin for EditorPlugin {
             // UI
             .add_plugins(UiPlugin)
             // Setup
-            .add_systems(Startup, setup_editor_scene);
+            .add_systems(Startup, (setup_editor_scene, pause_physics_on_startup));
     }
 }
 
@@ -56,5 +57,11 @@ fn setup_editor_scene(mut commands: Commands) {
         brightness: 300.0,
         affects_lightmapped_meshes: true,
     });
+}
+
+/// Pause physics simulation on startup
+fn pause_physics_on_startup(mut physics_time: ResMut<Time<Physics>>) {
+    physics_time.pause();
+    info!("Physics simulation: PAUSED (default)");
 }
 
