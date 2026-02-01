@@ -1,6 +1,7 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
+use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
@@ -29,6 +30,36 @@ pub struct SceneErrorDialog {
     pub open: bool,
     pub title: String,
     pub message: String,
+}
+
+/// Resource to track the current scene file and modification state
+#[derive(Resource, Default)]
+pub struct SceneFile {
+    /// Path to the current scene file (None if untitled/new)
+    pub path: Option<String>,
+    /// Whether the scene has unsaved modifications
+    pub modified: bool,
+}
+
+impl SceneFile {
+    /// Get the display name for the current file
+    pub fn display_name(&self) -> &str {
+        self.path
+            .as_ref()
+            .and_then(|p| Path::new(p).file_name())
+            .and_then(|n| n.to_str())
+            .unwrap_or("Untitled")
+    }
+
+    /// Mark the scene as modified
+    pub fn mark_modified(&mut self) {
+        self.modified = true;
+    }
+
+    /// Clear the modified flag (called after save)
+    pub fn clear_modified(&mut self) {
+        self.modified = false;
+    }
 }
 
 /// Sidecar data for editor-specific metadata (camera marks, etc.)
@@ -99,9 +130,18 @@ pub struct SerializationPlugin;
 impl Plugin for SerializationPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SceneErrorDialog>()
+            .init_resource::<SceneFile>()
             .add_message::<SaveSceneEvent>()
             .add_message::<LoadSceneEvent>()
-            .add_systems(Update, (handle_save_scene, handle_load_scene))
+            .add_systems(
+                Update,
+                (
+                    handle_save_scene,
+                    handle_load_scene,
+                    detect_scene_changes,
+                    update_window_title,
+                ),
+            )
             .add_systems(EguiPrimaryContextPass, draw_error_dialog);
     }
 }
@@ -180,6 +220,12 @@ impl Command for SaveSceneCommand {
                     ron::ser::to_string_pretty(&metadata, ron::ser::PrettyConfig::default())
                 {
                     let _ = fs::write(&metadata_path, metadata_str);
+                }
+
+                // Update SceneFile resource
+                if let Some(mut scene_file) = world.get_resource_mut::<SceneFile>() {
+                    scene_file.path = Some(self.path.clone());
+                    scene_file.clear_modified();
                 }
 
                 info!("Scene saved to: {}", self.path);
@@ -302,6 +348,12 @@ impl Command for LoadSceneCommand {
 
         // Regenerate meshes and materials from PrimitiveMarker
         regenerate_meshes(world);
+
+        // Update SceneFile resource
+        if let Some(mut scene_file) = world.get_resource_mut::<SceneFile>() {
+            scene_file.path = Some(self.path.clone());
+            scene_file.clear_modified();
+        }
 
         let scene_name = Path::new(&self.path)
             .file_stem()
@@ -432,4 +484,54 @@ fn draw_error_dialog(
             }
         });
     Ok(())
+}
+
+/// Detect changes to scene entities and mark scene as modified
+fn detect_scene_changes(
+    mut scene_file: ResMut<SceneFile>,
+    changed_transforms: Query<(), (With<SceneEntity>, Changed<Transform>)>,
+    changed_names: Query<(), (With<SceneEntity>, Changed<Name>)>,
+    changed_primitives: Query<(), (With<SceneEntity>, Changed<PrimitiveMarker>)>,
+    changed_lights: Query<(), (With<SceneEntity>, Changed<SceneLightMarker>)>,
+    changed_bodies: Query<(), (With<SceneEntity>, Changed<RigidBody>)>,
+    added_entities: Query<(), Added<SceneEntity>>,
+    mut removed_entities: RemovedComponents<SceneEntity>,
+) {
+    // Skip if already modified
+    if scene_file.modified {
+        return;
+    }
+
+    // Check for any changes
+    let has_changes = !changed_transforms.is_empty()
+        || !changed_names.is_empty()
+        || !changed_primitives.is_empty()
+        || !changed_lights.is_empty()
+        || !changed_bodies.is_empty()
+        || !added_entities.is_empty()
+        || removed_entities.read().next().is_some();
+
+    if has_changes {
+        scene_file.mark_modified();
+    }
+}
+
+/// Update the window title to reflect current file and modification state
+fn update_window_title(
+    scene_file: Res<SceneFile>,
+    mut window_query: Query<&mut Window, With<PrimaryWindow>>,
+) {
+    // Only update when SceneFile changes
+    if !scene_file.is_changed() {
+        return;
+    }
+
+    let Ok(mut window) = window_query.single_mut() else {
+        return;
+    };
+
+    let file_name = scene_file.display_name();
+    let modified_indicator = if scene_file.modified { " *" } else { "" };
+
+    window.title = format!("Bevy Avian3D Editor - {}{}", file_name, modified_indicator);
 }
