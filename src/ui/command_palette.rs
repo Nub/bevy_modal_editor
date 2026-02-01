@@ -744,63 +744,76 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
 
     let mut should_close = false;
 
+    let max_height = ctx.content_rect().height() - 100.0;
+
     egui::Window::new("Keyboard Shortcuts")
         .collapsible(false)
         .resizable(false)
         .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .max_height(max_height)
         .show(ctx, |ui| {
             ui.set_min_width(350.0);
 
-            // General
-            ui.label(egui::RichText::new("General").strong().size(16.0).color(colors::TEXT_PRIMARY));
-            ui.add_space(4.0);
-            shortcut_row(ui, "C", "Open command palette");
-            shortcut_row(ui, "F", "Find object in scene");
-            shortcut_row(ui, "V", "Toggle View/Edit mode");
-            shortcut_row(ui, "I", "Enter Insert mode");
-            shortcut_row(ui, "Esc", "Return to View mode / Cancel");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                // General
+                ui.label(egui::RichText::new("General").strong().size(16.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                shortcut_row(ui, "C", "Open command palette");
+                shortcut_row(ui, "F or /", "Find object in scene");
+                shortcut_row(ui, "V", "Toggle View/Edit mode");
+                shortcut_row(ui, "I", "Enter Insert mode");
+                shortcut_row(ui, "N", "Focus name field in Inspector");
+                shortcut_row(ui, "Esc", "Return to View mode / Cancel");
 
-            ui.add_space(12.0);
-            ui.label(egui::RichText::new("View Mode - Camera").strong().size(16.0).color(colors::TEXT_PRIMARY));
-            ui.add_space(4.0);
-            shortcut_row(ui, "W/A/S/D", "Move camera");
-            shortcut_row(ui, "Space/Ctrl", "Move up/down");
-            shortcut_row(ui, "Shift", "Move faster");
-            shortcut_row(ui, "Right Mouse", "Look around");
-            shortcut_row(ui, "1-9", "Jump to camera mark");
-            shortcut_row(ui, "Shift+1-9", "Set camera mark");
-            shortcut_row(ui, "`", "Jump to last position");
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("View Mode - Camera").strong().size(16.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                shortcut_row(ui, "W/A/S/D", "Move camera");
+                shortcut_row(ui, "Space/Ctrl", "Move up/down");
+                shortcut_row(ui, "Shift", "Move faster");
+                shortcut_row(ui, "Right Mouse", "Look around");
+                shortcut_row(ui, "L", "Look at selected object");
+                shortcut_row(ui, "1-9", "Jump to camera mark");
+                shortcut_row(ui, "Shift+1-9", "Set camera mark");
+                shortcut_row(ui, "`", "Jump to last position");
 
-            ui.add_space(12.0);
-            ui.label(egui::RichText::new("View Mode - Selection").strong().size(16.0).color(colors::TEXT_PRIMARY));
-            ui.add_space(4.0);
-            shortcut_row(ui, "Left Click", "Select object");
-            shortcut_row(ui, "Shift+Click", "Multi-select");
-            shortcut_row(ui, "G", "Group selected objects");
-            shortcut_row(ui, "Delete", "Delete selected");
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("View Mode - Selection").strong().size(16.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                shortcut_row(ui, "Left Click", "Select object");
+                shortcut_row(ui, "Shift+Click", "Multi-select");
+                shortcut_row(ui, "G", "Group selected objects");
+                shortcut_row(ui, "Delete", "Delete selected");
 
-            ui.add_space(12.0);
-            ui.label(egui::RichText::new("Insert Mode").strong().size(16.0).color(colors::TEXT_PRIMARY));
-            ui.add_space(4.0);
-            shortcut_row(ui, "I", "Enter Insert mode");
-            shortcut_row(ui, "Type", "Search for object to insert");
-            shortcut_row(ui, "Enter", "Select object type");
-            shortcut_row(ui, "Left Click", "Place object at cursor");
-            shortcut_row(ui, "Esc", "Cancel insertion");
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Scene Panel").strong().size(16.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                shortcut_row(ui, "Drag", "Reparent to group");
+                shortcut_row(ui, "Right Click", "Select group's children");
 
-            ui.add_space(12.0);
-            ui.label(egui::RichText::new("Edit Mode - Transform").strong().size(16.0).color(colors::TEXT_PRIMARY));
-            ui.add_space(4.0);
-            shortcut_row(ui, "Q", "Translate tool");
-            shortcut_row(ui, "W", "Rotate tool");
-            shortcut_row(ui, "E", "Scale tool");
-            shortcut_row(ui, "A", "Constrain to X axis");
-            shortcut_row(ui, "S", "Constrain to Y axis");
-            shortcut_row(ui, "D", "Constrain to Z axis");
-            shortcut_row(ui, "J/K", "Step transform -/+");
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Insert Mode").strong().size(16.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                shortcut_row(ui, "I", "Enter Insert mode");
+                shortcut_row(ui, "Type", "Search for object to insert");
+                shortcut_row(ui, "Enter", "Select object type");
+                shortcut_row(ui, "Left Click", "Place object at cursor");
+                shortcut_row(ui, "Esc", "Cancel insertion");
 
-            ui.add_space(16.0);
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Edit Mode - Transform").strong().size(16.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                shortcut_row(ui, "Q", "Translate tool");
+                shortcut_row(ui, "W", "Rotate tool");
+                shortcut_row(ui, "E", "Scale tool");
+                shortcut_row(ui, "A", "Constrain to X axis");
+                shortcut_row(ui, "S", "Constrain to Y axis");
+                shortcut_row(ui, "D", "Constrain to Z axis");
+                shortcut_row(ui, "J/K", "Step transform -/+");
+            });
+
+            ui.add_space(8.0);
             ui.separator();
             ui.add_space(4.0);
 
