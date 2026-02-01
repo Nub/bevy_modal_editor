@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use super::EditorMode;
+use crate::selection::Selected;
 use crate::ui::Settings;
 
 /// Minimum FOV before switching to orthographic (in degrees)
@@ -16,11 +17,14 @@ const ORTHO_SCALE: f32 = 10.0;
 
 pub struct EditorCameraPlugin;
 
+/// Minimum distance from target when looking at an object
+const LOOK_AT_MIN_DISTANCE: f32 = 5.0;
+
 impl Plugin for EditorCameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SetCameraPresetEvent>()
             .add_systems(Startup, spawn_editor_camera)
-            .add_systems(Update, (camera_look, camera_movement, camera_zoom, handle_camera_preset));
+            .add_systems(Update, (camera_look, camera_movement, camera_zoom, handle_camera_preset, look_at_selected));
     }
 }
 
@@ -285,5 +289,64 @@ fn handle_camera_preset(
             transform.translation = position;
             transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
         }
+    }
+}
+
+/// Look at the currently selected object when L is pressed
+fn look_at_selected(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    selected_query: Query<&Transform, (With<Selected>, Without<EditorCamera>)>,
+    mut camera_query: Query<(&mut FlyCamera, &mut Transform), With<EditorCamera>>,
+    mut contexts: EguiContexts,
+) {
+    // Don't trigger when UI wants keyboard input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
+    if !keyboard.just_pressed(KeyCode::KeyL) {
+        return;
+    }
+
+    // Get the selected entity's position
+    let Ok(selected_transform) = selected_query.single() else {
+        return;
+    };
+    let target = selected_transform.translation;
+
+    for (mut fly_cam, mut camera_transform) in &mut camera_query {
+        let camera_pos = camera_transform.translation;
+        let distance = camera_pos.distance(target);
+
+        // If too close, back up to minimum distance
+        let new_pos = if distance < LOOK_AT_MIN_DISTANCE {
+            // Get direction from target to camera (or use a default if we're exactly on target)
+            let dir = if distance > 0.001 {
+                (camera_pos - target).normalize()
+            } else {
+                Vec3::new(0.0, 0.5, 1.0).normalize() // Default direction if on target
+            };
+            target + dir * LOOK_AT_MIN_DISTANCE
+        } else {
+            camera_pos
+        };
+
+        camera_transform.translation = new_pos;
+
+        // Calculate yaw and pitch to look at target
+        let look_dir = (target - new_pos).normalize();
+
+        // Yaw is the angle in the XZ plane
+        fly_cam.yaw = (-look_dir.x).atan2(-look_dir.z);
+
+        // Pitch is the angle from horizontal
+        fly_cam.pitch = (-look_dir.y).asin().clamp(
+            -std::f32::consts::FRAC_PI_2 + 0.1,
+            std::f32::consts::FRAC_PI_2 - 0.1,
+        );
+
+        camera_transform.rotation = Quat::from_euler(EulerRot::YXZ, fly_cam.yaw, fly_cam.pitch, 0.0);
     }
 }
