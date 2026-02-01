@@ -391,11 +391,6 @@ fn draw_draggable_button(
 
     let response = ui.add(button);
 
-    // Skip selection/drag for locked entities
-    if is_locked {
-        return response;
-    }
-
     // Handle right-click on groups to select all children
     if response.secondary_clicked() && is_group && !children.is_empty() {
         // Clear previous selection
@@ -423,8 +418,8 @@ fn draw_draggable_button(
         }
     }
 
-    // Handle drag
-    if response.drag_started() {
+    // Handle drag (locked items cannot be dragged)
+    if response.drag_started() && !is_locked {
         ui.ctx().memory_mut(|mem| {
             mem.data.insert_temp(egui::Id::NULL, DragPayload(entity));
         });

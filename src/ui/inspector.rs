@@ -498,33 +498,57 @@ fn draw_inspector_panel(world: &mut World) {
                     ui.add_space(4.0);
 
                     egui::ScrollArea::vertical().show(ui, |ui| {
-                        // Custom Transform section with colored labels
-                        if let Some(ref mut transform) = transform_copy {
-                            transform_changed = draw_transform_section(ui, transform);
-                        }
-
-                        ui.add_space(4.0);
-
-                        // RigidBody type selector (only if entity has RigidBody)
-                        if has_rigidbodies {
-                            rigidbody_action = draw_rigidbody_section(ui, common_rigidbody_type);
+                        // Show locked message if entity is locked
+                        if is_locked {
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("🔒").size(16.0));
+                                ui.label(
+                                    egui::RichText::new("Entity is locked")
+                                        .color(colors::TEXT_MUTED)
+                                        .italics(),
+                                );
+                            });
+                            ui.add_space(4.0);
+                            ui.label(
+                                egui::RichText::new("Unlock to edit properties")
+                                    .small()
+                                    .color(colors::TEXT_MUTED),
+                            );
+                            ui.add_space(8.0);
+                            ui.separator();
                             ui.add_space(4.0);
                         }
 
-                        // Point light properties
-                        if let Some(ref mut data) = point_light_data {
-                            point_light_changed = draw_point_light_section(ui, data);
+                        // Custom Transform section with colored labels (disabled if locked)
+                        if !is_locked {
+                            if let Some(ref mut transform) = transform_copy {
+                                transform_changed = draw_transform_section(ui, transform);
+                            }
+
+                            ui.add_space(4.0);
+
+                            // RigidBody type selector (only if entity has RigidBody)
+                            if has_rigidbodies {
+                                rigidbody_action = draw_rigidbody_section(ui, common_rigidbody_type);
+                                ui.add_space(4.0);
+                            }
+
+                            // Point light properties
+                            if let Some(ref mut data) = point_light_data {
+                                point_light_changed = draw_point_light_section(ui, data);
+                                ui.add_space(4.0);
+                            }
+
+                            // Directional light properties
+                            if let Some(ref mut data) = directional_light_data {
+                                directional_light_changed = draw_directional_light_section(ui, data);
+                                ui.add_space(4.0);
+                            }
+
+                            ui.separator();
                             ui.add_space(4.0);
                         }
-
-                        // Directional light properties
-                        if let Some(ref mut data) = directional_light_data {
-                            directional_light_changed = draw_directional_light_section(ui, data);
-                            ui.add_space(4.0);
-                        }
-
-                        ui.separator();
-                        ui.add_space(4.0);
 
                         // Other components via bevy-inspector-egui (hidden by default)
                         egui::CollapsingHeader::new(
