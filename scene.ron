@@ -1,0 +1,597 @@
+(
+  resources: {},
+  entities: {
+    // Ground Platform
+    1: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Plane),
+        "bevy_ecs::name::Name": "Ground",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (10.0, 1.0, 10.0),
+        ),
+      },
+    ),
+
+    // Central Tower Base
+    2: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Tower Base",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (2.0, 1.0, 2.0),
+        ),
+      },
+    ),
+
+    // Central Tower Middle
+    3: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Tower Middle",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 2.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.5, 2.0, 1.5),
+        ),
+      },
+    ),
+
+    // Central Tower Top
+    4: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Sphere),
+        "bevy_ecs::name::Name": "Tower Dome",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 4.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.8, 1.2, 1.8),
+        ),
+      },
+    ),
+
+    // Corner Pillar - Front Left
+    5: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Pillar FL",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 1.5, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.8, 3.0, 0.8),
+        ),
+      },
+    ),
+
+    // Corner Pillar - Front Right
+    6: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Pillar FR",
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 1.5, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.8, 3.0, 0.8),
+        ),
+      },
+    ),
+
+    // Corner Pillar - Back Left
+    7: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Pillar BL",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 1.5, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.8, 3.0, 0.8),
+        ),
+      },
+    ),
+
+    // Corner Pillar - Back Right
+    8: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Pillar BR",
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 1.5, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.8, 3.0, 0.8),
+        ),
+      },
+    ),
+
+    // Pillar Top Spheres
+    9: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Sphere),
+        "bevy_ecs::name::Name": "Orb FL",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 3.5, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.6, 0.6, 0.6),
+        ),
+      },
+    ),
+
+    10: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Sphere),
+        "bevy_ecs::name::Name": "Orb FR",
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 3.5, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.6, 0.6, 0.6),
+        ),
+      },
+    ),
+
+    11: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Sphere),
+        "bevy_ecs::name::Name": "Orb BL",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 3.5, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.6, 0.6, 0.6),
+        ),
+      },
+    ),
+
+    12: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Sphere),
+        "bevy_ecs::name::Name": "Orb BR",
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 3.5, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.6, 0.6, 0.6),
+        ),
+      },
+    ),
+
+    // Archway Left
+    13: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Arch Left Post",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-3.0, 1.25, -8.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.5, 2.5, 0.5),
+        ),
+      },
+    ),
+
+    // Archway Right
+    14: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Arch Right Post",
+        "bevy_transform::components::transform::Transform": (
+          translation: (3.0, 1.25, -8.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.5, 2.5, 0.5),
+        ),
+      },
+    ),
+
+    // Archway Top
+    15: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Arch Top",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 3.0, -8.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (7.0, 0.5, 0.5),
+        ),
+      },
+    ),
+
+    // Floating Capsules - decorative elements
+    16: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Capsule),
+        "bevy_ecs::name::Name": "Float Crystal 1",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-4.0, 2.0, 0.0),
+          rotation: (0.0, 0.383, 0.0, 0.924),
+          scale: (0.4, 1.5, 0.4),
+        ),
+      },
+    ),
+
+    17: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Capsule),
+        "bevy_ecs::name::Name": "Float Crystal 2",
+        "bevy_transform::components::transform::Transform": (
+          translation: (4.0, 2.5, 0.0),
+          rotation: (0.0, -0.383, 0.0, 0.924),
+          scale: (0.4, 1.5, 0.4),
+        ),
+      },
+    ),
+
+    18: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Capsule),
+        "bevy_ecs::name::Name": "Float Crystal 3",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 3.0, 4.0),
+          rotation: (0.259, 0.0, 0.0, 0.966),
+          scale: (0.4, 1.5, 0.4),
+        ),
+      },
+    ),
+
+    // Stepped Platform - stairs
+    19: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Step 1",
+        "bevy_transform::components::transform::Transform": (
+          translation: (8.0, 0.25, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (2.0, 0.5, 2.0),
+        ),
+      },
+    ),
+
+    20: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Step 2",
+        "bevy_transform::components::transform::Transform": (
+          translation: (10.0, 0.75, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (2.0, 0.5, 2.0),
+        ),
+      },
+    ),
+
+    21: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Step 3",
+        "bevy_transform::components::transform::Transform": (
+          translation: (12.0, 1.25, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (2.0, 0.5, 2.0),
+        ),
+      },
+    ),
+
+    // Ramp
+    22: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Ramp",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-8.0, 0.75, 0.0),
+          rotation: (0.0, 0.0, 0.259, 0.966),
+          scale: (4.0, 0.3, 2.0),
+        ),
+      },
+    ),
+
+    // Scattered Spheres
+    23: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Sphere),
+        "bevy_ecs::name::Name": "Boulder 1",
+        "bevy_transform::components::transform::Transform": (
+          translation: (3.0, 0.4, 5.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.8, 0.8, 0.8),
+        ),
+      },
+    ),
+
+    24: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Sphere),
+        "bevy_ecs::name::Name": "Boulder 2",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-2.0, 0.3, 7.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.6, 0.6, 0.6),
+        ),
+      },
+    ),
+
+    25: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Sphere),
+        "bevy_ecs::name::Name": "Boulder 3",
+        "bevy_transform::components::transform::Transform": (
+          translation: (5.0, 0.5, 3.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+
+    // Ring of small cylinders around tower
+    26: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Pillar Ring 1",
+        "bevy_transform::components::transform::Transform": (
+          translation: (3.0, 0.4, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 0.8, 0.3),
+        ),
+      },
+    ),
+
+    27: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Pillar Ring 2",
+        "bevy_transform::components::transform::Transform": (
+          translation: (2.12, 0.4, 2.12),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 0.8, 0.3),
+        ),
+      },
+    ),
+
+    28: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Pillar Ring 3",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.4, 3.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 0.8, 0.3),
+        ),
+      },
+    ),
+
+    29: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Pillar Ring 4",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-2.12, 0.4, 2.12),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 0.8, 0.3),
+        ),
+      },
+    ),
+
+    30: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Pillar Ring 5",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-3.0, 0.4, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 0.8, 0.3),
+        ),
+      },
+    ),
+
+    31: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Pillar Ring 6",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-2.12, 0.4, -2.12),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 0.8, 0.3),
+        ),
+      },
+    ),
+
+    32: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Pillar Ring 7",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.4, -3.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 0.8, 0.3),
+        ),
+      },
+    ),
+
+    33: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Pillar Ring 8",
+        "bevy_transform::components::transform::Transform": (
+          translation: (2.12, 0.4, -2.12),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 0.8, 0.3),
+        ),
+      },
+    ),
+
+    // Bridge
+    34: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Bridge",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 1.5, 10.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (3.0, 0.2, 6.0),
+        ),
+      },
+    ),
+
+    // Bridge Supports
+    35: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Bridge Support L",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-1.2, 0.75, 8.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 1.5, 0.3),
+        ),
+      },
+    ),
+
+    36: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cylinder),
+        "bevy_ecs::name::Name": "Bridge Support R",
+        "bevy_transform::components::transform::Transform": (
+          translation: (1.2, 0.75, 8.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.3, 1.5, 0.3),
+        ),
+      },
+    ),
+
+    // Floating Platform
+    37: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::PrimitiveMarker": (shape: Cube),
+        "bevy_ecs::name::Name": "Float Platform",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-10.0, 3.0, -5.0),
+          rotation: (0.0, 0.383, 0.0, 0.924),
+          scale: (3.0, 0.3, 3.0),
+        ),
+      },
+    ),
+
+    // Point Lights
+    38: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba(Srgba(red: 1.0, green: 0.8, blue: 0.6, alpha: 1.0)),
+          intensity: 150000.0,
+          range: 25.0,
+          shadows_enabled: true,
+        ),
+        "bevy_ecs::name::Name": "Central Light",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 6.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+
+    39: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba(Srgba(red: 0.6, green: 0.8, blue: 1.0, alpha: 1.0)),
+          intensity: 80000.0,
+          range: 15.0,
+          shadows_enabled: false,
+        ),
+        "bevy_ecs::name::Name": "Arch Light",
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 2.5, -8.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+
+    40: (
+      components: {
+        "bevy_avian3d_editor::scene::SceneEntity": (),
+        "bevy_avian3d_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba(Srgba(red: 1.0, green: 0.5, blue: 0.3, alpha: 1.0)),
+          intensity: 60000.0,
+          range: 12.0,
+          shadows_enabled: false,
+        ),
+        "bevy_ecs::name::Name": "Float Platform Light",
+        "bevy_transform::components::transform::Transform": (
+          translation: (-10.0, 4.5, -5.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+  },
+)

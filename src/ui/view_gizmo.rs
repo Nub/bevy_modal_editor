@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
+use super::InspectorPanelState;
 use crate::editor::{AxisConstraint, CameraPreset, EditorCamera, EditorMode, FlyCamera, SetCameraPresetEvent};
 
 pub struct ViewGizmoPlugin;
@@ -18,6 +19,7 @@ fn draw_view_gizmo(
     mut preset_events: MessageWriter<SetCameraPresetEvent>,
     mode: Res<State<EditorMode>>,
     mut axis_constraint: ResMut<AxisConstraint>,
+    inspector_panel: Res<InspectorPanelState>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -37,9 +39,13 @@ fn draw_view_gizmo(
     let sphere_radius = 8.0;
 
     // Position in top-right corner of the viewport (not the inspector panel)
-    // Account for the right inspector panel width
+    // Account for the right inspector panel width dynamically
     let screen_rect = ctx.input(|i| i.viewport_rect());
-    let inspector_panel_width = 300.0; // Must match inspector panel default_width
+    let inspector_panel_width = if inspector_panel.width > 0.0 {
+        inspector_panel.width
+    } else {
+        300.0 // Default fallback on first frame
+    };
 
     // Create a floating area for the gizmo
     egui::Area::new(egui::Id::new("view_gizmo"))

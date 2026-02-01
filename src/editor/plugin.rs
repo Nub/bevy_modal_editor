@@ -2,6 +2,7 @@ use avian3d::debug_render::PhysicsDebugPlugin;
 use avian3d::prelude::PhysicsPlugins;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
+use bevy_inspector_egui::DefaultInspectorConfigPlugin;
 
 use super::camera::EditorCameraPlugin;
 use super::input::EditorInputPlugin;
@@ -23,6 +24,7 @@ impl Plugin for EditorPlugin {
         app
             // Third-party plugins
             .add_plugins(EguiPlugin::default())
+            .add_plugins(DefaultInspectorConfigPlugin)
             .add_plugins(PhysicsPlugins::default())
             .add_plugins(PhysicsDebugPlugin)
             // Editor core
@@ -40,8 +42,7 @@ impl Plugin for EditorPlugin {
             // UI
             .add_plugins(UiPlugin)
             // Setup
-            .add_systems(Startup, setup_editor_scene)
-            .add_systems(PostStartup, load_default_scene);
+            .add_systems(Startup, setup_editor_scene);
     }
 }
 
@@ -65,12 +66,3 @@ fn setup_editor_scene(mut commands: Commands) {
     });
 }
 
-/// Load the default scene on startup
-fn load_default_scene(mut load_events: MessageWriter<LoadSceneEvent>) {
-    // Load the test scene
-    load_events.write(LoadSceneEvent {
-        path: "assets/test_scene.ron".to_string(),
-    });
-
-    info!("Loading test scene");
-}

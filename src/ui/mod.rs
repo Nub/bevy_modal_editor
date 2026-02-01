@@ -22,11 +22,18 @@ pub use view_gizmo::*;
 
 use bevy::prelude::*;
 
+/// Resource tracking the current width of the right inspector panel
+#[derive(Resource, Default)]
+pub struct InspectorPanelState {
+    pub width: f32,
+}
+
 pub struct UiPlugin;
 
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(SettingsPlugin)
+        app.init_resource::<InspectorPanelState>()
+            .add_plugins(SettingsPlugin)
             .add_plugins(PanelsPlugin)
             .add_plugins(HierarchyPlugin)
             .add_plugins(InspectorPlugin)
