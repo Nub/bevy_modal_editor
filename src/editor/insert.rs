@@ -146,11 +146,13 @@ fn update_preview_position(
         return;
     };
 
-    // Get the center of the viewport
-    let viewport_center = Vec2::new(window.width() / 2.0, window.height() / 2.0);
+    // Get the cursor position (use center as fallback if cursor not in window)
+    let cursor_position = window
+        .cursor_position()
+        .unwrap_or_else(|| Vec2::new(window.width() / 2.0, window.height() / 2.0));
 
-    // Create ray from camera through viewport center
-    let Ok(ray) = camera.viewport_to_world(camera_transform, viewport_center) else {
+    // Create ray from camera through cursor position
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
         return;
     };
 
