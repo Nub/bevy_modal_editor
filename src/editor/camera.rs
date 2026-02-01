@@ -17,8 +17,8 @@ const ORTHO_SCALE: f32 = 10.0;
 
 pub struct EditorCameraPlugin;
 
-/// Minimum distance from target when looking at an object
-const LOOK_AT_MIN_DISTANCE: f32 = 5.0;
+/// Distance from target when looking at an object
+const LOOK_AT_DISTANCE: f32 = 25.0;
 
 impl Plugin for EditorCameraPlugin {
     fn build(&self, app: &mut App) {
@@ -317,36 +317,16 @@ fn look_at_selected(
     let target = selected_transform.translation;
 
     for (mut fly_cam, mut camera_transform) in &mut camera_query {
-        let camera_pos = camera_transform.translation;
-        let distance = camera_pos.distance(target);
-
-        // If too close, back up to minimum distance
-        let new_pos = if distance < LOOK_AT_MIN_DISTANCE {
-            // Get direction from target to camera (or use a default if we're exactly on target)
-            let dir = if distance > 0.001 {
-                (camera_pos - target).normalize()
-            } else {
-                Vec3::new(0.0, 0.5, 1.0).normalize() // Default direction if on target
-            };
-            target + dir * LOOK_AT_MIN_DISTANCE
-        } else {
-            camera_pos
-        };
+        // 3/4 view offset: diagonal from above
+        let offset = Vec3::new(1.0, 0.7, 1.0).normalize() * LOOK_AT_DISTANCE;
+        let new_pos = target + offset;
 
         camera_transform.translation = new_pos;
+        camera_transform.look_at(target, Vec3::Y);
 
-        // Calculate yaw and pitch to look at target
-        let look_dir = (target - new_pos).normalize();
-
-        // Yaw is the angle in the XZ plane
-        fly_cam.yaw = (-look_dir.x).atan2(-look_dir.z);
-
-        // Pitch is the angle from horizontal
-        fly_cam.pitch = (-look_dir.y).asin().clamp(
-            -std::f32::consts::FRAC_PI_2 + 0.1,
-            std::f32::consts::FRAC_PI_2 - 0.1,
-        );
-
-        camera_transform.rotation = Quat::from_euler(EulerRot::YXZ, fly_cam.yaw, fly_cam.pitch, 0.0);
+        // Extract yaw and pitch from the resulting rotation
+        let (yaw, pitch, _) = camera_transform.rotation.to_euler(EulerRot::YXZ);
+        fly_cam.yaw = yaw;
+        fly_cam.pitch = pitch;
     }
 }
