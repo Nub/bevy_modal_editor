@@ -770,7 +770,7 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
                 ui.label(egui::RichText::new("View Mode - Camera").strong().size(16.0).color(colors::TEXT_PRIMARY));
                 ui.add_space(4.0);
                 shortcut_row(ui, "W/A/S/D", "Move camera");
-                shortcut_row(ui, "Space/Ctrl", "Move up/down");
+                shortcut_row(ui, "Space/Ctrl", "Move up/down (relative)");
                 shortcut_row(ui, "Shift", "Move faster");
                 shortcut_row(ui, "Right Mouse", "Look around");
                 shortcut_row(ui, "L", "Look at selected object");

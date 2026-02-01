@@ -186,9 +186,10 @@ fn camera_movement(
     for mut transform in &mut query {
         let mut velocity = Vec3::ZERO;
 
-        // Get forward/right vectors (ignore pitch for movement)
+        // Get forward/right/up vectors relative to camera orientation
         let forward = transform.forward().as_vec3();
         let right = transform.right().as_vec3();
+        let up = transform.up().as_vec3();
 
         // WASD movement
         if keyboard.pressed(KeyCode::KeyW) {
@@ -204,12 +205,12 @@ fn camera_movement(
             velocity += right;
         }
 
-        // Vertical movement with Space/Ctrl
+        // Vertical movement with Space/Ctrl (relative to camera orientation)
         if keyboard.pressed(KeyCode::Space) {
-            velocity += Vec3::Y;
+            velocity += up;
         }
         if keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight) {
-            velocity -= Vec3::Y;
+            velocity -= up;
         }
 
         if velocity != Vec3::ZERO {
