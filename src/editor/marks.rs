@@ -15,12 +15,59 @@ pub struct CameraMark {
 }
 
 /// Resource storing all camera marks
-#[derive(Resource, Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
 pub struct CameraMarks {
     pub marks: HashMap<String, CameraMark>,
     /// Last camera position before a jump (for quick return)
     #[serde(skip)]
     pub last_position: Option<CameraMark>,
+}
+
+impl Default for CameraMarks {
+    fn default() -> Self {
+        use std::f32::consts::FRAC_PI_2;
+        const DISTANCE: f32 = 10.0;
+
+        let mut marks = HashMap::new();
+
+        // 1 = X axis (Right view)
+        marks.insert(
+            "1".to_string(),
+            CameraMark {
+                name: "1".to_string(),
+                position: Vec3::new(DISTANCE, 0.0, 0.0),
+                yaw: -FRAC_PI_2,
+                pitch: 0.0,
+            },
+        );
+
+        // 2 = Y axis (Top view)
+        marks.insert(
+            "2".to_string(),
+            CameraMark {
+                name: "2".to_string(),
+                position: Vec3::new(0.0, DISTANCE, 0.0),
+                yaw: 0.0,
+                pitch: -FRAC_PI_2 + 0.001,
+            },
+        );
+
+        // 3 = Z axis (Front view)
+        marks.insert(
+            "3".to_string(),
+            CameraMark {
+                name: "3".to_string(),
+                position: Vec3::new(0.0, 0.0, DISTANCE),
+                yaw: 0.0,
+                pitch: 0.0,
+            },
+        );
+
+        Self {
+            marks,
+            last_position: None,
+        }
+    }
 }
 
 impl CameraMarks {

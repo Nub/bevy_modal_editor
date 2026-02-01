@@ -3,6 +3,11 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::SceneEntity;
+use crate::selection::Selected;
+
+/// Marker component for group entities (containers for nesting)
+#[derive(Component, Serialize, Deserialize, Clone, Default)]
+pub struct GroupMarker;
 
 /// Available primitive shapes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +38,29 @@ pub struct SpawnPrimitiveEvent {
     pub position: Vec3,
 }
 
+/// Event to spawn an empty group
+#[derive(Message)]
+pub struct SpawnGroupEvent {
+    pub position: Vec3,
+}
+
+/// Event to parent selected entity to a target group
+#[derive(Message)]
+pub struct ParentToGroupEvent {
+    pub child: Entity,
+    pub parent: Entity,
+}
+
+/// Event to unparent an entity (move to root)
+#[derive(Message)]
+pub struct UnparentEvent {
+    pub entity: Entity,
+}
+
+/// Event to group multiple selected entities into a new group
+#[derive(Message)]
+pub struct GroupSelectedEvent;
+
 /// Component to track what primitive shape an entity is
 #[derive(Component, Serialize, Deserialize, Clone)]
 pub struct PrimitiveMarker {
@@ -44,7 +72,20 @@ pub struct PrimitivesPlugin;
 impl Plugin for PrimitivesPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnPrimitiveEvent>()
-            .add_systems(Update, handle_spawn_primitive);
+            .add_message::<SpawnGroupEvent>()
+            .add_message::<ParentToGroupEvent>()
+            .add_message::<UnparentEvent>()
+            .add_message::<GroupSelectedEvent>()
+            .add_systems(
+                Update,
+                (
+                    handle_spawn_primitive,
+                    handle_spawn_group,
+                    handle_parent_to_group,
+                    handle_unparent,
+                    handle_group_selected,
+                ),
+            );
     }
 }
 
@@ -208,4 +249,88 @@ fn spawn_plane(
         RigidBody::Static,
         Collider::cuboid(2.0, 0.01, 2.0),
     ));
+}
+
+fn handle_spawn_group(
+    mut events: MessageReader<SpawnGroupEvent>,
+    mut commands: Commands,
+    existing_entities: Query<&Name, With<SceneEntity>>,
+) {
+    for event in events.read() {
+        let name = generate_unique_name("Group", &existing_entities);
+
+        commands.spawn((
+            SceneEntity,
+            GroupMarker,
+            Name::new(name),
+            Transform::from_translation(event.position),
+            Visibility::default(),
+        ));
+    }
+}
+
+fn handle_parent_to_group(
+    mut events: MessageReader<ParentToGroupEvent>,
+    mut commands: Commands,
+    groups: Query<Entity, With<GroupMarker>>,
+) {
+    for event in events.read() {
+        // Verify the parent is a valid group
+        if groups.get(event.parent).is_ok() {
+            commands.entity(event.child).set_parent_in_place(event.parent);
+            info!("Parented entity to group");
+        } else {
+            warn!("Target entity is not a group");
+        }
+    }
+}
+
+fn handle_unparent(mut events: MessageReader<UnparentEvent>, mut commands: Commands) {
+    for event in events.read() {
+        commands.entity(event.entity).remove_parent_in_place();
+        info!("Unparented entity");
+    }
+}
+
+fn handle_group_selected(
+    mut events: MessageReader<GroupSelectedEvent>,
+    mut commands: Commands,
+    selected: Query<(Entity, &Transform), With<Selected>>,
+    existing_entities: Query<&Name, With<SceneEntity>>,
+) {
+    for _ in events.read() {
+        let selected_entities: Vec<_> = selected.iter().collect();
+
+        // Need at least 2 entities to group
+        if selected_entities.len() < 2 {
+            info!("Select at least 2 entities to create a group");
+            return;
+        }
+
+        // Calculate center position of selected entities
+        let center: Vec3 = selected_entities
+            .iter()
+            .map(|(_, t)| t.translation)
+            .sum::<Vec3>()
+            / selected_entities.len() as f32;
+
+        // Create the group
+        let name = generate_unique_name("Group", &existing_entities);
+        let group_entity = commands
+            .spawn((
+                SceneEntity,
+                GroupMarker,
+                Name::new(name.clone()),
+                Transform::from_translation(center),
+                Visibility::default(),
+            ))
+            .id();
+
+        // Parent all selected entities to the group
+        for (entity, _) in selected_entities {
+            commands.entity(entity).set_parent_in_place(group_entity);
+        }
+
+        info!("Created group '{}' with {} entities", name, selected.iter().count());
+    }
 }

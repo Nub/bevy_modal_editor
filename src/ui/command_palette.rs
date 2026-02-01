@@ -6,7 +6,11 @@ use fuzzy_matcher::FuzzyMatcher;
 use crate::editor::{
     CameraMarks, EditorState, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
 };
-use crate::scene::{LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnPrimitiveEvent};
+use crate::scene::{
+    LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnGroupEvent, SpawnPrimitiveEvent,
+    UnparentEvent,
+};
+use crate::selection::Selected;
 
 /// A command that can be executed from the palette
 #[derive(Clone)]
@@ -34,6 +38,8 @@ pub enum CommandAction {
     SetGridSnap(f32),
     SetRotationSnap(f32),
     ShowCustomMarkDialog,
+    SpawnGroup,
+    UnparentSelected,
 }
 
 /// Resource to track command palette state
@@ -126,6 +132,20 @@ impl CommandRegistry {
             keywords: vec!["import".into(), "open".into(), "file".into()],
             category: "Scene",
             action: CommandAction::LoadScene,
+        });
+
+        // Groups
+        self.commands.push(Command {
+            name: "Add Group".to_string(),
+            keywords: vec!["folder".into(), "container".into(), "nest".into()],
+            category: "Primitives",
+            action: CommandAction::SpawnGroup,
+        });
+        self.commands.push(Command {
+            name: "Unparent Selected".to_string(),
+            keywords: vec!["detach".into(), "remove".into(), "parent".into()],
+            category: "Hierarchy",
+            action: CommandAction::UnparentSelected,
         });
 
         // Camera marks
@@ -333,11 +353,14 @@ fn draw_command_palette(
     mut editor_state: ResMut<EditorState>,
     registry: Res<CommandRegistry>,
     mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
+    mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
+    mut unparent_events: MessageWriter<UnparentEvent>,
     mut set_mark_events: MessageWriter<SetCameraMarkEvent>,
     mut jump_mark_events: MessageWriter<JumpToMarkEvent>,
     mut jump_last_events: MessageWriter<JumpToLastPositionEvent>,
     mut save_events: MessageWriter<SaveSceneEvent>,
     mut load_events: MessageWriter<LoadSceneEvent>,
+    selected: Query<Entity, With<Selected>>,
 ) -> Result {
     if !state.open {
         return Ok(());
@@ -494,6 +517,16 @@ fn draw_command_palette(
                 custom_mark_state.name.clear();
                 custom_mark_state.just_opened = true;
             }
+            CommandAction::SpawnGroup => {
+                spawn_group_events.write(SpawnGroupEvent {
+                    position: Vec3::ZERO,
+                });
+            }
+            CommandAction::UnparentSelected => {
+                if let Ok(entity) = selected.single() {
+                    unparent_events.write(UnparentEvent { entity });
+                }
+            }
         }
     }
 
@@ -544,6 +577,8 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
             ui.heading("View Mode - Selection");
             ui.add_space(4.0);
             shortcut_row(ui, "Left Click", "Select object");
+            shortcut_row(ui, "Shift+Click", "Multi-select");
+            shortcut_row(ui, "G", "Group selected objects");
             shortcut_row(ui, "Delete", "Delete selected");
 
             ui.add_space(12.0);

@@ -1,11 +1,12 @@
 use avian3d::prelude::*;
+use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::{PrimitiveMarker, PrimitiveShape, SceneEntity};
+use super::{GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity};
 use crate::editor::{CameraMark, CameraMarks};
 
 /// Serializable scene data
@@ -25,6 +26,12 @@ pub struct SerializedEntity {
     pub transform: SerializedTransform,
     pub primitive: Option<PrimitiveShape>,
     pub rigid_body: Option<SerializedRigidBody>,
+    /// Whether this entity is a group (container)
+    #[serde(default)]
+    pub is_group: bool,
+    /// Parent entity name (for hierarchy)
+    #[serde(default)]
+    pub parent: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -106,9 +113,17 @@ impl Plugin for SerializationPlugin {
 fn handle_save_scene(
     mut events: MessageReader<SaveSceneEvent>,
     entities: Query<
-        (&Name, &Transform, Option<&PrimitiveMarker>, Option<&RigidBody>),
+        (
+            &Name,
+            &Transform,
+            Option<&PrimitiveMarker>,
+            Option<&RigidBody>,
+            Option<&GroupMarker>,
+            Option<&ChildOf>,
+        ),
         With<SceneEntity>,
     >,
+    names: Query<&Name>,
     camera_marks: Res<CameraMarks>,
 ) {
     for event in events.read() {
@@ -122,12 +137,19 @@ fn handle_save_scene(
             camera_marks: camera_marks.marks.clone(),
         };
 
-        for (name, transform, primitive, rigid_body) in entities.iter() {
+        for (name, transform, primitive, rigid_body, group_marker, parent) in entities.iter() {
+            // Get parent name if it exists
+            let parent_name = parent.and_then(|p| {
+                names.get(p.get()).ok().map(|n| n.as_str().to_string())
+            });
+
             scene.entities.push(SerializedEntity {
                 name: name.as_str().to_string(),
                 transform: SerializedTransform::from(transform),
                 primitive: primitive.map(|p| p.shape),
                 rigid_body: rigid_body.map(SerializedRigidBody::from),
+                is_group: group_marker.is_some(),
+                parent: parent_name,
             });
         }
 
@@ -176,15 +198,23 @@ fn handle_load_scene(
             commands.entity(entity).despawn();
         }
 
-        // Spawn loaded entities
-        for entity_data in scene.entities {
+        // First pass: spawn all entities and build name -> entity map
+        let mut name_to_entity: HashMap<String, Entity> = HashMap::new();
+        let mut parent_info: Vec<(Entity, String)> = Vec::new();
+
+        for entity_data in &scene.entities {
             let transform: Transform = (&entity_data.transform).into();
 
             let mut entity_commands = commands.spawn((
                 SceneEntity,
-                Name::new(entity_data.name),
+                Name::new(entity_data.name.clone()),
                 transform,
             ));
+
+            // Add group marker if this is a group
+            if entity_data.is_group {
+                entity_commands.insert((GroupMarker, Visibility::default()));
+            }
 
             // Add primitive mesh and collider
             if let Some(shape) = entity_data.primitive {
@@ -245,8 +275,25 @@ fn handle_load_scene(
             }
 
             // Add rigid body
-            if let Some(rb) = entity_data.rigid_body {
-                entity_commands.insert(RigidBody::from(&rb));
+            if let Some(rb) = &entity_data.rigid_body {
+                entity_commands.insert(RigidBody::from(rb));
+            }
+
+            let entity = entity_commands.id();
+            name_to_entity.insert(entity_data.name.clone(), entity);
+
+            // Store parent info for second pass
+            if let Some(parent_name) = &entity_data.parent {
+                parent_info.push((entity, parent_name.clone()));
+            }
+        }
+
+        // Second pass: set up parent-child relationships
+        for (child, parent_name) in parent_info {
+            if let Some(&parent) = name_to_entity.get(&parent_name) {
+                commands.entity(child).set_parent_in_place(parent);
+            } else {
+                warn!("Parent '{}' not found for entity", parent_name);
             }
         }
 

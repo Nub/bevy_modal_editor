@@ -2,12 +2,13 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use super::state::{AxisConstraint, EditorMode, TransformOperation};
+use crate::scene::GroupSelectedEvent;
 
 pub struct EditorInputPlugin;
 
 impl Plugin for EditorInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, handle_mode_input);
+        app.add_systems(Update, (handle_mode_input, handle_group_shortcut));
     }
 }
 
@@ -65,5 +66,24 @@ fn handle_mode_input(
             *axis_constraint = AxisConstraint::None;
         }
         // Axis selection (A, S, D) is handled in gizmos/transform.rs
+    }
+}
+
+/// Handle G key to group selected entities
+fn handle_group_shortcut(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut group_events: MessageWriter<GroupSelectedEvent>,
+    mut contexts: EguiContexts,
+) {
+    // Don't handle when UI wants keyboard input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
+    // G to group selected entities
+    if keyboard.just_pressed(KeyCode::KeyG) {
+        group_events.write(GroupSelectedEvent);
     }
 }
