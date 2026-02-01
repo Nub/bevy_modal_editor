@@ -62,13 +62,15 @@ fn draw_hierarchy_panel(
     let available_height = ctx.content_rect().height() - status_bar_height - window_padding * 2.0;
 
     egui::Window::new("Scene")
-        .default_size([200.0, available_height])
+        .default_size([250.0, available_height])
+        .min_width(250.0)
         .min_height(100.0)
         .max_height(available_height)
         .anchor(egui::Align2::LEFT_TOP, [window_padding, window_padding])
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
+        .scroll(false)
         .frame(
             egui::Frame::window(&ctx.style())
                 .fill(colors::PANEL_BG)

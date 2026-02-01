@@ -30,7 +30,11 @@ fn draw_status_bar(
     let ctx = contexts.ctx_mut()?;
 
     egui::TopBottomPanel::bottom("status_bar")
-        .frame(egui::Frame::side_top_panel(&ctx.style()).fill(colors::BG_DARK))
+        .frame(
+            egui::Frame::side_top_panel(&ctx.style())
+                .fill(colors::BG_DARK)
+                .inner_margin(egui::Margin::symmetric(12, 6)),
+        )
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // Mode indicator

@@ -14,11 +14,6 @@ impl Plugin for ThemePlugin {
     }
 }
 
-/// Font sizes
-pub mod fonts {
-    pub const TITLE_SIZE: f32 = 16.0;
-}
-
 /// Color palette matching Bevy editor style
 pub mod colors {
     use bevy_egui::egui::Color32;

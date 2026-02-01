@@ -10,6 +10,37 @@ use crate::editor::EditorState;
 #[derive(Resource, Default)]
 struct FontsLoaded(bool);
 
+/// Resource to track if font sizes need to be applied
+#[derive(Resource, Default)]
+struct FontSizesApplied(bool);
+
+/// Font size settings for various UI elements
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct FontSettings {
+    /// Body text size (default labels, buttons)
+    pub body: f32,
+    /// Heading text size (section headers)
+    pub heading: f32,
+    /// Small text size (muted labels, status text)
+    pub small: f32,
+    /// Button text size
+    pub button: f32,
+    /// Monospace text size (code, values)
+    pub monospace: f32,
+}
+
+impl Default for FontSettings {
+    fn default() -> Self {
+        Self {
+            body: 14.0,
+            heading: 16.0,
+            small: 12.0,
+            button: 14.0,
+            monospace: 13.0,
+        }
+    }
+}
+
 /// Application settings that persist to disk
 #[derive(Resource, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -28,6 +59,9 @@ pub struct Settings {
     /// Maximum number of undo history entries
     #[serde(default = "default_undo_history_size")]
     pub undo_history_size: usize,
+    /// Font size settings
+    #[serde(default)]
+    pub fonts: FontSettings,
 }
 
 fn default_undo_history_size() -> usize {
@@ -43,6 +77,7 @@ impl Default for Settings {
             grid_snap: 0.0,
             rotation_snap: 0.0,
             undo_history_size: 50,
+            fonts: FontSettings::default(),
         }
     }
 }
@@ -114,8 +149,9 @@ impl Plugin for SettingsPlugin {
         app.insert_resource(settings)
             .init_resource::<SettingsWindowState>()
             .init_resource::<FontsLoaded>()
+            .init_resource::<FontSizesApplied>()
             .add_systems(Startup, apply_settings_to_editor_state)
-            .add_systems(Update, (apply_ui_scale, sync_snap_settings, load_custom_fonts))
+            .add_systems(Update, (apply_ui_scale, sync_snap_settings, load_custom_fonts, apply_font_sizes))
             .add_systems(EguiPrimaryContextPass, draw_settings_window);
     }
 }
@@ -153,6 +189,7 @@ fn draw_settings_window(
     mut settings: ResMut<Settings>,
     mut window_state: ResMut<SettingsWindowState>,
     mut editor_state: ResMut<EditorState>,
+    mut font_sizes_applied: ResMut<FontSizesApplied>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -173,6 +210,77 @@ fn draw_settings_window(
                             .suffix("x"),
                     );
                     if response.changed() {
+                        settings.save();
+                    }
+                    ui.end_row();
+                });
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // Font Sizes Section
+            ui.heading("Font Sizes");
+            egui::Grid::new("settings_fonts_grid")
+                .num_columns(2)
+                .spacing([10.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("Body:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.fonts.body, 10.0..=20.0)
+                            .step_by(1.0)
+                            .suffix("px"),
+                    );
+                    if response.changed() {
+                        font_sizes_applied.0 = false;
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Heading:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.fonts.heading, 12.0..=24.0)
+                            .step_by(1.0)
+                            .suffix("px"),
+                    );
+                    if response.changed() {
+                        font_sizes_applied.0 = false;
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Small:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.fonts.small, 8.0..=16.0)
+                            .step_by(1.0)
+                            .suffix("px"),
+                    );
+                    if response.changed() {
+                        font_sizes_applied.0 = false;
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Button:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.fonts.button, 10.0..=20.0)
+                            .step_by(1.0)
+                            .suffix("px"),
+                    );
+                    if response.changed() {
+                        font_sizes_applied.0 = false;
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Monospace:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.fonts.monospace, 10.0..=18.0)
+                            .step_by(1.0)
+                            .suffix("px"),
+                    );
+                    if response.changed() {
+                        font_sizes_applied.0 = false;
                         settings.save();
                     }
                     ui.end_row();
@@ -286,6 +394,7 @@ fn draw_settings_window(
                 *settings = Settings::default();
                 editor_state.grid_snap = settings.grid_snap;
                 editor_state.rotation_snap = settings.rotation_snap;
+                font_sizes_applied.0 = false;
                 settings.save();
             }
         });
@@ -329,4 +438,47 @@ fn load_custom_fonts(mut contexts: EguiContexts, mut fonts_loaded: ResMut<FontsL
     ctx.set_fonts(fonts);
     fonts_loaded.0 = true;
     info!("Loaded Inter font for UI");
+}
+
+/// Apply font sizes from settings to egui text styles
+fn apply_font_sizes(
+    mut contexts: EguiContexts,
+    settings: Res<Settings>,
+    mut font_sizes_applied: ResMut<FontSizesApplied>,
+) {
+    if font_sizes_applied.0 {
+        return;
+    }
+
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+
+    let mut style = (*ctx.style()).clone();
+
+    // Update text styles with font sizes from settings
+    style.text_styles.insert(
+        egui::TextStyle::Body,
+        egui::FontId::new(settings.fonts.body, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Heading,
+        egui::FontId::new(settings.fonts.heading, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Small,
+        egui::FontId::new(settings.fonts.small, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Button,
+        egui::FontId::new(settings.fonts.button, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::new(settings.fonts.monospace, egui::FontFamily::Monospace),
+    );
+
+    ctx.set_style(style);
+    font_sizes_applied.0 = true;
+    info!("Applied font sizes from settings");
 }
