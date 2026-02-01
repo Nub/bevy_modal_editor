@@ -1,6 +1,7 @@
 use avian3d::prelude::*;
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -100,13 +101,23 @@ pub struct LoadSceneEvent {
     pub path: String,
 }
 
+/// Resource to store scene loading/saving errors for display
+#[derive(Resource, Default)]
+pub struct SceneErrorDialog {
+    pub open: bool,
+    pub title: String,
+    pub message: String,
+}
+
 pub struct SerializationPlugin;
 
 impl Plugin for SerializationPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<SaveSceneEvent>()
+        app.init_resource::<SceneErrorDialog>()
+            .add_message::<SaveSceneEvent>()
             .add_message::<LoadSceneEvent>()
-            .add_systems(Update, (handle_save_scene, handle_load_scene));
+            .add_systems(Update, (handle_save_scene, handle_load_scene))
+            .add_systems(EguiPrimaryContextPass, draw_error_dialog);
     }
 }
 
@@ -125,6 +136,7 @@ fn handle_save_scene(
     >,
     names: Query<&Name>,
     camera_marks: Res<CameraMarks>,
+    mut error_dialog: ResMut<SceneErrorDialog>,
 ) {
     for event in events.read() {
         let mut scene = EditorScene {
@@ -156,13 +168,17 @@ fn handle_save_scene(
         match ron::ser::to_string_pretty(&scene, ron::ser::PrettyConfig::default()) {
             Ok(ron_string) => {
                 if let Err(e) = fs::write(&event.path, ron_string) {
-                    error!("Failed to write scene file: {}", e);
+                    error_dialog.open = true;
+                    error_dialog.title = "Save Error".to_string();
+                    error_dialog.message = format!("Failed to write scene file:\n\n{}", e);
                 } else {
                     info!("Scene saved to: {}", event.path);
                 }
             }
             Err(e) => {
-                error!("Failed to serialize scene: {}", e);
+                error_dialog.open = true;
+                error_dialog.title = "Save Error".to_string();
+                error_dialog.message = format!("Failed to serialize scene:\n\n{}", e);
             }
         }
     }
@@ -175,20 +191,25 @@ fn handle_load_scene(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut camera_marks: ResMut<CameraMarks>,
+    mut error_dialog: ResMut<SceneErrorDialog>,
 ) {
     for event in events.read() {
         let content = match fs::read_to_string(&event.path) {
             Ok(c) => c,
             Err(e) => {
-                error!("Failed to read scene file: {}", e);
+                error_dialog.open = true;
+                error_dialog.title = "Load Error".to_string();
+                error_dialog.message = format!("Failed to read scene file:\n\n{}", e);
                 continue;
             }
         };
 
-        let scene: EditorScene = match ron::from_str(&content) {
+        let scene: EditorScene = match ron::from_str::<EditorScene>(&content) {
             Ok(s) => s,
             Err(e) => {
-                error!("Failed to parse scene file: {}", e);
+                error_dialog.open = true;
+                error_dialog.title = "Parse Error".to_string();
+                error_dialog.message = format!("Failed to parse scene file:\n\n{}", e);
                 continue;
             }
         };
@@ -305,4 +326,26 @@ fn handle_load_scene(
 
         info!("Scene loaded: {}", scene.name);
     }
+}
+
+/// Draw the error dialog if it's open
+fn draw_error_dialog(mut contexts: EguiContexts, mut error_dialog: ResMut<SceneErrorDialog>) -> Result {
+    if !error_dialog.open {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+
+    egui::Window::new(&error_dialog.title)
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(&error_dialog.message);
+            ui.add_space(10.0);
+            if ui.button("OK").clicked() {
+                error_dialog.open = false;
+            }
+        });
+    Ok(())
 }

@@ -10,7 +10,7 @@ use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
 use crate::patterns::PatternsPlugin;
 use crate::prefabs::PrefabsPlugin;
-use crate::scene::ScenePlugin;
+use crate::scene::{LoadSceneEvent, ScenePlugin};
 use crate::selection::SelectionPlugin;
 use crate::ui::UiPlugin;
 
@@ -38,7 +38,8 @@ impl Plugin for EditorPlugin {
             // UI
             .add_plugins(UiPlugin)
             // Setup
-            .add_systems(Startup, setup_editor_scene);
+            .add_systems(Startup, setup_editor_scene)
+            .add_systems(PostStartup, load_default_scene);
     }
 }
 
@@ -76,4 +77,14 @@ fn setup_editor_scene(
     ));
 
     // Grid lines using gizmos will be drawn in the gizmos module
+}
+
+/// Load the default scene on startup
+fn load_default_scene(mut load_events: MessageWriter<LoadSceneEvent>) {
+    let default_scene_path = "assets/default_scene.ron";
+    if std::path::Path::new(default_scene_path).exists() {
+        load_events.write(LoadSceneEvent {
+            path: default_scene_path.to_string(),
+        });
+    }
 }
