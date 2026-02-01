@@ -194,11 +194,11 @@ fn handle_toggle_physics(
     mut physics_time: ResMut<Time<Physics>>,
 ) {
     for _ in events.read() {
-        if physics_time.is_paused() {
-            physics_time.unpause();
+        if physics_time.relative_speed() == 0.0 {
+            physics_time.set_relative_speed(1.0);
             info!("Physics simulation: RUNNING");
         } else {
-            physics_time.pause();
+            physics_time.set_relative_speed(0.0);
             info!("Physics simulation: PAUSED");
         }
     }

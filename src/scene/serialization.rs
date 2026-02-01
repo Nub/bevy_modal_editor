@@ -397,7 +397,7 @@ impl Command for LoadSceneCommand {
 
         // Pause physics after loading
         if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
-            physics_time.pause();
+            physics_time.set_relative_speed(0.0);
         }
 
         // Update SceneFile resource

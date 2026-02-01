@@ -406,7 +406,7 @@ fn restore_snapshot(world: &mut World, snapshot: &SceneSnapshot) {
 
     // Keep physics paused
     if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
-        physics_time.pause();
+        physics_time.set_relative_speed(0.0);
     }
 }
 

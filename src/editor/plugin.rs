@@ -59,9 +59,9 @@ fn setup_editor_scene(mut commands: Commands) {
     });
 }
 
-/// Pause physics simulation on startup
+/// Pause physics simulation on startup by setting time scale to 0
 fn pause_physics_on_startup(mut physics_time: ResMut<Time<Physics>>) {
-    physics_time.pause();
+    physics_time.set_relative_speed(0.0);
     info!("Physics simulation: PAUSED (default)");
 }
 
