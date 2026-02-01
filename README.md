@@ -30,7 +30,7 @@ cargo run
 
 1. Press `C` to open the command palette
 2. Type "demo" and press Enter to spawn a demo scene with primitives and physics objects
-3. Press `Space` to unpause physics and watch the objects interact
+3. Use the command pallette unpause physics and watch the objects interact
 
 ### Basic Editing Workflow
 
@@ -42,7 +42,7 @@ cargo run
 
 **Transforming objects:**
 1. Click an object to select it (or use `F` to search by name)
-2. Press `V` to enter Edit mode
+2. Press `E` to enter Edit mode
 3. Press `Q` for translate, `W` for rotate, or `E` for scale
 4. Press `A`, `S`, or `D` to constrain to X, Y, or Z axis
 5. Move the mouse to transform, or use `J`/`K` for precise step adjustments
@@ -52,7 +52,8 @@ cargo run
 1. Press `H` to enter Hierarchy mode
 2. Use `F` to filter entities by name
 3. Press `/` to search and jump to any object
-4. Drag entities to reparent them, or use `G` to group selected objects
+4. Press `L` to look at the selected object
+5. Drag entities to reparent them, or use `G` to group selected objects
 
 **Inspecting components:**
 1. Select an object and press `O` to enter Inspector mode
