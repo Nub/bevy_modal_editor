@@ -1,5 +1,7 @@
 use bevy::prelude::*;
+use bevy_egui::EguiContexts;
 
+use super::TakeSnapshotEvent;
 use crate::scene::SpawnPrimitiveEvent;
 use crate::selection::Selected;
 
@@ -28,7 +30,15 @@ fn handle_delete_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut delete_events: MessageWriter<DeleteSelectedEvent>,
     mut duplicate_events: MessageWriter<DuplicateSelectedEvent>,
+    mut contexts: EguiContexts,
 ) {
+    // Don't handle when UI wants keyboard input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
     // Delete or X to delete selected
     if keyboard.just_pressed(KeyCode::Delete) || keyboard.just_pressed(KeyCode::KeyX) {
         delete_events.write(DeleteSelectedEvent);
@@ -45,13 +55,19 @@ fn handle_delete_selected(
     mut events: MessageReader<DeleteSelectedEvent>,
     selected: Query<Entity, With<Selected>>,
     mut commands: Commands,
+    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
 ) {
     for _ in events.read() {
         let count = selected.iter().count();
-        for entity in selected.iter() {
-            commands.entity(entity).despawn();
-        }
         if count > 0 {
+            // Take snapshot before delete
+            snapshot_events.write(TakeSnapshotEvent {
+                description: format!("Delete {} entities", count),
+            });
+
+            for entity in selected.iter() {
+                commands.entity(entity).despawn();
+            }
             info!("Deleted {} entities", count);
         }
     }
@@ -61,15 +77,24 @@ fn handle_duplicate_selected(
     mut events: MessageReader<DuplicateSelectedEvent>,
     selected: Query<(&Transform, &crate::scene::PrimitiveMarker), With<Selected>>,
     mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
+    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
 ) {
     for _ in events.read() {
-        for (transform, primitive) in selected.iter() {
-            // Offset the duplicated entity slightly
-            let offset = Vec3::new(1.0, 0.0, 1.0);
-            spawn_events.write(SpawnPrimitiveEvent {
-                shape: primitive.shape,
-                position: transform.translation + offset,
+        let count = selected.iter().count();
+        if count > 0 {
+            // Take snapshot before duplicate
+            snapshot_events.write(TakeSnapshotEvent {
+                description: format!("Duplicate {} entities", count),
             });
+
+            for (transform, primitive) in selected.iter() {
+                // Offset the duplicated entity slightly
+                let offset = Vec3::new(1.0, 0.0, 1.0);
+                spawn_events.write(SpawnPrimitiveEvent {
+                    shape: primitive.shape,
+                    position: transform.translation + offset,
+                });
+            }
         }
     }
 }

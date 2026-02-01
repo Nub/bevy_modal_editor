@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 
+use crate::commands::TakeSnapshotEvent;
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, TransformOperation};
 use crate::scene::Locked;
 use crate::selection::Selected;
@@ -612,11 +613,13 @@ fn manage_editing_sleep_state(
     selected: Query<Entity, (With<Selected>, Without<Locked>)>,
     being_edited: Query<Entity, With<BeingEdited>>,
     mut contexts: EguiContexts,
+    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
 ) {
     // Check if we should be in "editing" state
     let in_edit_mode = *mode.get() == EditorMode::Edit;
-    let has_transform_op = *transform_op != TransformOperation::None;
+    let has_transform_op = *transform_op != TransformOperation::None && *transform_op != TransformOperation::Place;
     let mouse_held = mouse_button.pressed(MouseButton::Left);
+    let mouse_just_pressed = mouse_button.just_pressed(MouseButton::Left);
 
     // Don't consider it editing if UI has pointer focus
     let ui_has_pointer = contexts
@@ -625,6 +628,20 @@ fn manage_editing_sleep_state(
         .unwrap_or(false);
 
     let should_be_editing = in_edit_mode && has_transform_op && mouse_held && !ui_has_pointer;
+    let just_started_editing = in_edit_mode && has_transform_op && mouse_just_pressed && !ui_has_pointer;
+
+    // Take a snapshot when we first start editing
+    if just_started_editing && !selected.is_empty() {
+        let op_name = match *transform_op {
+            TransformOperation::Translate => "Move",
+            TransformOperation::Rotate => "Rotate",
+            TransformOperation::Scale => "Scale",
+            _ => "Transform",
+        };
+        snapshot_events.write(TakeSnapshotEvent {
+            description: format!("{} entities", op_name),
+        });
+    }
 
     if should_be_editing {
         // Start editing: add Sleeping and SleepingDisabled to selected entities
@@ -737,6 +754,8 @@ fn handle_place_mode_click(
     mode: Res<State<EditorMode>>,
     mut transform_op: ResMut<TransformOperation>,
     mut contexts: EguiContexts,
+    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
+    selected: Query<Entity, With<Selected>>,
 ) {
     // Only handle in Edit mode with Place operation
     if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::Place {
@@ -753,6 +772,13 @@ fn handle_place_mode_click(
         if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
             return;
         }
+    }
+
+    // Take snapshot before confirming placement
+    if !selected.is_empty() {
+        snapshot_events.write(TakeSnapshotEvent {
+            description: "Place entities".to_string(),
+        });
     }
 
     // Exit place mode
