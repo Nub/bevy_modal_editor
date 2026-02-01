@@ -1,3 +1,4 @@
+use avian3d::prelude::RigidBody;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_inspector_egui::bevy_inspector::ui_for_entity;
@@ -5,6 +6,46 @@ use bevy_inspector_egui::bevy_inspector::ui_for_entity;
 use super::InspectorPanelState;
 use crate::selection::Selected;
 use crate::ui::theme::{colors, fonts};
+
+/// Represents the RigidBody type for UI selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RigidBodyType {
+    Static,
+    Dynamic,
+    Kinematic,
+}
+
+impl RigidBodyType {
+    fn from_rigid_body(rb: &RigidBody) -> Self {
+        match rb {
+            RigidBody::Static => RigidBodyType::Static,
+            RigidBody::Dynamic => RigidBodyType::Dynamic,
+            RigidBody::Kinematic => RigidBodyType::Kinematic,
+        }
+    }
+
+    fn to_rigid_body(self) -> RigidBody {
+        match self {
+            RigidBodyType::Static => RigidBody::Static,
+            RigidBodyType::Dynamic => RigidBody::Dynamic,
+            RigidBodyType::Kinematic => RigidBody::Kinematic,
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            RigidBodyType::Static => "Static",
+            RigidBodyType::Dynamic => "Dynamic",
+            RigidBodyType::Kinematic => "Kinematic",
+        }
+    }
+
+    const ALL: [RigidBodyType; 3] = [
+        RigidBodyType::Static,
+        RigidBodyType::Dynamic,
+        RigidBodyType::Kinematic,
+    ];
+}
 
 pub struct InspectorPlugin;
 
@@ -107,6 +148,42 @@ fn draw_transform_section(ui: &mut egui::Ui, transform: &mut Transform) -> bool 
     changed
 }
 
+/// Draw a RigidBody type selector, returns Some(new_type) if changed
+fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: RigidBodyType) -> Option<RigidBodyType> {
+    let mut new_type = None;
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("⚙ Physics").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Body Type").color(colors::TEXT_SECONDARY));
+        });
+
+        egui::ComboBox::from_id_salt("rigidbody_type")
+            .selected_text(current_type.label())
+            .show_ui(ui, |ui| {
+                for rb_type in RigidBodyType::ALL {
+                    if ui.selectable_value(&mut new_type, Some(rb_type), rb_type.label()).clicked() {
+                        // Only set if different from current
+                        if rb_type != current_type {
+                            new_type = Some(rb_type);
+                        } else {
+                            new_type = None;
+                        }
+                    }
+                }
+            });
+
+        ui.add_space(4.0);
+    });
+
+    new_type
+}
+
 /// Draw the component inspector panel using bevy-inspector-egui
 fn draw_inspector_panel(world: &mut World) {
     // Query for selected entity first
@@ -123,6 +200,11 @@ fn draw_inspector_panel(world: &mut World) {
     let mut transform_copy = selected_entity.and_then(|e| world.get::<Transform>(e).copied());
     let original_name = entity_name.clone();
 
+    // Get current RigidBody type if present
+    let current_rigidbody_type = selected_entity.and_then(|e| {
+        world.get::<RigidBody>(e).map(RigidBodyType::from_rigid_body)
+    });
+
     // Get egui context - scope it so the borrow ends before we use world in the closure
     let ctx = {
         let Some(mut egui_ctx) = world
@@ -136,6 +218,7 @@ fn draw_inspector_panel(world: &mut World) {
     };
 
     let mut transform_changed = false;
+    let mut new_rigidbody_type: Option<RigidBodyType> = None;
 
     let panel_response = egui::SidePanel::right("inspector_panel")
         .default_width(300.0)
@@ -194,6 +277,13 @@ fn draw_inspector_panel(world: &mut World) {
                     }
 
                     ui.add_space(4.0);
+
+                    // RigidBody type selector (only if entity has RigidBody)
+                    if let Some(rb_type) = current_rigidbody_type {
+                        new_rigidbody_type = draw_rigidbody_section(ui, rb_type);
+                        ui.add_space(4.0);
+                    }
+
                     ui.separator();
                     ui.add_space(4.0);
 
@@ -240,6 +330,13 @@ fn draw_inspector_panel(world: &mut World) {
                 name.set(new_name);
             }
         }
+    }
+
+    // Apply RigidBody type change
+    if let (Some(entity), Some(new_type)) = (selected_entity, new_rigidbody_type) {
+        // Remove old RigidBody and insert new one
+        world.entity_mut(entity).remove::<RigidBody>();
+        world.entity_mut(entity).insert(new_type.to_rigid_body());
     }
 
     // Update the panel state resource with the actual panel width
