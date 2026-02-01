@@ -136,6 +136,14 @@ pub fn reflect_editor(
             EditResult::Unchanged
         }
         ReflectMut::TupleStruct(ts) => {
+            // Newtype pattern: single-field tuple struct - show inner value directly
+            if ts.field_len() == 1 {
+                if let Some(field) = ts.field_mut(0) {
+                    return reflect_editor(ui, field, name, config);
+                }
+            }
+
+            // Multi-field tuple struct - show as collapsible
             let mut changed = false;
             egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_SECONDARY))
                 .default_open(false)
@@ -1082,6 +1090,15 @@ pub fn reflect_viewer(
             });
         }
         ReflectRef::TupleStruct(ts) => {
+            // Newtype pattern: single-field tuple struct - show inner value directly
+            if ts.field_len() == 1 {
+                if let Some(field) = ts.field(0) {
+                    reflect_viewer(ui, field, name, config);
+                    return;
+                }
+            }
+
+            // Multi-field tuple struct - show as collapsible
             egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_MUTED))
                 .default_open(false)
                 .show(ui, |ui| {
