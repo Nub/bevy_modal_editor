@@ -58,7 +58,12 @@ fn draw_origin_axes(mut gizmos: Gizmos, editor_state: Res<EditorState>) {
 fn draw_directional_light_gizmos(
     mut gizmos: Gizmos,
     lights: Query<&GlobalTransform, With<DirectionalLightMarker>>,
+    editor_state: Res<EditorState>,
 ) {
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
     for transform in lights.iter() {
         let position = transform.translation();
         // Directional lights point along their negative Z axis (forward direction)
