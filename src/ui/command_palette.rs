@@ -500,9 +500,11 @@ impl Plugin for CommandPalettePlugin {
 }
 
 /// Open palette with C key, or / key for component search in ObjectInspector mode
+/// Also handles ? (Shift+/) to open help window
 fn handle_palette_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<CommandPaletteState>,
+    mut help_state: ResMut<HelpWindowState>,
     mut registry: ResMut<CommandRegistry>,
     marks: Res<CameraMarks>,
     editor_mode: Res<State<EditorMode>>,
@@ -514,15 +516,22 @@ fn handle_palette_toggle(
         return;
     }
 
-    // Don't open if already open or UI wants keyboard input
-    if state.open {
-        return;
-    }
-
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.wants_keyboard_input() {
             return;
         }
+    }
+
+    // "?" (Shift+/) opens help window
+    let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    if keyboard.just_pressed(KeyCode::Slash) && shift {
+        help_state.open = !help_state.open;
+        return;
+    }
+
+    // Don't open palette if already open
+    if state.open {
+        return;
     }
 
     // "/" key opens component search in ObjectInspector mode
