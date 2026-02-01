@@ -197,7 +197,7 @@ fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>
         );
 
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.small_button(egui::RichText::new("✕").color(colors::TEXT_MUTED))
+            if ui.small_button("X")
                 .on_hover_text("Remove Physics component")
                 .clicked()
             {
