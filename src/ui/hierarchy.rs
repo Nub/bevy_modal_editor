@@ -1,8 +1,6 @@
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
-use fuzzy_matcher::skim::SkimMatcherV2;
-use fuzzy_matcher::FuzzyMatcher;
 use std::collections::HashSet;
 
 use crate::scene::{GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
@@ -23,8 +21,6 @@ impl Plugin for HierarchyPlugin {
 pub struct HierarchyState {
     /// Set of expanded group entities
     pub expanded: HashSet<Entity>,
-    /// Filter text for searching
-    pub filter: String,
 }
 
 /// Draw the scene hierarchy panel
@@ -65,16 +61,6 @@ fn draw_hierarchy_panel(
             });
 
             ui.add_space(4.0);
-
-            // Filter input
-            ui.add(
-                egui::TextEdit::singleline(&mut hierarchy_state.filter)
-                    .desired_width(ui.available_width())
-                    .hint_text(egui::RichText::new("Filter...").color(egui::Color32::from_gray(80)))
-                    .margin(egui::vec2(8.0, 6.0)),
-            );
-
-            ui.add_space(4.0);
             ui.separator();
             ui.add_space(4.0);
 
@@ -94,20 +80,7 @@ fn draw_hierarchy_panel(
                     name_a.to_lowercase().cmp(&name_b.to_lowercase())
                 });
 
-                // Fuzzy filter using skim matcher (same as command palette)
-                let matcher = SkimMatcherV2::default();
-                let filter_query = hierarchy_state.filter.clone();
-
                 for (entity, name, _, children, is_group, primitive, light) in root_entities {
-                    let entity_name = name.map(|n| n.as_str()).unwrap_or("Entity");
-
-                    // Apply fuzzy filter
-                    if !filter_query.is_empty()
-                        && matcher.fuzzy_match(entity_name, &filter_query).is_none()
-                    {
-                        continue;
-                    }
-
                     draw_entity_row(
                         ui,
                         entity,
