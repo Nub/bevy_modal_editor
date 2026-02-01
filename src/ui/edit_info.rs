@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use crate::editor::{AxisConstraint, EditStepAmount, EditorMode, EditorState, TransformOperation};
+use crate::editor::{AxisConstraint, EditStepAmount, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::ui::theme::colors;
 
 pub struct EditInfoPlugin;
@@ -18,6 +18,7 @@ fn draw_edit_info_window(
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
     axis_constraint: Res<AxisConstraint>,
+    snap_submode: Res<SnapSubMode>,
     mut step_amount: ResMut<EditStepAmount>,
     mut editor_state: ResMut<EditorState>,
 ) -> Result {
@@ -99,6 +100,11 @@ fn draw_edit_info_window(
                         ui.label(egui::RichText::new("Click to place").color(colors::TEXT_MUTED));
                     }
                     TransformOperation::SnapToObject => {
+                        let submode_text = match *snap_submode {
+                            SnapSubMode::Surface => "A:Surface",
+                            SnapSubMode::Center => "S:Center",
+                        };
+                        ui.label(egui::RichText::new(submode_text).color(colors::ACCENT_BLUE));
                         ui.label(egui::RichText::new("Click to snap").color(colors::TEXT_MUTED));
                     }
                     TransformOperation::None => {}

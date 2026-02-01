@@ -54,6 +54,16 @@ pub enum AxisConstraint {
     Z,
 }
 
+/// Sub-mode for snap to object operation
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Resource)]
+pub enum SnapSubMode {
+    /// Align to surface normal (A key) - default
+    #[default]
+    Surface,
+    /// Align centers through AABB (S key)
+    Center,
+}
+
 /// Editor-wide state resource
 #[derive(Debug, Resource)]
 pub struct EditorState {
@@ -171,6 +181,7 @@ impl Plugin for EditorStatePlugin {
         app.init_state::<EditorMode>()
             .init_resource::<TransformOperation>()
             .init_resource::<AxisConstraint>()
+            .init_resource::<SnapSubMode>()
             .init_resource::<EditorState>()
             .init_resource::<EditStepAmount>()
             .insert_resource(InsertState::new())

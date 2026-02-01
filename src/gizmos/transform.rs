@@ -1,11 +1,11 @@
-use avian3d::prelude::{Sleeping, SleepingDisabled, SpatialQuery, SpatialQueryFilter};
+use avian3d::prelude::{Collider, SimpleCollider, Sleeping, SleepingDisabled, SpatialQuery, SpatialQueryFilter};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 
 use crate::commands::TakeSnapshotCommand;
-use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, TransformOperation};
+use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::scene::Locked;
 use crate::selection::Selected;
 
@@ -47,6 +47,7 @@ impl Plugin for TransformGizmoPlugin {
             (
                 draw_selection_gizmos,
                 handle_axis_keys,
+                handle_snap_submode_keys,
                 handle_step_keys,
                 handle_transform_manipulation,
                 handle_place_mode,
@@ -92,6 +93,7 @@ fn draw_selection_gizmos(
 }
 
 /// Handle A/S/D keys to select X/Y/Z axis constraint in Edit mode
+/// (A/S are handled separately in SnapToObject mode)
 fn handle_axis_keys(
     keyboard: Res<ButtonInput<KeyCode>>,
     mode: Res<State<EditorMode>>,
@@ -111,6 +113,24 @@ fn handle_axis_keys(
     }
 
     if *transform_op == TransformOperation::None {
+        return;
+    }
+
+    // In SnapToObject mode, A/S are used for sub-mode switching
+    if *transform_op == TransformOperation::SnapToObject {
+        // Only D key works for axis in snap mode
+        if let Ok(ctx) = contexts.ctx_mut() {
+            if ctx.wants_keyboard_input() {
+                return;
+            }
+        }
+        if keyboard.just_pressed(KeyCode::KeyD) {
+            *axis_constraint = if *axis_constraint == AxisConstraint::Z {
+                AxisConstraint::None
+            } else {
+                AxisConstraint::Z
+            };
+        }
         return;
     }
 
@@ -142,6 +162,43 @@ fn handle_axis_keys(
         } else {
             AxisConstraint::Z
         };
+    }
+}
+
+/// Handle A/S keys to select snap sub-mode in SnapToObject mode
+fn handle_snap_submode_keys(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mode: Res<State<EditorMode>>,
+    transform_op: Res<TransformOperation>,
+    editor_state: Res<EditorState>,
+    mut snap_submode: ResMut<SnapSubMode>,
+    mut contexts: EguiContexts,
+) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
+    // Only handle in Edit mode with SnapToObject operation
+    if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::SnapToObject {
+        return;
+    }
+
+    // Don't handle when UI wants keyboard input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
+    // A = Surface alignment, S = Center alignment
+    if keyboard.just_pressed(KeyCode::KeyA) {
+        *snap_submode = SnapSubMode::Surface;
+        info!("Snap mode: Surface alignment");
+    }
+    if keyboard.just_pressed(KeyCode::KeyS) {
+        *snap_submode = SnapSubMode::Center;
+        info!("Snap mode: Center alignment");
     }
 }
 
@@ -809,13 +866,16 @@ fn handle_place_mode_click(
 }
 
 /// Handle snap to object mode - update position and rotation based on raycast
-/// Aligns the object so its local Y axis points along the surface normal
+/// A key (Surface mode): Aligns the object so its local Y axis points along the surface normal
+/// S key (Center mode): Aligns object centers through AABBs
 fn handle_snap_to_object_mode(
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
+    snap_submode: Res<SnapSubMode>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     spatial_query: SpatialQuery,
-    mut selected: Query<(Entity, &mut Transform), (With<Selected>, Without<Locked>)>,
+    mut selected: Query<(Entity, &mut Transform, Option<&Collider>), (With<Selected>, Without<Locked>)>,
+    target_query: Query<(&Transform, Option<&Collider>), Without<Selected>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     mut contexts: EguiContexts,
 ) {
@@ -849,7 +909,7 @@ fn handle_snap_to_object_mode(
     };
 
     // Collect selected entities for exclusion from raycast
-    let selected_entities: Vec<Entity> = selected.iter().map(|(e, _)| e).collect();
+    let selected_entities: Vec<Entity> = selected.iter().map(|(e, _, _)| e).collect();
 
     if selected_entities.is_empty() {
         return;
@@ -869,33 +929,88 @@ fn handle_snap_to_object_mode(
         return;
     };
 
-    // Hit a surface - position on it and align to normal
     let hit_point = ray.origin + ray.direction * hit.distance;
     let surface_normal = hit.normal.normalize();
 
-    // Calculate rotation to align object's Y axis with surface normal
-    // This makes the object "stand" on the surface
-    let rotation = rotation_from_normal(surface_normal);
+    match *snap_submode {
+        SnapSubMode::Surface => {
+            // Surface mode: align Y axis with surface normal
+            let rotation = rotation_from_normal(surface_normal);
+            let position = hit_point + surface_normal * 0.5;
 
-    // Offset slightly along surface normal to place on top
-    let position = hit_point + surface_normal * 0.5;
+            // Apply to all selected entities
+            if selected.iter().count() == 1 {
+                for (_, mut transform, _) in selected.iter_mut() {
+                    transform.translation = position;
+                    transform.rotation = rotation;
+                }
+            } else {
+                let center: Vec3 = selected.iter().map(|(_, t, _)| t.translation).sum::<Vec3>()
+                    / selected.iter().count() as f32;
+                let offset = position - center;
 
-    // Apply to all selected entities
-    if selected.iter().count() == 1 {
-        // Single entity - apply directly
-        for (_, mut transform) in selected.iter_mut() {
-            transform.translation = position;
-            transform.rotation = rotation;
+                for (_, mut transform, _) in selected.iter_mut() {
+                    transform.translation += offset;
+                    transform.rotation = rotation;
+                }
+            }
         }
-    } else {
-        // Multiple entities - calculate center offset and apply rotation to all
-        let center: Vec3 = selected.iter().map(|(_, t)| t.translation).sum::<Vec3>()
-            / selected.iter().count() as f32;
-        let offset = position - center;
+        SnapSubMode::Center => {
+            // Center mode: align centers through AABBs
+            // Get target entity info
+            let Ok((target_transform, target_collider)) = target_query.get(hit.entity) else {
+                return;
+            };
 
-        for (_, mut transform) in selected.iter_mut() {
-            transform.translation += offset;
-            transform.rotation = rotation;
+            // Get target AABB half-extents (default to 0.5 if no collider)
+            let target_half_extents = target_collider
+                .map(|c| c.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5)
+                .unwrap_or(Vec3::splat(0.5));
+
+            // Get target center in world space
+            let target_center = target_transform.translation;
+
+            // Determine which axis the surface normal is most aligned with
+            let abs_normal = surface_normal.abs();
+            let primary_axis = if abs_normal.x >= abs_normal.y && abs_normal.x >= abs_normal.z {
+                Vec3::X
+            } else if abs_normal.y >= abs_normal.x && abs_normal.y >= abs_normal.z {
+                Vec3::Y
+            } else {
+                Vec3::Z
+            };
+
+            // Calculate new positions for all selected entities
+            // They will be placed adjacent to target, with centers aligned on the perpendicular axes
+            for (_, mut transform, collider) in selected.iter_mut() {
+                // Get selected entity's AABB half-extents
+                let selected_half_extents = collider
+                    .map(|c| c.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5)
+                    .unwrap_or(Vec3::splat(0.5));
+
+                // Position along the hit axis: target center + both half-extents along that axis
+                let axis_offset = if surface_normal.dot(primary_axis) > 0.0 {
+                    primary_axis
+                } else {
+                    -primary_axis
+                };
+
+                // Calculate distance from target center to selected center along the primary axis
+                let distance_along_axis = if primary_axis == Vec3::X {
+                    target_half_extents.x + selected_half_extents.x
+                } else if primary_axis == Vec3::Y {
+                    target_half_extents.y + selected_half_extents.y
+                } else {
+                    target_half_extents.z + selected_half_extents.z
+                };
+
+                // New position: aligned on perpendicular axes, offset on primary axis
+                let mut new_pos = target_center;
+                new_pos += axis_offset * distance_along_axis;
+
+                transform.translation = new_pos;
+                // Don't change rotation in center mode
+            }
         }
     }
 }
