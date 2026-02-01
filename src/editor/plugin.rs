@@ -120,12 +120,19 @@ impl EditorPlugin {
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         // Third-party plugins (conditional)
-        if self.config.add_egui {
+        // Only add if configured AND not already present
+        if self.config.add_egui && !app.is_plugin_added::<EguiPlugin>() {
             app.add_plugins(EguiPlugin::default());
         }
         if self.config.add_physics {
-            app.add_plugins(PhysicsPlugins::default())
-                .add_plugins(PhysicsDebugPlugin);
+            // Check if physics is already set up by looking for the Time<Physics> resource
+            let has_physics = app.world().contains_resource::<Time<Physics>>();
+            if !has_physics {
+                app.add_plugins(PhysicsPlugins::default());
+            }
+            if !app.is_plugin_added::<PhysicsDebugPlugin>() {
+                app.add_plugins(PhysicsDebugPlugin);
+            }
         }
 
         app
