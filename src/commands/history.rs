@@ -7,6 +7,7 @@ use bevy_egui::EguiContexts;
 use serde::de::DeserializeSeed;
 use std::collections::VecDeque;
 
+use crate::editor::EditorState;
 use crate::scene::{
     DirectionalLightMarker, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity,
     SceneLightMarker, LIGHT_COLLIDER_RADIUS,
@@ -89,10 +90,16 @@ impl Plugin for HistoryPlugin {
 
 fn handle_undo_redo_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
     mut undo_events: MessageWriter<UndoEvent>,
     mut redo_events: MessageWriter<RedoEvent>,
     mut contexts: EguiContexts,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't handle when UI wants keyboard input
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.wants_keyboard_input() {

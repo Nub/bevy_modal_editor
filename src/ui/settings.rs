@@ -191,6 +191,11 @@ fn draw_settings_window(
     mut editor_state: ResMut<EditorState>,
     mut font_sizes_applied: ResMut<FontSizesApplied>,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     let ctx = contexts.ctx_mut()?;
 
     egui::Window::new("Settings")

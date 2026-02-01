@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
-use super::state::{AxisConstraint, EditorMode, TogglePreviewModeEvent, TransformOperation};
+use super::state::{AxisConstraint, EditorMode, EditorState, ToggleEditorEvent, TogglePreviewModeEvent, TransformOperation};
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
 use crate::selection::Selected;
@@ -11,7 +11,22 @@ pub struct EditorInputPlugin;
 
 impl Plugin for EditorInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (handle_mode_input, handle_group_shortcut, handle_preview_mode_shortcut));
+        app.add_systems(Update, (
+            handle_editor_toggle,
+            handle_mode_input,
+            handle_group_shortcut,
+            handle_preview_mode_shortcut,
+        ));
+    }
+}
+
+/// Handle F10 to toggle the editor on/off
+fn handle_editor_toggle(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut toggle_events: MessageWriter<ToggleEditorEvent>,
+) {
+    if keyboard.just_pressed(KeyCode::F10) {
+        toggle_events.write(ToggleEditorEvent);
     }
 }
 
@@ -24,10 +39,16 @@ fn handle_mode_input(
     mut axis_constraint: ResMut<AxisConstraint>,
     mut palette_state: ResMut<CommandPaletteState>,
     component_editor_state: Res<ComponentEditorState>,
+    editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
     mut commands: Commands,
     selected: Query<Entity, With<Selected>>,
 ) {
+    // Don't handle shortcuts when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't handle shortcuts when UI wants keyboard input
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.wants_keyboard_input() {
@@ -167,9 +188,15 @@ fn handle_mode_input(
 /// Handle G key to group selected entities
 fn handle_group_shortcut(
     keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
     mut group_events: MessageWriter<GroupSelectedEvent>,
     mut contexts: EguiContexts,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't handle when UI wants keyboard input
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.wants_keyboard_input() {
@@ -186,9 +213,15 @@ fn handle_group_shortcut(
 /// Handle P key to toggle preview mode
 fn handle_preview_mode_shortcut(
     keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
     mut preview_events: MessageWriter<TogglePreviewModeEvent>,
     mut contexts: EguiContexts,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't handle when UI wants keyboard input
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.wants_keyboard_input() {

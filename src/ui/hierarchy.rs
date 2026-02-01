@@ -5,7 +5,7 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::collections::HashSet;
 
-use crate::editor::EditorMode;
+use crate::editor::{EditorMode, EditorState};
 use crate::scene::{GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::colors;
@@ -95,6 +95,7 @@ fn draw_hierarchy_panel(
     mut contexts: EguiContexts,
     current_mode: Res<State<EditorMode>>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
     scene_entities: Query<
         (
             Entity,
@@ -112,6 +113,11 @@ fn draw_hierarchy_panel(
     mut commands: Commands,
     mut hierarchy_state: ResMut<HierarchyState>,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     // Only show hierarchy panel in Hierarchy mode
     if *current_mode.get() != EditorMode::Hierarchy {
         // Clear filter when leaving hierarchy mode

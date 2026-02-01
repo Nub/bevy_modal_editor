@@ -27,6 +27,11 @@ fn draw_status_bar(
     physics_time: Res<Time<Physics>>,
     snapshot_history: Res<SnapshotHistory>,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     let ctx = contexts.ctx_mut()?;
 
     egui::TopBottomPanel::bottom("status_bar")

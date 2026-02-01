@@ -3,7 +3,7 @@ use bevy_egui::EguiContexts;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{EditorCamera, FlyCamera};
+use super::{EditorCamera, EditorState, FlyCamera};
 
 /// A saved camera position and orientation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,11 +226,17 @@ fn handle_jump_to_last(
 fn handle_mark_shortcuts(
     keyboard: Res<ButtonInput<KeyCode>>,
     mode: Res<State<super::EditorMode>>,
+    editor_state: Res<EditorState>,
     mut set_events: MessageWriter<SetCameraMarkEvent>,
     mut jump_events: MessageWriter<JumpToMarkEvent>,
     mut last_events: MessageWriter<JumpToLastPositionEvent>,
     mut contexts: EguiContexts,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Only handle in View mode
     if *mode.get() != super::EditorMode::View {
         return;

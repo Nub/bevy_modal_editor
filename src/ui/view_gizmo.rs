@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use super::InspectorPanelState;
-use crate::editor::{AxisConstraint, CameraPreset, EditorCamera, EditorMode, FlyCamera, SetCameraPresetEvent};
+use crate::editor::{AxisConstraint, CameraPreset, EditorCamera, EditorMode, EditorState, FlyCamera, SetCameraPresetEvent};
 
 pub struct ViewGizmoPlugin;
 
@@ -20,7 +20,13 @@ fn draw_view_gizmo(
     mode: Res<State<EditorMode>>,
     mut axis_constraint: ResMut<AxisConstraint>,
     inspector_panel: Res<InspectorPanelState>,
+    editor_state: Res<EditorState>,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     let ctx = contexts.ctx_mut()?;
 
     let Ok((fly_cam, camera_transform)) = camera_query.single() else {

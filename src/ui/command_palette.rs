@@ -506,8 +506,14 @@ fn handle_palette_toggle(
     mut registry: ResMut<CommandRegistry>,
     marks: Res<CameraMarks>,
     editor_mode: Res<State<EditorMode>>,
+    editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
 ) {
+    // Don't open when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't open if already open or UI wants keyboard input
     if state.open {
         return;
@@ -558,6 +564,11 @@ fn draw_command_palette(
     mut events: CommandEvents,
     mut commands: Commands,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     if !state.open {
         return Ok(());
     }
@@ -855,7 +866,16 @@ fn draw_command_palette(
 }
 
 /// Draw the help window with keyboard shortcuts
-fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowState>) -> Result {
+fn draw_help_window(
+    mut contexts: EguiContexts,
+    mut state: ResMut<HelpWindowState>,
+    editor_state: Res<EditorState>,
+) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     if !state.open {
         return Ok(());
     }
@@ -1044,7 +1064,13 @@ fn draw_custom_mark_dialog(
     mut contexts: EguiContexts,
     mut state: ResMut<CustomMarkDialogState>,
     mut set_mark_events: MessageWriter<SetCameraMarkEvent>,
+    editor_state: Res<EditorState>,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     if !state.open {
         return Ok(());
     }

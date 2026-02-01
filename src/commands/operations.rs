@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use super::TakeSnapshotCommand;
+use crate::editor::EditorState;
 use crate::scene::SpawnPrimitiveEvent;
 use crate::selection::Selected;
 
@@ -28,10 +29,16 @@ impl Plugin for OperationsPlugin {
 
 fn handle_delete_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
     mut delete_events: MessageWriter<DeleteSelectedEvent>,
     mut duplicate_events: MessageWriter<DuplicateSelectedEvent>,
     mut contexts: EguiContexts,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't handle when UI wants keyboard input
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.wants_keyboard_input() {

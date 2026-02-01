@@ -7,7 +7,7 @@ use super::command_palette::{open_add_component_palette, CommandPaletteState};
 use super::component_browser::{add_component_by_type_id, draw_component_browser};
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
-use crate::editor::EditorMode;
+use crate::editor::{EditorMode, EditorState};
 use crate::scene::{DirectionalLightMarker, Locked, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::colors;
@@ -358,6 +358,11 @@ fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>
 
 /// Draw the component inspector panel
 fn draw_inspector_panel(world: &mut World) {
+    // Don't draw UI when editor is disabled
+    if !world.resource::<EditorState>().ui_enabled {
+        return;
+    }
+
     // Only show inspector in ObjectInspector mode
     let current_mode = world.resource::<State<EditorMode>>().get();
     if *current_mode != EditorMode::ObjectInspector {
@@ -817,6 +822,11 @@ fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
 
 /// Draw the component editor popup window
 fn draw_component_editor_popup(world: &mut World) {
+    // Don't draw UI when editor is disabled
+    if !world.resource::<EditorState>().ui_enabled {
+        return;
+    }
+
     // Only show in ObjectInspector mode
     let current_mode = world.resource::<State<EditorMode>>().get();
     if *current_mode != EditorMode::ObjectInspector {

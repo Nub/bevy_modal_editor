@@ -21,6 +21,11 @@ fn draw_edit_info_window(
     mut step_amount: ResMut<EditStepAmount>,
     mut editor_state: ResMut<EditorState>,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     // Only show in Edit mode with an active operation
     if *mode.get() != EditorMode::Edit {
         return Ok(());

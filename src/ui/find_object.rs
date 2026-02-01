@@ -3,7 +3,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteItem, PaletteResult, PaletteState};
 use super::theme::colors;
-use crate::editor::EditorMode;
+use crate::editor::{EditorMode, EditorState};
 use crate::scene::SceneEntity;
 use crate::selection::Selected;
 
@@ -38,8 +38,14 @@ fn handle_find_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<FindObjectState>,
     editor_mode: Res<State<EditorMode>>,
+    editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
 ) {
+    // Don't open when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't open if already open or UI wants keyboard input
     if state.open {
         return;
@@ -83,7 +89,13 @@ fn draw_find_palette(
     mut commands: Commands,
     scene_objects: Query<(Entity, &Name), With<SceneEntity>>,
     selected_entities: Query<Entity, With<Selected>>,
+    editor_state: Res<EditorState>,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     if !state.open {
         return Ok(());
     }

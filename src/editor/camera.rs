@@ -2,7 +2,7 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
-use super::EditorMode;
+use super::{EditorMode, EditorState};
 use crate::selection::Selected;
 use crate::ui::Settings;
 
@@ -168,9 +168,15 @@ fn camera_movement(
     time: Res<Time>,
     settings: Res<Settings>,
     mode: Res<State<EditorMode>>,
+    editor_state: Res<EditorState>,
     mut query: Query<&mut Transform, With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Disable camera movement in Edit mode (WASD used for axis selection)
     if *mode.get() == EditorMode::Edit {
         return;
@@ -296,10 +302,16 @@ fn handle_camera_preset(
 /// Look at the currently selected object when L is pressed
 fn look_at_selected(
     keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
     selected_query: Query<&Transform, (With<Selected>, Without<EditorCamera>)>,
     mut camera_query: Query<(&mut FlyCamera, &mut Transform), With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't trigger when UI wants keyboard input
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.wants_keyboard_input() {

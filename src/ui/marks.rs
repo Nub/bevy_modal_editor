@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::editor::{
-    CameraMarks, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
+    CameraMarks, EditorState, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
 };
 
 /// Resource to track if marks window is open
@@ -30,7 +30,13 @@ fn draw_marks_window(
     mut set_events: MessageWriter<SetCameraMarkEvent>,
     mut jump_events: MessageWriter<JumpToMarkEvent>,
     mut last_events: MessageWriter<JumpToLastPositionEvent>,
+    editor_state: Res<EditorState>,
 ) -> Result {
+    // Don't draw UI when editor is disabled
+    if !editor_state.ui_enabled {
+        return Ok(());
+    }
+
     if !window_state.open {
         return Ok(());
     }

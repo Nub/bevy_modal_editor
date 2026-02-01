@@ -55,6 +55,9 @@ pub enum AxisConstraint {
 /// Editor-wide state resource
 #[derive(Debug, Resource)]
 pub struct EditorState {
+    /// Whether the editor is active (F10 to toggle)
+    /// When false, all UI and hotkeys are disabled
+    pub editor_active: bool,
     /// Whether the editor UI is enabled
     pub ui_enabled: bool,
     /// Whether gizmos are visible
@@ -68,6 +71,7 @@ pub struct EditorState {
 impl Default for EditorState {
     fn default() -> Self {
         Self {
+            editor_active: true,
             ui_enabled: true,
             gizmos_visible: true,
             grid_snap: 0.0,
@@ -147,6 +151,11 @@ pub struct ToggleGridEvent;
 #[derive(Message)]
 pub struct TogglePreviewModeEvent;
 
+/// Event to toggle the editor on/off (F10)
+/// When off, all UI and hotkeys are disabled
+#[derive(Message)]
+pub struct ToggleEditorEvent;
+
 /// Event to start inserting an object in Insert mode
 #[derive(Message)]
 pub struct StartInsertEvent {
@@ -167,6 +176,7 @@ impl Plugin for EditorStatePlugin {
             .add_message::<TogglePhysicsEvent>()
             .add_message::<ToggleGridEvent>()
             .add_message::<TogglePreviewModeEvent>()
+            .add_message::<ToggleEditorEvent>()
             .add_message::<StartInsertEvent>()
             .add_systems(
                 Update,
@@ -175,6 +185,7 @@ impl Plugin for EditorStatePlugin {
                     handle_toggle_physics,
                     handle_toggle_grid,
                     handle_toggle_preview_mode,
+                    handle_toggle_editor,
                 ),
             );
     }
@@ -258,6 +269,51 @@ fn handle_toggle_preview_mode(
         info!(
             "Preview mode: {}",
             if editor_state.gizmos_visible { "OFF" } else { "ON" }
+        );
+    }
+}
+
+/// Handle toggling the editor on/off
+fn handle_toggle_editor(
+    mut events: MessageReader<ToggleEditorEvent>,
+    mut editor_state: ResMut<EditorState>,
+    mut gizmo_config: ResMut<GizmoConfigStore>,
+    mut grids: Query<&mut Visibility, With<InfiniteGridSettings>>,
+) {
+    for _ in events.read() {
+        editor_state.editor_active = !editor_state.editor_active;
+
+        if editor_state.editor_active {
+            // Re-enable UI and gizmos
+            editor_state.ui_enabled = true;
+            editor_state.gizmos_visible = true;
+
+            // Enable physics debug gizmos
+            let physics_config = gizmo_config.config_mut::<PhysicsGizmos>().0;
+            physics_config.enabled = true;
+
+            // Show grid
+            for mut visibility in grids.iter_mut() {
+                *visibility = Visibility::Visible;
+            }
+        } else {
+            // Disable UI and gizmos
+            editor_state.ui_enabled = false;
+            editor_state.gizmos_visible = false;
+
+            // Disable physics debug gizmos
+            let physics_config = gizmo_config.config_mut::<PhysicsGizmos>().0;
+            physics_config.enabled = false;
+
+            // Hide grid
+            for mut visibility in grids.iter_mut() {
+                *visibility = Visibility::Hidden;
+            }
+        }
+
+        info!(
+            "Editor: {}",
+            if editor_state.editor_active { "ON" } else { "OFF" }
         );
     }
 }

@@ -94,9 +94,15 @@ fn handle_axis_keys(
     keyboard: Res<ButtonInput<KeyCode>>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
+    editor_state: Res<EditorState>,
     mut axis_constraint: ResMut<AxisConstraint>,
     mut contexts: EguiContexts,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Only handle in Edit mode with an active transform operation
     if *mode.get() != EditorMode::Edit {
         return;
@@ -149,6 +155,11 @@ fn handle_step_keys(
     mut contexts: EguiContexts,
     mut commands: Commands,
 ) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Only handle in Edit mode with an active transform operation
     if *mode.get() != EditorMode::Edit {
         return;
