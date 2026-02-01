@@ -415,6 +415,9 @@ fn handle_group_selected(
     }
 }
 
+/// Collider radius for light selection (small sphere for clicking)
+pub const LIGHT_COLLIDER_RADIUS: f32 = 0.5;
+
 fn handle_spawn_point_light(
     mut events: MessageReader<SpawnPointLightEvent>,
     mut commands: Commands,
@@ -437,6 +440,8 @@ fn handle_spawn_point_light(
             },
             Transform::from_translation(event.position),
             Visibility::default(),
+            // Collider for selection via raycasting
+            Collider::sphere(LIGHT_COLLIDER_RADIUS),
         ));
     }
 }
@@ -462,6 +467,8 @@ fn handle_spawn_directional_light(
             },
             Transform::from_translation(event.position).looking_at(Vec3::ZERO, Vec3::Y),
             Visibility::default(),
+            // Collider for selection via raycasting
+            Collider::sphere(LIGHT_COLLIDER_RADIUS),
         ));
     }
 }

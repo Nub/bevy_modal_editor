@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::{DirectionalLightMarker, GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
+use super::{DirectionalLightMarker, GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker, LIGHT_COLLIDER_RADIUS};
 use crate::editor::{CameraMark, CameraMarks};
 
 /// Event to save the scene
@@ -500,6 +500,8 @@ fn regenerate_meshes(world: &mut World) {
                     ..default()
                 },
                 Visibility::default(),
+                // Collider for selection via raycasting
+                Collider::sphere(LIGHT_COLLIDER_RADIUS),
             ));
         }
     }
@@ -523,6 +525,8 @@ fn regenerate_meshes(world: &mut World) {
                     ..default()
                 },
                 Visibility::default(),
+                // Collider for selection via raycasting
+                Collider::sphere(LIGHT_COLLIDER_RADIUS),
             ));
         }
     }
