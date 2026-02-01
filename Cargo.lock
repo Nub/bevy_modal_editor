@@ -578,20 +578,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_avian3d_editor"
-version = "0.1.0"
-dependencies = [
- "avian3d",
- "bevy",
- "bevy_egui",
- "bevy_infinite_grid",
- "dirs",
- "fuzzy-matcher",
- "ron 0.8.1",
- "serde",
-]
-
-[[package]]
 name = "bevy_camera"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1171,6 +1157,20 @@ name = "bevy_mikktspace"
 version = "0.17.0-dev"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef8e4b7e61dfe7719bb03c884dc270cd46a82efb40f93e9933b990c5c190c59"
+
+[[package]]
+name = "bevy_modal_editor"
+version = "0.1.0"
+dependencies = [
+ "avian3d",
+ "bevy",
+ "bevy_egui",
+ "bevy_infinite_grid",
+ "dirs",
+ "fuzzy-matcher",
+ "ron 0.8.1",
+ "serde",
+]
 
 [[package]]
 name = "bevy_pbr"

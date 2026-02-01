@@ -86,7 +86,7 @@ impl Settings {
     /// Get the settings file path
     fn file_path() -> Option<PathBuf> {
         dirs::config_dir().map(|mut p| {
-            p.push("bevy_avian3d_editor");
+            p.push("bevy_modal_editor");
             p.push("settings.ron");
             p
         })

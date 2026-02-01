@@ -9,7 +9,7 @@
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_avian3d_editor::{EditorPlugin, SceneEntity};
+use bevy_modal_editor::{EditorPlugin, SceneEntity};
 
 fn main() {
     App::new()

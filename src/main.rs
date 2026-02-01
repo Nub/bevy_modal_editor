@@ -4,7 +4,7 @@
 //! see the examples directory.
 
 use bevy::prelude::*;
-use bevy_avian3d_editor::EditorPlugin;
+use bevy_modal_editor::EditorPlugin;
 
 fn main() {
     App::new()

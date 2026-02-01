@@ -47,7 +47,7 @@ impl Default for EditorPluginConfig {
 ///
 /// ```no_run
 /// use bevy::prelude::*;
-/// use bevy_avian3d_editor::EditorPlugin;
+/// use bevy_modal_editor::EditorPlugin;
 ///
 /// fn main() {
 ///     App::new()
@@ -63,7 +63,7 @@ impl Default for EditorPluginConfig {
 ///
 /// ```no_run
 /// use bevy::prelude::*;
-/// use bevy_avian3d_editor::{EditorPlugin, editor::EditorPluginConfig};
+/// use bevy_modal_editor::{EditorPlugin, editor::EditorPluginConfig};
 ///
 /// fn main() {
 ///     App::new()

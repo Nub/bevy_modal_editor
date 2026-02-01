@@ -1,6 +1,6 @@
-//! # Bevy Avian3D Editor
+//! # Bevy Modal Editor
 //!
-//! A level editor plugin for Bevy games using Avian3D physics.
+//! A modal level editor plugin for Bevy games with Avian3D physics support.
 //!
 //! ## Quick Start
 //!
@@ -8,7 +8,7 @@
 //!
 //! ```no_run
 //! use bevy::prelude::*;
-//! use bevy_avian3d_editor::EditorPlugin;
+//! use bevy_modal_editor::EditorPlugin;
 //!
 //! fn main() {
 //!     App::new()

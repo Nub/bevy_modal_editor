@@ -1,19 +1,19 @@
 [package]
-name = "bevy_avian3d_editor"
+name = "bevy_modal_editor"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "A level editor plugin for Bevy games using Avian3D physics"
+description = "A modal level editor plugin for Bevy games with Avian3D physics support"
 repository = "https://github.com/Nub/bevy_modal_editor"
-keywords = ["bevy", "editor", "avian3d", "physics", "level-editor"]
+keywords = ["bevy", "editor", "modal", "level-editor", "avian3d"]
 categories = ["game-development", "game-engines"]
 
 [lib]
-name = "bevy_avian3d_editor"
+name = "bevy_modal_editor"
 path = "src/lib.rs"
 
 [[bin]]
-name = "bevy_avian3d_editor"
+name = "bevy_modal_editor"
 path = "src/main.rs"
 
 [dependencies]
