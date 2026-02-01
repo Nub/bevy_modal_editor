@@ -54,7 +54,7 @@ fn handle_find_toggle(
         }
     }
 
-    if keyboard.just_pressed(KeyCode::KeyF) {
+    if keyboard.just_pressed(KeyCode::KeyF) || keyboard.just_pressed(KeyCode::Slash) {
         state.open = true;
         state.query.clear();
         state.selected_index = 0;
