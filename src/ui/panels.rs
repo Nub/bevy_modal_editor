@@ -107,7 +107,7 @@ fn draw_status_bar(
                 ui.separator();
 
                 // Physics status
-                if physics_time.is_paused() {
+                if physics_time.relative_speed() == 0.0 {
                     ui.label(
                         egui::RichText::new("▶ Physics: OFF")
                             .color(colors::STATUS_ERROR),
