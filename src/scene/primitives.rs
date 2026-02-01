@@ -6,11 +6,13 @@ use super::SceneEntity;
 use crate::selection::Selected;
 
 /// Marker component for group entities (containers for nesting)
-#[derive(Component, Serialize, Deserialize, Clone, Default)]
+#[derive(Component, Serialize, Deserialize, Clone, Default, Reflect)]
+#[reflect(Component)]
 pub struct GroupMarker;
 
 /// Marker component for scene lights (to distinguish from editor lights)
-#[derive(Component, Serialize, Deserialize, Clone)]
+#[derive(Component, Serialize, Deserialize, Clone, Reflect)]
+#[reflect(Component)]
 pub struct SceneLightMarker {
     pub color: Color,
     pub intensity: f32,
@@ -30,8 +32,9 @@ impl Default for SceneLightMarker {
 }
 
 /// Available primitive shapes
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Reflect, Default)]
 pub enum PrimitiveShape {
+    #[default]
     Cube,
     Sphere,
     Cylinder,
@@ -88,7 +91,8 @@ pub struct SpawnPointLightEvent {
 }
 
 /// Component to track what primitive shape an entity is
-#[derive(Component, Serialize, Deserialize, Clone)]
+#[derive(Component, Serialize, Deserialize, Clone, Reflect)]
+#[reflect(Component)]
 pub struct PrimitiveMarker {
     pub shape: PrimitiveShape,
 }

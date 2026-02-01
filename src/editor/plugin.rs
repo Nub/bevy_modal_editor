@@ -1,4 +1,4 @@
-use avian3d::prelude::*;
+use avian3d::prelude::PhysicsPlugins;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 
@@ -65,10 +65,10 @@ fn setup_editor_scene(mut commands: Commands) {
 
 /// Load the default scene on startup
 fn load_default_scene(mut load_events: MessageWriter<LoadSceneEvent>) {
-    let default_scene_path = "assets/default_scene.ron";
-    if std::path::Path::new(default_scene_path).exists() {
-        load_events.write(LoadSceneEvent {
-            path: default_scene_path.to_string(),
-        });
-    }
+    // Load the test scene
+    load_events.write(LoadSceneEvent {
+        path: "assets/test_scene.ron".to_string(),
+    });
+
+    info!("Loading test scene");
 }
