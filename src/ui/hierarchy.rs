@@ -269,6 +269,8 @@ fn draw_entity_row(
                     header_text.clone(),
                     is_selected,
                     shift_held,
+                    is_group,
+                    &scene_children,
                     commands,
                     selected_query,
                 );
@@ -347,6 +349,8 @@ fn draw_entity_row(
                 header_text,
                 is_selected,
                 shift_held,
+                false,
+                &[],
                 commands,
                 selected_query,
             );
@@ -364,6 +368,8 @@ fn draw_draggable_button(
     text: egui::RichText,
     is_selected: bool,
     shift_held: bool,
+    is_group: bool,
+    children: &[Entity],
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
 ) -> egui::Response {
@@ -374,8 +380,19 @@ fn draw_draggable_button(
 
     let response = ui.add(button);
 
-    // Handle click for selection (only if not dragging)
-    if response.clicked() {
+    // Handle right-click on groups to select all children
+    if response.secondary_clicked() && is_group && !children.is_empty() {
+        // Clear previous selection
+        for selected_e in selected_query.iter() {
+            commands.entity(selected_e).remove::<Selected>();
+        }
+        // Select all children
+        for &child in children {
+            commands.entity(child).insert(Selected);
+        }
+    }
+    // Handle left-click for selection (only if not dragging)
+    else if response.clicked() {
         if shift_held {
             if is_selected {
                 commands.entity(entity).remove::<Selected>();
