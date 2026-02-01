@@ -33,6 +33,39 @@ pub struct ReflectEditorConfig {
     pub show_types: bool,
     /// Whether this is a top-level component (needs indent for non-collapsible items)
     pub is_top_level: bool,
+    /// Whether collapsing headers should be open by default
+    pub default_open: bool,
+    /// Whether to focus the first editable field (uses egui memory to track)
+    pub focus_first: bool,
+}
+
+/// Key for tracking if we've already focused a widget this session
+const FOCUS_DONE_KEY: &str = "reflect_editor_focus_done";
+
+/// Try to focus this widget if focus_first is enabled and we haven't focused yet
+/// Returns true if focus was requested
+fn try_focus_first(ui: &egui::Ui, config: &ReflectEditorConfig, response: &egui::Response) -> bool {
+    if !config.focus_first {
+        return false;
+    }
+
+    let done_key = egui::Id::new(FOCUS_DONE_KEY);
+    let already_done = ui.memory(|mem| mem.data.get_temp::<bool>(done_key).unwrap_or(false));
+
+    if already_done {
+        return false;
+    }
+
+    // Mark as done and request focus
+    ui.memory_mut(|mem| mem.data.insert_temp(done_key, true));
+    response.request_focus();
+    true
+}
+
+/// Clear the focus tracking state (call when closing the editor)
+pub fn clear_focus_state(ctx: &egui::Context) {
+    let done_key = egui::Id::new(FOCUS_DONE_KEY);
+    ctx.memory_mut(|mem| mem.data.remove::<bool>(done_key));
 }
 
 impl Default for ReflectEditorConfig {
@@ -41,6 +74,8 @@ impl Default for ReflectEditorConfig {
             drag_speed: 0.1,
             show_types: false,
             is_top_level: true,
+            default_open: false,
+            focus_first: false,
         }
     }
 }
@@ -50,7 +85,25 @@ impl ReflectEditorConfig {
     pub fn nested(&self) -> Self {
         Self {
             is_top_level: false,
+            // Pass through focus_first - the memory tracking prevents duplicate focus
             ..self.clone()
+        }
+    }
+
+    /// Create a config with all sections expanded by default
+    pub fn expanded() -> Self {
+        Self {
+            default_open: true,
+            ..Self::default()
+        }
+    }
+
+    /// Create a config with all sections expanded and first field focused
+    pub fn expanded_and_focused() -> Self {
+        Self {
+            default_open: true,
+            focus_first: true,
+            ..Self::default()
         }
     }
 }
@@ -146,7 +199,7 @@ pub fn reflect_editor(
             // Multi-field tuple struct - show as collapsible
             let mut changed = false;
             egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_SECONDARY))
-                .default_open(false)
+                .default_open(config.default_open)
                 .show(ui, |ui| {
                     let nested_config = config.nested();
                     for i in 0..ts.field_len() {
@@ -167,7 +220,7 @@ pub fn reflect_editor(
         ReflectMut::Tuple(t) => {
             let mut changed = false;
             egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_SECONDARY))
-                .default_open(false)
+                .default_open(config.default_open)
                 .show(ui, |ui| {
                     let nested_config = config.nested();
                     for i in 0..t.field_len() {
@@ -235,7 +288,7 @@ fn struct_editor(
     }
 
     egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_SECONDARY))
-        .default_open(false)
+        .default_open(config.default_open)
         .show(ui, |ui| {
             let nested_config = config.nested();
             for i in 0..field_count {
@@ -268,7 +321,7 @@ fn transform_editor(
             .strong()
             .color(colors::TEXT_PRIMARY),
     )
-    .default_open(false)
+    .default_open(config.default_open)
     .show(ui, |ui| {
         ui.add_space(4.0);
 
@@ -322,10 +375,9 @@ fn vec3_inline_editor(ui: &mut egui::Ui, v: &mut Vec3, config: &ReflectEditorCon
 
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-        if ui
-            .add(egui::DragValue::new(&mut v.x).speed(config.drag_speed))
-            .changed()
-        {
+        let x_response = ui.add(egui::DragValue::new(&mut v.x).speed(config.drag_speed));
+        try_focus_first(ui, config, &x_response);
+        if x_response.changed() {
             changed = true;
         }
         ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
@@ -590,37 +642,37 @@ fn opaque_editor_inner(
 
     // i32
     if let Some(v) = value.try_downcast_mut::<i32>() {
-        return i32_editor(ui, v, name);
+        return i32_editor(ui, v, name, config);
     }
 
     // i64
     if let Some(v) = value.try_downcast_mut::<i64>() {
-        return i64_editor(ui, v, name);
+        return i64_editor(ui, v, name, config);
     }
 
     // u32
     if let Some(v) = value.try_downcast_mut::<u32>() {
-        return u32_editor(ui, v, name);
+        return u32_editor(ui, v, name, config);
     }
 
     // u64
     if let Some(v) = value.try_downcast_mut::<u64>() {
-        return u64_editor(ui, v, name);
+        return u64_editor(ui, v, name, config);
     }
 
     // usize
     if let Some(v) = value.try_downcast_mut::<usize>() {
-        return usize_editor(ui, v, name);
+        return usize_editor(ui, v, name, config);
     }
 
     // bool
     if let Some(v) = value.try_downcast_mut::<bool>() {
-        return bool_editor(ui, v, name);
+        return bool_editor(ui, v, name, config);
     }
 
     // String
     if let Some(v) = value.try_downcast_mut::<String>() {
-        return string_editor(ui, v, name);
+        return string_editor(ui, v, name, config);
     }
 
     // Vec3
@@ -681,10 +733,9 @@ fn f32_editor(ui: &mut egui::Ui, v: &mut f32, name: &str, config: &ReflectEditor
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui
-            .add(egui::DragValue::new(v).speed(config.drag_speed))
-            .changed()
-        {
+        let response = ui.add(egui::DragValue::new(v).speed(config.drag_speed));
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -699,10 +750,9 @@ fn f64_editor(ui: &mut egui::Ui, v: &mut f64, name: &str, config: &ReflectEditor
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui
-            .add(egui::DragValue::new(v).speed(config.drag_speed as f64))
-            .changed()
-        {
+        let response = ui.add(egui::DragValue::new(v).speed(config.drag_speed as f64));
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -713,11 +763,13 @@ fn f64_editor(ui: &mut egui::Ui, v: &mut f64, name: &str, config: &ReflectEditor
     }
 }
 
-fn i32_editor(ui: &mut egui::Ui, v: &mut i32, name: &str) -> EditResult {
+fn i32_editor(ui: &mut egui::Ui, v: &mut i32, name: &str, config: &ReflectEditorConfig) -> EditResult {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui.add(egui::DragValue::new(v).speed(1.0)).changed() {
+        let response = ui.add(egui::DragValue::new(v).speed(1.0));
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -728,11 +780,13 @@ fn i32_editor(ui: &mut egui::Ui, v: &mut i32, name: &str) -> EditResult {
     }
 }
 
-fn i64_editor(ui: &mut egui::Ui, v: &mut i64, name: &str) -> EditResult {
+fn i64_editor(ui: &mut egui::Ui, v: &mut i64, name: &str, config: &ReflectEditorConfig) -> EditResult {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui.add(egui::DragValue::new(v).speed(1.0)).changed() {
+        let response = ui.add(egui::DragValue::new(v).speed(1.0));
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -743,11 +797,13 @@ fn i64_editor(ui: &mut egui::Ui, v: &mut i64, name: &str) -> EditResult {
     }
 }
 
-fn u32_editor(ui: &mut egui::Ui, v: &mut u32, name: &str) -> EditResult {
+fn u32_editor(ui: &mut egui::Ui, v: &mut u32, name: &str, config: &ReflectEditorConfig) -> EditResult {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui.add(egui::DragValue::new(v).speed(1.0)).changed() {
+        let response = ui.add(egui::DragValue::new(v).speed(1.0));
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -758,11 +814,13 @@ fn u32_editor(ui: &mut egui::Ui, v: &mut u32, name: &str) -> EditResult {
     }
 }
 
-fn u64_editor(ui: &mut egui::Ui, v: &mut u64, name: &str) -> EditResult {
+fn u64_editor(ui: &mut egui::Ui, v: &mut u64, name: &str, config: &ReflectEditorConfig) -> EditResult {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui.add(egui::DragValue::new(v).speed(1.0)).changed() {
+        let response = ui.add(egui::DragValue::new(v).speed(1.0));
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -773,11 +831,13 @@ fn u64_editor(ui: &mut egui::Ui, v: &mut u64, name: &str) -> EditResult {
     }
 }
 
-fn usize_editor(ui: &mut egui::Ui, v: &mut usize, name: &str) -> EditResult {
+fn usize_editor(ui: &mut egui::Ui, v: &mut usize, name: &str, config: &ReflectEditorConfig) -> EditResult {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui.add(egui::DragValue::new(v).speed(1.0)).changed() {
+        let response = ui.add(egui::DragValue::new(v).speed(1.0));
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -788,11 +848,13 @@ fn usize_editor(ui: &mut egui::Ui, v: &mut usize, name: &str) -> EditResult {
     }
 }
 
-fn bool_editor(ui: &mut egui::Ui, v: &mut bool, name: &str) -> EditResult {
+fn bool_editor(ui: &mut egui::Ui, v: &mut bool, name: &str, config: &ReflectEditorConfig) -> EditResult {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui.checkbox(v, "").changed() {
+        let response = ui.checkbox(v, "");
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -803,11 +865,13 @@ fn bool_editor(ui: &mut egui::Ui, v: &mut bool, name: &str) -> EditResult {
     }
 }
 
-fn string_editor(ui: &mut egui::Ui, v: &mut String, name: &str) -> EditResult {
+fn string_editor(ui: &mut egui::Ui, v: &mut String, name: &str, config: &ReflectEditorConfig) -> EditResult {
     let mut changed = false;
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        if ui.text_edit_singleline(v).changed() {
+        let response = ui.text_edit_singleline(v);
+        try_focus_first(ui, config, &response);
+        if response.changed() {
             changed = true;
         }
     });
@@ -823,10 +887,9 @@ fn vec2_editor(ui: &mut egui::Ui, v: &mut Vec2, name: &str, config: &ReflectEdit
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
         ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-        if ui
-            .add(egui::DragValue::new(&mut v.x).speed(config.drag_speed))
-            .changed()
-        {
+        let x_response = ui.add(egui::DragValue::new(&mut v.x).speed(config.drag_speed));
+        try_focus_first(ui, config, &x_response);
+        if x_response.changed() {
             changed = true;
         }
         ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
@@ -1100,7 +1163,7 @@ pub fn reflect_viewer(
 
             // Multi-field tuple struct - show as collapsible
             egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_MUTED))
-                .default_open(false)
+                .default_open(config.default_open)
                 .show(ui, |ui| {
                     readonly_badge(ui);
                     let nested_config = config.nested();
@@ -1114,7 +1177,7 @@ pub fn reflect_viewer(
         }
         ReflectRef::Tuple(t) => {
             egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_MUTED))
-                .default_open(false)
+                .default_open(config.default_open)
                 .show(ui, |ui| {
                     readonly_badge(ui);
                     let nested_config = config.nested();
@@ -1173,7 +1236,7 @@ fn struct_viewer(
     }
 
     egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_MUTED))
-        .default_open(false)
+        .default_open(config.default_open)
         .show(ui, |ui| {
             readonly_badge(ui);
             let nested_config = config.nested();
@@ -1190,11 +1253,11 @@ fn struct_viewer(
 fn transform_viewer(
     ui: &mut egui::Ui,
     s: &dyn Struct,
-    _config: &ReflectEditorConfig,
+    config: &ReflectEditorConfig,
 ) {
 
     egui::CollapsingHeader::new(egui::RichText::new("Transform").color(colors::TEXT_MUTED))
-        .default_open(false)
+        .default_open(config.default_open)
         .show(ui, |ui| {
             readonly_badge(ui);
             ui.add_space(4.0);

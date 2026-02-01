@@ -1286,6 +1286,7 @@ fn draw_component_search_palette(
     // Handle selected component
     if let Some((type_id, name)) = selected_component {
         component_editor_state.editing_component = Some((type_id, name));
+        component_editor_state.just_opened = true;
     }
 
     if should_close {
@@ -1465,10 +1466,19 @@ fn draw_add_component_palette(
 
     // Handle adding component - we need to defer this since we need world access
     if let Some(type_id) = component_to_add {
+        // Get the component name for the editor popup
+        let component_name = component_registry
+            .components
+            .iter()
+            .find(|c| c.type_id == type_id)
+            .map(|c| c.short_name.clone())
+            .unwrap_or_else(|| "Component".to_string());
+
         // Store the component to add in a command that will run later
         commands.queue(AddComponentCommand {
             entity: target_entity,
             type_id,
+            component_name,
         });
     }
 
@@ -1484,10 +1494,16 @@ fn draw_add_component_palette(
 struct AddComponentCommand {
     entity: Entity,
     type_id: TypeId,
+    component_name: String,
 }
 
 impl bevy::prelude::Command for AddComponentCommand {
     fn apply(self, world: &mut World) {
-        add_component_by_type_id(world, self.entity, self.type_id);
+        if add_component_by_type_id(world, self.entity, self.type_id) {
+            // Open the component editor for the newly added component
+            let mut editor_state = world.resource_mut::<super::inspector::ComponentEditorState>();
+            editor_state.editing_component = Some((self.type_id, self.component_name));
+            editor_state.just_opened = true;
+        }
     }
 }

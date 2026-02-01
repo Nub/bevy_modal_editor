@@ -5,7 +5,7 @@ use std::any::TypeId;
 
 use super::command_palette::{open_add_component_palette, CommandPaletteState};
 use super::component_browser::{add_component_by_type_id, draw_component_browser};
-use super::reflect_editor::{component_editor, ReflectEditorConfig};
+use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::editor::EditorMode;
 use crate::scene::{DirectionalLightMarker, Locked, SceneLightMarker};
@@ -57,6 +57,8 @@ impl RigidBodyType {
 pub struct ComponentEditorState {
     /// The component type ID being edited (if any)
     pub editing_component: Option<(std::any::TypeId, String)>,
+    /// Whether the popup was just opened (to focus first field)
+    pub just_opened: bool,
 }
 
 pub struct InspectorPlugin;
@@ -824,10 +826,10 @@ fn draw_component_editor_popup(world: &mut World) {
         return;
     }
 
-    // Get the editing component info
-    let editing_component = {
+    // Get the editing component info and just_opened state
+    let (editing_component, just_opened) = {
         let state = world.resource::<ComponentEditorState>();
-        state.editing_component.clone()
+        (state.editing_component.clone(), state.just_opened)
     };
 
     let Some((type_id, component_name)) = editing_component else {
@@ -868,6 +870,15 @@ fn draw_component_editor_popup(world: &mut World) {
 
     let window_title = format!("Edit: {}", component_name);
 
+    // When just opened, clear any previous focus tracking state
+    if just_opened {
+        clear_focus_state(&ctx);
+    }
+
+    // Use focused config - we keep trying to focus until we succeed
+    // The focus tracking in egui memory prevents duplicate focus requests
+    let config = ReflectEditorConfig::expanded_and_focused();
+
     egui::Window::new(window_title)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .resizable(true)
@@ -876,24 +887,20 @@ fn draw_component_editor_popup(world: &mut World) {
         .default_width(350.0)
         .max_height(500.0)
         .show(&ctx, |ui| {
-            // Close button
-            ui.horizontal(|ui| {
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Close").clicked() {
-                        close_editor = true;
-                    }
-                });
-            });
-
-            ui.separator();
-
             egui::ScrollArea::vertical().show(ui, |ui| {
-                let config = ReflectEditorConfig::default();
                 component_editor(world, entity, type_id, ui, &config);
             });
         });
 
+    // Clear just_opened flag (focus tracking is handled by egui memory)
+    if just_opened {
+        let mut editor_state = world.resource_mut::<ComponentEditorState>();
+        editor_state.just_opened = false;
+    }
+
     if close_editor {
+        // Clear focus state when closing
+        clear_focus_state(&ctx);
         let mut editor_state = world.resource_mut::<ComponentEditorState>();
         editor_state.editing_component = None;
     }
