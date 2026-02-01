@@ -102,50 +102,11 @@ Press `F10` to toggle the editor UI on/off during gameplay.
 - **Undo/Redo** - Full command history (`U` to undo, `Ctrl+R` to redo)
 - **Physics Integration** - All objects are physics-enabled with Avian3D
 
-## Requirements
+## Tools
 
 - [Nix](https://nixos.org/) (for dependency management)
 - Rust 2024 edition
 
-## Building
-
-```bash
-# Enter development environment
-nix develop
-
-# Run the editor
-cargo run
-
-# Build release
-cargo build --release
-```
-
-## Project Structure
-
-```
-src/
-├── main.rs              # Application entry point
-├── lib.rs               # Library root, exports EditorPlugin
-├── editor/              # Core editor functionality
-│   ├── plugin.rs        # Main EditorPlugin
-│   ├── state.rs         # EditorMode, TransformOperation
-│   ├── input.rs         # Keyboard input handling
-│   ├── camera.rs        # Fly camera controls
-│   ├── marks.rs         # Camera mark system
-│   └── insert.rs        # Insert mode logic
-├── selection/           # Entity selection via raycasting
-├── commands/            # Undo/redo system
-├── scene/               # Scene management and serialization
-├── gizmos/              # Transform gizmos and visual overlays
-├── patterns/            # Linear and circular patterns
-└── ui/                  # egui interface
-    ├── panels.rs        # Status bar
-    ├── hierarchy.rs     # Scene tree with inline filtering
-    ├── inspector.rs     # Component property editor
-    ├── command_palette.rs # Fuzzy command search
-    ├── find_object.rs   # Object search palette
-    └── fuzzy_palette.rs # Shared fuzzy search widget
-```
 
 ## License
 
