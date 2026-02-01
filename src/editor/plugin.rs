@@ -43,12 +43,8 @@ impl Plugin for EditorPlugin {
     }
 }
 
-/// Setup initial editor scene with lighting and ground plane
-fn setup_editor_scene(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-) {
+/// Setup initial editor scene with lighting
+fn setup_editor_scene(mut commands: Commands) {
     // Directional light
     commands.spawn((
         DirectionalLight {
@@ -65,18 +61,6 @@ fn setup_editor_scene(
         brightness: 300.0,
         affects_lightmapped_meshes: true,
     });
-
-    // Ground plane (visual reference, not part of scene save)
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(20.0, 20.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.3, 0.3, 0.3),
-            ..default()
-        })),
-        Transform::from_xyz(0.0, -0.01, 0.0),
-    ));
-
-    // Grid lines using gizmos will be drawn in the gizmos module
 }
 
 /// Load the default scene on startup

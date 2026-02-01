@@ -7,8 +7,8 @@ use crate::editor::{
     CameraMarks, EditorState, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
 };
 use crate::scene::{
-    LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnGroupEvent, SpawnPrimitiveEvent,
-    UnparentEvent,
+    LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnGroupEvent, SpawnPointLightEvent,
+    SpawnPrimitiveEvent, UnparentEvent,
 };
 use crate::selection::Selected;
 
@@ -29,6 +29,7 @@ pub struct Command {
 #[derive(Clone)]
 pub enum CommandAction {
     SpawnPrimitive(PrimitiveShape),
+    SpawnPointLight,
     SetCameraMark(String),
     JumpToMark(String),
     JumpToLastPosition,
@@ -118,6 +119,14 @@ impl CommandRegistry {
             keywords: vec!["floor".into(), "ground".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Plane),
+        });
+
+        // Lights
+        self.commands.push(Command {
+            name: "Add Point Light".to_string(),
+            keywords: vec!["lamp".into(), "bulb".into(), "lighting".into()],
+            category: "Lights",
+            action: CommandAction::SpawnPointLight,
         });
 
         // Scene operations
@@ -354,6 +363,7 @@ fn draw_command_palette(
     registry: Res<CommandRegistry>,
     mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
     mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
+    mut spawn_light_events: MessageWriter<SpawnPointLightEvent>,
     mut unparent_events: MessageWriter<UnparentEvent>,
     mut set_mark_events: MessageWriter<SetCameraMarkEvent>,
     mut jump_mark_events: MessageWriter<JumpToMarkEvent>,
@@ -480,6 +490,11 @@ fn draw_command_palette(
                 spawn_events.write(SpawnPrimitiveEvent {
                     shape,
                     position: Vec3::ZERO,
+                });
+            }
+            CommandAction::SpawnPointLight => {
+                spawn_light_events.write(SpawnPointLightEvent {
+                    position: Vec3::new(0.0, 3.0, 0.0),
                 });
             }
             CommandAction::SetCameraMark(name) => {

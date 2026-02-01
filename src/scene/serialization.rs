@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::{GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity};
+use super::{GroupMarker, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::editor::{CameraMark, CameraMarks};
 
 /// Serializable scene data
@@ -27,6 +27,9 @@ pub struct SerializedEntity {
     pub transform: SerializedTransform,
     pub primitive: Option<PrimitiveShape>,
     pub rigid_body: Option<SerializedRigidBody>,
+    /// Point light data (optional)
+    #[serde(default)]
+    pub light: Option<SerializedLight>,
     /// Whether this entity is a group (container)
     #[serde(default)]
     pub is_group: bool,
@@ -89,6 +92,38 @@ impl From<&SerializedRigidBody> for RigidBody {
     }
 }
 
+/// Serializable point light data
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SerializedLight {
+    pub color: [f32; 4],
+    pub intensity: f32,
+    pub range: f32,
+    pub shadows_enabled: bool,
+}
+
+impl From<&SceneLightMarker> for SerializedLight {
+    fn from(light: &SceneLightMarker) -> Self {
+        let rgba = light.color.to_linear();
+        Self {
+            color: [rgba.red, rgba.green, rgba.blue, rgba.alpha],
+            intensity: light.intensity,
+            range: light.range,
+            shadows_enabled: light.shadows_enabled,
+        }
+    }
+}
+
+impl From<&SerializedLight> for SceneLightMarker {
+    fn from(light: &SerializedLight) -> Self {
+        Self {
+            color: Color::linear_rgba(light.color[0], light.color[1], light.color[2], light.color[3]),
+            intensity: light.intensity,
+            range: light.range,
+            shadows_enabled: light.shadows_enabled,
+        }
+    }
+}
+
 /// Event to save the scene
 #[derive(Message)]
 pub struct SaveSceneEvent {
@@ -130,6 +165,7 @@ fn handle_save_scene(
             Option<&PrimitiveMarker>,
             Option<&RigidBody>,
             Option<&GroupMarker>,
+            Option<&SceneLightMarker>,
             Option<&ChildOf>,
         ),
         With<SceneEntity>,
@@ -149,7 +185,7 @@ fn handle_save_scene(
             camera_marks: camera_marks.marks.clone(),
         };
 
-        for (name, transform, primitive, rigid_body, group_marker, parent) in entities.iter() {
+        for (name, transform, primitive, rigid_body, group_marker, light_marker, parent) in entities.iter() {
             // Get parent name if it exists
             let parent_name = parent.and_then(|p| {
                 names.get(p.get()).ok().map(|n| n.as_str().to_string())
@@ -160,6 +196,7 @@ fn handle_save_scene(
                 transform: SerializedTransform::from(transform),
                 primitive: primitive.map(|p| p.shape),
                 rigid_body: rigid_body.map(SerializedRigidBody::from),
+                light: light_marker.map(SerializedLight::from),
                 is_group: group_marker.is_some(),
                 parent: parent_name,
             });
@@ -298,6 +335,22 @@ fn handle_load_scene(
             // Add rigid body
             if let Some(rb) = &entity_data.rigid_body {
                 entity_commands.insert(RigidBody::from(rb));
+            }
+
+            // Add point light
+            if let Some(light_data) = &entity_data.light {
+                let light_marker = SceneLightMarker::from(light_data);
+                entity_commands.insert((
+                    light_marker.clone(),
+                    PointLight {
+                        color: light_marker.color,
+                        intensity: light_marker.intensity,
+                        range: light_marker.range,
+                        shadows_enabled: light_marker.shadows_enabled,
+                        ..default()
+                    },
+                    Visibility::default(),
+                ));
             }
 
             let entity = entity_commands.id();

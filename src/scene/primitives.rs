@@ -9,6 +9,26 @@ use crate::selection::Selected;
 #[derive(Component, Serialize, Deserialize, Clone, Default)]
 pub struct GroupMarker;
 
+/// Marker component for scene lights (to distinguish from editor lights)
+#[derive(Component, Serialize, Deserialize, Clone)]
+pub struct SceneLightMarker {
+    pub color: Color,
+    pub intensity: f32,
+    pub range: f32,
+    pub shadows_enabled: bool,
+}
+
+impl Default for SceneLightMarker {
+    fn default() -> Self {
+        Self {
+            color: Color::WHITE,
+            intensity: 100000.0,
+            range: 20.0,
+            shadows_enabled: true,
+        }
+    }
+}
+
 /// Available primitive shapes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PrimitiveShape {
@@ -61,6 +81,12 @@ pub struct UnparentEvent {
 #[derive(Message)]
 pub struct GroupSelectedEvent;
 
+/// Event to spawn a point light
+#[derive(Message)]
+pub struct SpawnPointLightEvent {
+    pub position: Vec3,
+}
+
 /// Component to track what primitive shape an entity is
 #[derive(Component, Serialize, Deserialize, Clone)]
 pub struct PrimitiveMarker {
@@ -76,6 +102,7 @@ impl Plugin for PrimitivesPlugin {
             .add_message::<ParentToGroupEvent>()
             .add_message::<UnparentEvent>()
             .add_message::<GroupSelectedEvent>()
+            .add_message::<SpawnPointLightEvent>()
             .add_systems(
                 Update,
                 (
@@ -84,6 +111,7 @@ impl Plugin for PrimitivesPlugin {
                     handle_parent_to_group,
                     handle_unparent,
                     handle_group_selected,
+                    handle_spawn_point_light,
                 ),
             );
     }
@@ -332,5 +360,31 @@ fn handle_group_selected(
         }
 
         info!("Created group '{}' with {} entities", name, selected.iter().count());
+    }
+}
+
+fn handle_spawn_point_light(
+    mut events: MessageReader<SpawnPointLightEvent>,
+    mut commands: Commands,
+    existing_entities: Query<&Name, With<SceneEntity>>,
+) {
+    for event in events.read() {
+        let name = generate_unique_name("Point Light", &existing_entities);
+        let light_marker = SceneLightMarker::default();
+
+        commands.spawn((
+            SceneEntity,
+            Name::new(name),
+            light_marker.clone(),
+            PointLight {
+                color: light_marker.color,
+                intensity: light_marker.intensity,
+                range: light_marker.range,
+                shadows_enabled: light_marker.shadows_enabled,
+                ..default()
+            },
+            Transform::from_translation(event.position),
+            Visibility::default(),
+        ));
     }
 }

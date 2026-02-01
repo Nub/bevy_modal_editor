@@ -2,6 +2,7 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
+use crate::scene::SceneLightMarker;
 use crate::selection::Selected;
 
 pub struct InspectorPlugin;
@@ -22,6 +23,8 @@ fn draw_inspector_panel(
             Option<&mut Transform>,
             Option<&RigidBody>,
             Option<&Collider>,
+            Option<&mut SceneLightMarker>,
+            Option<&mut PointLight>,
         ),
         With<Selected>,
     >,
@@ -34,7 +37,7 @@ fn draw_inspector_panel(
             ui.heading("Inspector");
             ui.separator();
 
-            if let Ok((entity, name, transform, rigid_body, collider)) =
+            if let Ok((entity, name, transform, rigid_body, collider, light_marker, point_light)) =
                 selected_query.single_mut()
             {
                 // Entity header
@@ -156,6 +159,57 @@ fn draw_inspector_panel(
                 if let Some(_collider) = collider {
                     ui.collapsing("Collider", |ui| {
                         ui.label("Collider attached");
+                    });
+                }
+
+                // Point Light component
+                if let (Some(mut light_marker), Some(mut point_light)) = (light_marker, point_light) {
+                    ui.collapsing("Point Light", |ui| {
+                        // Color
+                        let rgba = light_marker.color.to_linear();
+                        let mut color_arr = [rgba.red, rgba.green, rgba.blue];
+                        ui.horizontal(|ui| {
+                            ui.label("Color:");
+                            if ui.color_edit_button_rgb(&mut color_arr).changed() {
+                                let new_color = Color::linear_rgb(color_arr[0], color_arr[1], color_arr[2]);
+                                light_marker.color = new_color;
+                                point_light.color = new_color;
+                            }
+                        });
+
+                        // Intensity
+                        ui.horizontal(|ui| {
+                            ui.label("Intensity:");
+                            if ui
+                                .add(egui::DragValue::new(&mut light_marker.intensity)
+                                    .speed(100.0)
+                                    .range(0.0..=100000.0))
+                                .changed()
+                            {
+                                point_light.intensity = light_marker.intensity;
+                            }
+                        });
+
+                        // Range
+                        ui.horizontal(|ui| {
+                            ui.label("Range:");
+                            if ui
+                                .add(egui::DragValue::new(&mut light_marker.range)
+                                    .speed(0.5)
+                                    .range(0.1..=1000.0))
+                                .changed()
+                            {
+                                point_light.range = light_marker.range;
+                            }
+                        });
+
+                        // Shadows
+                        ui.horizontal(|ui| {
+                            ui.label("Shadows:");
+                            if ui.checkbox(&mut light_marker.shadows_enabled, "Enabled").changed() {
+                                point_light.shadows_enabled = light_marker.shadows_enabled;
+                            }
+                        });
                     });
                 }
             } else {
