@@ -6,6 +6,10 @@ use std::path::PathBuf;
 
 use crate::editor::EditorState;
 
+/// Resource to track if fonts have been loaded
+#[derive(Resource, Default)]
+struct FontsLoaded(bool);
+
 /// Application settings that persist to disk
 #[derive(Resource, Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -101,8 +105,9 @@ impl Plugin for SettingsPlugin {
         let settings = Settings::load();
         app.insert_resource(settings)
             .init_resource::<SettingsWindowState>()
+            .init_resource::<FontsLoaded>()
             .add_systems(Startup, apply_settings_to_editor_state)
-            .add_systems(Update, (apply_ui_scale, sync_snap_settings))
+            .add_systems(Update, (apply_ui_scale, sync_snap_settings, load_custom_fonts))
             .add_systems(EguiPrimaryContextPass, draw_settings_window);
     }
 }
@@ -191,4 +196,42 @@ fn draw_settings_window(
         });
 
     Ok(())
+}
+
+/// Load custom Inter font for egui UI
+fn load_custom_fonts(mut contexts: EguiContexts, mut fonts_loaded: ResMut<FontsLoaded>) {
+    // Only load fonts once
+    if fonts_loaded.0 {
+        return;
+    }
+
+    let Ok(ctx) = contexts.ctx_mut() else {
+        return;
+    };
+
+    // Load the Inter font from assets
+    let font_path = "assets/fonts/Inter-VariableFont_opsz,wght.ttf";
+    let Ok(font_data) = fs::read(font_path) else {
+        warn!("Failed to load font from {}", font_path);
+        return;
+    };
+
+    let mut fonts = egui::FontDefinitions::default();
+
+    // Add Inter font
+    fonts.font_data.insert(
+        "Inter".to_owned(),
+        egui::FontData::from_owned(font_data).into(),
+    );
+
+    // Set Inter as the primary proportional font
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, "Inter".to_owned());
+
+    ctx.set_fonts(fonts);
+    fonts_loaded.0 = true;
+    info!("Loaded Inter font for UI");
 }

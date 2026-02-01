@@ -31,12 +31,16 @@ fn draw_edit_info_window(
 
     let ctx = contexts.ctx_mut()?;
 
-    // Position in bottom-left area
+    // Position inside viewport: offset from left to avoid hierarchy panel, from bottom to avoid status bar
+    // Hierarchy panel is ~200px, status bar is ~25px
+    let hierarchy_offset = 210.0;
+    let status_bar_offset = 35.0;
+
     egui::Window::new("Edit")
         .resizable(false)
         .collapsible(false)
         .title_bar(false)
-        .anchor(egui::Align2::LEFT_BOTTOM, [10.0, -10.0])
+        .anchor(egui::Align2::LEFT_BOTTOM, [hierarchy_offset, -status_bar_offset])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 // Show current operation
