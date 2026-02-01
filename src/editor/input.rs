@@ -85,13 +85,16 @@ fn handle_mode_input(
     }
 
     // Transform operations only in Edit mode
-    // Q = Translate, W = Rotate
+    // Q = Translate, W = Rotate, R = Place
     if *current_mode.get() == EditorMode::Edit {
         if keyboard.just_pressed(KeyCode::KeyQ) {
             *transform_op = TransformOperation::Translate;
             *axis_constraint = AxisConstraint::None;
         } else if keyboard.just_pressed(KeyCode::KeyW) {
             *transform_op = TransformOperation::Rotate;
+            *axis_constraint = AxisConstraint::None;
+        } else if keyboard.just_pressed(KeyCode::KeyR) {
+            *transform_op = TransformOperation::Place;
             *axis_constraint = AxisConstraint::None;
         }
         // Axis selection (A, S, D) is handled in gizmos/transform.rs

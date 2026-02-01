@@ -24,12 +24,14 @@ pub enum EditorMode {
 pub enum TransformOperation {
     #[default]
     None,
-    /// Grab/translate (G key)
+    /// Grab/translate (Q key)
     Translate,
-    /// Rotate (R key)
+    /// Rotate (W key)
     Rotate,
-    /// Scale (S key)
+    /// Scale (E key)
     Scale,
+    /// Place mode (R key) - raycast-based placement like insert mode
+    Place,
 }
 
 /// Axis constraint for transform operations

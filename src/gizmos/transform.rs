@@ -1,11 +1,15 @@
-use avian3d::prelude::{Sleeping, SleepingDisabled};
+use avian3d::prelude::{Sleeping, SleepingDisabled, SpatialQuery, SpatialQueryFilter};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, TransformOperation};
 use crate::scene::Locked;
 use crate::selection::Selected;
+
+/// Default distance from camera when placing objects without hitting a surface
+const PLACE_DEFAULT_DISTANCE: f32 = 10.0;
 
 /// Marker component for entities currently being edited (to track sleep state)
 #[derive(Component)]
@@ -44,6 +48,8 @@ impl Plugin for TransformGizmoPlugin {
                 handle_axis_keys,
                 handle_step_keys,
                 handle_transform_manipulation,
+                handle_place_mode,
+                handle_place_mode_click,
                 manage_editing_sleep_state,
             ),
         );
@@ -76,7 +82,7 @@ fn draw_selection_gizmos(
                 TransformOperation::Translate => draw_translate_gizmo(&mut gizmos, pos, scale, &axis_constraint),
                 TransformOperation::Rotate => draw_rotate_gizmo(&mut gizmos, pos, scale, &axis_constraint),
                 TransformOperation::Scale => draw_scale_gizmo(&mut gizmos, pos, scale, &axis_constraint),
-                TransformOperation::None => {}
+                TransformOperation::Place | TransformOperation::None => {}
             }
         }
     }
@@ -214,7 +220,7 @@ fn handle_step_keys(
                 }
                 transform.scale = transform.scale.max(Vec3::splat(0.01));
             }
-            TransformOperation::None => {}
+            TransformOperation::Place | TransformOperation::None => {}
         }
     }
 }
@@ -494,8 +500,8 @@ fn handle_transform_manipulation(
         return;
     }
 
-    // Need an active transform operation
-    if *transform_op == TransformOperation::None {
+    // Need an active transform operation (but not Place - that has its own handling)
+    if *transform_op == TransformOperation::None || *transform_op == TransformOperation::Place {
         return;
     }
 
@@ -590,7 +596,8 @@ fn handle_transform_manipulation(
                 }
                 transform.scale = transform.scale.clamp(Vec3::splat(0.1), Vec3::splat(100.0));
             }
-            TransformOperation::None => {}
+            // Place mode is handled separately, None means no operation
+            TransformOperation::Place | TransformOperation::None => {}
         }
     }
 }
@@ -636,4 +643,119 @@ fn manage_editing_sleep_state(
                 .remove::<(BeingEdited, Sleeping, SleepingDisabled)>();
         }
     }
+}
+
+/// Handle place mode - update selected entity positions based on raycast
+fn handle_place_mode(
+    mode: Res<State<EditorMode>>,
+    transform_op: Res<TransformOperation>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
+    spatial_query: SpatialQuery,
+    mut selected: Query<(Entity, &mut Transform), (With<Selected>, Without<Locked>)>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    mut contexts: EguiContexts,
+) {
+    // Only handle in Edit mode with Place operation
+    if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::Place {
+        return;
+    }
+
+    // Don't update when UI wants pointer input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    let Ok(window) = window_query.single() else {
+        return;
+    };
+
+    let Some(cursor_position) = window.cursor_position() else {
+        return;
+    };
+
+    // Create ray from camera through cursor position
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    // Collect selected entities for exclusion from raycast
+    let selected_entities: Vec<Entity> = selected.iter().map(|(e, _)| e).collect();
+
+    if selected_entities.is_empty() {
+        return;
+    }
+
+    // Cast ray against physics colliders (exclude selected entities)
+    let filter = SpatialQueryFilter::default().with_excluded_entities(selected_entities);
+
+    let position = if let Some(hit) = spatial_query.cast_ray(
+        ray.origin,
+        ray.direction,
+        100.0,
+        true,
+        &filter,
+    ) {
+        // Hit a surface - position on top of it
+        let hit_point = ray.origin + ray.direction * hit.distance;
+        let surface_normal = hit.normal;
+
+        // Offset slightly along surface normal to place on top
+        hit_point + surface_normal * 0.5
+    } else {
+        // No hit - position at default distance from camera
+        ray.origin + ray.direction * PLACE_DEFAULT_DISTANCE
+    };
+
+    // Move all selected entities to the new position
+    // For multiple selections, maintain their relative positions
+    if selected.iter().count() == 1 {
+        // Single entity - move directly to position
+        for (_, mut transform) in selected.iter_mut() {
+            transform.translation = position;
+        }
+    } else {
+        // Multiple entities - calculate center and move relative
+        let center: Vec3 = selected.iter().map(|(_, t)| t.translation).sum::<Vec3>()
+            / selected.iter().count() as f32;
+        let offset = position - center;
+
+        for (_, mut transform) in selected.iter_mut() {
+            transform.translation += offset;
+        }
+    }
+}
+
+/// Handle click to confirm place mode placement
+fn handle_place_mode_click(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mode: Res<State<EditorMode>>,
+    mut transform_op: ResMut<TransformOperation>,
+    mut contexts: EguiContexts,
+) {
+    // Only handle in Edit mode with Place operation
+    if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::Place {
+        return;
+    }
+
+    // Confirm on left click
+    if !mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Don't confirm if clicking on UI
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    // Exit place mode
+    *transform_op = TransformOperation::None;
+    info!("Placement confirmed");
 }

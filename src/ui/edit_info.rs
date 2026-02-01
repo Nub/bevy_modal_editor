@@ -50,6 +50,7 @@ fn draw_edit_info_window(
                     TransformOperation::Translate => ("Move", colors::ACCENT_BLUE),
                     TransformOperation::Rotate => ("Rotate", colors::ACCENT_GREEN),
                     TransformOperation::Scale => ("Scale", colors::ACCENT_ORANGE),
+                    TransformOperation::Place => ("Place", colors::ACCENT_PURPLE),
                     TransformOperation::None => ("", colors::TEXT_PRIMARY),
                 };
                 ui.label(egui::RichText::new(op_name).strong().color(op_color));
@@ -88,6 +89,9 @@ fn draw_edit_info_window(
                             .speed(0.01)
                             .range(0.01..=1.0));
                     }
+                    TransformOperation::Place => {
+                        ui.label(egui::RichText::new("Click to place").color(colors::TEXT_MUTED));
+                    }
                     TransformOperation::None => {}
                 }
             });
@@ -124,7 +128,7 @@ fn draw_edit_info_window(
 
             ui.add_space(2.0);
             ui.label(
-                egui::RichText::new("J/K: -/+ step | A/S/D: axis | Q/W/E: mode")
+                egui::RichText::new("J/K: -/+ step | A/S/D: axis | Q/W/E/R: mode")
                     .small()
                     .color(colors::TEXT_MUTED)
             );
