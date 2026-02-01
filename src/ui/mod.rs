@@ -2,6 +2,7 @@ mod command_palette;
 mod component_browser;
 mod edit_info;
 mod find_object;
+pub mod fuzzy_palette;
 mod hierarchy;
 mod inspector;
 mod marks;
@@ -16,6 +17,10 @@ pub use command_palette::*;
 pub use component_browser::*;
 pub use edit_info::*;
 pub use find_object::*;
+pub use fuzzy_palette::{
+    draw_fuzzy_palette, fuzzy_filter, CategorizedItem, FilteredItem, KeywordItem, PaletteConfig,
+    PaletteItem, PaletteResult, PaletteState, SimpleItem,
+};
 pub use hierarchy::*;
 pub use inspector::*;
 pub use marks::*;

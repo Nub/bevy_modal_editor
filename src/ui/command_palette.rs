@@ -1118,6 +1118,18 @@ fn draw_custom_mark_dialog(
     Ok(())
 }
 
+/// Wrapper for component info to implement PaletteItem
+struct ComponentSearchItem {
+    type_id: TypeId,
+    name: String,
+}
+
+impl super::fuzzy_palette::PaletteItem for ComponentSearchItem {
+    fn label(&self) -> &str {
+        &self.name
+    }
+}
+
 /// Draw the component search palette for ObjectInspector mode
 fn draw_component_search_palette(
     ctx: &egui::Context,
@@ -1137,7 +1149,7 @@ fn draw_component_search_palette(
     // Note: In a full implementation, we'd want to filter to only components on the entity
     let type_registry_guard = type_registry.read();
 
-    let mut components: Vec<(TypeId, String)> = type_registry_guard
+    let mut components: Vec<ComponentSearchItem> = type_registry_guard
         .iter()
         .filter_map(|registration| {
             // Only include types with ReflectComponent
@@ -1150,19 +1162,18 @@ fn draw_component_search_palette(
                 .short_path()
                 .to_string();
 
-            Some((type_id, short_name))
+            Some(ComponentSearchItem {
+                type_id,
+                name: short_name,
+            })
         })
         .collect();
 
-    components.sort_by(|a, b| a.1.cmp(&b.1));
+    components.sort_by(|a, b| a.name.cmp(&b.name));
     drop(type_registry_guard);
 
-    // Filter by query
-    let query_lower = state.query.to_lowercase();
-    let filtered: Vec<_> = components
-        .iter()
-        .filter(|(_, name)| state.query.is_empty() || name.to_lowercase().contains(&query_lower))
-        .collect();
+    // Filter using fuzzy matching
+    let filtered = super::fuzzy_palette::fuzzy_filter(&components, &state.query);
 
     // Clamp selected index
     if !filtered.is_empty() {
@@ -1180,8 +1191,8 @@ fn draw_component_search_palette(
 
     // Handle Enter to select component
     if enter_pressed && !filtered.is_empty() {
-        if let Some((type_id, name)) = filtered.get(state.selected_index) {
-            selected_component = Some((*type_id, (*name).clone()));
+        if let Some(filtered_item) = filtered.get(state.selected_index) {
+            selected_component = Some((filtered_item.item.type_id, filtered_item.item.name.clone()));
             should_close = true;
         }
     }
@@ -1245,7 +1256,7 @@ fn draw_component_search_palette(
                     if filtered.is_empty() {
                         ui.label(egui::RichText::new("No matching components").color(colors::TEXT_MUTED));
                     } else {
-                        for (display_idx, (type_id, name)) in filtered.iter().enumerate() {
+                        for (display_idx, filtered_item) in filtered.iter().enumerate() {
                             let is_selected = display_idx == state.selected_index;
                             let text_color = if is_selected {
                                 colors::TEXT_PRIMARY
@@ -1255,11 +1266,11 @@ fn draw_component_search_palette(
 
                             let response = ui.selectable_label(
                                 is_selected,
-                                egui::RichText::new(name.as_str()).color(text_color),
+                                egui::RichText::new(filtered_item.item.name.as_str()).color(text_color),
                             );
 
                             if response.clicked() {
-                                selected_component = Some((*type_id, name.clone()));
+                                selected_component = Some((filtered_item.item.type_id, filtered_item.item.name.clone()));
                                 should_close = true;
                             }
 

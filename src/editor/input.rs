@@ -5,7 +5,7 @@ use super::state::{AxisConstraint, EditorMode, TogglePreviewModeEvent, Transform
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
 use crate::selection::Selected;
-use crate::ui::{open_add_component_palette, CommandPaletteState, PaletteMode};
+use crate::ui::{open_add_component_palette, CommandPaletteState, ComponentEditorState, PaletteMode};
 
 pub struct EditorInputPlugin;
 
@@ -23,6 +23,7 @@ fn handle_mode_input(
     mut transform_op: ResMut<TransformOperation>,
     mut axis_constraint: ResMut<AxisConstraint>,
     mut palette_state: ResMut<CommandPaletteState>,
+    component_editor_state: Res<ComponentEditorState>,
     mut contexts: EguiContexts,
     mut commands: Commands,
     selected: Query<Entity, With<Selected>>,
@@ -105,8 +106,14 @@ fn handle_mode_input(
         return;
     }
 
-    // Escape always returns to View mode from any mode
+    // Escape returns to View mode from any mode, unless a popup is open
+    // (let the popup handle Escape first)
     if keyboard.just_pressed(KeyCode::Escape) {
+        // Don't change mode if component editor popup is open - let it close first
+        if component_editor_state.editing_component.is_some() {
+            return;
+        }
+
         if *current_mode.get() != EditorMode::View {
             next_mode.set(EditorMode::View);
             *transform_op = TransformOperation::None;
