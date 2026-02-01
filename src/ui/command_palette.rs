@@ -947,6 +947,7 @@ fn draw_help_window(
                     shortcut_row(ui, "T", "Snap to object");
                     shortcut_row(ui, "  A", "  Surface align");
                     shortcut_row(ui, "  S", "  Center align");
+                    shortcut_row(ui, "  D", "  Aligned (rotated)");
                     shortcut_row(ui, "A/S/D", "Constrain X/Y/Z");
                     shortcut_row(ui, "J/K", "Step -/+");
 

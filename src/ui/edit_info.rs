@@ -103,6 +103,7 @@ fn draw_edit_info_window(
                         let submode_text = match *snap_submode {
                             SnapSubMode::Surface => "A:Surface",
                             SnapSubMode::Center => "S:Center",
+                            SnapSubMode::Aligned => "D:Aligned",
                         };
                         ui.label(egui::RichText::new(submode_text).color(colors::ACCENT_BLUE));
                         ui.label(egui::RichText::new("Click to snap").color(colors::TEXT_MUTED));

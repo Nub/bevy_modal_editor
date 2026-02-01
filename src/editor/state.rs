@@ -62,6 +62,8 @@ pub enum SnapSubMode {
     Surface,
     /// Align centers through AABB (S key)
     Center,
+    /// Align using target's rotation - combines surface + center for off-axis objects (D key)
+    Aligned,
 }
 
 /// Editor-wide state resource

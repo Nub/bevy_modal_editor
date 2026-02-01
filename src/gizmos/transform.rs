@@ -116,21 +116,8 @@ fn handle_axis_keys(
         return;
     }
 
-    // In SnapToObject mode, A/S are used for sub-mode switching
+    // In SnapToObject mode, A/S/D are used for sub-mode switching
     if *transform_op == TransformOperation::SnapToObject {
-        // Only D key works for axis in snap mode
-        if let Ok(ctx) = contexts.ctx_mut() {
-            if ctx.wants_keyboard_input() {
-                return;
-            }
-        }
-        if keyboard.just_pressed(KeyCode::KeyD) {
-            *axis_constraint = if *axis_constraint == AxisConstraint::Z {
-                AxisConstraint::None
-            } else {
-                AxisConstraint::Z
-            };
-        }
         return;
     }
 
@@ -191,7 +178,7 @@ fn handle_snap_submode_keys(
         }
     }
 
-    // A = Surface alignment, S = Center alignment
+    // A = Surface alignment, S = Center alignment, D = Aligned (rotated)
     if keyboard.just_pressed(KeyCode::KeyA) {
         *snap_submode = SnapSubMode::Surface;
         info!("Snap mode: Surface alignment");
@@ -199,6 +186,10 @@ fn handle_snap_submode_keys(
     if keyboard.just_pressed(KeyCode::KeyS) {
         *snap_submode = SnapSubMode::Center;
         info!("Snap mode: Center alignment");
+    }
+    if keyboard.just_pressed(KeyCode::KeyD) {
+        *snap_submode = SnapSubMode::Aligned;
+        info!("Snap mode: Aligned (rotated)");
     }
 }
 
@@ -1010,6 +1001,67 @@ fn handle_snap_to_object_mode(
 
                 transform.translation = new_pos;
                 // Don't change rotation in center mode
+            }
+        }
+        SnapSubMode::Aligned => {
+            // Aligned mode: like center mode but uses target's rotation for off-axis objects
+            // Get target entity info
+            let Ok((target_transform, target_collider)) = target_query.get(hit.entity) else {
+                return;
+            };
+
+            // Get target AABB half-extents (default to 0.5 if no collider)
+            let target_half_extents = target_collider
+                .map(|c| c.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5)
+                .unwrap_or(Vec3::splat(0.5));
+
+            // Get target center and rotation
+            let target_center = target_transform.translation;
+            let target_rotation = target_transform.rotation;
+
+            // Transform surface normal into target's local space
+            let local_normal = target_rotation.inverse() * surface_normal;
+
+            // Determine which local axis the surface normal is most aligned with
+            let abs_local_normal = local_normal.abs();
+            let (local_axis, axis_idx) = if abs_local_normal.x >= abs_local_normal.y && abs_local_normal.x >= abs_local_normal.z {
+                (Vec3::X, 0)
+            } else if abs_local_normal.y >= abs_local_normal.x && abs_local_normal.y >= abs_local_normal.z {
+                (Vec3::Y, 1)
+            } else {
+                (Vec3::Z, 2)
+            };
+
+            // Get the world-space direction for this local axis
+            let world_axis = target_rotation * local_axis;
+            let axis_sign = if local_normal.dot(local_axis) > 0.0 { 1.0 } else { -1.0 };
+
+            // Calculate new positions for all selected entities
+            for (_, mut transform, collider) in selected.iter_mut() {
+                // Get selected entity's AABB half-extents
+                let selected_half_extents = collider
+                    .map(|c| c.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5)
+                    .unwrap_or(Vec3::splat(0.5));
+
+                // Get the half-extent along the primary axis
+                let target_extent = match axis_idx {
+                    0 => target_half_extents.x,
+                    1 => target_half_extents.y,
+                    _ => target_half_extents.z,
+                };
+                let selected_extent = match axis_idx {
+                    0 => selected_half_extents.x,
+                    1 => selected_half_extents.y,
+                    _ => selected_half_extents.z,
+                };
+
+                // Position: target center + offset along the world-space axis
+                let distance = target_extent + selected_extent;
+                let new_pos = target_center + world_axis * axis_sign * distance;
+
+                transform.translation = new_pos;
+                // Match target's rotation
+                transform.rotation = target_rotation;
             }
         }
     }
