@@ -83,9 +83,7 @@ fn draw_status_bar(
                 ui.label("Rot: Off");
             }
 
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("C: Commands | F: Find | Tab: Mode | Q/W/E: Transform | A/S/D: Axis");
-            });
+            // Right side is now empty - use command palette Help for shortcuts
         });
     });
     Ok(())

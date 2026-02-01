@@ -26,8 +26,8 @@ fn handle_mode_input(
             return;
         }
     }
-    // Tab toggles between View and Edit modes
-    if keyboard.just_pressed(KeyCode::Tab) {
+    // V toggles between View and Edit modes
+    if keyboard.just_pressed(KeyCode::KeyV) {
         match current_mode.get() {
             EditorMode::View => {
                 next_mode.set(EditorMode::Edit);

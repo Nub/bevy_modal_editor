@@ -4,7 +4,7 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
 use crate::editor::{
-    CameraMarks, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
+    CameraMarks, EditorState, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
 };
 use crate::scene::{LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnPrimitiveEvent};
 
@@ -30,6 +30,10 @@ pub enum CommandAction {
     JumpToLastPosition,
     SaveScene,
     LoadScene,
+    ShowHelp,
+    SetGridSnap(f32),
+    SetRotationSnap(f32),
+    ShowCustomMarkDialog,
 }
 
 /// Resource to track command palette state
@@ -39,6 +43,20 @@ pub struct CommandPaletteState {
     pub query: String,
     pub selected_index: usize,
     /// Whether we just opened (to focus the input)
+    pub just_opened: bool,
+}
+
+/// Resource to track help window state
+#[derive(Resource, Default)]
+pub struct HelpWindowState {
+    pub open: bool,
+}
+
+/// Resource to track custom mark name dialog state
+#[derive(Resource, Default)]
+pub struct CustomMarkDialogState {
+    pub open: bool,
+    pub name: String,
     pub just_opened: bool,
 }
 
@@ -116,6 +134,78 @@ impl CommandRegistry {
             keywords: vec!["back".into(), "previous".into(), "camera".into()],
             category: "Camera",
             action: CommandAction::JumpToLastPosition,
+        });
+        self.commands.push(Command {
+            name: "Set Custom Camera Mark".to_string(),
+            keywords: vec!["save".into(), "bookmark".into(), "name".into(), "camera".into()],
+            category: "Camera",
+            action: CommandAction::ShowCustomMarkDialog,
+        });
+
+        // Help
+        self.commands.push(Command {
+            name: "Help: Keyboard Shortcuts".to_string(),
+            keywords: vec!["hotkeys".into(), "keys".into(), "bindings".into(), "controls".into()],
+            category: "Help",
+            action: CommandAction::ShowHelp,
+        });
+
+        // Grid snap
+        self.commands.push(Command {
+            name: "Grid Snap: Off".to_string(),
+            keywords: vec!["disable".into(), "none".into()],
+            category: "Snapping",
+            action: CommandAction::SetGridSnap(0.0),
+        });
+        self.commands.push(Command {
+            name: "Grid Snap: 0.25".to_string(),
+            keywords: vec!["quarter".into()],
+            category: "Snapping",
+            action: CommandAction::SetGridSnap(0.25),
+        });
+        self.commands.push(Command {
+            name: "Grid Snap: 0.5".to_string(),
+            keywords: vec!["half".into()],
+            category: "Snapping",
+            action: CommandAction::SetGridSnap(0.5),
+        });
+        self.commands.push(Command {
+            name: "Grid Snap: 1.0".to_string(),
+            keywords: vec!["one".into(), "unit".into()],
+            category: "Snapping",
+            action: CommandAction::SetGridSnap(1.0),
+        });
+        self.commands.push(Command {
+            name: "Grid Snap: 2.0".to_string(),
+            keywords: vec!["two".into()],
+            category: "Snapping",
+            action: CommandAction::SetGridSnap(2.0),
+        });
+
+        // Rotation snap
+        self.commands.push(Command {
+            name: "Rotation Snap: Off".to_string(),
+            keywords: vec!["angle".into(), "disable".into(), "none".into()],
+            category: "Snapping",
+            action: CommandAction::SetRotationSnap(0.0),
+        });
+        self.commands.push(Command {
+            name: "Rotation Snap: 15°".to_string(),
+            keywords: vec!["angle".into(), "degrees".into()],
+            category: "Snapping",
+            action: CommandAction::SetRotationSnap(15.0),
+        });
+        self.commands.push(Command {
+            name: "Rotation Snap: 45°".to_string(),
+            keywords: vec!["angle".into(), "degrees".into()],
+            category: "Snapping",
+            action: CommandAction::SetRotationSnap(45.0),
+        });
+        self.commands.push(Command {
+            name: "Rotation Snap: 90°".to_string(),
+            keywords: vec!["angle".into(), "degrees".into(), "right".into()],
+            category: "Snapping",
+            action: CommandAction::SetRotationSnap(90.0),
         });
     }
 
@@ -197,9 +287,11 @@ impl Plugin for CommandPalettePlugin {
         registry.build_static_commands();
 
         app.init_resource::<CommandPaletteState>()
+            .init_resource::<HelpWindowState>()
+            .init_resource::<CustomMarkDialogState>()
             .insert_resource(registry)
             .add_systems(Update, handle_palette_toggle)
-            .add_systems(EguiPrimaryContextPass, draw_command_palette);
+            .add_systems(EguiPrimaryContextPass, (draw_command_palette, draw_help_window, draw_custom_mark_dialog));
     }
 }
 
@@ -236,6 +328,9 @@ fn handle_palette_toggle(
 fn draw_command_palette(
     mut contexts: EguiContexts,
     mut state: ResMut<CommandPaletteState>,
+    mut help_state: ResMut<HelpWindowState>,
+    mut custom_mark_state: ResMut<CustomMarkDialogState>,
+    mut editor_state: ResMut<EditorState>,
     registry: Res<CommandRegistry>,
     mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
     mut set_mark_events: MessageWriter<SetCameraMarkEvent>,
@@ -385,7 +480,189 @@ fn draw_command_palette(
                     path: "scene.ron".to_string(),
                 });
             }
+            CommandAction::ShowHelp => {
+                help_state.open = true;
+            }
+            CommandAction::SetGridSnap(value) => {
+                editor_state.grid_snap = value;
+            }
+            CommandAction::SetRotationSnap(value) => {
+                editor_state.rotation_snap = value;
+            }
+            CommandAction::ShowCustomMarkDialog => {
+                custom_mark_state.open = true;
+                custom_mark_state.name.clear();
+                custom_mark_state.just_opened = true;
+            }
         }
+    }
+
+    if should_close {
+        state.open = false;
+    }
+
+    Ok(())
+}
+
+/// Draw the help window with keyboard shortcuts
+fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowState>) -> Result {
+    if !state.open {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+
+    let mut should_close = false;
+
+    egui::Window::new("Keyboard Shortcuts")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.set_min_width(350.0);
+
+            // General
+            ui.heading("General");
+            ui.add_space(4.0);
+            shortcut_row(ui, "C", "Open command palette");
+            shortcut_row(ui, "F", "Find object in scene");
+            shortcut_row(ui, "V", "Toggle View/Edit mode");
+            shortcut_row(ui, "Esc", "Return to View mode / Cancel");
+
+            ui.add_space(12.0);
+            ui.heading("View Mode - Camera");
+            ui.add_space(4.0);
+            shortcut_row(ui, "W/A/S/D", "Move camera");
+            shortcut_row(ui, "Space/Ctrl", "Move up/down");
+            shortcut_row(ui, "Shift", "Move faster");
+            shortcut_row(ui, "Right Mouse", "Look around");
+            shortcut_row(ui, "1-9", "Jump to camera mark");
+            shortcut_row(ui, "Shift+1-9", "Set camera mark");
+            shortcut_row(ui, "`", "Jump to last position");
+
+            ui.add_space(12.0);
+            ui.heading("View Mode - Selection");
+            ui.add_space(4.0);
+            shortcut_row(ui, "Left Click", "Select object");
+            shortcut_row(ui, "Delete", "Delete selected");
+
+            ui.add_space(12.0);
+            ui.heading("Edit Mode - Transform");
+            ui.add_space(4.0);
+            shortcut_row(ui, "Q", "Translate tool");
+            shortcut_row(ui, "W", "Rotate tool");
+            shortcut_row(ui, "E", "Scale tool");
+            shortcut_row(ui, "A", "Constrain to X axis");
+            shortcut_row(ui, "S", "Constrain to Y axis");
+            shortcut_row(ui, "D", "Constrain to Z axis");
+            shortcut_row(ui, "J/K", "Step transform -/+");
+
+            ui.add_space(16.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Close").clicked() {
+                        should_close = true;
+                    }
+                });
+            });
+        });
+
+    // Handle Escape to close
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        should_close = true;
+    }
+
+    if should_close {
+        state.open = false;
+    }
+
+    Ok(())
+}
+
+fn shortcut_row(ui: &mut egui::Ui, key: &str, description: &str) {
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(key)
+                .monospace()
+                .strong()
+                .color(egui::Color32::from_rgb(200, 200, 100)),
+        );
+        ui.label(description);
+    });
+}
+
+/// Draw dialog for setting a custom named camera mark
+fn draw_custom_mark_dialog(
+    mut contexts: EguiContexts,
+    mut state: ResMut<CustomMarkDialogState>,
+    mut set_mark_events: MessageWriter<SetCameraMarkEvent>,
+) -> Result {
+    if !state.open {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+
+    let mut should_close = false;
+    let mut should_save = false;
+
+    // Check for keyboard input before rendering UI
+    let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+
+    if enter_pressed && !state.name.trim().is_empty() {
+        should_save = true;
+        should_close = true;
+    }
+
+    if escape_pressed {
+        should_close = true;
+    }
+
+    egui::Window::new("Set Camera Mark")
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label("Enter a name for this camera mark:");
+            ui.add_space(8.0);
+
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut state.name)
+                    .hint_text("Mark name...")
+                    .desired_width(200.0),
+            );
+
+            if state.just_opened {
+                response.request_focus();
+                state.just_opened = false;
+            }
+
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    should_close = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add_enabled(!state.name.trim().is_empty(), egui::Button::new("Save"))
+                        .clicked()
+                    {
+                        should_save = true;
+                        should_close = true;
+                    }
+                });
+            });
+        });
+
+    if should_save {
+        set_mark_events.write(SetCameraMarkEvent {
+            name: state.name.trim().to_string(),
+        });
     }
 
     if should_close {
