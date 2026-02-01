@@ -5,7 +5,7 @@ use super::state::{AxisConstraint, EditorMode, TogglePreviewModeEvent, Transform
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
 use crate::selection::Selected;
-use crate::ui::CommandPaletteState;
+use crate::ui::{open_add_component_palette, CommandPaletteState, PaletteMode};
 
 pub struct EditorInputPlugin;
 
@@ -33,13 +33,19 @@ fn handle_mode_input(
             return;
         }
     }
+
+    let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    let in_view_mode = *current_mode.get() == EditorMode::View;
+    // Modes can only be entered from View mode, unless Shift is held
+    let can_change_mode = in_view_mode || shift_held;
+
     // V toggles between View and Edit modes
     if keyboard.just_pressed(KeyCode::KeyV) {
         match current_mode.get() {
             EditorMode::View => {
                 next_mode.set(EditorMode::Edit);
             }
-            EditorMode::Edit | EditorMode::Insert => {
+            EditorMode::Edit | EditorMode::Insert | EditorMode::ObjectInspector | EditorMode::Hierarchy => {
                 next_mode.set(EditorMode::View);
                 *transform_op = TransformOperation::None;
                 *axis_constraint = AxisConstraint::None;
@@ -48,17 +54,53 @@ fn handle_mode_input(
         return;
     }
 
-    // I enters Insert mode and opens command palette
+    // I key behavior depends on mode
     if keyboard.just_pressed(KeyCode::KeyI) {
-        if *current_mode.get() != EditorMode::Insert {
+        // In ObjectInspector mode, I opens the Add Component palette
+        if *current_mode.get() == EditorMode::ObjectInspector {
+            if let Some(entity) = selected.iter().next() {
+                open_add_component_palette(&mut palette_state, entity);
+            }
+            return;
+        }
+
+        // Otherwise, enter Insert mode (only from View mode or with Shift)
+        if can_change_mode && *current_mode.get() != EditorMode::Insert {
             next_mode.set(EditorMode::Insert);
             *transform_op = TransformOperation::None;
             *axis_constraint = AxisConstraint::None;
-            // Open command palette automatically
+            // Open command palette automatically in Insert mode
             palette_state.open = true;
             palette_state.query.clear();
             palette_state.selected_index = 0;
             palette_state.just_opened = true;
+            palette_state.mode = PaletteMode::Insert;
+        }
+        return;
+    }
+
+    // O enters Object Inspector mode (only from View mode or with Shift)
+    if keyboard.just_pressed(KeyCode::KeyO) {
+        if *current_mode.get() == EditorMode::ObjectInspector {
+            // If already in ObjectInspector mode, return to View mode
+            next_mode.set(EditorMode::View);
+        } else if can_change_mode {
+            next_mode.set(EditorMode::ObjectInspector);
+            *transform_op = TransformOperation::None;
+            *axis_constraint = AxisConstraint::None;
+        }
+        return;
+    }
+
+    // H enters Hierarchy mode (only from View mode or with Shift)
+    if keyboard.just_pressed(KeyCode::KeyH) {
+        if *current_mode.get() == EditorMode::Hierarchy {
+            // If already in Hierarchy mode, return to View mode
+            next_mode.set(EditorMode::View);
+        } else if can_change_mode {
+            next_mode.set(EditorMode::Hierarchy);
+            *transform_op = TransformOperation::None;
+            *axis_constraint = AxisConstraint::None;
         }
         return;
     }
@@ -83,7 +125,11 @@ fn handle_mode_input(
                 *transform_op = TransformOperation::Scale;
                 *axis_constraint = AxisConstraint::None;
             }
-            EditorMode::Insert => {}
+            _ if shift_held => {
+                // With Shift, can enter Edit mode from any mode
+                next_mode.set(EditorMode::Edit);
+            }
+            EditorMode::Insert | EditorMode::ObjectInspector | EditorMode::Hierarchy => {}
         }
         return;
     }

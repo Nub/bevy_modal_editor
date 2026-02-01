@@ -3,11 +3,11 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 use std::any::TypeId;
 
-use super::component_browser::{
-    add_component_by_type_id, draw_component_browser, open_component_browser, ComponentBrowserState,
-};
+use super::command_palette::{open_add_component_palette, CommandPaletteState};
+use super::component_browser::{add_component_by_type_id, draw_component_browser};
 use super::reflect_editor::{component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
+use crate::editor::EditorMode;
 use crate::scene::{DirectionalLightMarker, Locked, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::colors;
@@ -52,11 +52,19 @@ impl RigidBodyType {
     ];
 }
 
+/// State for the component editor popup
+#[derive(Resource, Default)]
+pub struct ComponentEditorState {
+    /// The component type ID being edited (if any)
+    pub editing_component: Option<(std::any::TypeId, String)>,
+}
+
 pub struct InspectorPlugin;
 
 impl Plugin for InspectorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, draw_inspector_panel);
+        app.init_resource::<ComponentEditorState>()
+            .add_systems(EguiPrimaryContextPass, (draw_inspector_panel, draw_component_editor_popup));
     }
 }
 
@@ -348,6 +356,12 @@ fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>
 
 /// Draw the component inspector panel
 fn draw_inspector_panel(world: &mut World) {
+    // Only show inspector in ObjectInspector mode
+    let current_mode = world.resource::<State<EditorMode>>().get();
+    if *current_mode != EditorMode::ObjectInspector {
+        return;
+    }
+
     // Query for all selected entities
     let selected_entities: Vec<Entity> = {
         let mut query = world.query_filtered::<Entity, With<Selected>>();
@@ -569,8 +583,8 @@ fn draw_inspector_panel(world: &mut World) {
                             .button(egui::RichText::new("+ Add Component").color(colors::ACCENT_GREEN))
                             .clicked()
                         {
-                            let mut browser_state = world.resource_mut::<ComponentBrowserState>();
-                            open_component_browser(&mut browser_state, entity);
+                            let mut palette_state = world.resource_mut::<CommandPaletteState>();
+                            open_add_component_palette(&mut palette_state, entity);
                         }
                         ui.add_space(4.0);
 
@@ -796,5 +810,91 @@ fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
 
         // Draw the component using reflection
         component_editor(world, entity, type_id, ui, &config);
+    }
+}
+
+/// Draw the component editor popup window
+fn draw_component_editor_popup(world: &mut World) {
+    // Only show in ObjectInspector mode
+    let current_mode = world.resource::<State<EditorMode>>().get();
+    if *current_mode != EditorMode::ObjectInspector {
+        // Clear editing state when leaving mode
+        let mut editor_state = world.resource_mut::<ComponentEditorState>();
+        editor_state.editing_component = None;
+        return;
+    }
+
+    // Get the editing component info
+    let editing_component = {
+        let state = world.resource::<ComponentEditorState>();
+        state.editing_component.clone()
+    };
+
+    let Some((type_id, component_name)) = editing_component else {
+        return;
+    };
+
+    // Get the selected entity
+    let selected_entity: Option<Entity> = {
+        let mut query = world.query_filtered::<Entity, With<Selected>>();
+        query.iter(world).next()
+    };
+
+    let Some(entity) = selected_entity else {
+        // Clear editing if no entity selected
+        let mut editor_state = world.resource_mut::<ComponentEditorState>();
+        editor_state.editing_component = None;
+        return;
+    };
+
+    // Get egui context
+    let ctx = {
+        let Some(mut egui_ctx) = world
+            .query::<&mut bevy_egui::EguiContext>()
+            .iter_mut(world)
+            .next()
+        else {
+            return;
+        };
+        egui_ctx.get_mut().clone()
+    };
+
+    let mut close_editor = false;
+
+    // Check for Escape to close
+    if !ctx.wants_keyboard_input() && ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        close_editor = true;
+    }
+
+    let window_title = format!("Edit: {}", component_name);
+
+    egui::Window::new(window_title)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .resizable(true)
+        .collapsible(false)
+        .title_bar(true)
+        .default_width(350.0)
+        .max_height(500.0)
+        .show(&ctx, |ui| {
+            // Close button
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Close").clicked() {
+                        close_editor = true;
+                    }
+                });
+            });
+
+            ui.separator();
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                let config = ReflectEditorConfig::default();
+                component_editor(world, entity, type_id, ui, &config);
+            });
+        });
+
+    if close_editor {
+        let mut editor_state = world.resource_mut::<ComponentEditorState>();
+        editor_state.editing_component = None;
     }
 }

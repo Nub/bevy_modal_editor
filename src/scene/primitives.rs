@@ -165,27 +165,36 @@ fn handle_spawn_primitive(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     existing_entities: Query<&Name, With<SceneEntity>>,
+    selected_entities: Query<Entity, With<Selected>>,
 ) {
     for event in events.read() {
+        // Deselect all currently selected entities
+        for entity in selected_entities.iter() {
+            commands.entity(entity).remove::<Selected>();
+        }
+
         let name = generate_unique_name(event.shape.display_name(), &existing_entities);
 
-        match event.shape {
+        let new_entity = match event.shape {
             PrimitiveShape::Cube => {
-                spawn_cube(&mut commands, &mut meshes, &mut materials, event.position, &name);
+                spawn_cube(&mut commands, &mut meshes, &mut materials, event.position, &name)
             }
             PrimitiveShape::Sphere => {
-                spawn_sphere(&mut commands, &mut meshes, &mut materials, event.position, &name);
+                spawn_sphere(&mut commands, &mut meshes, &mut materials, event.position, &name)
             }
             PrimitiveShape::Cylinder => {
-                spawn_cylinder(&mut commands, &mut meshes, &mut materials, event.position, &name);
+                spawn_cylinder(&mut commands, &mut meshes, &mut materials, event.position, &name)
             }
             PrimitiveShape::Capsule => {
-                spawn_capsule(&mut commands, &mut meshes, &mut materials, event.position, &name);
+                spawn_capsule(&mut commands, &mut meshes, &mut materials, event.position, &name)
             }
             PrimitiveShape::Plane => {
-                spawn_plane(&mut commands, &mut meshes, &mut materials, event.position, &name);
+                spawn_plane(&mut commands, &mut meshes, &mut materials, event.position, &name)
             }
-        }
+        };
+
+        // Select the newly spawned entity
+        commands.entity(new_entity).insert(Selected);
     }
 }
 
@@ -207,7 +216,7 @@ fn spawn_cube(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     position: Vec3,
     name: &str,
-) {
+) -> Entity {
     commands.spawn((
         SceneEntity,
         Name::new(name.to_string()),
@@ -222,7 +231,7 @@ fn spawn_cube(
         Transform::from_translation(position),
         RigidBody::Static,
         Collider::cuboid(1.0, 1.0, 1.0),
-    ));
+    )).id()
 }
 
 fn spawn_sphere(
@@ -231,7 +240,7 @@ fn spawn_sphere(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     position: Vec3,
     name: &str,
-) {
+) -> Entity {
     commands.spawn((
         SceneEntity,
         Name::new(name.to_string()),
@@ -246,7 +255,7 @@ fn spawn_sphere(
         Transform::from_translation(position),
         RigidBody::Static,
         Collider::sphere(0.5),
-    ));
+    )).id()
 }
 
 fn spawn_cylinder(
@@ -255,7 +264,7 @@ fn spawn_cylinder(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     position: Vec3,
     name: &str,
-) {
+) -> Entity {
     commands.spawn((
         SceneEntity,
         Name::new(name.to_string()),
@@ -270,7 +279,7 @@ fn spawn_cylinder(
         Transform::from_translation(position),
         RigidBody::Static,
         Collider::cylinder(0.5, 0.5),
-    ));
+    )).id()
 }
 
 fn spawn_capsule(
@@ -279,7 +288,7 @@ fn spawn_capsule(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     position: Vec3,
     name: &str,
-) {
+) -> Entity {
     commands.spawn((
         SceneEntity,
         Name::new(name.to_string()),
@@ -294,7 +303,7 @@ fn spawn_capsule(
         Transform::from_translation(position),
         RigidBody::Static,
         Collider::capsule(0.25, 0.5),
-    ));
+    )).id()
 }
 
 fn spawn_plane(
@@ -303,7 +312,7 @@ fn spawn_plane(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     position: Vec3,
     name: &str,
-) {
+) -> Entity {
     commands.spawn((
         SceneEntity,
         Name::new(name.to_string()),
@@ -318,24 +327,33 @@ fn spawn_plane(
         Transform::from_translation(position),
         RigidBody::Static,
         Collider::cuboid(2.0, 0.01, 2.0),
-    ));
+    )).id()
 }
 
 fn handle_spawn_group(
     mut events: MessageReader<SpawnGroupEvent>,
     mut commands: Commands,
     existing_entities: Query<&Name, With<SceneEntity>>,
+    selected_entities: Query<Entity, With<Selected>>,
 ) {
     for event in events.read() {
+        // Deselect all currently selected entities
+        for entity in selected_entities.iter() {
+            commands.entity(entity).remove::<Selected>();
+        }
+
         let name = generate_unique_name("Group", &existing_entities);
 
-        commands.spawn((
+        let new_entity = commands.spawn((
             SceneEntity,
             GroupMarker,
             Name::new(name),
             Transform::from_translation(event.position),
             Visibility::default(),
-        ));
+        )).id();
+
+        // Select the newly spawned entity
+        commands.entity(new_entity).insert(Selected);
     }
 }
 
@@ -420,12 +438,18 @@ fn handle_spawn_point_light(
     mut events: MessageReader<SpawnPointLightEvent>,
     mut commands: Commands,
     existing_entities: Query<&Name, With<SceneEntity>>,
+    selected_entities: Query<Entity, With<Selected>>,
 ) {
     for event in events.read() {
+        // Deselect all currently selected entities
+        for entity in selected_entities.iter() {
+            commands.entity(entity).remove::<Selected>();
+        }
+
         let name = generate_unique_name("Point Light", &existing_entities);
         let light_marker = SceneLightMarker::default();
 
-        commands.spawn((
+        let new_entity = commands.spawn((
             SceneEntity,
             Name::new(name),
             light_marker.clone(),
@@ -440,7 +464,10 @@ fn handle_spawn_point_light(
             Visibility::default(),
             // Collider for selection via raycasting
             Collider::sphere(LIGHT_COLLIDER_RADIUS),
-        ));
+        )).id();
+
+        // Select the newly spawned entity
+        commands.entity(new_entity).insert(Selected);
     }
 }
 
@@ -448,12 +475,18 @@ fn handle_spawn_directional_light(
     mut events: MessageReader<SpawnDirectionalLightEvent>,
     mut commands: Commands,
     existing_entities: Query<&Name, With<SceneEntity>>,
+    selected_entities: Query<Entity, With<Selected>>,
 ) {
     for event in events.read() {
+        // Deselect all currently selected entities
+        for entity in selected_entities.iter() {
+            commands.entity(entity).remove::<Selected>();
+        }
+
         let name = generate_unique_name("Sun", &existing_entities);
         let light_marker = DirectionalLightMarker::default();
 
-        commands.spawn((
+        let new_entity = commands.spawn((
             SceneEntity,
             Name::new(name),
             light_marker.clone(),
@@ -467,6 +500,9 @@ fn handle_spawn_directional_light(
             Visibility::default(),
             // Collider for selection via raycasting
             Collider::sphere(LIGHT_COLLIDER_RADIUS),
-        ));
+        )).id();
+
+        // Select the newly spawned entity
+        commands.entity(new_entity).insert(Selected);
     }
 }

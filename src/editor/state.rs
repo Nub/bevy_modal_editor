@@ -17,6 +17,10 @@ pub enum EditorMode {
     Edit,
     /// Insert mode: adding new objects to the scene
     Insert,
+    /// Object Inspector mode: inspect and edit components on selected entity
+    ObjectInspector,
+    /// Hierarchy mode: shows scene hierarchy panel, '/' searches objects
+    Hierarchy,
 }
 
 /// The active transform operation in Edit mode

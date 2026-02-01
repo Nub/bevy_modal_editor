@@ -39,6 +39,7 @@ pub mod colors {
     pub const ACCENT_GREEN: Color32 = Color32::from_rgb(78, 201, 176);
     pub const ACCENT_ORANGE: Color32 = Color32::from_rgb(206, 145, 87);
     pub const ACCENT_PURPLE: Color32 = Color32::from_rgb(180, 142, 210);
+    pub const ACCENT_CYAN: Color32 = Color32::from_rgb(78, 201, 214);
 
     // Selection/highlight
     pub const SELECTION_BG: Color32 = Color32::from_rgb(38, 79, 120);

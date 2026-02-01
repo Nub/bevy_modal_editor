@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use std::collections::HashSet;
 
+use crate::editor::EditorMode;
 use crate::scene::{GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::colors;
@@ -32,6 +33,7 @@ struct DragPayload(Entity);
 /// Draw the scene hierarchy panel
 fn draw_hierarchy_panel(
     mut contexts: EguiContexts,
+    current_mode: Res<State<EditorMode>>,
     scene_entities: Query<
         (
             Entity,
@@ -49,6 +51,11 @@ fn draw_hierarchy_panel(
     mut commands: Commands,
     mut hierarchy_state: ResMut<HierarchyState>,
 ) -> Result {
+    // Only show hierarchy panel in Hierarchy mode
+    if *current_mode.get() != EditorMode::Hierarchy {
+        return Ok(());
+    }
+
     let ctx = contexts.ctx_mut()?;
     let selected_entities: HashSet<Entity> = selected.iter().collect();
     let shift_held = ctx.input(|i| i.modifiers.shift);

@@ -42,11 +42,15 @@ fn draw_status_bar(
                     EditorMode::View => "VIEW",
                     EditorMode::Edit => "EDIT",
                     EditorMode::Insert => "INSERT",
+                    EditorMode::ObjectInspector => "INSPECT",
+                    EditorMode::Hierarchy => "HIERARCHY",
                 };
                 let mode_color = match mode.get() {
                     EditorMode::View => colors::ACCENT_BLUE,
                     EditorMode::Edit => colors::ACCENT_ORANGE,
                     EditorMode::Insert => colors::ACCENT_GREEN,
+                    EditorMode::ObjectInspector => colors::ACCENT_PURPLE,
+                    EditorMode::Hierarchy => colors::ACCENT_CYAN,
                 };
                 ui.label(
                     egui::RichText::new(format!("[{}]", mode_text))

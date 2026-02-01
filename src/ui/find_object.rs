@@ -3,6 +3,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
+use crate::editor::EditorMode;
 use crate::scene::SceneEntity;
 use crate::selection::Selected;
 use crate::ui::theme::colors;
@@ -37,10 +38,11 @@ impl Plugin for FindObjectPlugin {
     }
 }
 
-/// Open palette with F key
+/// Open palette with F key, or / key when in Hierarchy mode
 fn handle_find_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<FindObjectState>,
+    editor_mode: Res<State<EditorMode>>,
     mut contexts: EguiContexts,
 ) {
     // Don't open if already open or UI wants keyboard input
@@ -54,7 +56,11 @@ fn handle_find_toggle(
         }
     }
 
-    if keyboard.just_pressed(KeyCode::KeyF) || keyboard.just_pressed(KeyCode::Slash) {
+    // F key works in any mode, "/" only works in Hierarchy mode
+    let f_pressed = keyboard.just_pressed(KeyCode::KeyF);
+    let slash_pressed = keyboard.just_pressed(KeyCode::Slash) && *editor_mode.get() == EditorMode::Hierarchy;
+
+    if f_pressed || slash_pressed {
         state.open = true;
         state.query.clear();
         state.selected_index = 0;
@@ -159,7 +165,7 @@ fn draw_find_palette(
         .resizable(false)
         .title_bar(false)
         .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
-        .anchor(egui::Align2::CENTER_TOP, [0.0, 100.0])
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .fixed_size([400.0, 300.0])
         .show(ctx, |ui| {
             // Search input
