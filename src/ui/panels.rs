@@ -84,7 +84,7 @@ fn draw_status_bar(
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("C: Commands | Tab: Toggle Mode | Q/W/E: Transform | A/S/D: Axis");
+                ui.label("C: Commands | F: Find | Tab: Mode | Q/W/E: Transform | A/S/D: Axis");
             });
         });
     });

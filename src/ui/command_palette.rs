@@ -67,31 +67,31 @@ impl CommandRegistry {
         // Primitive spawning
         self.commands.push(Command {
             name: "Add Cube".to_string(),
-            keywords: vec!["add".into(), "cube".into(), "box".into(), "primitive".into(), "spawn".into()],
+            keywords: vec!["box".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Cube),
         });
         self.commands.push(Command {
             name: "Add Sphere".to_string(),
-            keywords: vec!["add".into(), "sphere".into(), "ball".into(), "primitive".into(), "spawn".into()],
+            keywords: vec!["ball".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Sphere),
         });
         self.commands.push(Command {
             name: "Add Cylinder".to_string(),
-            keywords: vec!["add".into(), "cylinder".into(), "tube".into(), "primitive".into(), "spawn".into()],
+            keywords: vec!["tube".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Cylinder),
         });
         self.commands.push(Command {
             name: "Add Capsule".to_string(),
-            keywords: vec!["add".into(), "capsule".into(), "pill".into(), "primitive".into(), "spawn".into()],
+            keywords: vec!["pill".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Capsule),
         });
         self.commands.push(Command {
             name: "Add Plane".to_string(),
-            keywords: vec!["add".into(), "plane".into(), "floor".into(), "ground".into(), "primitive".into(), "spawn".into()],
+            keywords: vec!["floor".into(), "ground".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Plane),
         });
@@ -99,13 +99,13 @@ impl CommandRegistry {
         // Scene operations
         self.commands.push(Command {
             name: "Save Scene".to_string(),
-            keywords: vec!["save".into(), "scene".into(), "file".into(), "export".into()],
+            keywords: vec!["export".into(), "file".into()],
             category: "Scene",
             action: CommandAction::SaveScene,
         });
         self.commands.push(Command {
             name: "Load Scene".to_string(),
-            keywords: vec!["load".into(), "scene".into(), "file".into(), "import".into(), "open".into()],
+            keywords: vec!["import".into(), "open".into(), "file".into()],
             category: "Scene",
             action: CommandAction::LoadScene,
         });
@@ -113,7 +113,7 @@ impl CommandRegistry {
         // Camera marks
         self.commands.push(Command {
             name: "Jump to Last Position".to_string(),
-            keywords: vec!["jump".into(), "last".into(), "camera".into(), "position".into(), "back".into()],
+            keywords: vec!["back".into(), "previous".into(), "camera".into()],
             category: "Camera",
             action: CommandAction::JumpToLastPosition,
         });
@@ -130,7 +130,7 @@ impl CommandRegistry {
         for name in marks.marks.keys() {
             self.commands.push(Command {
                 name: format!("Jump to Mark: {}", name),
-                keywords: vec!["jump".into(), "mark".into(), "camera".into(), name.to_lowercase()],
+                keywords: vec!["goto".into(), "camera".into()],
                 category: "Camera Marks",
                 action: CommandAction::JumpToMark(name.clone()),
             });
@@ -140,7 +140,7 @@ impl CommandRegistry {
         for i in 1..=9 {
             self.commands.push(Command {
                 name: format!("Set Mark {}", i),
-                keywords: vec!["set".into(), "mark".into(), "camera".into(), i.to_string()],
+                keywords: vec!["save".into(), "camera".into()],
                 category: "Camera Marks",
                 action: CommandAction::SetCameraMark(i.to_string()),
             });
@@ -176,8 +176,8 @@ fn filter_commands<'a>(commands: &'a [Command], query: &str) -> Vec<(usize, &'a 
                 .max();
 
             if let Some(score) = best_keyword_score {
-                // Slight penalty for keyword-only match
-                return Some((idx, cmd, score - 10));
+                // Significant penalty for keyword-only match (name matches should rank higher)
+                return Some((idx, cmd, score / 2));
             }
 
             None

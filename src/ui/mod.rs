@@ -1,5 +1,6 @@
 mod command_palette;
 mod edit_info;
+mod find_object;
 mod hierarchy;
 mod inspector;
 mod marks;
@@ -10,6 +11,7 @@ mod view_gizmo;
 
 pub use command_palette::*;
 pub use edit_info::*;
+pub use find_object::*;
 pub use hierarchy::*;
 pub use inspector::*;
 pub use marks::*;
@@ -32,6 +34,7 @@ impl Plugin for UiPlugin {
             .add_plugins(ViewGizmoPlugin)
             .add_plugins(EditInfoPlugin)
             .add_plugins(MarksPlugin)
-            .add_plugins(CommandPalettePlugin);
+            .add_plugins(CommandPalettePlugin)
+            .add_plugins(FindObjectPlugin);
     }
 }
