@@ -1,3 +1,8 @@
+//! Main binary for running the editor standalone.
+//!
+//! For using the editor as a library in your own project,
+//! see the examples directory.
+
 use bevy::prelude::*;
 use bevy_avian3d_editor::EditorPlugin;
 
@@ -10,6 +15,6 @@ fn main() {
             }),
             ..default()
         }))
-        .add_plugins(EditorPlugin)
+        .add_plugins(EditorPlugin::default())
         .run();
 }

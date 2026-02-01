@@ -17,16 +17,118 @@ use crate::scene::ScenePlugin;
 use crate::selection::SelectionPlugin;
 use crate::ui::UiPlugin;
 
+/// Configuration for the editor plugin
+#[derive(Clone)]
+pub struct EditorPluginConfig {
+    /// Whether to add the EguiPlugin (disable if your app already has it)
+    pub add_egui: bool,
+    /// Whether to add physics plugins (disable if your app already has Avian3D)
+    pub add_physics: bool,
+    /// Whether to pause physics on startup
+    pub pause_physics_on_startup: bool,
+    /// Whether to add ambient lighting
+    pub add_ambient_light: bool,
+}
+
+impl Default for EditorPluginConfig {
+    fn default() -> Self {
+        Self {
+            add_egui: true,
+            add_physics: true,
+            pause_physics_on_startup: true,
+            add_ambient_light: true,
+        }
+    }
+}
+
 /// Main editor plugin that bundles all editor functionality
-pub struct EditorPlugin;
+///
+/// # Example
+///
+/// ```no_run
+/// use bevy::prelude::*;
+/// use bevy_avian3d_editor::EditorPlugin;
+///
+/// fn main() {
+///     App::new()
+///         .add_plugins(DefaultPlugins)
+///         .add_plugins(EditorPlugin::default())
+///         .run();
+/// }
+/// ```
+///
+/// # Configuration
+///
+/// If your app already has EguiPlugin or Avian3D physics, you can disable them:
+///
+/// ```no_run
+/// use bevy::prelude::*;
+/// use bevy_avian3d_editor::{EditorPlugin, editor::EditorPluginConfig};
+///
+/// fn main() {
+///     App::new()
+///         .add_plugins(DefaultPlugins)
+///         .add_plugins(EditorPlugin::new(EditorPluginConfig {
+///             add_egui: false,  // App already has EguiPlugin
+///             add_physics: false,  // App already has Avian3D
+///             ..default()
+///         }))
+///         .run();
+/// }
+/// ```
+pub struct EditorPlugin {
+    config: EditorPluginConfig,
+}
+
+impl Default for EditorPlugin {
+    fn default() -> Self {
+        Self {
+            config: EditorPluginConfig::default(),
+        }
+    }
+}
+
+impl EditorPlugin {
+    /// Create a new editor plugin with custom configuration
+    pub fn new(config: EditorPluginConfig) -> Self {
+        Self { config }
+    }
+
+    /// Create an editor plugin without adding EguiPlugin
+    /// (use if your app already has bevy_egui)
+    pub fn without_egui() -> Self {
+        Self {
+            config: EditorPluginConfig {
+                add_egui: false,
+                ..default()
+            },
+        }
+    }
+
+    /// Create an editor plugin without adding physics plugins
+    /// (use if your app already has Avian3D)
+    pub fn without_physics() -> Self {
+        Self {
+            config: EditorPluginConfig {
+                add_physics: false,
+                ..default()
+            },
+        }
+    }
+}
 
 impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
+        // Third-party plugins (conditional)
+        if self.config.add_egui {
+            app.add_plugins(EguiPlugin::default());
+        }
+        if self.config.add_physics {
+            app.add_plugins(PhysicsPlugins::default())
+                .add_plugins(PhysicsDebugPlugin);
+        }
+
         app
-            // Third-party plugins
-            .add_plugins(EguiPlugin::default())
-            .add_plugins(PhysicsPlugins::default())
-            .add_plugins(PhysicsDebugPlugin)
             // Editor core
             .add_plugins(EditorStatePlugin)
             .add_plugins(EditorInputPlugin)
@@ -41,9 +143,15 @@ impl Plugin for EditorPlugin {
             .add_plugins(CommandsPlugin)
             .add_plugins(PatternsPlugin)
             // UI
-            .add_plugins(UiPlugin)
-            // Setup
-            .add_systems(Startup, (setup_editor_scene, pause_physics_on_startup));
+            .add_plugins(UiPlugin);
+
+        // Startup systems
+        if self.config.add_ambient_light {
+            app.add_systems(Startup, setup_editor_scene);
+        }
+        if self.config.pause_physics_on_startup {
+            app.add_systems(Startup, pause_physics_on_startup);
+        }
     }
 }
 
@@ -62,4 +170,3 @@ fn pause_physics_on_startup(mut physics_time: ResMut<Time<Physics>>) {
     physics_time.set_relative_speed(0.0);
     info!("Physics simulation: PAUSED (default)");
 }
-

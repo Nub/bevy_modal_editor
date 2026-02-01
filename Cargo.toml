@@ -3,10 +3,21 @@ name = "bevy_avian3d_editor"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "A level editor for Bevy games using Avian3D physics"
+description = "A level editor plugin for Bevy games using Avian3D physics"
+repository = "https://github.com/Nub/bevy_modal_editor"
+keywords = ["bevy", "editor", "avian3d", "physics", "level-editor"]
+categories = ["game-development", "game-engines"]
+
+[lib]
+name = "bevy_avian3d_editor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "bevy_avian3d_editor"
+path = "src/main.rs"
 
 [dependencies]
-bevy = { version = "0.18", features = ["dynamic_linking"] }
+bevy = "0.18"
 avian3d = { version = "0.5", features = ["debug-plugin"] }
 bevy_egui = { git = "https://github.com/vladbat00/bevy_egui", branch = "main" }
 bevy_infinite_grid = { git = "https://github.com/ForesightMiningSoftwareCorporation/bevy_infinite_grid", branch = "main" }
@@ -14,6 +25,22 @@ serde = { version = "1.0", features = ["derive"] }
 ron = "0.8"
 dirs = "6"
 fuzzy-matcher = "0.3"
+
+[dev-dependencies]
+bevy = { version = "0.18", features = ["dynamic_linking"] }
+
+[features]
+default = []
+# Enable dynamic linking for faster compile times during development
+dynamic = ["bevy/dynamic_linking"]
+
+[[example]]
+name = "simple"
+path = "examples/simple.rs"
+
+[[example]]
+name = "with_existing_scene"
+path = "examples/with_existing_scene.rs"
 
 [profile.dev]
 opt-level = 1
