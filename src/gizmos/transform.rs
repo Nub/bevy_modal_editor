@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, TransformOperation};
+use crate::scene::Locked;
 use crate::selection::Selected;
 
 /// Marker component for entities currently being edited (to track sleep state)
@@ -137,7 +138,7 @@ fn handle_step_keys(
     axis_constraint: Res<AxisConstraint>,
     step_amount: Res<EditStepAmount>,
     editor_state: Res<EditorState>,
-    mut selected: Query<&mut Transform, With<Selected>>,
+    mut selected: Query<&mut Transform, (With<Selected>, Without<Locked>)>,
     mut contexts: EguiContexts,
 ) {
     // Only handle in Edit mode with an active transform operation
@@ -474,7 +475,7 @@ fn handle_transform_manipulation(
     axis_constraint: Res<AxisConstraint>,
     editor_state: Res<EditorState>,
     camera_query: Query<&GlobalTransform, With<EditorCamera>>,
-    mut selected: Query<&mut Transform, With<Selected>>,
+    mut selected: Query<&mut Transform, (With<Selected>, Without<Locked>)>,
     mut contexts: EguiContexts,
 ) {
     // Only manipulate in Edit mode with left mouse held
@@ -601,7 +602,7 @@ fn manage_editing_sleep_state(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
-    selected: Query<Entity, With<Selected>>,
+    selected: Query<Entity, (With<Selected>, Without<Locked>)>,
     being_edited: Query<Entity, With<BeingEdited>>,
     mut contexts: EguiContexts,
 ) {
