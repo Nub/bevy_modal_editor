@@ -4,6 +4,7 @@ use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_inspector_egui::bevy_inspector::ui_for_entity;
 
 use super::InspectorPanelState;
+use crate::scene::{DirectionalLightMarker, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::{colors, fonts};
 
@@ -155,6 +156,138 @@ enum ComponentAction<T> {
     Remove,
 }
 
+/// Data for point light editing
+#[derive(Clone)]
+struct PointLightData {
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    shadows_enabled: bool,
+}
+
+impl From<&SceneLightMarker> for PointLightData {
+    fn from(marker: &SceneLightMarker) -> Self {
+        let color = marker.color.to_srgba();
+        Self {
+            color: [color.red, color.green, color.blue],
+            intensity: marker.intensity,
+            range: marker.range,
+            shadows_enabled: marker.shadows_enabled,
+        }
+    }
+}
+
+/// Data for directional light editing
+#[derive(Clone)]
+struct DirectionalLightData {
+    color: [f32; 3],
+    illuminance: f32,
+    shadows_enabled: bool,
+}
+
+impl From<&DirectionalLightMarker> for DirectionalLightData {
+    fn from(marker: &DirectionalLightMarker) -> Self {
+        let color = marker.color.to_srgba();
+        Self {
+            color: [color.red, color.green, color.blue],
+            illuminance: marker.illuminance,
+            shadows_enabled: marker.shadows_enabled,
+        }
+    }
+}
+
+/// Draw point light properties section
+fn draw_point_light_section(ui: &mut egui::Ui, data: &mut PointLightData) -> bool {
+    let mut changed = false;
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("💡 Point Light").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+
+        // Color picker
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Color").color(colors::TEXT_SECONDARY));
+            changed |= ui.color_edit_button_rgb(&mut data.color).changed();
+        });
+
+        ui.add_space(4.0);
+
+        // Intensity
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Intensity").color(colors::TEXT_SECONDARY));
+            changed |= ui
+                .add(egui::DragValue::new(&mut data.intensity).speed(100.0).range(0.0..=1000000.0))
+                .changed();
+        });
+
+        ui.add_space(4.0);
+
+        // Range
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Range").color(colors::TEXT_SECONDARY));
+            changed |= ui
+                .add(egui::DragValue::new(&mut data.range).speed(0.1).range(0.0..=1000.0))
+                .changed();
+        });
+
+        ui.add_space(4.0);
+
+        // Shadows
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Shadows").color(colors::TEXT_SECONDARY));
+            changed |= ui.checkbox(&mut data.shadows_enabled, "").changed();
+        });
+
+        ui.add_space(4.0);
+    });
+
+    changed
+}
+
+/// Draw directional light properties section
+fn draw_directional_light_section(ui: &mut egui::Ui, data: &mut DirectionalLightData) -> bool {
+    let mut changed = false;
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("☀ Directional Light").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+
+        // Color picker
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Color").color(colors::TEXT_SECONDARY));
+            changed |= ui.color_edit_button_rgb(&mut data.color).changed();
+        });
+
+        ui.add_space(4.0);
+
+        // Illuminance
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Illuminance").color(colors::TEXT_SECONDARY));
+            changed |= ui
+                .add(egui::DragValue::new(&mut data.illuminance).speed(100.0).range(0.0..=200000.0))
+                .changed();
+        });
+
+        ui.add_space(4.0);
+
+        // Shadows
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Shadows").color(colors::TEXT_SECONDARY));
+            changed |= ui.checkbox(&mut data.shadows_enabled, "").changed();
+        });
+
+        ui.add_space(4.0);
+    });
+
+    changed
+}
+
 /// Draw a RigidBody type selector with remove button
 /// current_type is None if entities have mixed types
 fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>) -> ComponentAction<RigidBodyType> {
@@ -248,6 +381,16 @@ fn draw_inspector_panel(world: &mut World) {
     };
     let has_rigidbodies = !rigidbody_types.is_empty();
 
+    // Get point light data for single selection
+    let mut point_light_data = single_entity.and_then(|e| {
+        world.get::<SceneLightMarker>(e).map(|m| PointLightData::from(m))
+    });
+
+    // Get directional light data for single selection
+    let mut directional_light_data = single_entity.and_then(|e| {
+        world.get::<DirectionalLightMarker>(e).map(|m| DirectionalLightData::from(m))
+    });
+
     // Get egui context
     let ctx = {
         let Some(mut egui_ctx) = world
@@ -262,6 +405,8 @@ fn draw_inspector_panel(world: &mut World) {
 
     let mut transform_changed = false;
     let mut rigidbody_action: ComponentAction<RigidBodyType> = ComponentAction::None;
+    let mut point_light_changed = false;
+    let mut directional_light_changed = false;
 
     // Check for "N" key to focus name field (only for single selection)
     let focus_name_field = selection_count == 1
@@ -357,6 +502,18 @@ fn draw_inspector_panel(world: &mut World) {
                             ui.add_space(4.0);
                         }
 
+                        // Point light properties
+                        if let Some(ref mut data) = point_light_data {
+                            point_light_changed = draw_point_light_section(ui, data);
+                            ui.add_space(4.0);
+                        }
+
+                        // Directional light properties
+                        if let Some(ref mut data) = directional_light_data {
+                            directional_light_changed = draw_directional_light_section(ui, data);
+                            ui.add_space(4.0);
+                        }
+
                         ui.separator();
                         ui.add_space(4.0);
 
@@ -443,6 +600,50 @@ fn draw_inspector_panel(world: &mut World) {
             }
         }
         ComponentAction::None => {}
+    }
+
+    // Apply point light changes
+    if point_light_changed {
+        if let (Some(entity), Some(data)) = (single_entity, point_light_data) {
+            let new_color = Color::srgb(data.color[0], data.color[1], data.color[2]);
+
+            // Update the marker component
+            if let Some(mut marker) = world.get_mut::<SceneLightMarker>(entity) {
+                marker.color = new_color;
+                marker.intensity = data.intensity;
+                marker.range = data.range;
+                marker.shadows_enabled = data.shadows_enabled;
+            }
+
+            // Update the actual PointLight component
+            if let Some(mut light) = world.get_mut::<PointLight>(entity) {
+                light.color = new_color;
+                light.intensity = data.intensity;
+                light.range = data.range;
+                light.shadows_enabled = data.shadows_enabled;
+            }
+        }
+    }
+
+    // Apply directional light changes
+    if directional_light_changed {
+        if let (Some(entity), Some(data)) = (single_entity, directional_light_data) {
+            let new_color = Color::srgb(data.color[0], data.color[1], data.color[2]);
+
+            // Update the marker component
+            if let Some(mut marker) = world.get_mut::<DirectionalLightMarker>(entity) {
+                marker.color = new_color;
+                marker.illuminance = data.illuminance;
+                marker.shadows_enabled = data.shadows_enabled;
+            }
+
+            // Update the actual DirectionalLight component
+            if let Some(mut light) = world.get_mut::<DirectionalLight>(entity) {
+                light.color = new_color;
+                light.illuminance = data.illuminance;
+                light.shadows_enabled = data.shadows_enabled;
+            }
+        }
     }
 
     // Update the panel state resource with the actual panel width
