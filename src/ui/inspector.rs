@@ -263,6 +263,12 @@ fn draw_inspector_panel(world: &mut World) {
     let mut transform_changed = false;
     let mut rigidbody_action: ComponentAction<RigidBodyType> = ComponentAction::None;
 
+    // Check for "N" key to focus name field (only for single selection)
+    let focus_name_field = selection_count == 1
+        && !ctx.wants_keyboard_input()
+        && ctx.input(|i| i.key_pressed(egui::Key::N));
+    let name_field_id = egui::Id::new("inspector_name_field");
+
     let panel_response = egui::SidePanel::right("inspector_panel")
         .default_width(300.0)
         .frame(
@@ -309,12 +315,16 @@ fn draw_inspector_panel(world: &mut World) {
 
                     // Editable entity name
                     if let Some(ref mut name) = entity_name {
-                        ui.add(
+                        let response = ui.add(
                             egui::TextEdit::singleline(name)
+                                .id(name_field_id)
                                 .font(egui::FontId::proportional(16.0))
                                 .text_color(colors::TEXT_PRIMARY)
                                 .margin(egui::vec2(8.0, 6.0)),
                         );
+                        if focus_name_field {
+                            response.request_focus();
+                        }
                     } else {
                         ui.label(
                             egui::RichText::new(format!("Entity {:?}", entity))
