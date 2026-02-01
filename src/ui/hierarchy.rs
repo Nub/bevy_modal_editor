@@ -1,6 +1,8 @@
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use std::collections::HashSet;
 
 use crate::editor::EditorMode;
@@ -24,16 +26,75 @@ pub struct HierarchyState {
     pub expanded: HashSet<Entity>,
     /// Entity being dragged (if any)
     pub dragging: Option<Entity>,
+    /// Filter query for fuzzy search
+    pub filter: String,
+    /// Whether the filter input should be focused
+    pub focus_filter: bool,
+    /// Whether the filter is active (visible even when empty)
+    pub filter_active: bool,
 }
 
 /// Payload for drag and drop operations
 #[derive(Clone, Copy)]
 struct DragPayload(Entity);
 
+/// Compute the set of entities that should be visible based on the fuzzy filter.
+/// Includes matching entities and all their ancestors (to maintain hierarchy structure).
+fn compute_visible_entities(
+    filter: &str,
+    scene_entities: &Query<
+        (
+            Entity,
+            Option<&Name>,
+            Option<&ChildOf>,
+            Option<&Children>,
+            Option<&GroupMarker>,
+            Option<&PrimitiveMarker>,
+            Option<&SceneLightMarker>,
+            Option<&Locked>,
+        ),
+        With<SceneEntity>,
+    >,
+) -> HashSet<Entity> {
+    let matcher = SkimMatcherV2::default();
+    let mut visible = HashSet::new();
+
+    // First pass: find all entities that match the filter
+    let mut matching_entities = Vec::new();
+    for (entity, name, _, _, _, _, _, _) in scene_entities.iter() {
+        let display_name = name.map(|n| n.as_str()).unwrap_or("");
+        if matcher.fuzzy_match(display_name, filter).is_some() {
+            matching_entities.push(entity);
+            visible.insert(entity);
+        }
+    }
+
+    // Second pass: add all ancestors of matching entities
+    for entity in matching_entities {
+        let mut current = entity;
+        while let Ok((_, _, parent, _, _, _, _, _)) = scene_entities.get(current) {
+            if let Some(parent_ref) = parent {
+                let parent_entity = parent_ref.get();
+                if scene_entities.get(parent_entity).is_ok() {
+                    visible.insert(parent_entity);
+                    current = parent_entity;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+    }
+
+    visible
+}
+
 /// Draw the scene hierarchy panel
 fn draw_hierarchy_panel(
     mut contexts: EguiContexts,
     current_mode: Res<State<EditorMode>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     scene_entities: Query<
         (
             Entity,
@@ -53,12 +114,30 @@ fn draw_hierarchy_panel(
 ) -> Result {
     // Only show hierarchy panel in Hierarchy mode
     if *current_mode.get() != EditorMode::Hierarchy {
+        // Clear filter when leaving hierarchy mode
+        hierarchy_state.filter.clear();
+        hierarchy_state.filter_active = false;
         return Ok(());
     }
 
     let ctx = contexts.ctx_mut()?;
+
+    // Handle F key to start filtering (only if UI doesn't want keyboard input)
+    // "/" opens the FindObject palette instead
+    if !ctx.wants_keyboard_input() && keyboard.just_pressed(KeyCode::KeyF) {
+        hierarchy_state.focus_filter = true;
+        hierarchy_state.filter_active = true;
+    }
+
     let selected_entities: HashSet<Entity> = selected.iter().collect();
     let shift_held = ctx.input(|i| i.modifiers.shift);
+
+    // Build set of visible entities based on filter
+    let visible_entities = if hierarchy_state.filter.is_empty() {
+        None // No filter, show all
+    } else {
+        Some(compute_visible_entities(&hierarchy_state.filter, &scene_entities))
+    };
 
     // Track reparenting operation to apply after UI
     let mut reparent_op: Option<(Entity, Option<Entity>)> = None;
@@ -94,12 +173,47 @@ fn draw_hierarchy_panel(
             let footer_height = 30.0;
             ui.set_min_height(available_height - title_bar_height - footer_height);
 
+            // Show filter input if filter is active or has content
+            let show_filter = hierarchy_state.filter_active || !hierarchy_state.filter.is_empty();
+            if show_filter {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("🔍").color(colors::TEXT_MUTED));
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut hierarchy_state.filter)
+                            .hint_text("Filter...")
+                            .desired_width(ui.available_width() - 24.0),
+                    );
+
+                    // Focus the filter input when F is pressed
+                    if hierarchy_state.focus_filter {
+                        response.request_focus();
+                        hierarchy_state.focus_filter = false;
+                    }
+
+                    // Clear filter and deactivate on Escape
+                    if response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        hierarchy_state.filter.clear();
+                        hierarchy_state.filter_active = false;
+                    }
+
+                    // Deactivate filter when it loses focus and is empty
+                    if response.lost_focus() && hierarchy_state.filter.is_empty() {
+                        hierarchy_state.filter_active = false;
+                    }
+                });
+                ui.add_space(4.0);
+            }
+
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // Find root entities (no parent or parent is not a SceneEntity)
                 let mut root_entities: Vec<_> = scene_entities
                     .iter()
-                    .filter(|(_, _, parent, _, _, _, _, _)| {
-                        parent.map_or(true, |p| scene_entities.get(p.get()).is_err())
+                    .filter(|(entity, _, parent, _, _, _, _, _)| {
+                        // Must be a root entity
+                        let is_root = parent.map_or(true, |p| scene_entities.get(p.get()).is_err());
+                        // Must be visible (if filtering)
+                        let is_visible = visible_entities.as_ref().map_or(true, |v| v.contains(entity));
+                        is_root && is_visible
                     })
                     .collect();
 
@@ -134,6 +248,7 @@ fn draw_hierarchy_panel(
                         &mut commands,
                         &selected,
                         &mut hierarchy_state,
+                        &visible_entities,
                     ) {
                         reparent_op = Some(op);
                     }
@@ -233,6 +348,7 @@ fn draw_entity_row(
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,
     hierarchy_state: &mut ResMut<HierarchyState>,
+    visible_entities: &Option<HashSet<Entity>>,
 ) -> Option<(Entity, Option<Entity>)> {
     let mut reparent_op = None;
 
@@ -246,7 +362,13 @@ fn draw_entity_row(
     let mut scene_children: Vec<_> = children
         .map(|c| {
             c.iter()
-                .filter(|child| scene_entities.get(*child).is_ok())
+                .filter(|child| {
+                    // Must be a scene entity
+                    let is_scene_entity = scene_entities.get(*child).is_ok();
+                    // Must be visible (if filtering)
+                    let is_visible = visible_entities.as_ref().map_or(true, |v| v.contains(child));
+                    is_scene_entity && is_visible
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -345,6 +467,7 @@ fn draw_entity_row(
                             commands,
                             selected_query,
                             hierarchy_state,
+                            visible_entities,
                         ) {
                             reparent_op = Some(op);
                         }

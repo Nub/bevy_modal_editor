@@ -33,7 +33,7 @@ impl Plugin for FindObjectPlugin {
     }
 }
 
-/// Open palette with F key, or / key when in Hierarchy mode
+/// Open palette with F key (not in Hierarchy mode), or / key in Hierarchy mode
 fn handle_find_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<FindObjectState>,
@@ -51,9 +51,12 @@ fn handle_find_toggle(
         }
     }
 
-    // F key works in any mode, "/" only works in Hierarchy mode
-    let f_pressed = keyboard.just_pressed(KeyCode::KeyF);
-    let slash_pressed = keyboard.just_pressed(KeyCode::Slash) && *editor_mode.get() == EditorMode::Hierarchy;
+    let in_hierarchy = *editor_mode.get() == EditorMode::Hierarchy;
+
+    // F key opens find palette (not in Hierarchy mode where F is used for inline filtering)
+    // "/" key opens find palette only in Hierarchy mode
+    let f_pressed = keyboard.just_pressed(KeyCode::KeyF) && !in_hierarchy;
+    let slash_pressed = keyboard.just_pressed(KeyCode::Slash) && in_hierarchy;
 
     if f_pressed || slash_pressed {
         state.open = true;
