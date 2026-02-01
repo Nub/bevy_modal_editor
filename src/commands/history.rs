@@ -112,16 +112,13 @@ fn handle_undo_redo_input(
 
     let ctrl = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
 
-    if ctrl && keyboard.just_pressed(KeyCode::KeyZ) {
-        if keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight) {
-            redo_events.write(RedoEvent);
-        } else {
-            undo_events.write(UndoEvent);
-        }
+    // U for undo
+    if keyboard.just_pressed(KeyCode::KeyU) {
+        undo_events.write(UndoEvent);
     }
 
-    // Alternative: Ctrl+Y for redo
-    if ctrl && keyboard.just_pressed(KeyCode::KeyY) {
+    // Ctrl+R for redo
+    if ctrl && keyboard.just_pressed(KeyCode::KeyR) {
         redo_events.write(RedoEvent);
     }
 }
