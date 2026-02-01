@@ -764,6 +764,7 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
                 shortcut_row(ui, "V", "Toggle View/Edit mode");
                 shortcut_row(ui, "I", "Enter Insert mode");
                 shortcut_row(ui, "N", "Focus name field in Inspector");
+                shortcut_row(ui, "P", "Toggle preview mode (hide gizmos)");
                 shortcut_row(ui, "Esc", "Return to View mode / Cancel");
 
                 ui.add_space(12.0);

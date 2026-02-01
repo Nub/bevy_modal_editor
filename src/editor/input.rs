@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
-use super::state::{AxisConstraint, EditorMode, TransformOperation};
+use super::state::{AxisConstraint, EditorMode, TogglePreviewModeEvent, TransformOperation};
 use crate::scene::GroupSelectedEvent;
 use crate::ui::CommandPaletteState;
 
@@ -9,7 +9,7 @@ pub struct EditorInputPlugin;
 
 impl Plugin for EditorInputPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (handle_mode_input, handle_group_shortcut));
+        app.add_systems(Update, (handle_mode_input, handle_group_shortcut, handle_preview_mode_shortcut));
     }
 }
 
@@ -114,5 +114,24 @@ fn handle_group_shortcut(
     // G to group selected entities
     if keyboard.just_pressed(KeyCode::KeyG) {
         group_events.write(GroupSelectedEvent);
+    }
+}
+
+/// Handle P key to toggle preview mode
+fn handle_preview_mode_shortcut(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut preview_events: MessageWriter<TogglePreviewModeEvent>,
+    mut contexts: EguiContexts,
+) {
+    // Don't handle when UI wants keyboard input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return;
+        }
+    }
+
+    // P to toggle preview mode
+    if keyboard.just_pressed(KeyCode::KeyP) {
+        preview_events.write(TogglePreviewModeEvent);
     }
 }

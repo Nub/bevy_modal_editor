@@ -137,6 +137,10 @@ pub struct TogglePhysicsEvent;
 #[derive(Message)]
 pub struct ToggleGridEvent;
 
+/// Event to toggle preview mode (hides all gizmos and debug rendering)
+#[derive(Message)]
+pub struct TogglePreviewModeEvent;
+
 /// Event to start inserting an object in Insert mode
 #[derive(Message)]
 pub struct StartInsertEvent {
@@ -156,6 +160,7 @@ impl Plugin for EditorStatePlugin {
             .add_message::<TogglePhysicsDebugEvent>()
             .add_message::<TogglePhysicsEvent>()
             .add_message::<ToggleGridEvent>()
+            .add_message::<TogglePreviewModeEvent>()
             .add_message::<StartInsertEvent>()
             .add_systems(
                 Update,
@@ -163,6 +168,7 @@ impl Plugin for EditorStatePlugin {
                     handle_toggle_physics_debug,
                     handle_toggle_physics,
                     handle_toggle_grid,
+                    handle_toggle_preview_mode,
                 ),
             );
     }
@@ -216,5 +222,36 @@ fn handle_toggle_grid(
                 }
             );
         }
+    }
+}
+
+/// Handle toggling preview mode (disables all gizmos and physics debug)
+fn handle_toggle_preview_mode(
+    mut events: MessageReader<TogglePreviewModeEvent>,
+    mut editor_state: ResMut<EditorState>,
+    mut gizmo_config: ResMut<GizmoConfigStore>,
+    mut grids: Query<&mut Visibility, With<InfiniteGridSettings>>,
+) {
+    for _ in events.read() {
+        // Toggle gizmos visibility
+        editor_state.gizmos_visible = !editor_state.gizmos_visible;
+
+        // Toggle physics debug gizmos
+        let physics_config = gizmo_config.config_mut::<PhysicsGizmos>().0;
+        physics_config.enabled = editor_state.gizmos_visible;
+
+        // Toggle grid visibility
+        for mut visibility in grids.iter_mut() {
+            *visibility = if editor_state.gizmos_visible {
+                Visibility::Visible
+            } else {
+                Visibility::Hidden
+            };
+        }
+
+        info!(
+            "Preview mode: {}",
+            if editor_state.gizmos_visible { "OFF" } else { "ON" }
+        );
     }
 }
