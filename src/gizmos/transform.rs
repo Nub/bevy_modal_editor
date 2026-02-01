@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 
-use crate::commands::TakeSnapshotEvent;
+use crate::commands::TakeSnapshotCommand;
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, TransformOperation};
 use crate::scene::Locked;
 use crate::selection::Selected;
@@ -613,7 +613,6 @@ fn manage_editing_sleep_state(
     selected: Query<Entity, (With<Selected>, Without<Locked>)>,
     being_edited: Query<Entity, With<BeingEdited>>,
     mut contexts: EguiContexts,
-    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
 ) {
     // Check if we should be in "editing" state
     let in_edit_mode = *mode.get() == EditorMode::Edit;
@@ -638,7 +637,7 @@ fn manage_editing_sleep_state(
             TransformOperation::Scale => "Scale",
             _ => "Transform",
         };
-        snapshot_events.write(TakeSnapshotEvent {
+        commands.queue(TakeSnapshotCommand {
             description: format!("{} entities", op_name),
         });
     }
@@ -754,7 +753,7 @@ fn handle_place_mode_click(
     mode: Res<State<EditorMode>>,
     mut transform_op: ResMut<TransformOperation>,
     mut contexts: EguiContexts,
-    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
+    mut commands: Commands,
     selected: Query<Entity, With<Selected>>,
 ) {
     // Only handle in Edit mode with Place operation
@@ -776,7 +775,7 @@ fn handle_place_mode_click(
 
     // Take snapshot before confirming placement
     if !selected.is_empty() {
-        snapshot_events.write(TakeSnapshotEvent {
+        commands.queue(TakeSnapshotCommand {
             description: "Place entities".to_string(),
         });
     }

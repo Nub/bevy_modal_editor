@@ -61,12 +61,6 @@ impl SnapshotHistory {
     }
 }
 
-/// Event to take a snapshot before an operation
-#[derive(Message)]
-pub struct TakeSnapshotEvent {
-    pub description: String,
-}
-
 /// Event to trigger undo
 #[derive(Message)]
 pub struct UndoEvent;
@@ -80,14 +74,12 @@ pub struct HistoryPlugin;
 impl Plugin for HistoryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SnapshotHistory>()
-            .add_message::<TakeSnapshotEvent>()
             .add_message::<UndoEvent>()
             .add_message::<RedoEvent>()
             .add_systems(
                 Update,
                 (
                     handle_undo_redo_input,
-                    handle_take_snapshot,
                     handle_undo,
                     handle_redo,
                 ),
@@ -121,21 +113,9 @@ fn handle_undo_redo_input(
     }
 }
 
-/// Take a snapshot of the current scene state
-fn handle_take_snapshot(
-    mut events: MessageReader<TakeSnapshotEvent>,
-    mut commands: Commands,
-) {
-    for event in events.read() {
-        commands.queue(TakeSnapshotCommand {
-            description: event.description.clone(),
-        });
-    }
-}
-
 /// Command to take a snapshot with exclusive world access
-struct TakeSnapshotCommand {
-    description: String,
+pub struct TakeSnapshotCommand {
+    pub description: String,
 }
 
 impl Command for TakeSnapshotCommand {

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
-use super::TakeSnapshotEvent;
+use super::TakeSnapshotCommand;
 use crate::scene::SpawnPrimitiveEvent;
 use crate::selection::Selected;
 
@@ -55,13 +55,12 @@ fn handle_delete_selected(
     mut events: MessageReader<DeleteSelectedEvent>,
     selected: Query<Entity, With<Selected>>,
     mut commands: Commands,
-    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
 ) {
     for _ in events.read() {
         let count = selected.iter().count();
         if count > 0 {
-            // Take snapshot before delete
-            snapshot_events.write(TakeSnapshotEvent {
+            // Queue snapshot command first, then despawn
+            commands.queue(TakeSnapshotCommand {
                 description: format!("Delete {} entities", count),
             });
 
@@ -77,13 +76,13 @@ fn handle_duplicate_selected(
     mut events: MessageReader<DuplicateSelectedEvent>,
     selected: Query<(&Transform, &crate::scene::PrimitiveMarker), With<Selected>>,
     mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
-    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
+    mut commands: Commands,
 ) {
     for _ in events.read() {
         let count = selected.iter().count();
         if count > 0 {
-            // Take snapshot before duplicate
-            snapshot_events.write(TakeSnapshotEvent {
+            // Queue snapshot command before spawning duplicates
+            commands.queue(TakeSnapshotCommand {
                 description: format!("Duplicate {} entities", count),
             });
 

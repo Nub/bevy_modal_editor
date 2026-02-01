@@ -5,7 +5,7 @@ use bevy_egui::EguiContexts;
 
 use super::camera::EditorCamera;
 use super::state::{EditorMode, InsertObjectType, InsertPreview, InsertState, StartInsertEvent};
-use crate::commands::TakeSnapshotEvent;
+use crate::commands::TakeSnapshotCommand;
 use crate::scene::{
     GroupMarker, PrimitiveMarker, PrimitiveShape, SpawnDirectionalLightEvent, SpawnGroupEvent,
     SpawnPointLightEvent, SpawnPrimitiveEvent,
@@ -235,7 +235,6 @@ fn handle_insert_click(
     mut spawn_light_events: MessageWriter<SpawnPointLightEvent>,
     mut spawn_directional_light_events: MessageWriter<SpawnDirectionalLightEvent>,
     mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
-    mut snapshot_events: MessageWriter<TakeSnapshotEvent>,
     mut contexts: EguiContexts,
 ) {
     // Only confirm on left click
@@ -271,7 +270,7 @@ fn handle_insert_click(
         InsertObjectType::DirectionalLight => "Directional Light",
         InsertObjectType::Group => "Group",
     };
-    snapshot_events.write(TakeSnapshotEvent {
+    commands.queue(TakeSnapshotCommand {
         description: format!("Insert {}", object_name),
     });
 
