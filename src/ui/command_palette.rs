@@ -14,6 +14,8 @@ use crate::scene::{
     LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnDemoSceneEvent, SpawnDirectionalLightEvent,
     SpawnGroupEvent, SpawnPointLightEvent, SpawnPrimitiveEvent, UnparentSelectedEvent,
 };
+use crate::selection::Selected;
+use crate::ui::component_browser::{open_component_browser, ComponentBrowserState};
 use crate::ui::theme::colors;
 use crate::ui::SettingsWindowState;
 
@@ -78,6 +80,7 @@ pub enum CommandAction {
     SpawnDemoScene,
     Undo,
     Redo,
+    AddComponent,
 }
 
 /// Resource to track command palette state
@@ -265,6 +268,13 @@ impl CommandRegistry {
             keywords: vec!["forward".into(), "repeat".into(), "history".into()],
             category: "Edit",
             action: CommandAction::Redo,
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Add Component".to_string(),
+            keywords: vec!["component".into(), "attach".into(), "insert".into(), "reflection".into()],
+            category: "Edit",
+            action: CommandAction::AddComponent,
             insertable: false,
         });
 
@@ -495,8 +505,10 @@ fn draw_command_palette(
     mut settings_state: ResMut<SettingsWindowState>,
     mut custom_mark_state: ResMut<CustomMarkDialogState>,
     mut editor_state: ResMut<EditorState>,
+    mut browser_state: ResMut<ComponentBrowserState>,
     registry: Res<CommandRegistry>,
     mode: Res<State<EditorMode>>,
+    selected: Query<Entity, With<Selected>>,
     mut events: CommandEvents,
 ) -> Result {
     if !state.open {
@@ -750,6 +762,12 @@ fn draw_command_palette(
                 CommandAction::Redo => {
                     events.redo.write(RedoEvent);
                 }
+                CommandAction::AddComponent => {
+                    // Get first selected entity
+                    if let Some(entity) = selected.iter().next() {
+                        open_component_browser(&mut browser_state, entity);
+                    }
+                }
             }
         }
     }
@@ -835,10 +853,23 @@ fn draw_help_window(mut contexts: EguiContexts, mut state: ResMut<HelpWindowStat
                 shortcut_row(ui, "Q", "Translate tool");
                 shortcut_row(ui, "W", "Rotate tool");
                 shortcut_row(ui, "E", "Scale tool");
+                shortcut_row(ui, "R", "Place tool (raycast)");
                 shortcut_row(ui, "A", "Constrain to X axis");
                 shortcut_row(ui, "S", "Constrain to Y axis");
                 shortcut_row(ui, "D", "Constrain to Z axis");
                 shortcut_row(ui, "J/K", "Step transform -/+");
+
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Undo/Redo").strong().size(16.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                shortcut_row(ui, "U", "Undo");
+                shortcut_row(ui, "Ctrl+R", "Redo");
+
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Components").strong().size(16.0).color(colors::TEXT_PRIMARY));
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("Use Inspector panel's 'Add Component' button").small().color(colors::TEXT_SECONDARY));
+                ui.label(egui::RichText::new("or search 'Add Component' in command palette").small().color(colors::TEXT_SECONDARY));
             });
 
             ui.add_space(8.0);

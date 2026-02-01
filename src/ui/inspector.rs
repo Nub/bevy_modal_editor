@@ -3,6 +3,9 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_inspector_egui::bevy_inspector::ui_for_entity;
 
+use super::component_browser::{
+    add_component_by_type_id, draw_component_browser, open_component_browser, ComponentBrowserState,
+};
 use super::InspectorPanelState;
 use crate::scene::{DirectionalLightMarker, Locked, SceneLightMarker};
 use crate::selection::Selected;
@@ -550,6 +553,20 @@ fn draw_inspector_panel(world: &mut World) {
                             ui.add_space(4.0);
                         }
 
+                        // Add Component button
+                        ui.add_space(4.0);
+                        if ui
+                            .button(egui::RichText::new("+ Add Component").color(colors::ACCENT_GREEN))
+                            .clicked()
+                        {
+                            let mut browser_state = world.resource_mut::<ComponentBrowserState>();
+                            open_component_browser(&mut browser_state, entity);
+                        }
+                        ui.add_space(4.0);
+
+                        ui.separator();
+                        ui.add_space(4.0);
+
                         // Other components via bevy-inspector-egui (hidden by default)
                         egui::CollapsingHeader::new(
                             egui::RichText::new("Show All Components").color(colors::TEXT_SECONDARY),
@@ -693,5 +710,10 @@ fn draw_inspector_panel(world: &mut World) {
     // Update the panel state resource with the actual panel width
     if let Some(mut panel_state) = world.get_resource_mut::<InspectorPanelState>() {
         panel_state.width = panel_response.response.rect.width();
+    }
+
+    // Draw component browser window if open
+    if let Some((entity, type_id)) = draw_component_browser(world, &ctx) {
+        add_component_by_type_id(world, entity, type_id);
     }
 }

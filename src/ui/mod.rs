@@ -1,4 +1,5 @@
 mod command_palette;
+mod component_browser;
 mod edit_info;
 mod find_object;
 mod hierarchy;
@@ -11,6 +12,7 @@ mod toolbar;
 mod view_gizmo;
 
 pub use command_palette::*;
+pub use component_browser::*;
 pub use edit_info::*;
 pub use find_object::*;
 pub use hierarchy::*;
@@ -45,6 +47,7 @@ impl Plugin for UiPlugin {
             .add_plugins(EditInfoPlugin)
             .add_plugins(MarksPlugin)
             .add_plugins(CommandPalettePlugin)
-            .add_plugins(FindObjectPlugin);
+            .add_plugins(FindObjectPlugin)
+            .add_plugins(ComponentBrowserPlugin);
     }
 }
