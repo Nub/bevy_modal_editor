@@ -11,9 +11,7 @@ use crate::scene::{
     DirectionalLightMarker, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity,
     SceneLightMarker, LIGHT_COLLIDER_RADIUS,
 };
-
-/// Maximum number of undo/redo snapshots to keep
-const MAX_HISTORY: usize = 50;
+use crate::ui::Settings;
 
 /// A snapshot of the scene state for undo/redo
 #[derive(Clone)]
@@ -38,8 +36,8 @@ pub struct SnapshotHistory {
 impl Default for SnapshotHistory {
     fn default() -> Self {
         Self {
-            undo_stack: VecDeque::with_capacity(MAX_HISTORY),
-            redo_stack: VecDeque::with_capacity(MAX_HISTORY),
+            undo_stack: VecDeque::with_capacity(50),
+            redo_stack: VecDeque::with_capacity(50),
             restoring: false,
         }
     }
@@ -190,13 +188,19 @@ impl Command for TakeSnapshotCommand {
 
         drop(type_registry);
 
+        // Get max history size from settings
+        let max_history = world
+            .get_resource::<Settings>()
+            .map(|s| s.undo_history_size)
+            .unwrap_or(50);
+
         // Add to history
         if let Some(mut history) = world.get_resource_mut::<SnapshotHistory>() {
             // Clear redo stack when new action is taken
             history.redo_stack.clear();
 
             // Add to undo stack
-            if history.undo_stack.len() >= MAX_HISTORY {
+            while history.undo_stack.len() >= max_history {
                 history.undo_stack.pop_front();
             }
 
@@ -223,6 +227,12 @@ impl Command for UndoCommand {
         // First, take a snapshot of current state for redo
         let current_snapshot = take_current_snapshot(world, "redo");
 
+        // Get max history size from settings
+        let max_history = world
+            .get_resource::<Settings>()
+            .map(|s| s.undo_history_size)
+            .unwrap_or(50);
+
         // Pop from undo stack
         let snapshot = {
             let Some(mut history) = world.get_resource_mut::<SnapshotHistory>() else {
@@ -236,7 +246,7 @@ impl Command for UndoCommand {
 
             // Push current state to redo stack
             if let Some(current) = current_snapshot {
-                if history.redo_stack.len() >= MAX_HISTORY {
+                while history.redo_stack.len() >= max_history {
                     history.redo_stack.pop_front();
                 }
                 history.redo_stack.push_back(current);
@@ -273,6 +283,12 @@ impl Command for RedoCommand {
         // First, take a snapshot of current state for undo
         let current_snapshot = take_current_snapshot(world, "undo");
 
+        // Get max history size from settings
+        let max_history = world
+            .get_resource::<Settings>()
+            .map(|s| s.undo_history_size)
+            .unwrap_or(50);
+
         // Pop from redo stack
         let snapshot = {
             let Some(mut history) = world.get_resource_mut::<SnapshotHistory>() else {
@@ -286,7 +302,7 @@ impl Command for RedoCommand {
 
             // Push current state to undo stack
             if let Some(current) = current_snapshot {
-                if history.undo_stack.len() >= MAX_HISTORY {
+                while history.undo_stack.len() >= max_history {
                     history.undo_stack.pop_front();
                 }
                 history.undo_stack.push_back(current);

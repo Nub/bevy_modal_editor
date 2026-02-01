@@ -25,6 +25,13 @@ pub struct Settings {
     /// Rotation snap in degrees (0.0 = disabled)
     #[serde(default)]
     pub rotation_snap: f32,
+    /// Maximum number of undo history entries
+    #[serde(default = "default_undo_history_size")]
+    pub undo_history_size: usize,
+}
+
+fn default_undo_history_size() -> usize {
+    50
 }
 
 impl Default for Settings {
@@ -35,6 +42,7 @@ impl Default for Settings {
             camera_sensitivity: 0.003,
             grid_snap: 0.0,
             rotation_snap: 0.0,
+            undo_history_size: 50,
         }
     }
 }
@@ -244,6 +252,27 @@ fn draw_settings_window(
                     );
                     if response.changed() {
                         editor_state.rotation_snap = settings.rotation_snap;
+                        settings.save();
+                    }
+                    ui.end_row();
+                });
+
+            ui.add_space(8.0);
+            ui.separator();
+            ui.add_space(4.0);
+
+            // History Section
+            ui.heading("History");
+            egui::Grid::new("settings_history_grid")
+                .num_columns(2)
+                .spacing([10.0, 8.0])
+                .show(ui, |ui| {
+                    ui.label("Undo History Size:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.undo_history_size, 10..=200)
+                            .step_by(10.0),
+                    );
+                    if response.changed() {
                         settings.save();
                     }
                     ui.end_row();
