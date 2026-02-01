@@ -4,6 +4,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
+use crate::commands::{RedoEvent, UndoEvent};
 use crate::editor::{
     CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
     JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent, ToggleGridEvent, TogglePhysicsDebugEvent,
@@ -34,6 +35,8 @@ struct CommandEvents<'w> {
     toggle_grid: MessageWriter<'w, ToggleGridEvent>,
     start_insert: MessageWriter<'w, StartInsertEvent>,
     spawn_demo: MessageWriter<'w, SpawnDemoSceneEvent>,
+    undo: MessageWriter<'w, UndoEvent>,
+    redo: MessageWriter<'w, RedoEvent>,
 }
 
 /// A command that can be executed from the palette
@@ -73,6 +76,8 @@ pub enum CommandAction {
     TogglePhysics,
     ToggleGrid,
     SpawnDemoScene,
+    Undo,
+    Redo,
 }
 
 /// Resource to track command palette state
@@ -244,6 +249,22 @@ impl CommandRegistry {
             keywords: vec!["preferences".into(), "options".into(), "config".into(), "configuration".into()],
             category: "Settings",
             action: CommandAction::OpenSettings,
+            insertable: false,
+        });
+
+        // Edit operations
+        self.commands.push(Command {
+            name: "Undo".to_string(),
+            keywords: vec!["back".into(), "revert".into(), "history".into()],
+            category: "Edit",
+            action: CommandAction::Undo,
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Redo".to_string(),
+            keywords: vec!["forward".into(), "repeat".into(), "history".into()],
+            category: "Edit",
+            action: CommandAction::Redo,
             insertable: false,
         });
 
@@ -722,6 +743,12 @@ fn draw_command_palette(
                 }
                 CommandAction::SpawnDemoScene => {
                     events.spawn_demo.write(SpawnDemoSceneEvent);
+                }
+                CommandAction::Undo => {
+                    events.undo.write(UndoEvent);
+                }
+                CommandAction::Redo => {
+                    events.redo.write(RedoEvent);
                 }
             }
         }

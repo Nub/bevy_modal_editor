@@ -1,5 +1,4 @@
-use avian3d::prelude::{Physics, *};
-use avian3d::schedule::PhysicsTime;
+use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
 use bevy::window::PrimaryWindow;
@@ -395,10 +394,7 @@ impl Command for LoadSceneCommand {
         // Regenerate meshes and materials from PrimitiveMarker
         regenerate_meshes(world);
 
-        // Pause physics after loading
-        if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
-            physics_time.set_relative_speed(0.0);
-        }
+        // Note: Physics state is preserved - not changed on load
 
         // Update SceneFile resource
         if let Some(mut scene_file) = world.get_resource_mut::<SceneFile>() {
@@ -410,7 +406,7 @@ impl Command for LoadSceneCommand {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("Untitled");
-        info!("Scene loaded: {} (physics paused)", scene_name);
+        info!("Scene loaded: {}", scene_name);
     }
 }
 

@@ -3,6 +3,7 @@ use avian3d::schedule::PhysicsTime;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
+use crate::commands::SnapshotHistory;
 use crate::editor::{AxisConstraint, EditorMode, EditorState, TransformOperation};
 use crate::scene::SceneFile;
 use crate::ui::theme::colors;
@@ -24,6 +25,7 @@ fn draw_status_bar(
     axis_constraint: Res<AxisConstraint>,
     scene_file: Res<SceneFile>,
     physics_time: Res<Time<Physics>>,
+    snapshot_history: Res<SnapshotHistory>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
 
@@ -118,6 +120,18 @@ fn draw_status_bar(
                             .color(colors::STATUS_SUCCESS),
                     );
                 }
+
+                ui.separator();
+
+                // Undo/redo counts
+                ui.label(
+                    egui::RichText::new(format!(
+                        "Undo: {} | Redo: {}",
+                        snapshot_history.undo_count(),
+                        snapshot_history.redo_count()
+                    ))
+                    .color(colors::TEXT_MUTED),
+                );
 
                 // Right-justified file info
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

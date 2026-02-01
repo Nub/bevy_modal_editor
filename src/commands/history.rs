@@ -104,6 +104,7 @@ fn handle_undo_redo_input(
 
     // U for undo
     if keyboard.just_pressed(KeyCode::KeyU) {
+        info!("U pressed - sending undo event");
         undo_events.write(UndoEvent);
     }
 
@@ -127,6 +128,7 @@ impl Command for TakeSnapshotCommand {
             .unwrap_or(false);
 
         if restoring {
+            info!("Skipping snapshot (restoring): {}", self.description);
             return;
         }
 
@@ -136,9 +138,7 @@ impl Command for TakeSnapshotCommand {
             query.iter(world).collect()
         };
 
-        if scene_entity_ids.is_empty() {
-            return;
-        }
+        info!("Taking snapshot '{}' with {} entities", self.description, scene_entity_ids.len());
 
         // Build the scene
         let scene = DynamicSceneBuilder::from_world(world)
@@ -195,6 +195,7 @@ impl Command for TakeSnapshotCommand {
 /// Handle undo events
 fn handle_undo(mut events: MessageReader<UndoEvent>, mut commands: Commands) {
     for _ in events.read() {
+        info!("handle_undo: received UndoEvent, queueing UndoCommand");
         commands.queue(UndoCommand);
     }
 }
@@ -204,6 +205,8 @@ struct UndoCommand;
 
 impl Command for UndoCommand {
     fn apply(self, world: &mut World) {
+        info!("UndoCommand::apply running");
+
         // First, take a snapshot of current state for redo
         let current_snapshot = take_current_snapshot(world, "redo");
 
@@ -216,8 +219,15 @@ impl Command for UndoCommand {
         // Pop from undo stack
         let snapshot = {
             let Some(mut history) = world.get_resource_mut::<SnapshotHistory>() else {
+                info!("No SnapshotHistory resource found!");
                 return;
             };
+
+            info!(
+                "Undo stack has {} items, redo stack has {} items",
+                history.undo_stack.len(),
+                history.redo_stack.len()
+            );
 
             let Some(snapshot) = history.undo_stack.pop_back() else {
                 info!("Nothing to undo");
@@ -311,9 +321,7 @@ fn take_current_snapshot(world: &mut World, description: &str) -> Option<SceneSn
         query.iter(world).collect()
     };
 
-    if scene_entity_ids.is_empty() {
-        return None;
-    }
+    // Note: We allow empty scenes - an empty state is valid for undo/redo
 
     let scene = DynamicSceneBuilder::from_world(world)
         .deny_all()
@@ -344,12 +352,15 @@ fn take_current_snapshot(world: &mut World, description: &str) -> Option<SceneSn
 
 /// Restore the scene from a snapshot
 fn restore_snapshot(world: &mut World, snapshot: &SceneSnapshot) {
+    info!("Restoring snapshot: {}", snapshot.description);
+
     // Clear existing scene entities
     let entities_to_remove: Vec<Entity> = {
         let mut query = world.query_filtered::<Entity, With<SceneEntity>>();
         query.iter(world).collect()
     };
 
+    info!("Removing {} existing scene entities", entities_to_remove.len());
     for entity in entities_to_remove {
         world.despawn(entity);
     }
@@ -381,8 +392,12 @@ fn restore_snapshot(world: &mut World, snapshot: &SceneSnapshot) {
         return;
     }
 
+    info!("Wrote {} entities to world from snapshot", entity_map.len());
+
     // Regenerate meshes, materials, and colliders
     regenerate_scene_components(world);
+
+    info!("Snapshot restoration complete");
 
     // Keep physics paused
     if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {

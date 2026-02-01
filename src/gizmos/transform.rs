@@ -147,6 +147,7 @@ fn handle_step_keys(
     editor_state: Res<EditorState>,
     mut selected: Query<&mut Transform, (With<Selected>, Without<Locked>)>,
     mut contexts: EguiContexts,
+    mut commands: Commands,
 ) {
     // Only handle in Edit mode with an active transform operation
     if *mode.get() != EditorMode::Edit {
@@ -172,6 +173,19 @@ fn handle_step_keys(
     } else {
         return;
     };
+
+    // Take snapshot before transforming
+    if !selected.is_empty() {
+        let op_name = match *transform_op {
+            TransformOperation::Translate => "Move",
+            TransformOperation::Rotate => "Rotate",
+            TransformOperation::Scale => "Scale",
+            _ => "Transform",
+        };
+        commands.queue(TakeSnapshotCommand {
+            description: format!("{} entities (step)", op_name),
+        });
+    }
 
     for mut transform in selected.iter_mut() {
         match *transform_op {
@@ -637,6 +651,7 @@ fn manage_editing_sleep_state(
             TransformOperation::Scale => "Scale",
             _ => "Transform",
         };
+        info!("Taking transform snapshot: {} entities", op_name);
         commands.queue(TakeSnapshotCommand {
             description: format!("{} entities", op_name),
         });
@@ -753,8 +768,6 @@ fn handle_place_mode_click(
     mode: Res<State<EditorMode>>,
     mut transform_op: ResMut<TransformOperation>,
     mut contexts: EguiContexts,
-    mut commands: Commands,
-    selected: Query<Entity, With<Selected>>,
 ) {
     // Only handle in Edit mode with Place operation
     if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::Place {
@@ -773,12 +786,7 @@ fn handle_place_mode_click(
         }
     }
 
-    // Take snapshot before confirming placement
-    if !selected.is_empty() {
-        commands.queue(TakeSnapshotCommand {
-            description: "Place entities".to_string(),
-        });
-    }
+    // Snapshot was already taken when entering place mode (R key)
 
     // Exit place mode
     *transform_op = TransformOperation::None;

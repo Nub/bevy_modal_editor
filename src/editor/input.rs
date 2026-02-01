@@ -2,7 +2,9 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use super::state::{AxisConstraint, EditorMode, TogglePreviewModeEvent, TransformOperation};
+use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
+use crate::selection::Selected;
 use crate::ui::CommandPaletteState;
 
 pub struct EditorInputPlugin;
@@ -22,6 +24,8 @@ fn handle_mode_input(
     mut axis_constraint: ResMut<AxisConstraint>,
     mut palette_state: ResMut<CommandPaletteState>,
     mut contexts: EguiContexts,
+    mut commands: Commands,
+    selected: Query<Entity, With<Selected>>,
 ) {
     // Don't handle shortcuts when UI wants keyboard input
     if let Ok(ctx) = contexts.ctx_mut() {
@@ -94,6 +98,12 @@ fn handle_mode_input(
             *transform_op = TransformOperation::Rotate;
             *axis_constraint = AxisConstraint::None;
         } else if keyboard.just_pressed(KeyCode::KeyR) {
+            // Take snapshot before entering place mode
+            if !selected.is_empty() {
+                commands.queue(TakeSnapshotCommand {
+                    description: "Place entities".to_string(),
+                });
+            }
             *transform_op = TransformOperation::Place;
             *axis_constraint = AxisConstraint::None;
         }
