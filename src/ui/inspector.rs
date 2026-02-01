@@ -149,7 +149,8 @@ fn draw_transform_section(ui: &mut egui::Ui, transform: &mut Transform) -> bool 
 }
 
 /// Draw a RigidBody type selector, returns Some(new_type) if changed
-fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: RigidBodyType) -> Option<RigidBodyType> {
+/// current_type is None if entities have mixed types
+fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>) -> Option<RigidBodyType> {
     let mut new_type = None;
 
     egui::CollapsingHeader::new(
@@ -163,13 +164,15 @@ fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: RigidBodyType) -> Opt
             ui.label(egui::RichText::new("Body Type").color(colors::TEXT_SECONDARY));
         });
 
+        let display_text = current_type.map(|t| t.label()).unwrap_or("Mixed");
+
         egui::ComboBox::from_id_salt("rigidbody_type")
-            .selected_text(current_type.label())
+            .selected_text(display_text)
             .show_ui(ui, |ui| {
                 for rb_type in RigidBodyType::ALL {
                     if ui.selectable_value(&mut new_type, Some(rb_type), rb_type.label()).clicked() {
                         // Only set if different from current
-                        if rb_type != current_type {
+                        if current_type != Some(rb_type) {
                             new_type = Some(rb_type);
                         } else {
                             new_type = None;
@@ -186,26 +189,44 @@ fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: RigidBodyType) -> Opt
 
 /// Draw the component inspector panel using bevy-inspector-egui
 fn draw_inspector_panel(world: &mut World) {
-    // Query for selected entity first
-    let selected_entity = {
+    // Query for all selected entities
+    let selected_entities: Vec<Entity> = {
         let mut query = world.query_filtered::<Entity, With<Selected>>();
-        query.iter(world).next()
+        query.iter(world).collect()
     };
 
-    // Get entity name and transform before borrowing for egui
-    let mut entity_name = selected_entity.and_then(|e| {
+    let selection_count = selected_entities.len();
+    let single_entity = if selection_count == 1 { Some(selected_entities[0]) } else { None };
+
+    // Get entity name and transform for single selection
+    let mut entity_name = single_entity.and_then(|e| {
         world.get::<Name>(e).map(|n| n.as_str().to_string())
     });
-
-    let mut transform_copy = selected_entity.and_then(|e| world.get::<Transform>(e).copied());
+    let mut transform_copy = single_entity.and_then(|e| world.get::<Transform>(e).copied());
     let original_name = entity_name.clone();
 
-    // Get current RigidBody type if present
-    let current_rigidbody_type = selected_entity.and_then(|e| {
-        world.get::<RigidBody>(e).map(RigidBodyType::from_rigid_body)
-    });
+    // Get RigidBody types for all selected entities that have one
+    let rigidbody_types: Vec<(Entity, RigidBodyType)> = selected_entities
+        .iter()
+        .filter_map(|&e| {
+            world.get::<RigidBody>(e).map(|rb| (e, RigidBodyType::from_rigid_body(rb)))
+        })
+        .collect();
 
-    // Get egui context - scope it so the borrow ends before we use world in the closure
+    // Determine if all have same type or mixed
+    let common_rigidbody_type: Option<RigidBodyType> = if rigidbody_types.is_empty() {
+        None
+    } else {
+        let first_type = rigidbody_types[0].1;
+        if rigidbody_types.iter().all(|(_, t)| *t == first_type) {
+            Some(first_type)
+        } else {
+            None // Mixed types
+        }
+    };
+    let has_rigidbodies = !rigidbody_types.is_empty();
+
+    // Get egui context
     let ctx = {
         let Some(mut egui_ctx) = world
             .query::<&mut bevy_egui::EguiContext>()
@@ -241,102 +262,147 @@ fn draw_inspector_panel(world: &mut World) {
             ui.add_space(4.0);
             ui.separator();
 
-            if let Some(entity) = selected_entity {
-                ui.add_space(4.0);
+            match selection_count {
+                0 => {
+                    // No selection
+                    ui.add_space(20.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            egui::RichText::new("No entity selected")
+                                .color(colors::TEXT_MUTED)
+                                .italics(),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new("Click an entity in the viewport\nor hierarchy to select it.")
+                                .small()
+                                .color(colors::TEXT_MUTED),
+                        );
+                    });
+                }
+                1 => {
+                    // Single selection - full inspector
+                    let entity = single_entity.unwrap();
+                    ui.add_space(4.0);
 
-                // Editable entity name
-                if let Some(ref mut name) = entity_name {
-                    ui.add(
-                        egui::TextEdit::singleline(name)
-                            .font(egui::FontId::proportional(16.0))
-                            .text_color(colors::TEXT_PRIMARY)
-                            .margin(egui::vec2(8.0, 6.0)),
-                    );
-                } else {
+                    // Editable entity name
+                    if let Some(ref mut name) = entity_name {
+                        ui.add(
+                            egui::TextEdit::singleline(name)
+                                .font(egui::FontId::proportional(16.0))
+                                .text_color(colors::TEXT_PRIMARY)
+                                .margin(egui::vec2(8.0, 6.0)),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new(format!("Entity {:?}", entity))
+                                .strong()
+                                .size(14.0)
+                                .color(colors::TEXT_PRIMARY),
+                        );
+                    }
                     ui.label(
-                        egui::RichText::new(format!("Entity {:?}", entity))
+                        egui::RichText::new(format!("ID: {:?}", entity))
+                            .small()
+                            .color(colors::TEXT_MUTED),
+                    );
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        // Custom Transform section with colored labels
+                        if let Some(ref mut transform) = transform_copy {
+                            transform_changed = draw_transform_section(ui, transform);
+                        }
+
+                        ui.add_space(4.0);
+
+                        // RigidBody type selector (only if entity has RigidBody)
+                        if has_rigidbodies {
+                            new_rigidbody_type = draw_rigidbody_section(ui, common_rigidbody_type);
+                            ui.add_space(4.0);
+                        }
+
+                        ui.separator();
+                        ui.add_space(4.0);
+
+                        // Other components via bevy-inspector-egui (hidden by default)
+                        egui::CollapsingHeader::new(
+                            egui::RichText::new("Show All Components").color(colors::TEXT_SECONDARY),
+                        )
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui_for_entity(world, entity, ui);
+                        });
+                    });
+                }
+                _ => {
+                    // Multiple selection
+                    ui.add_space(4.0);
+
+                    ui.label(
+                        egui::RichText::new(format!("{} entities selected", selection_count))
                             .strong()
                             .size(14.0)
                             .color(colors::TEXT_PRIMARY),
                     );
-                }
-                ui.label(
-                    egui::RichText::new(format!("ID: {:?}", entity))
-                        .small()
-                        .color(colors::TEXT_MUTED),
-                );
-
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(4.0);
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    // Custom Transform section with colored labels
-                    if let Some(ref mut transform) = transform_copy {
-                        transform_changed = draw_transform_section(ui, transform);
-                    }
 
                     ui.add_space(4.0);
-
-                    // RigidBody type selector (only if entity has RigidBody)
-                    if let Some(rb_type) = current_rigidbody_type {
-                        new_rigidbody_type = draw_rigidbody_section(ui, rb_type);
-                        ui.add_space(4.0);
-                    }
-
                     ui.separator();
                     ui.add_space(4.0);
 
-                    // Other components via bevy-inspector-egui (hidden by default)
-                    egui::CollapsingHeader::new(
-                        egui::RichText::new("Show All Components").color(colors::TEXT_SECONDARY),
-                    )
-                    .default_open(false)
-                    .show(ui, |ui| {
-                        ui_for_entity(world, entity, ui);
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        // RigidBody type selector for multi-selection
+                        if has_rigidbodies {
+                            ui.label(
+                                egui::RichText::new(format!(
+                                    "{} of {} have physics",
+                                    rigidbody_types.len(),
+                                    selection_count
+                                ))
+                                .small()
+                                .color(colors::TEXT_MUTED),
+                            );
+                            ui.add_space(4.0);
+                            new_rigidbody_type = draw_rigidbody_section(ui, common_rigidbody_type);
+                        } else {
+                            ui.label(
+                                egui::RichText::new("No shared properties to edit")
+                                    .color(colors::TEXT_MUTED)
+                                    .italics(),
+                            );
+                        }
                     });
-                });
-            } else {
-                ui.add_space(20.0);
-                ui.vertical_centered(|ui| {
-                    ui.label(
-                        egui::RichText::new("No entity selected")
-                            .color(colors::TEXT_MUTED)
-                            .italics(),
-                    );
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("Click an entity in the viewport\nor hierarchy to select it.")
-                            .small()
-                            .color(colors::TEXT_MUTED),
-                    );
-                });
+                }
             }
         });
 
-    // Apply transform changes back to the entity
+    // Apply transform changes back to the entity (single selection only)
     if transform_changed {
-        if let (Some(entity), Some(new_transform)) = (selected_entity, transform_copy) {
+        if let (Some(entity), Some(new_transform)) = (single_entity, transform_copy) {
             if let Some(mut transform) = world.get_mut::<Transform>(entity) {
                 *transform = new_transform;
             }
         }
     }
 
-    // Apply name changes back to the entity
+    // Apply name changes back to the entity (single selection only)
     if entity_name != original_name {
-        if let (Some(entity), Some(new_name)) = (selected_entity, entity_name) {
+        if let (Some(entity), Some(new_name)) = (single_entity, entity_name) {
             if let Some(mut name) = world.get_mut::<Name>(entity) {
                 name.set(new_name);
             }
         }
     }
 
-    // Apply RigidBody type change
-    if let (Some(entity), Some(new_type)) = (selected_entity, new_rigidbody_type) {
-        // Remove old RigidBody and insert new one
-        world.entity_mut(entity).remove::<RigidBody>();
-        world.entity_mut(entity).insert(new_type.to_rigid_body());
+    // Apply RigidBody type change to all selected entities with RigidBody
+    if let Some(new_type) = new_rigidbody_type {
+        for (entity, _) in &rigidbody_types {
+            world.entity_mut(*entity).remove::<RigidBody>();
+            world.entity_mut(*entity).insert(new_type.to_rigid_body());
+        }
     }
 
     // Update the panel state resource with the actual panel width
