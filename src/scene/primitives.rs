@@ -380,7 +380,7 @@ fn handle_unparent_selected(
 fn handle_group_selected(
     mut events: MessageReader<GroupSelectedEvent>,
     mut commands: Commands,
-    selected: Query<(Entity, &Transform), With<Selected>>,
+    selected: Query<Entity, With<Selected>>,
     existing_entities: Query<&Name, With<SceneEntity>>,
 ) {
     for _ in events.read() {
@@ -392,27 +392,20 @@ fn handle_group_selected(
             return;
         }
 
-        // Calculate center position of selected entities
-        let center: Vec3 = selected_entities
-            .iter()
-            .map(|(_, t)| t.translation)
-            .sum::<Vec3>()
-            / selected_entities.len() as f32;
-
-        // Create the group
+        // Create the group with identity transform
         let name = generate_unique_name("Group", &existing_entities);
         let group_entity = commands
             .spawn((
                 SceneEntity,
                 GroupMarker,
                 Name::new(name.clone()),
-                Transform::from_translation(center),
+                Transform::default(),
                 Visibility::default(),
             ))
             .id();
 
         // Parent all selected entities to the group
-        for (entity, _) in selected_entities {
+        for entity in selected_entities {
             commands.entity(entity).set_parent_in_place(group_entity);
         }
 
