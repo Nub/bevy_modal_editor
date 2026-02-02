@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::SceneEntity;
+use crate::constants::{light_colors, physics, primitive_colors};
 use crate::selection::Selected;
 
 /// Marker component for group entities (containers for nesting)
@@ -28,9 +29,9 @@ pub struct SceneLightMarker {
 impl Default for SceneLightMarker {
     fn default() -> Self {
         Self {
-            color: Color::WHITE,
-            intensity: 100000.0,
-            range: 20.0,
+            color: light_colors::POINT_DEFAULT,
+            intensity: light_colors::POINT_DEFAULT_INTENSITY,
+            range: light_colors::POINT_DEFAULT_RANGE,
             shadows_enabled: true,
         }
     }
@@ -48,8 +49,8 @@ pub struct DirectionalLightMarker {
 impl Default for DirectionalLightMarker {
     fn default() -> Self {
         Self {
-            color: Color::WHITE,
-            illuminance: 10000.0,
+            color: light_colors::DIRECTIONAL_DEFAULT,
+            illuminance: light_colors::DIRECTIONAL_DEFAULT_ILLUMINANCE,
             shadows_enabled: true,
         }
     }
@@ -74,6 +75,33 @@ impl PrimitiveShape {
             PrimitiveShape::Cylinder => "Cylinder",
             PrimitiveShape::Capsule => "Capsule",
             PrimitiveShape::Plane => "Plane",
+        }
+    }
+
+    /// Create the mesh for this primitive shape
+    pub fn create_mesh(&self) -> Mesh {
+        match self {
+            PrimitiveShape::Cube => Mesh::from(Cuboid::new(1.0, 1.0, 1.0)),
+            PrimitiveShape::Sphere => Mesh::from(Sphere::new(0.5)),
+            PrimitiveShape::Cylinder => Mesh::from(Cylinder::new(0.5, 1.0)),
+            PrimitiveShape::Capsule => Mesh::from(Capsule3d::new(0.25, 0.5)),
+            PrimitiveShape::Plane => Plane3d::default().mesh().size(2.0, 2.0).build(),
+        }
+    }
+
+    /// Get the default color for this primitive shape
+    pub fn default_color(&self) -> Color {
+        primitive_colors::for_shape(*self)
+    }
+
+    /// Create the collider for this primitive shape
+    pub fn create_collider(&self) -> Collider {
+        match self {
+            PrimitiveShape::Cube => Collider::cuboid(1.0, 1.0, 1.0),
+            PrimitiveShape::Sphere => Collider::sphere(0.5),
+            PrimitiveShape::Cylinder => Collider::cylinder(0.5, 0.5),
+            PrimitiveShape::Capsule => Collider::capsule(0.25, 0.5),
+            PrimitiveShape::Plane => Collider::cuboid(2.0, 0.01, 2.0),
         }
     }
 }
@@ -178,33 +206,23 @@ fn handle_spawn_primitive(
         }
 
         let name = generate_unique_name(event.shape.display_name(), &existing_entities);
+        let new_entity = spawn_primitive(
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+            event.shape,
+            event.position,
+            event.rotation,
+            &name,
+        );
 
-        let new_entity = match event.shape {
-            PrimitiveShape::Cube => {
-                spawn_cube(&mut commands, &mut meshes, &mut materials, event.position, &name)
-            }
-            PrimitiveShape::Sphere => {
-                spawn_sphere(&mut commands, &mut meshes, &mut materials, event.position, &name)
-            }
-            PrimitiveShape::Cylinder => {
-                spawn_cylinder(&mut commands, &mut meshes, &mut materials, event.position, &name)
-            }
-            PrimitiveShape::Capsule => {
-                spawn_capsule(&mut commands, &mut meshes, &mut materials, event.position, &name)
-            }
-            PrimitiveShape::Plane => {
-                spawn_plane(&mut commands, &mut meshes, &mut materials, event.position, &name)
-            }
-        };
-
-        // Apply rotation and select the newly spawned entity
-        commands.entity(new_entity)
-            .insert(Selected)
-            .insert(Transform::from_translation(event.position).with_rotation(event.rotation));
+        // Select the newly spawned entity
+        commands.entity(new_entity).insert(Selected);
     }
 }
 
-fn generate_unique_name(base: &str, existing: &Query<&Name, With<SceneEntity>>) -> String {
+/// Generate a unique name by appending a counter
+pub fn generate_unique_name(base: &str, existing: &Query<&Name, With<SceneEntity>>) -> String {
     let mut counter = 1;
     loop {
         let name = format!("{} {}", base, counter);
@@ -216,124 +234,31 @@ fn generate_unique_name(base: &str, existing: &Query<&Name, With<SceneEntity>>) 
     }
 }
 
-fn spawn_cube(
+/// Spawn a primitive shape entity with all required components
+pub fn spawn_primitive(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
+    shape: PrimitiveShape,
     position: Vec3,
+    rotation: Quat,
     name: &str,
 ) -> Entity {
-    commands.spawn((
-        SceneEntity,
-        Name::new(name.to_string()),
-        PrimitiveMarker {
-            shape: PrimitiveShape::Cube,
-        },
-        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.7, 0.6),
-            ..default()
-        })),
-        Transform::from_translation(position),
-        RigidBody::Static,
-        Collider::cuboid(1.0, 1.0, 1.0),
-    )).id()
-}
-
-fn spawn_sphere(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    position: Vec3,
-    name: &str,
-) -> Entity {
-    commands.spawn((
-        SceneEntity,
-        Name::new(name.to_string()),
-        PrimitiveMarker {
-            shape: PrimitiveShape::Sphere,
-        },
-        Mesh3d(meshes.add(Sphere::new(0.5))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.6, 0.7, 0.8),
-            ..default()
-        })),
-        Transform::from_translation(position),
-        RigidBody::Static,
-        Collider::sphere(0.5),
-    )).id()
-}
-
-fn spawn_cylinder(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    position: Vec3,
-    name: &str,
-) -> Entity {
-    commands.spawn((
-        SceneEntity,
-        Name::new(name.to_string()),
-        PrimitiveMarker {
-            shape: PrimitiveShape::Cylinder,
-        },
-        Mesh3d(meshes.add(Cylinder::new(0.5, 1.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.7, 0.8, 0.6),
-            ..default()
-        })),
-        Transform::from_translation(position),
-        RigidBody::Static,
-        Collider::cylinder(0.5, 0.5),
-    )).id()
-}
-
-fn spawn_capsule(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    position: Vec3,
-    name: &str,
-) -> Entity {
-    commands.spawn((
-        SceneEntity,
-        Name::new(name.to_string()),
-        PrimitiveMarker {
-            shape: PrimitiveShape::Capsule,
-        },
-        Mesh3d(meshes.add(Capsule3d::new(0.25, 0.5))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.6, 0.7),
-            ..default()
-        })),
-        Transform::from_translation(position),
-        RigidBody::Static,
-        Collider::capsule(0.25, 0.5),
-    )).id()
-}
-
-fn spawn_plane(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    position: Vec3,
-    name: &str,
-) -> Entity {
-    commands.spawn((
-        SceneEntity,
-        Name::new(name.to_string()),
-        PrimitiveMarker {
-            shape: PrimitiveShape::Plane,
-        },
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(2.0, 2.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.6, 0.6, 0.8),
-            ..default()
-        })),
-        Transform::from_translation(position),
-        RigidBody::Static,
-        Collider::cuboid(2.0, 0.01, 2.0),
-    )).id()
+    commands
+        .spawn((
+            SceneEntity,
+            Name::new(name.to_string()),
+            PrimitiveMarker { shape },
+            Mesh3d(meshes.add(shape.create_mesh())),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: shape.default_color(),
+                ..default()
+            })),
+            Transform::from_translation(position).with_rotation(rotation),
+            RigidBody::Static,
+            shape.create_collider(),
+        ))
+        .id()
 }
 
 fn handle_spawn_group(
@@ -438,7 +363,8 @@ fn handle_group_selected(
 }
 
 /// Collider radius for light selection (small sphere for clicking)
-pub const LIGHT_COLLIDER_RADIUS: f32 = 0.5;
+/// Re-exported from constants for backwards compatibility
+pub const LIGHT_COLLIDER_RADIUS: f32 = physics::LIGHT_COLLIDER_RADIUS;
 
 fn handle_spawn_point_light(
     mut events: MessageReader<SpawnPointLightEvent>,
@@ -455,22 +381,24 @@ fn handle_spawn_point_light(
         let name = generate_unique_name("Point Light", &existing_entities);
         let light_marker = SceneLightMarker::default();
 
-        let new_entity = commands.spawn((
-            SceneEntity,
-            Name::new(name),
-            light_marker.clone(),
-            PointLight {
-                color: light_marker.color,
-                intensity: light_marker.intensity,
-                range: light_marker.range,
-                shadows_enabled: light_marker.shadows_enabled,
-                ..default()
-            },
-            Transform::from_translation(event.position).with_rotation(event.rotation),
-            Visibility::default(),
-            // Collider for selection via raycasting
-            Collider::sphere(LIGHT_COLLIDER_RADIUS),
-        )).id();
+        let new_entity = commands
+            .spawn((
+                SceneEntity,
+                Name::new(name),
+                light_marker.clone(),
+                PointLight {
+                    color: light_marker.color,
+                    intensity: light_marker.intensity,
+                    range: light_marker.range,
+                    shadows_enabled: light_marker.shadows_enabled,
+                    ..default()
+                },
+                Transform::from_translation(event.position).with_rotation(event.rotation),
+                Visibility::default(),
+                // Collider for selection via raycasting
+                Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
+            ))
+            .id();
 
         // Select the newly spawned entity
         commands.entity(new_entity).insert(Selected);
@@ -492,21 +420,23 @@ fn handle_spawn_directional_light(
         let name = generate_unique_name("Sun", &existing_entities);
         let light_marker = DirectionalLightMarker::default();
 
-        let new_entity = commands.spawn((
-            SceneEntity,
-            Name::new(name),
-            light_marker.clone(),
-            DirectionalLight {
-                color: light_marker.color,
-                illuminance: light_marker.illuminance,
-                shadows_enabled: light_marker.shadows_enabled,
-                ..default()
-            },
-            Transform::from_translation(event.position).with_rotation(event.rotation),
-            Visibility::default(),
-            // Collider for selection via raycasting
-            Collider::sphere(LIGHT_COLLIDER_RADIUS),
-        )).id();
+        let new_entity = commands
+            .spawn((
+                SceneEntity,
+                Name::new(name),
+                light_marker.clone(),
+                DirectionalLight {
+                    color: light_marker.color,
+                    illuminance: light_marker.illuminance,
+                    shadows_enabled: light_marker.shadows_enabled,
+                    ..default()
+                },
+                Transform::from_translation(event.position).with_rotation(event.rotation),
+                Visibility::default(),
+                // Collider for selection via raycasting
+                Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
+            ))
+            .id();
 
         // Select the newly spawned entity
         commands.entity(new_entity).insert(Selected);

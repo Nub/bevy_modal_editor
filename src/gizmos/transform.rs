@@ -8,6 +8,7 @@ use crate::commands::TakeSnapshotCommand;
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::scene::Locked;
 use crate::selection::Selected;
+use crate::utils::get_half_height_along_normal_from_collider;
 
 /// Default distance from camera when placing objects without hitting a surface
 const PLACE_DEFAULT_DISTANCE: f32 = 10.0;
@@ -22,23 +23,6 @@ fn snap_to_grid(value: f32, grid_size: f32) -> f32 {
         value
     } else {
         (value / grid_size).round() * grid_size
-    }
-}
-
-/// Calculate the half-height of an object along a surface normal direction.
-/// This determines how far to offset the object from a surface so it sits on top.
-fn get_half_height_along_normal(collider: &Collider, surface_normal: Vec3) -> f32 {
-    // Get AABB half-extents (at identity rotation since we want object-space extents)
-    let half_extents = collider.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5;
-
-    // Find which axis the surface normal is most aligned with
-    let abs_normal = surface_normal.abs();
-    if abs_normal.x >= abs_normal.y && abs_normal.x >= abs_normal.z {
-        half_extents.x
-    } else if abs_normal.y >= abs_normal.x && abs_normal.y >= abs_normal.z {
-        half_extents.y
-    } else {
-        half_extents.z
     }
 }
 
@@ -862,7 +846,7 @@ fn handle_place_mode(
         let half_height = selected_data
             .first()
             .and_then(|(_, c)| c.as_ref())
-            .map(|collider| get_half_height_along_normal(collider, surface_normal))
+            .map(|collider| get_half_height_along_normal_from_collider(collider, surface_normal))
             .unwrap_or(0.5);
 
         // Offset along surface normal to place on top
@@ -994,7 +978,7 @@ fn handle_snap_to_object_mode(
         .iter()
         .next()
         .and_then(|(_, _, c)| c)
-        .map(|collider| get_half_height_along_normal(collider, surface_normal))
+        .map(|collider| get_half_height_along_normal_from_collider(collider, surface_normal))
         .unwrap_or(0.5);
 
     match *snap_submode {
