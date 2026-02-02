@@ -12,8 +12,8 @@ use crate::editor::{
     TogglePhysicsEvent,
 };
 use crate::scene::{
-    PrimitiveShape, SceneFile, SpawnDemoSceneEvent, SpawnDirectionalLightEvent,
-    SpawnGroupEvent, SpawnPointLightEvent, SpawnPrimitiveEvent, UnparentSelectedEvent,
+    PrimitiveShape, SceneFile, SpawnDemoSceneEvent, SpawnEntityEvent, SpawnEntityKind,
+    UnparentSelectedEvent,
 };
 use crate::selection::Selected;
 use crate::ui::component_browser::{add_component_by_type_id, ComponentRegistry};
@@ -24,10 +24,7 @@ use crate::ui::SettingsWindowState;
 /// System parameter grouping all command palette event writers
 #[derive(SystemParam)]
 struct CommandEvents<'w> {
-    spawn_primitive: MessageWriter<'w, SpawnPrimitiveEvent>,
-    spawn_group: MessageWriter<'w, SpawnGroupEvent>,
-    spawn_light: MessageWriter<'w, SpawnPointLightEvent>,
-    spawn_directional_light: MessageWriter<'w, SpawnDirectionalLightEvent>,
+    spawn_entity: MessageWriter<'w, SpawnEntityEvent>,
     unparent: MessageWriter<'w, UnparentSelectedEvent>,
     set_mark: MessageWriter<'w, SetCameraMarkEvent>,
     jump_mark: MessageWriter<'w, JumpToMarkEvent>,
@@ -816,20 +813,22 @@ fn draw_command_palette(
             // Normal mode - execute action immediately
             match action {
                 CommandAction::SpawnPrimitive(shape) => {
-                    events.spawn_primitive.write(SpawnPrimitiveEvent {
-                        shape,
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::Primitive(shape),
                         position: Vec3::ZERO,
                         rotation: Quat::IDENTITY,
                     });
                 }
                 CommandAction::SpawnPointLight => {
-                    events.spawn_light.write(SpawnPointLightEvent {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::PointLight,
                         position: Vec3::new(0.0, 3.0, 0.0),
                         rotation: Quat::IDENTITY,
                     });
                 }
                 CommandAction::SpawnDirectionalLight => {
-                    events.spawn_directional_light.write(SpawnDirectionalLightEvent {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::DirectionalLight,
                         position: Vec3::new(4.0, 8.0, 4.0),
                         rotation: Quat::IDENTITY,
                     });
@@ -869,7 +868,8 @@ fn draw_command_palette(
                     custom_mark_state.just_opened = true;
                 }
                 CommandAction::SpawnGroup => {
-                    events.spawn_group.write(SpawnGroupEvent {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::Group,
                         position: Vec3::ZERO,
                         rotation: Quat::IDENTITY,
                     });

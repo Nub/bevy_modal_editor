@@ -8,8 +8,8 @@ use super::camera::EditorCamera;
 use super::state::{EditorMode, EditorState, InsertObjectType, InsertPreview, InsertState, SnapSubMode, StartInsertEvent};
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::{
-    GroupMarker, GltfSource, PrimitiveMarker, PrimitiveShape, SceneSource, SpawnDirectionalLightEvent,
-    SpawnGltfEvent, SpawnGroupEvent, SpawnPointLightEvent, SpawnPrimitiveEvent, SpawnSceneSourceEvent,
+    GroupMarker, GltfSource, PrimitiveMarker, PrimitiveShape, SceneSource, SpawnEntityEvent,
+    SpawnEntityKind, SpawnGltfEvent, SpawnSceneSourceEvent,
 };
 use crate::utils::{get_half_height_along_normal, rotation_from_normal};
 
@@ -422,10 +422,7 @@ fn handle_insert_click(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut spawn_primitive_events: MessageWriter<SpawnPrimitiveEvent>,
-    mut spawn_light_events: MessageWriter<SpawnPointLightEvent>,
-    mut spawn_directional_light_events: MessageWriter<SpawnDirectionalLightEvent>,
-    mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
+    mut spawn_entity_events: MessageWriter<SpawnEntityEvent>,
     mut spawn_gltf_events: MessageWriter<SpawnGltfEvent>,
     mut spawn_scene_events: MessageWriter<SpawnSceneSourceEvent>,
     mut contexts: EguiContexts,
@@ -481,16 +478,32 @@ fn handle_insert_click(
     // Spawn the actual object
     match object_type {
         InsertObjectType::Primitive(shape) => {
-            spawn_primitive_events.write(SpawnPrimitiveEvent { shape, position, rotation });
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Primitive(shape),
+                position,
+                rotation,
+            });
         }
         InsertObjectType::PointLight => {
-            spawn_light_events.write(SpawnPointLightEvent { position, rotation });
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::PointLight,
+                position,
+                rotation,
+            });
         }
         InsertObjectType::DirectionalLight => {
-            spawn_directional_light_events.write(SpawnDirectionalLightEvent { position, rotation });
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::DirectionalLight,
+                position,
+                rotation,
+            });
         }
         InsertObjectType::Group => {
-            spawn_group_events.write(SpawnGroupEvent { position, rotation });
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Group,
+                position,
+                rotation,
+            });
         }
         InsertObjectType::Gltf => {
             if let Some(gltf_path) = insert_state.gltf_path.clone() {

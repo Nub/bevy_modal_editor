@@ -106,17 +106,35 @@ impl PrimitiveShape {
     }
 }
 
-/// Event to spawn a primitive shape
-#[derive(Message)]
-pub struct SpawnPrimitiveEvent {
-    pub shape: PrimitiveShape,
-    pub position: Vec3,
-    pub rotation: Quat,
+/// The kind of entity to spawn
+#[derive(Debug, Clone)]
+pub enum SpawnEntityKind {
+    /// A primitive shape (cube, sphere, etc.)
+    Primitive(PrimitiveShape),
+    /// An empty group for organizing entities
+    Group,
+    /// A point light
+    PointLight,
+    /// A directional light (sun)
+    DirectionalLight,
 }
 
-/// Event to spawn an empty group
+impl SpawnEntityKind {
+    /// Get the display name for this entity kind
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            SpawnEntityKind::Primitive(shape) => shape.display_name(),
+            SpawnEntityKind::Group => "Group",
+            SpawnEntityKind::PointLight => "Point Light",
+            SpawnEntityKind::DirectionalLight => "Sun",
+        }
+    }
+}
+
+/// Unified event to spawn any entity type
 #[derive(Message)]
-pub struct SpawnGroupEvent {
+pub struct SpawnEntityEvent {
+    pub kind: SpawnEntityKind,
     pub position: Vec3,
     pub rotation: Quat,
 }
@@ -142,20 +160,6 @@ pub struct UnparentSelectedEvent;
 #[derive(Message)]
 pub struct GroupSelectedEvent;
 
-/// Event to spawn a point light
-#[derive(Message)]
-pub struct SpawnPointLightEvent {
-    pub position: Vec3,
-    pub rotation: Quat,
-}
-
-/// Event to spawn a directional light (sun)
-#[derive(Message)]
-pub struct SpawnDirectionalLightEvent {
-    pub position: Vec3,
-    pub rotation: Quat,
-}
-
 /// Component to track what primitive shape an entity is
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Component)]
@@ -167,32 +171,27 @@ pub struct PrimitivesPlugin;
 
 impl Plugin for PrimitivesPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<SpawnPrimitiveEvent>()
-            .add_message::<SpawnGroupEvent>()
+        app.add_message::<SpawnEntityEvent>()
             .add_message::<ParentToGroupEvent>()
             .add_message::<UnparentEvent>()
             .add_message::<UnparentSelectedEvent>()
             .add_message::<GroupSelectedEvent>()
-            .add_message::<SpawnPointLightEvent>()
-            .add_message::<SpawnDirectionalLightEvent>()
             .add_systems(
                 Update,
                 (
-                    handle_spawn_primitive,
-                    handle_spawn_group,
+                    handle_spawn_entity,
                     handle_parent_to_group,
                     handle_unparent,
                     handle_unparent_selected,
                     handle_group_selected,
-                    handle_spawn_point_light,
-                    handle_spawn_directional_light,
                 ),
             );
     }
 }
 
-fn handle_spawn_primitive(
-    mut events: MessageReader<SpawnPrimitiveEvent>,
+/// Unified handler for spawning any entity type
+fn handle_spawn_entity(
+    mut events: MessageReader<SpawnEntityEvent>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
@@ -205,16 +204,22 @@ fn handle_spawn_primitive(
             commands.entity(entity).remove::<Selected>();
         }
 
-        let name = generate_unique_name(event.shape.display_name(), &existing_entities);
-        let new_entity = spawn_primitive(
-            &mut commands,
-            &mut meshes,
-            &mut materials,
-            event.shape,
-            event.position,
-            event.rotation,
-            &name,
-        );
+        let name = generate_unique_name(event.kind.display_name(), &existing_entities);
+
+        let new_entity = match &event.kind {
+            SpawnEntityKind::Primitive(shape) => spawn_primitive(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                *shape,
+                event.position,
+                event.rotation,
+                &name,
+            ),
+            SpawnEntityKind::Group => spawn_group(&mut commands, event.position, event.rotation, &name),
+            SpawnEntityKind::PointLight => spawn_point_light(&mut commands, event.position, event.rotation, &name),
+            SpawnEntityKind::DirectionalLight => spawn_directional_light(&mut commands, event.position, event.rotation, &name),
+        };
 
         // Select the newly spawned entity
         commands.entity(new_entity).insert(Selected);
@@ -261,31 +266,60 @@ pub fn spawn_primitive(
         .id()
 }
 
-fn handle_spawn_group(
-    mut events: MessageReader<SpawnGroupEvent>,
-    mut commands: Commands,
-    existing_entities: Query<&Name, With<SceneEntity>>,
-    selected_entities: Query<Entity, With<Selected>>,
-) {
-    for event in events.read() {
-        // Deselect all currently selected entities
-        for entity in selected_entities.iter() {
-            commands.entity(entity).remove::<Selected>();
-        }
-
-        let name = generate_unique_name("Group", &existing_entities);
-
-        let new_entity = commands.spawn((
+/// Spawn an empty group entity
+pub fn spawn_group(commands: &mut Commands, position: Vec3, rotation: Quat, name: &str) -> Entity {
+    commands
+        .spawn((
             SceneEntity,
             GroupMarker,
-            Name::new(name),
-            Transform::from_translation(event.position).with_rotation(event.rotation),
+            Name::new(name.to_string()),
+            Transform::from_translation(position).with_rotation(rotation),
             Visibility::default(),
-        )).id();
+        ))
+        .id()
+}
 
-        // Select the newly spawned entity
-        commands.entity(new_entity).insert(Selected);
-    }
+/// Spawn a point light entity
+pub fn spawn_point_light(commands: &mut Commands, position: Vec3, rotation: Quat, name: &str) -> Entity {
+    let light_marker = SceneLightMarker::default();
+    commands
+        .spawn((
+            SceneEntity,
+            Name::new(name.to_string()),
+            light_marker.clone(),
+            PointLight {
+                color: light_marker.color,
+                intensity: light_marker.intensity,
+                range: light_marker.range,
+                shadows_enabled: light_marker.shadows_enabled,
+                ..default()
+            },
+            Transform::from_translation(position).with_rotation(rotation),
+            Visibility::default(),
+            Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
+        ))
+        .id()
+}
+
+/// Spawn a directional light (sun) entity
+pub fn spawn_directional_light(commands: &mut Commands, position: Vec3, rotation: Quat, name: &str) -> Entity {
+    let light_marker = DirectionalLightMarker::default();
+    commands
+        .spawn((
+            SceneEntity,
+            Name::new(name.to_string()),
+            light_marker.clone(),
+            DirectionalLight {
+                color: light_marker.color,
+                illuminance: light_marker.illuminance,
+                shadows_enabled: light_marker.shadows_enabled,
+                ..default()
+            },
+            Transform::from_translation(position).with_rotation(rotation),
+            Visibility::default(),
+            Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
+        ))
+        .id()
 }
 
 fn handle_parent_to_group(
@@ -365,80 +399,3 @@ fn handle_group_selected(
 /// Collider radius for light selection (small sphere for clicking)
 /// Re-exported from constants for backwards compatibility
 pub const LIGHT_COLLIDER_RADIUS: f32 = physics::LIGHT_COLLIDER_RADIUS;
-
-fn handle_spawn_point_light(
-    mut events: MessageReader<SpawnPointLightEvent>,
-    mut commands: Commands,
-    existing_entities: Query<&Name, With<SceneEntity>>,
-    selected_entities: Query<Entity, With<Selected>>,
-) {
-    for event in events.read() {
-        // Deselect all currently selected entities
-        for entity in selected_entities.iter() {
-            commands.entity(entity).remove::<Selected>();
-        }
-
-        let name = generate_unique_name("Point Light", &existing_entities);
-        let light_marker = SceneLightMarker::default();
-
-        let new_entity = commands
-            .spawn((
-                SceneEntity,
-                Name::new(name),
-                light_marker.clone(),
-                PointLight {
-                    color: light_marker.color,
-                    intensity: light_marker.intensity,
-                    range: light_marker.range,
-                    shadows_enabled: light_marker.shadows_enabled,
-                    ..default()
-                },
-                Transform::from_translation(event.position).with_rotation(event.rotation),
-                Visibility::default(),
-                // Collider for selection via raycasting
-                Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
-            ))
-            .id();
-
-        // Select the newly spawned entity
-        commands.entity(new_entity).insert(Selected);
-    }
-}
-
-fn handle_spawn_directional_light(
-    mut events: MessageReader<SpawnDirectionalLightEvent>,
-    mut commands: Commands,
-    existing_entities: Query<&Name, With<SceneEntity>>,
-    selected_entities: Query<Entity, With<Selected>>,
-) {
-    for event in events.read() {
-        // Deselect all currently selected entities
-        for entity in selected_entities.iter() {
-            commands.entity(entity).remove::<Selected>();
-        }
-
-        let name = generate_unique_name("Sun", &existing_entities);
-        let light_marker = DirectionalLightMarker::default();
-
-        let new_entity = commands
-            .spawn((
-                SceneEntity,
-                Name::new(name),
-                light_marker.clone(),
-                DirectionalLight {
-                    color: light_marker.color,
-                    illuminance: light_marker.illuminance,
-                    shadows_enabled: light_marker.shadows_enabled,
-                    ..default()
-                },
-                Transform::from_translation(event.position).with_rotation(event.rotation),
-                Visibility::default(),
-                // Collider for selection via raycasting
-                Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
-            ))
-            .id();
-
-        // Select the newly spawned entity
-        commands.entity(new_entity).insert(Selected);
-    }
-}

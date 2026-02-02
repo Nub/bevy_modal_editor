@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::scene::{PrimitiveShape, SpawnPrimitiveEvent};
+use crate::scene::{PrimitiveShape, SpawnEntityEvent, SpawnEntityKind};
 
 /// Event to create a circular pattern of primitives
 #[derive(Message)]
@@ -36,7 +36,7 @@ impl Plugin for CircularPatternPlugin {
 
 fn handle_circular_pattern(
     mut events: MessageReader<CircularPatternEvent>,
-    mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
+    mut spawn_events: MessageWriter<SpawnEntityEvent>,
 ) {
     for event in events.read() {
         let axis = event.axis.normalize_or_zero();
@@ -55,8 +55,8 @@ fn handle_circular_pattern(
             let offset = rotation * (perpendicular * event.radius);
             let position = event.center + offset;
 
-            spawn_events.write(SpawnPrimitiveEvent {
-                shape: event.shape,
+            spawn_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Primitive(event.shape),
                 position,
                 rotation: Quat::IDENTITY,
             });

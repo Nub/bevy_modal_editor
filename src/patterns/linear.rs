@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::scene::{PrimitiveShape, SpawnPrimitiveEvent};
+use crate::scene::{PrimitiveShape, SpawnEntityEvent, SpawnEntityKind};
 
 /// Event to create a linear pattern of primitives
 #[derive(Message)]
@@ -23,15 +23,15 @@ impl Plugin for LinearPatternPlugin {
 
 fn handle_linear_pattern(
     mut events: MessageReader<LinearPatternEvent>,
-    mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
+    mut spawn_events: MessageWriter<SpawnEntityEvent>,
 ) {
     for event in events.read() {
         let direction = event.direction.normalize_or_zero();
 
         for i in 0..event.count {
             let position = event.start + direction * (event.spacing * i as f32);
-            spawn_events.write(SpawnPrimitiveEvent {
-                shape: event.shape,
+            spawn_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Primitive(event.shape),
                 position,
                 rotation: Quat::IDENTITY,
             });

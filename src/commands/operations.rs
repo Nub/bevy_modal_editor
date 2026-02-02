@@ -3,7 +3,7 @@ use bevy_egui::EguiContexts;
 
 use super::TakeSnapshotCommand;
 use crate::editor::EditorState;
-use crate::scene::SpawnPrimitiveEvent;
+use crate::scene::{SpawnEntityEvent, SpawnEntityKind};
 use crate::selection::Selected;
 
 /// Event to delete selected entities
@@ -82,7 +82,7 @@ fn handle_delete_selected(
 fn handle_duplicate_selected(
     mut events: MessageReader<DuplicateSelectedEvent>,
     selected: Query<(&Transform, &crate::scene::PrimitiveMarker), With<Selected>>,
-    mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
+    mut spawn_events: MessageWriter<SpawnEntityEvent>,
     mut commands: Commands,
 ) {
     for _ in events.read() {
@@ -96,8 +96,8 @@ fn handle_duplicate_selected(
             for (transform, primitive) in selected.iter() {
                 // Offset the duplicated entity slightly
                 let offset = Vec3::new(1.0, 0.0, 1.0);
-                spawn_events.write(SpawnPrimitiveEvent {
-                    shape: primitive.shape,
+                spawn_events.write(SpawnEntityEvent {
+                    kind: SpawnEntityKind::Primitive(primitive.shape),
                     position: transform.translation + offset,
                     rotation: transform.rotation,
                 });
