@@ -2,7 +2,9 @@
 
 A keyboard-first level editor for Bevy games using the Avian3D physics engine. Inspired by vim's modal editing philosophy, this editor lets you build 3D scenes efficiently without ever touching the mouse.
 
-https://github.com/Nub/bevy_modal_editor/raw/main/bevy_modal_editor.mp4
+
+
+[!Video Demo](https://github.com/Nub/bevy_modal_editor/raw/main/bevy_modal_editor.mp4)
 
 ## Why Keyboard-First?
 
