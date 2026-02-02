@@ -25,6 +25,23 @@ fn snap_to_grid(value: f32, grid_size: f32) -> f32 {
     }
 }
 
+/// Calculate the half-height of an object along a surface normal direction.
+/// This determines how far to offset the object from a surface so it sits on top.
+fn get_half_height_along_normal(collider: &Collider, surface_normal: Vec3) -> f32 {
+    // Get AABB half-extents (at identity rotation since we want object-space extents)
+    let half_extents = collider.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5;
+
+    // Find which axis the surface normal is most aligned with
+    let abs_normal = surface_normal.abs();
+    if abs_normal.x >= abs_normal.y && abs_normal.x >= abs_normal.z {
+        half_extents.x
+    } else if abs_normal.y >= abs_normal.x && abs_normal.y >= abs_normal.z {
+        half_extents.y
+    } else {
+        half_extents.z
+    }
+}
+
 /// Snap rotation (in radians) to nearest angle increment
 fn snap_rotation(radians: f32, snap_degrees: f32) -> f32 {
     if snap_degrees <= 0.0 {
@@ -759,7 +776,7 @@ fn handle_place_mode(
     transform_op: Res<TransformOperation>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     spatial_query: SpatialQuery,
-    mut selected: Query<(Entity, &mut Transform), (With<Selected>, Without<Locked>)>,
+    mut selected: Query<(Entity, &mut Transform, Option<&Collider>), (With<Selected>, Without<Locked>)>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     mut contexts: EguiContexts,
 ) {
@@ -792,12 +809,17 @@ fn handle_place_mode(
         return;
     };
 
-    // Collect selected entities for exclusion from raycast
-    let selected_entities: Vec<Entity> = selected.iter().map(|(e, _)| e).collect();
+    // Collect selected entities and their colliders for exclusion from raycast
+    let selected_data: Vec<(Entity, Option<Collider>)> = selected
+        .iter()
+        .map(|(e, _, c)| (e, c.cloned()))
+        .collect();
 
-    if selected_entities.is_empty() {
+    if selected_data.is_empty() {
         return;
     }
+
+    let selected_entities: Vec<Entity> = selected_data.iter().map(|(e, _)| *e).collect();
 
     // Cast ray against physics colliders (exclude selected entities)
     let filter = SpatialQueryFilter::default().with_excluded_entities(selected_entities);
@@ -813,8 +835,15 @@ fn handle_place_mode(
         let hit_point = ray.origin + ray.direction * hit.distance;
         let surface_normal = hit.normal;
 
-        // Offset slightly along surface normal to place on top
-        hit_point + surface_normal * 0.5
+        // Calculate half-height from the first selected entity's collider
+        let half_height = selected_data
+            .first()
+            .and_then(|(_, c)| c.as_ref())
+            .map(|collider| get_half_height_along_normal(collider, surface_normal))
+            .unwrap_or(0.5);
+
+        // Offset along surface normal to place on top
+        hit_point + surface_normal * half_height
     } else {
         // No hit - position at default distance from camera
         ray.origin + ray.direction * PLACE_DEFAULT_DISTANCE
@@ -824,16 +853,16 @@ fn handle_place_mode(
     // For multiple selections, maintain their relative positions
     if selected.iter().count() == 1 {
         // Single entity - move directly to position
-        for (_, mut transform) in selected.iter_mut() {
+        for (_, mut transform, _) in selected.iter_mut() {
             transform.translation = position;
         }
     } else {
         // Multiple entities - calculate center and move relative
-        let center: Vec3 = selected.iter().map(|(_, t)| t.translation).sum::<Vec3>()
+        let center: Vec3 = selected.iter().map(|(_, t, _)| t.translation).sum::<Vec3>()
             / selected.iter().count() as f32;
         let offset = position - center;
 
-        for (_, mut transform) in selected.iter_mut() {
+        for (_, mut transform, _) in selected.iter_mut() {
             transform.translation += offset;
         }
     }
@@ -937,11 +966,19 @@ fn handle_snap_to_object_mode(
     let hit_point = ray.origin + ray.direction * hit.distance;
     let surface_normal = hit.normal.normalize();
 
+    // Calculate half-height from the first selected entity's collider
+    let selected_half_height = selected
+        .iter()
+        .next()
+        .and_then(|(_, _, c)| c)
+        .map(|collider| get_half_height_along_normal(collider, surface_normal))
+        .unwrap_or(0.5);
+
     match *snap_submode {
         SnapSubMode::Surface => {
             // Surface mode: align Y axis with surface normal
             let rotation = rotation_from_normal(surface_normal);
-            let position = hit_point + surface_normal * 0.5;
+            let position = hit_point + surface_normal * selected_half_height;
 
             // Apply to all selected entities
             if selected.iter().count() == 1 {

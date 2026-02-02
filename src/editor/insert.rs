@@ -195,7 +195,7 @@ fn update_preview_position(
     snap_submode: Res<SnapSubMode>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     spatial_query: SpatialQuery,
-    mut preview_query: Query<&mut Transform, With<InsertPreview>>,
+    mut preview_query: Query<(&mut Transform, Option<&Collider>), With<InsertPreview>>,
     target_query: Query<(&Transform, Option<&Collider>), Without<InsertPreview>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
 ) {
@@ -203,7 +203,7 @@ fn update_preview_position(
         return;
     };
 
-    let Ok(mut preview_transform) = preview_query.get_mut(preview_entity) else {
+    let Ok((mut preview_transform, preview_collider)) = preview_query.get_mut(preview_entity) else {
         return;
     };
 
@@ -244,8 +244,8 @@ fn update_preview_position(
     let hit_point = ray.origin + ray.direction * hit.distance;
     let surface_normal = hit.normal.normalize();
 
-    // Get preview object half-height for offset calculation
-    let half_height = get_object_half_height(&insert_state);
+    // Get preview object half-height from collider AABB
+    let half_height = get_half_height_along_normal(preview_collider, surface_normal);
 
     match *snap_submode {
         SnapSubMode::Surface => {
@@ -359,20 +359,24 @@ fn rotation_from_normal(normal: Vec3) -> Quat {
     }
 }
 
-/// Get the half-height of the object being inserted (for offset calculation)
-fn get_object_half_height(insert_state: &InsertState) -> f32 {
-    match insert_state.object_type {
-        Some(InsertObjectType::Primitive(shape)) => match shape {
-            PrimitiveShape::Cube => 0.5,
-            PrimitiveShape::Sphere => 0.5,
-            PrimitiveShape::Cylinder => 0.5,
-            PrimitiveShape::Capsule => 0.5,
-            PrimitiveShape::Plane => 0.01,
-        },
-        Some(InsertObjectType::PointLight) => 0.3,
-        Some(InsertObjectType::DirectionalLight) => 0.5,
-        Some(InsertObjectType::Group) => 0.25,
-        None => 0.5,
+/// Calculate the half-height of an object along a surface normal direction.
+/// This determines how far to offset the object from a surface so it sits on top.
+fn get_half_height_along_normal(collider: Option<&Collider>, surface_normal: Vec3) -> f32 {
+    let Some(collider) = collider else {
+        return 0.5; // Default fallback
+    };
+
+    // Get AABB half-extents (at identity rotation since we want object-space extents)
+    let half_extents = collider.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5;
+
+    // Find which axis the surface normal is most aligned with
+    let abs_normal = surface_normal.abs();
+    if abs_normal.x >= abs_normal.y && abs_normal.x >= abs_normal.z {
+        half_extents.x
+    } else if abs_normal.y >= abs_normal.x && abs_normal.y >= abs_normal.z {
+        half_extents.y
+    } else {
+        half_extents.z
     }
 }
 
