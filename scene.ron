@@ -1,7 +1,7 @@
 (
   resources: {},
   entities: {
-    4294967198: (
+    4294967179: (
       components: {
         "bevy_ecs::name::Name": "Accent Light 4",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -23,7 +23,7 @@
         ),
       },
     ),
-    4294967199: (
+    4294967180: (
       components: {
         "bevy_ecs::name::Name": "Accent Light 3",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -45,7 +45,7 @@
         ),
       },
     ),
-    4294967200: (
+    4294967181: (
       components: {
         "bevy_ecs::name::Name": "Accent Light 2",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -67,7 +67,7 @@
         ),
       },
     ),
-    4294967201: (
+    4294967182: (
       components: {
         "bevy_ecs::name::Name": "Accent Light 1",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -89,7 +89,7 @@
         ),
       },
     ),
-    4294967202: (
+    4294967183: (
       components: {
         "bevy_ecs::name::Name": "Purple Light",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -111,7 +111,7 @@
         ),
       },
     ),
-    4294967203: (
+    4294967184: (
       components: {
         "bevy_ecs::name::Name": "Green Light",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -133,7 +133,7 @@
         ),
       },
     ),
-    4294967204: (
+    4294967185: (
       components: {
         "bevy_ecs::name::Name": "Blue Light",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -155,7 +155,7 @@
         ),
       },
     ),
-    4294967205: (
+    4294967186: (
       components: {
         "bevy_ecs::name::Name": "Red Light",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -177,7 +177,7 @@
         ),
       },
     ),
-    4294967206: (
+    4294967187: (
       components: {
         "bevy_ecs::name::Name": "Central Light",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -199,7 +199,7 @@
         ),
       },
     ),
-    4294967207: (
+    4294967188: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
         "bevy_ecs::name::Name": "Falling Cube",
@@ -214,7 +214,7 @@
         ),
       },
     ),
-    4294967208: (
+    4294967189: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
         "bevy_ecs::name::Name": "Bouncy Sphere 3",
@@ -229,7 +229,7 @@
         ),
       },
     ),
-    4294967209: (
+    4294967190: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
         "bevy_ecs::name::Name": "Bouncy Sphere 2",
@@ -244,7 +244,7 @@
         ),
       },
     ),
-    4294967210: (
+    4294967191: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
         "bevy_ecs::name::Name": "Bouncy Sphere 1",
@@ -259,7 +259,7 @@
         ),
       },
     ),
-    4294967211: (
+    4294967192: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Static,
         "bevy_ecs::name::Name": "Corner Pillar",
@@ -274,7 +274,7 @@
         ),
       },
     ),
-    4294967212: (
+    4294967193: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Static,
         "bevy_ecs::name::Name": "Corner Pillar",
@@ -289,7 +289,7 @@
         ),
       },
     ),
-    4294967213: (
+    4294967194: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Static,
         "bevy_ecs::name::Name": "Corner Pillar",
@@ -304,7 +304,7 @@
         ),
       },
     ),
-    4294967214: (
+    4294967195: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Static,
         "bevy_ecs::name::Name": "Corner Pillar",
@@ -319,7 +319,7 @@
         ),
       },
     ),
-    4294967215: (
+    4294967196: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Static,
         "bevy_ecs::name::Name": "Central Pillar",
@@ -334,7 +334,7 @@
         ),
       },
     ),
-    4294967216: (
+    4294967197: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Static,
         "bevy_ecs::name::Name": "Ground",
@@ -349,21 +349,24 @@
         ),
       },
     ),
-    17179869110: (
+    12884901802: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
         "bevy_ecs::hierarchy::Children": ([
-          17179869109,
+          12884901803,
         ]),
         "bevy_ecs::name::Name": "Duck",
         "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::collider_constructor::RecursiveColliderConstructor": (
+          collider_type: ConvexDecomposition,
+        ),
         "bevy_modal_editor::scene::gltf_source::GltfSource": (
           path: "Duck.glb",
           scene_index: 0,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (-2.628093, 0.5, 2.706921),
-          rotation: (0.0, -0.6087616, 0.0, 0.7933532),
+          translation: (-3.0916595, -0.099671245, 3.424256),
+          rotation: (0.00035077217, 0.01383367, -0.00021481796, 0.9999042),
           scale: (1.0, 1.0, 1.0),
         ),
       },
