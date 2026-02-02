@@ -3,7 +3,6 @@ use avian3d::prelude::{Physics, PhysicsPlugins};
 use avian3d::schedule::PhysicsTime;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
-use bevy_mod_outline::OutlinePlugin;
 
 use super::camera::EditorCameraPlugin;
 use super::input::EditorInputPlugin;
@@ -134,11 +133,6 @@ impl Plugin for EditorPlugin {
             if !app.is_plugin_added::<PhysicsDebugPlugin>() {
                 app.add_plugins(PhysicsDebugPlugin);
             }
-        }
-
-        // Add outline plugin for selection highlighting
-        if !app.is_plugin_added::<OutlinePlugin>() {
-            app.add_plugins(OutlinePlugin);
         }
 
         app

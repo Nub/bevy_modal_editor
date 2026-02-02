@@ -77,7 +77,10 @@ fn draw_selection_gizmos(
         let pos = global_transform.translation();
         let scale = 1.0;
 
-        // Draw transform gizmo in Edit mode (selection outline is now handled by bevy_mod_outline)
+        // Draw selection outline
+        draw_selection_box(&mut gizmos, pos, scale);
+
+        // Draw transform gizmo in Edit mode
         if *mode.get() == EditorMode::Edit {
             match *transform_op {
                 TransformOperation::Translate => draw_translate_gizmo(&mut gizmos, pos, scale, &axis_constraint),
@@ -310,6 +313,77 @@ fn handle_step_keys(
             TransformOperation::Place | TransformOperation::SnapToObject | TransformOperation::None => {}
         }
     }
+}
+
+fn draw_selection_box(gizmos: &mut Gizmos, pos: Vec3, size: f32) {
+    let half = size * 0.5;
+    let color = Color::srgb(1.0, 0.8, 0.0);
+
+    // Bottom face
+    gizmos.line(
+        pos + Vec3::new(-half, -half, -half),
+        pos + Vec3::new(half, -half, -half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(half, -half, -half),
+        pos + Vec3::new(half, -half, half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(half, -half, half),
+        pos + Vec3::new(-half, -half, half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(-half, -half, half),
+        pos + Vec3::new(-half, -half, -half),
+        color,
+    );
+
+    // Top face
+    gizmos.line(
+        pos + Vec3::new(-half, half, -half),
+        pos + Vec3::new(half, half, -half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(half, half, -half),
+        pos + Vec3::new(half, half, half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(half, half, half),
+        pos + Vec3::new(-half, half, half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(-half, half, half),
+        pos + Vec3::new(-half, half, -half),
+        color,
+    );
+
+    // Vertical edges
+    gizmos.line(
+        pos + Vec3::new(-half, -half, -half),
+        pos + Vec3::new(-half, half, -half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(half, -half, -half),
+        pos + Vec3::new(half, half, -half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(half, -half, half),
+        pos + Vec3::new(half, half, half),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::new(-half, -half, half),
+        pos + Vec3::new(-half, half, half),
+        color,
+    );
 }
 
 fn draw_translate_gizmo(gizmos: &mut Gizmos, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
