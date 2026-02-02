@@ -46,7 +46,6 @@ pub mod commands;
 pub mod constants;
 pub mod editor;
 pub mod gizmos;
-pub mod patterns;
 pub mod prefabs;
 pub mod scene;
 pub mod selection;

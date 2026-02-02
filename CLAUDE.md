@@ -76,11 +76,6 @@ The `EditorPlugin` composes these sub-plugins:
   - `TransformGizmoPlugin` - Transform manipulation gizmos
   - Grid drawing system
 
-- **patterns/** - Pattern-based entity duplication
-  - `LinearPatternPlugin` - Linear array spawning
-  - `CircularPatternPlugin` - Circular array spawning
-  - `spawn_pattern()` helper and `PatternPosition` struct for shared spawning logic
-
 - **ui/** - egui-based interface
   - `PanelsPlugin` - Main panel layout
   - `HierarchyPlugin` - Entity tree view
@@ -123,20 +118,6 @@ events.spawn_entity.write(SpawnEntityEvent {
 - `create_material()` - Returns a StandardMaterial with the shape's default color
 - `create_collider()` - Returns the physics collider
 - `default_color()` - Returns the standard color from `constants::primitive_colors`
-
-### Pattern Generation
-
-Use `spawn_pattern()` helper with pattern events that implement position generation:
-
-```rust
-// Linear pattern generates positions along a line
-let event = LinearPatternEvent { shape, start, direction, spacing, count };
-spawn_pattern(&mut spawn_events, event.shape, event.generate_positions());
-
-// Circular pattern generates positions around an axis
-let event = CircularPatternEvent { shape, center, radius, count, axis };
-spawn_pattern(&mut spawn_events, event.shape, event.generate_positions());
-```
 
 ### Scene Snapshots
 
