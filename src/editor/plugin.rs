@@ -35,7 +35,7 @@ impl Default for EditorPluginConfig {
         Self {
             add_egui: true,
             add_physics: true,
-            pause_physics_on_startup: true,
+            pause_physics_on_startup: false,
             add_ambient_light: true,
         }
     }
