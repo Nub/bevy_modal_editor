@@ -37,6 +37,7 @@ fn handle_click_selection(
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     spatial_query: SpatialQuery,
     scene_entities: Query<Entity, With<SceneEntity>>,
+    parent_query: Query<&ChildOf>,
     selected: Query<Entity, With<Selected>>,
     selection_state: Res<SelectionState>,
     mut commands: Commands,
@@ -80,10 +81,10 @@ fn handle_click_selection(
         true,
         &filter,
     ) {
-        let hit_entity = hit.entity;
+        // Find a selectable entity - either the hit entity or a parent with SceneEntity
+        let selectable_entity = find_selectable_parent(hit.entity, &scene_entities, &parent_query);
 
-        // Only select scene entities (locked items can still be selected)
-        if scene_entities.get(hit_entity).is_ok() {
+        if let Some(entity_to_select) = selectable_entity {
             if !selection_state.multi_select {
                 // Clear previous selection
                 for entity in selected.iter() {
@@ -92,10 +93,10 @@ fn handle_click_selection(
             }
 
             // Toggle selection if multi-select and already selected
-            if selection_state.multi_select && selected.get(hit_entity).is_ok() {
-                commands.entity(hit_entity).remove::<Selected>();
+            if selection_state.multi_select && selected.get(entity_to_select).is_ok() {
+                commands.entity(entity_to_select).remove::<Selected>();
             } else {
-                commands.entity(hit_entity).insert(Selected);
+                commands.entity(entity_to_select).insert(Selected);
             }
         }
     } else if !selection_state.multi_select {
@@ -104,4 +105,24 @@ fn handle_click_selection(
             commands.entity(entity).remove::<Selected>();
         }
     }
+}
+
+/// Walk up the parent hierarchy to find an entity with SceneEntity component
+fn find_selectable_parent(
+    entity: Entity,
+    scene_entities: &Query<Entity, With<SceneEntity>>,
+    parent_query: &Query<&ChildOf>,
+) -> Option<Entity> {
+    // Check if the current entity is a scene entity
+    if scene_entities.get(entity).is_ok() {
+        return Some(entity);
+    }
+
+    // Walk up the parent chain
+    if let Ok(child_of) = parent_query.get(entity) {
+        return find_selectable_parent(child_of.parent(), scene_entities, parent_query);
+    }
+
+    // No selectable parent found
+    None
 }
