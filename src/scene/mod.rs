@@ -37,7 +37,9 @@ impl Plugin for ScenePlugin {
             .register_type::<GroupMarker>()
             .register_type::<Locked>()
             .register_type::<SceneLightMarker>()
-            .register_type::<DirectionalLightMarker>();
+            .register_type::<DirectionalLightMarker>()
+            .register_type::<RecursiveColliderConstructor>()
+            .register_type::<ColliderType>();
     }
 }
 
