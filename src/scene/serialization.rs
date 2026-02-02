@@ -414,7 +414,9 @@ impl Command for LoadSceneCommand {
 }
 
 /// Regenerate meshes and materials for entities loaded from scene
-fn regenerate_meshes(world: &mut World) {
+/// This is called after loading a scene to create the actual Mesh3d, MeshMaterial3d,
+/// PointLight, DirectionalLight, and Collider components from the marker components.
+pub fn regenerate_meshes(world: &mut World) {
     // Get all entities with PrimitiveMarker but no Mesh3d
     let mut entities_to_update: Vec<(Entity, PrimitiveShape)> = Vec::new();
 
