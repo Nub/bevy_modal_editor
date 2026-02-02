@@ -14,6 +14,8 @@ pub enum FileDialogOperation {
     SaveScene,
     /// Pick a GLTF file to insert
     InsertGltf,
+    /// Pick a RON scene file to insert
+    InsertScene,
 }
 
 /// Resource managing the egui file dialog state
@@ -77,6 +79,13 @@ impl FileDialogState {
         self.dialog.pick_file();
         self.operation = Some(FileDialogOperation::InsertGltf);
     }
+
+    /// Open the file dialog for picking a RON scene file to insert
+    pub fn open_insert_scene(&mut self) {
+        self.dialog = FileDialog::new();
+        self.dialog.pick_file();
+        self.operation = Some(FileDialogOperation::InsertScene);
+    }
 }
 
 pub struct FileDialogPlugin;
@@ -139,6 +148,17 @@ fn update_file_dialog(
                     insert_state.gltf_path = Some(assets_relative);
                     insert_events.write(StartInsertEvent {
                         object_type: InsertObjectType::Gltf,
+                    });
+                    next_mode.set(EditorMode::Insert);
+                }
+                FileDialogOperation::InsertScene => {
+                    // Use the full path for scene files
+                    let path_str = path.to_string_lossy().to_string();
+
+                    // Set the scene path and trigger insert mode
+                    insert_state.scene_path = Some(path_str);
+                    insert_events.write(StartInsertEvent {
+                        object_type: InsertObjectType::Scene,
                     });
                     next_mode.set(EditorMode::Insert);
                 }

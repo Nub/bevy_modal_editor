@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, LIGHT_COLLIDER_RADIUS};
+use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, SceneSource, LIGHT_COLLIDER_RADIUS};
 use crate::editor::{CameraMark, CameraMarks};
 
 /// Event to save the scene
@@ -234,6 +234,7 @@ impl Command for SaveSceneCommand {
             .allow_component::<SceneLightMarker>()
             .allow_component::<DirectionalLightMarker>()
             .allow_component::<GltfSource>()
+            .allow_component::<SceneSource>()
             .allow_component::<RecursiveColliderConstructor>()
             .allow_component::<RigidBody>()
             .allow_component::<ChildOf>()

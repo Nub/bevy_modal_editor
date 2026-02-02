@@ -1,11 +1,13 @@
 mod collider_constructor;
 mod gltf_source;
 mod primitives;
+mod scene_source;
 mod serialization;
 
 pub use collider_constructor::*;
 pub use gltf_source::*;
 pub use primitives::*;
+pub use scene_source::*;
 pub use serialization::*;
 
 use avian3d::prelude::*;
@@ -27,6 +29,7 @@ impl Plugin for ScenePlugin {
         app.add_plugins(PrimitivesPlugin)
             .add_plugins(SerializationPlugin)
             .add_plugins(GltfSourcePlugin)
+            .add_plugins(SceneSourcePlugin)
             .add_plugins(ColliderConstructorPlugin)
             .add_message::<SpawnDemoSceneEvent>()
             .add_systems(Update, handle_spawn_demo_scene)
@@ -39,7 +42,8 @@ impl Plugin for ScenePlugin {
             .register_type::<SceneLightMarker>()
             .register_type::<DirectionalLightMarker>()
             .register_type::<RecursiveColliderConstructor>()
-            .register_type::<ColliderType>();
+            .register_type::<ColliderType>()
+            .register_type::<SceneSource>();
     }
 }
 

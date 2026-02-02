@@ -124,6 +124,8 @@ pub enum InsertObjectType {
     Group,
     /// GLTF/GLB model (path stored in InsertState.gltf_path)
     Gltf,
+    /// RON scene file (path stored in InsertState.scene_path)
+    Scene,
 }
 
 /// Marker component for preview entities in Insert mode
@@ -141,6 +143,8 @@ pub struct InsertState {
     pub default_distance: f32,
     /// Path for GLTF objects (used when object_type is Gltf)
     pub gltf_path: Option<String>,
+    /// Path for Scene objects (used when object_type is Scene)
+    pub scene_path: Option<String>,
 }
 
 impl InsertState {
@@ -150,6 +154,7 @@ impl InsertState {
             preview_entity: None,
             default_distance: 10.0,
             gltf_path: None,
+            scene_path: None,
         }
     }
 }

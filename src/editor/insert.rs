@@ -8,8 +8,8 @@ use super::camera::EditorCamera;
 use super::state::{EditorMode, EditorState, InsertObjectType, InsertPreview, InsertState, SnapSubMode, StartInsertEvent};
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::{
-    GroupMarker, GltfSource, PrimitiveMarker, PrimitiveShape, SpawnDirectionalLightEvent,
-    SpawnGltfEvent, SpawnGroupEvent, SpawnPointLightEvent, SpawnPrimitiveEvent,
+    GroupMarker, GltfSource, PrimitiveMarker, PrimitiveShape, SceneSource, SpawnDirectionalLightEvent,
+    SpawnGltfEvent, SpawnGroupEvent, SpawnPointLightEvent, SpawnPrimitiveEvent, SpawnSceneSourceEvent,
 };
 
 pub struct InsertModePlugin;
@@ -52,6 +52,7 @@ fn handle_start_insert(
             &mut materials,
             event.object_type,
             insert_state.gltf_path.as_deref(),
+            insert_state.scene_path.as_deref(),
         );
 
         insert_state.object_type = Some(event.object_type);
@@ -116,6 +117,7 @@ pub fn spawn_preview_entity(
     materials: &mut ResMut<Assets<StandardMaterial>>,
     object_type: InsertObjectType,
     gltf_path: Option<&str>,
+    scene_path: Option<&str>,
 ) -> Entity {
     // Semi-transparent material for preview
     let preview_material = materials.add(StandardMaterial {
@@ -213,6 +215,36 @@ pub fn spawn_preview_entity(
                         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
                         MeshMaterial3d(materials.add(StandardMaterial {
                             base_color: Color::srgba(1.0, 0.6, 0.2, 0.5),
+                            alpha_mode: AlphaMode::Blend,
+                            ..default()
+                        })),
+                        Transform::from_translation(Vec3::ZERO),
+                    ))
+                    .id()
+            }
+        }
+        InsertObjectType::Scene => {
+            // For scene files, load the actual scene as preview
+            if let Some(path) = scene_path {
+                commands
+                    .spawn((
+                        InsertPreview,
+                        GroupMarker,
+                        SceneSource {
+                            path: path.to_string(),
+                        },
+                        Transform::from_translation(Vec3::ZERO),
+                    ))
+                    .id()
+            } else {
+                // Fallback to placeholder if no path (shouldn't happen)
+                commands
+                    .spawn((
+                        InsertPreview,
+                        GroupMarker,
+                        Mesh3d(meshes.add(Cuboid::new(0.5, 0.5, 0.5))),
+                        MeshMaterial3d(materials.add(StandardMaterial {
+                            base_color: Color::srgba(0.2, 0.8, 0.4, 0.5),
                             alpha_mode: AlphaMode::Blend,
                             ..default()
                         })),
@@ -430,6 +462,7 @@ fn handle_insert_click(
     mut spawn_directional_light_events: MessageWriter<SpawnDirectionalLightEvent>,
     mut spawn_group_events: MessageWriter<SpawnGroupEvent>,
     mut spawn_gltf_events: MessageWriter<SpawnGltfEvent>,
+    mut spawn_scene_events: MessageWriter<SpawnSceneSourceEvent>,
     mut contexts: EguiContexts,
 ) {
     // Only confirm on left click
@@ -470,6 +503,11 @@ fn handle_insert_click(
                 .map(|p| p.rsplit('/').next().unwrap_or(p).to_string())
                 .unwrap_or_else(|| "GLTF".to_string())
         }
+        InsertObjectType::Scene => {
+            insert_state.scene_path.as_ref()
+                .map(|p| p.rsplit('/').next().unwrap_or(p).to_string())
+                .unwrap_or_else(|| "Scene".to_string())
+        }
     };
     commands.queue(TakeSnapshotCommand {
         description: format!("Insert {}", object_name),
@@ -498,6 +536,15 @@ fn handle_insert_click(
                 });
             }
         }
+        InsertObjectType::Scene => {
+            if let Some(scene_path) = insert_state.scene_path.clone() {
+                spawn_scene_events.write(SpawnSceneSourceEvent {
+                    path: scene_path,
+                    position,
+                    rotation,
+                });
+            }
+        }
     }
 
     // Remove old preview entity
@@ -514,6 +561,7 @@ fn handle_insert_click(
             &mut materials,
             object_type,
             insert_state.gltf_path.as_deref(),
+            insert_state.scene_path.as_deref(),
         );
         insert_state.preview_entity = Some(new_preview);
         info!("Placed {:?} at {:?} (shift-placing)", object_type, position);
@@ -522,6 +570,7 @@ fn handle_insert_click(
         insert_state.object_type = None;
         insert_state.preview_entity = None;
         insert_state.gltf_path = None;
+        insert_state.scene_path = None;
         next_mode.set(EditorMode::View);
         info!("Placed {:?} at {:?}", object_type, position);
     }
@@ -541,6 +590,7 @@ fn cleanup_on_mode_exit(
         }
         insert_state.object_type = None;
         insert_state.gltf_path = None;
+        insert_state.scene_path = None;
     }
 }
 
@@ -558,4 +608,5 @@ fn cleanup_preview(
     insert_state.object_type = None;
     insert_state.preview_entity = None;
     insert_state.gltf_path = None;
+    insert_state.scene_path = None;
 }

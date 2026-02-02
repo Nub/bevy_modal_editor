@@ -83,6 +83,8 @@ pub enum CommandAction {
     AddComponent,
     /// Open file dialog to insert a GLTF/GLB model
     InsertGltf,
+    /// Open file dialog to insert a RON scene file
+    InsertScene,
 }
 
 /// The mode the command palette is operating in
@@ -220,6 +222,13 @@ impl CommandRegistry {
             keywords: vec!["model".into(), "glb".into(), "mesh".into(), "import".into(), "3d".into()],
             category: "Models",
             action: CommandAction::InsertGltf,
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add Scene".to_string(),
+            keywords: vec!["import".into(), "ron".into(), "nested".into(), "sub".into()],
+            category: "Models",
+            action: CommandAction::InsertScene,
             insertable: true,
         });
 
@@ -794,6 +803,13 @@ fn draw_command_palette(
                     // Exit insert mode so the state transition triggers properly when file is picked
                     next_mode.set(EditorMode::View);
                 }
+                CommandAction::InsertScene => {
+                    // Use same code path as command palette - exit insert mode first,
+                    // file dialog will re-enter insert mode after file is picked
+                    file_dialog_state.open_insert_scene();
+                    // Exit insert mode so the state transition triggers properly when file is picked
+                    next_mode.set(EditorMode::View);
+                }
                 _ => {}
             }
         } else {
@@ -894,6 +910,10 @@ fn draw_command_palette(
                 CommandAction::InsertGltf => {
                     // Open file dialog to pick a GLTF file
                     file_dialog_state.open_insert_gltf();
+                }
+                CommandAction::InsertScene => {
+                    // Open file dialog to pick a RON scene file
+                    file_dialog_state.open_insert_scene();
                 }
             }
         }
