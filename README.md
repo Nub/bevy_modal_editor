@@ -4,7 +4,7 @@ A keyboard-first level editor for Bevy games using the Avian3D physics engine. I
 
 
 
-![Video Demo](https://github.com/Nub/bevy_modal_editor/raw/main/bevy_modal_editor.mp4)
+[![missing thumb](https://media.istockphoto.com/id/1565016664/video/loading-circle-animation-on-black-transparent-background-with-alpha-channel-element-animation.jpg?s=640x640&k=20&c=5kuaD2MFNyo_NukVOgBXDIgx-2KG6-PQ66-JdhDL1Pc=)](https://github.com/Nub/bevy_modal_editor/raw/main/bevy_modal_editor.mp4)
 
 ## Why Keyboard-First?
 
