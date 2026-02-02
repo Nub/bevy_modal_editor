@@ -37,6 +37,91 @@ pub fn popup_frame(style: &egui::Style) -> egui::Frame {
         .shadow(WINDOW_SHADOW)
 }
 
+/// Result of a dialog draw operation
+pub enum DialogResult {
+    /// Dialog remains open, no action taken
+    None,
+    /// Dialog should be closed
+    Close,
+    /// Dialog confirmed with an action
+    Confirmed,
+}
+
+/// Draw a centered modal dialog window.
+///
+/// This provides consistent styling for modal dialogs including:
+/// - Centered positioning
+/// - Standard frame styling
+/// - ESC key handling for closing
+///
+/// # Arguments
+/// * `ctx` - The egui context
+/// * `title` - Window title
+/// * `size` - Fixed size of the dialog `[width, height]`
+/// * `content` - Closure that draws the dialog content and returns a DialogResult
+///
+/// # Returns
+/// The DialogResult from the content closure, or Close if ESC was pressed
+pub fn draw_centered_dialog<F>(
+    ctx: &egui::Context,
+    title: &str,
+    size: [f32; 2],
+    content: F,
+) -> DialogResult
+where
+    F: FnOnce(&mut egui::Ui) -> DialogResult,
+{
+    let mut result = DialogResult::None;
+
+    egui::Window::new(title)
+        .collapsible(false)
+        .resizable(false)
+        .frame(window_frame(&ctx.style()))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .fixed_size(size)
+        .show(ctx, |ui| {
+            result = content(ui);
+        });
+
+    // Handle ESC to close
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        return DialogResult::Close;
+    }
+
+    result
+}
+
+/// Draw an error dialog with a title, message, and OK button.
+///
+/// # Returns
+/// `true` if the dialog should be closed (OK clicked or ESC pressed)
+pub fn draw_error_dialog(ctx: &egui::Context, title: &str, message: &str) -> bool {
+    let mut should_close = false;
+
+    egui::Window::new(title)
+        .collapsible(false)
+        .resizable(false)
+        .frame(window_frame(&ctx.style()))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .fixed_size([400.0, 150.0])
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(10.0);
+                ui.label(egui::RichText::new(message).color(colors::TEXT_PRIMARY));
+                ui.add_space(20.0);
+                if ui.button("OK").clicked() {
+                    should_close = true;
+                }
+            });
+        });
+
+    if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+        should_close = true;
+    }
+
+    should_close
+}
+
 /// Color palette matching Bevy editor style
 pub mod colors {
     use bevy_egui::egui::Color32;

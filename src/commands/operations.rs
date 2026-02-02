@@ -3,8 +3,9 @@ use bevy_egui::EguiContexts;
 
 use super::TakeSnapshotCommand;
 use crate::editor::EditorState;
-use crate::scene::SpawnPrimitiveEvent;
+use crate::scene::{SpawnEntityEvent, SpawnEntityKind};
 use crate::selection::Selected;
+use crate::utils::should_process_input;
 
 /// Event to delete selected entities
 #[derive(Message)]
@@ -34,16 +35,8 @@ fn handle_delete_input(
     mut duplicate_events: MessageWriter<DuplicateSelectedEvent>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
-    }
-
-    // Don't handle when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
     }
 
     // Delete or X to delete selected
@@ -82,7 +75,7 @@ fn handle_delete_selected(
 fn handle_duplicate_selected(
     mut events: MessageReader<DuplicateSelectedEvent>,
     selected: Query<(&Transform, &crate::scene::PrimitiveMarker), With<Selected>>,
-    mut spawn_events: MessageWriter<SpawnPrimitiveEvent>,
+    mut spawn_events: MessageWriter<SpawnEntityEvent>,
     mut commands: Commands,
 ) {
     for _ in events.read() {
@@ -96,8 +89,8 @@ fn handle_duplicate_selected(
             for (transform, primitive) in selected.iter() {
                 // Offset the duplicated entity slightly
                 let offset = Vec3::new(1.0, 0.0, 1.0);
-                spawn_events.write(SpawnPrimitiveEvent {
-                    shape: primitive.shape,
+                spawn_events.write(SpawnEntityEvent {
+                    kind: SpawnEntityKind::Primitive(primitive.shape),
                     position: transform.translation + offset,
                     rotation: transform.rotation,
                 });

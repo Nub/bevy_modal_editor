@@ -117,6 +117,38 @@ impl From<&DirectionalLightMarker> for DirectionalLightData {
     }
 }
 
+/// Draw a labeled color picker row
+fn draw_color_row(ui: &mut egui::Ui, color: &mut [f32; 3]) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Color").color(colors::TEXT_SECONDARY));
+        changed = ui.color_edit_button_rgb(color).changed();
+    });
+    changed
+}
+
+/// Draw a labeled checkbox row
+fn draw_checkbox_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
+        changed = ui.checkbox(value, "").changed();
+    });
+    changed
+}
+
+/// Draw a labeled drag value row
+fn draw_drag_row(ui: &mut egui::Ui, label: &str, value: &mut f32, speed: f32, range: std::ops::RangeInclusive<f32>) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
+        changed = ui
+            .add(egui::DragValue::new(value).speed(speed).range(range))
+            .changed();
+    });
+    changed
+}
+
 /// Draw a transform section with colored X/Y/Z labels
 fn draw_transform_section(ui: &mut egui::Ui, transform: &mut Transform) -> bool {
     let mut changed = false;
@@ -220,41 +252,13 @@ fn draw_point_light_section(ui: &mut egui::Ui, data: &mut PointLightData) -> boo
     .default_open(true)
     .show(ui, |ui| {
         ui.add_space(4.0);
-
-        // Color picker
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Color").color(colors::TEXT_SECONDARY));
-            changed |= ui.color_edit_button_rgb(&mut data.color).changed();
-        });
-
+        changed |= draw_color_row(ui, &mut data.color);
         ui.add_space(4.0);
-
-        // Intensity
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Intensity").color(colors::TEXT_SECONDARY));
-            changed |= ui
-                .add(egui::DragValue::new(&mut data.intensity).speed(100.0).range(0.0..=1000000.0))
-                .changed();
-        });
-
+        changed |= draw_drag_row(ui, "Intensity", &mut data.intensity, 100.0, 0.0..=1000000.0);
         ui.add_space(4.0);
-
-        // Range
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Range").color(colors::TEXT_SECONDARY));
-            changed |= ui
-                .add(egui::DragValue::new(&mut data.range).speed(0.1).range(0.0..=1000.0))
-                .changed();
-        });
-
+        changed |= draw_drag_row(ui, "Range", &mut data.range, 0.1, 0.0..=1000.0);
         ui.add_space(4.0);
-
-        // Shadows
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Shadows").color(colors::TEXT_SECONDARY));
-            changed |= ui.checkbox(&mut data.shadows_enabled, "").changed();
-        });
-
+        changed |= draw_checkbox_row(ui, "Shadows", &mut data.shadows_enabled);
         ui.add_space(4.0);
     });
 
@@ -271,31 +275,11 @@ fn draw_directional_light_section(ui: &mut egui::Ui, data: &mut DirectionalLight
     .default_open(true)
     .show(ui, |ui| {
         ui.add_space(4.0);
-
-        // Color picker
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Color").color(colors::TEXT_SECONDARY));
-            changed |= ui.color_edit_button_rgb(&mut data.color).changed();
-        });
-
+        changed |= draw_color_row(ui, &mut data.color);
         ui.add_space(4.0);
-
-        // Illuminance
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Illuminance").color(colors::TEXT_SECONDARY));
-            changed |= ui
-                .add(egui::DragValue::new(&mut data.illuminance).speed(100.0).range(0.0..=200000.0))
-                .changed();
-        });
-
+        changed |= draw_drag_row(ui, "Illuminance", &mut data.illuminance, 100.0, 0.0..=200000.0);
         ui.add_space(4.0);
-
-        // Shadows
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Shadows").color(colors::TEXT_SECONDARY));
-            changed |= ui.checkbox(&mut data.shadows_enabled, "").changed();
-        });
-
+        changed |= draw_checkbox_row(ui, "Shadows", &mut data.shadows_enabled);
         ui.add_space(4.0);
     });
 

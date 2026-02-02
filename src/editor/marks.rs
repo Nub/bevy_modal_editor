@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::{EditorCamera, EditorState, FlyCamera};
+use crate::utils::should_process_input;
 
 /// A saved camera position and orientation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,21 +233,13 @@ fn handle_mark_shortcuts(
     mut last_events: MessageWriter<JumpToLastPositionEvent>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
-        return;
-    }
-
     // Only handle in View mode
     if *mode.get() != super::EditorMode::View {
         return;
     }
 
-    // Don't handle shortcuts when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
     }
 
     let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);

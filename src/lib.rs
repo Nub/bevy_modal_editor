@@ -43,13 +43,14 @@
 //! Press `?` for the full help menu.
 
 pub mod commands;
+pub mod constants;
 pub mod editor;
 pub mod gizmos;
-pub mod patterns;
 pub mod prefabs;
 pub mod scene;
 pub mod selection;
 pub mod ui;
+pub mod utils;
 
 // Re-export the main plugin and configuration
 pub use editor::{EditorPlugin, EditorPluginConfig};

@@ -11,6 +11,7 @@ use std::path::Path;
 
 use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, SceneSource, LIGHT_COLLIDER_RADIUS};
 use crate::editor::{CameraMark, CameraMarks};
+use crate::ui::draw_error_dialog as draw_themed_error_dialog;
 
 /// Event to save the scene
 #[derive(Message)]
@@ -427,56 +428,13 @@ pub fn regenerate_meshes(world: &mut World) {
         }
     }
 
-    // Add meshes and materials - handle each shape one at a time to avoid borrow issues
+    // Add meshes and materials using PrimitiveShape helper methods
     for (entity, shape) in entities_to_update {
-        let (mesh_handle, material_handle, collider) = {
-            let mesh = match shape {
-                PrimitiveShape::Cube => Mesh::from(Cuboid::new(1.0, 1.0, 1.0)),
-                PrimitiveShape::Sphere => Mesh::from(Sphere::new(0.5)),
-                PrimitiveShape::Cylinder => Mesh::from(Cylinder::new(0.5, 1.0)),
-                PrimitiveShape::Capsule => Mesh::from(Capsule3d::new(0.25, 0.5)),
-                PrimitiveShape::Plane => Plane3d::default().mesh().size(2.0, 2.0).build(),
-            };
-
-            let material = match shape {
-                PrimitiveShape::Cube => StandardMaterial {
-                    base_color: Color::srgb(0.8, 0.7, 0.6),
-                    ..default()
-                },
-                PrimitiveShape::Sphere => StandardMaterial {
-                    base_color: Color::srgb(0.6, 0.7, 0.8),
-                    ..default()
-                },
-                PrimitiveShape::Cylinder => StandardMaterial {
-                    base_color: Color::srgb(0.7, 0.8, 0.6),
-                    ..default()
-                },
-                PrimitiveShape::Capsule => StandardMaterial {
-                    base_color: Color::srgb(0.8, 0.6, 0.7),
-                    ..default()
-                },
-                PrimitiveShape::Plane => StandardMaterial {
-                    base_color: Color::srgb(0.6, 0.6, 0.8),
-                    ..default()
-                },
-            };
-
-            let collider = match shape {
-                PrimitiveShape::Cube => Collider::cuboid(1.0, 1.0, 1.0),
-                PrimitiveShape::Sphere => Collider::sphere(0.5),
-                PrimitiveShape::Cylinder => Collider::cylinder(0.5, 0.5),
-                PrimitiveShape::Capsule => Collider::capsule(0.25, 0.5),
-                PrimitiveShape::Plane => Collider::cuboid(2.0, 0.01, 2.0),
-            };
-
-            // Add to assets
-            let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(mesh);
-            let material_handle = world
-                .resource_mut::<Assets<StandardMaterial>>()
-                .add(material);
-
-            (mesh_handle, material_handle, collider)
-        };
+        let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
+        let material_handle = world
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(shape.create_material());
+        let collider = shape.create_collider();
 
         // Insert components
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
@@ -551,17 +509,10 @@ fn draw_error_dialog(
 
     let ctx = contexts.ctx_mut()?;
 
-    egui::Window::new(&error_dialog.title)
-        .collapsible(false)
-        .resizable(false)
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .show(ctx, |ui| {
-            ui.label(&error_dialog.message);
-            ui.add_space(10.0);
-            if ui.button("OK").clicked() {
-                error_dialog.open = false;
-            }
-        });
+    if draw_themed_error_dialog(ctx, &error_dialog.title, &error_dialog.message) {
+        error_dialog.open = false;
+    }
+
     Ok(())
 }
 

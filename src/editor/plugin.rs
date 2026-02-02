@@ -11,7 +11,6 @@ use super::marks::CameraMarksPlugin;
 use super::state::EditorStatePlugin;
 use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
-use crate::patterns::PatternsPlugin;
 use crate::prefabs::PrefabsPlugin;
 use crate::scene::ScenePlugin;
 use crate::selection::SelectionPlugin;
@@ -148,7 +147,6 @@ impl Plugin for EditorPlugin {
             .add_plugins(ScenePlugin)
             .add_plugins(PrefabsPlugin)
             .add_plugins(CommandsPlugin)
-            .add_plugins(PatternsPlugin)
             // UI
             .add_plugins(UiPlugin);
 

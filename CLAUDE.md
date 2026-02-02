@@ -31,6 +31,20 @@ The editor uses vim-like modal editing (`src/editor/state.rs`):
 - **Edit mode**: Transform manipulation (G=translate, R=rotate, S=scale)
 - Toggle with Tab, Escape returns to View mode
 
+### Core Modules
+
+- **constants** (`src/constants.rs`) - Centralized configuration values
+  - `primitive_colors` - Default colors for each primitive shape
+  - `light_colors` - Default light colors and intensities
+  - `preview_colors` - Colors for insert mode preview entities
+  - `physics` - Physics-related constants (collider sizes)
+  - `sizes` - Default dimension constants
+
+- **utils** (`src/utils.rs`) - Shared utility functions
+  - `should_process_input()` - Check if editor input should be handled (guards against disabled editor or UI focus)
+  - `get_half_height_along_normal()` - Calculate object height for surface placement
+  - `rotation_from_normal()` - Create rotation quaternion from surface normal
+
 ### Plugin Structure
 
 The `EditorPlugin` composes these sub-plugins:
@@ -48,8 +62,10 @@ The `EditorPlugin` composes these sub-plugins:
   - Commands implement `EditorCommand` trait (execute/undo/description)
 
 - **scene/** - Scene management
-  - `PrimitivesPlugin` - Spawning primitive shapes (Cube, Sphere, Cylinder, Capsule, Plane)
+  - `PrimitivesPlugin` - Unified entity spawning via `SpawnEntityEvent`
   - `SerializationPlugin` - RON-based save/load via `SaveSceneEvent`/`LoadSceneEvent` messages
+  - `GltfSourcePlugin` - Load GLTF/GLB models as scene objects
+  - `SceneSourcePlugin` - Load RON scene files as nested objects
   - `SceneEntity` marker component identifies editable entities
 
 - **prefabs/** - Reusable entity templates
@@ -60,16 +76,13 @@ The `EditorPlugin` composes these sub-plugins:
   - `TransformGizmoPlugin` - Transform manipulation gizmos
   - Grid drawing system
 
-- **patterns/** - Pattern-based entity duplication
-  - `LinearPatternPlugin` - Linear array spawning
-  - `CircularPatternPlugin` - Circular array spawning
-
 - **ui/** - egui-based interface
   - `PanelsPlugin` - Main panel layout
   - `HierarchyPlugin` - Entity tree view
   - `InspectorPlugin` - Component property editor
   - `ToolbarPlugin` - Tool buttons
   - `ViewGizmoPlugin` - Viewport orientation indicator
+  - `theme` module - Centralized styling with `colors`, dialog helpers (`draw_centered_dialog`, `draw_error_dialog`)
 
 ### Key Patterns
 
@@ -78,9 +91,48 @@ The `EditorPlugin` composes these sub-plugins:
 - Physics provided by Avian3D (`Collider`, `RigidBody`, `SpatialQuery`)
 - UI via bevy_egui (from git branch for Bevy 0.18 compatibility)
 
+### Entity Spawning
+
+Use `SpawnEntityEvent` to spawn any scene entity type:
+
+```rust
+// Spawn a primitive
+events.spawn_entity.write(SpawnEntityEvent {
+    kind: SpawnEntityKind::Primitive(PrimitiveShape::Cube),
+    position: Vec3::ZERO,
+    rotation: Quat::IDENTITY,
+});
+
+// Spawn a light
+events.spawn_entity.write(SpawnEntityEvent {
+    kind: SpawnEntityKind::PointLight,
+    position: Vec3::new(0.0, 3.0, 0.0),
+    rotation: Quat::IDENTITY,
+});
+```
+
+`SpawnEntityKind` variants: `Primitive(PrimitiveShape)`, `Group`, `PointLight`, `DirectionalLight`
+
+`PrimitiveShape` provides factory methods:
+- `create_mesh()` - Returns the mesh for this shape
+- `create_material()` - Returns a StandardMaterial with the shape's default color
+- `create_collider()` - Returns the physics collider
+- `default_color()` - Returns the standard color from `constants::primitive_colors`
+
+### Scene Snapshots
+
+Use `build_editor_scene()` for consistent scene building (single source of truth for serializable components):
+
+```rust
+let scene = build_editor_scene(world, entity_ids.into_iter());
+```
+
 ### Entity Markers
 
 - `SceneEntity` - Part of the editable scene (saved/loaded)
 - `Selected` - Currently selected
 - `PrefabInstance` / `PrefabRoot` - Prefab system markers
 - `PrimitiveMarker` - Identifies primitive shape type
+- `GroupMarker` - Empty container for organizing entities
+- `SceneLightMarker` / `DirectionalLightMarker` - Light configuration that persists to scene files
+- `GltfLoaded` / `SceneSourceLoaded` - Marks children loaded from external files

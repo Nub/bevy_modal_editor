@@ -22,6 +22,17 @@ pub struct ComponentBrowserState {
     pub target_entity: Option<Entity>,
 }
 
+impl ComponentBrowserState {
+    /// Open the browser for a specific entity
+    pub fn open_for_entity(&mut self, entity: Entity) {
+        self.open = true;
+        self.query.clear();
+        self.selected_index = 0;
+        self.just_opened = true;
+        self.target_entity = Some(entity);
+    }
+}
+
 /// Cached information about a component type
 #[derive(Clone)]
 pub struct ComponentInfo {
@@ -155,11 +166,7 @@ impl Plugin for ComponentBrowserPlugin {
 
 /// Open the component browser for a specific entity
 pub fn open_component_browser(state: &mut ComponentBrowserState, entity: Entity) {
-    state.open = true;
-    state.query.clear();
-    state.selected_index = 0;
-    state.just_opened = true;
-    state.target_entity = Some(entity);
+    state.open_for_entity(entity);
 }
 
 /// Draw the component browser window
