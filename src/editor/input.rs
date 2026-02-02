@@ -5,7 +5,7 @@ use super::state::{AxisConstraint, EditorMode, EditorState, ToggleEditorEvent, T
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
 use crate::selection::Selected;
-use crate::ui::{open_add_component_palette, CommandPaletteState, ComponentEditorState, PaletteMode};
+use crate::ui::{open_add_component_palette, CommandPaletteState, ComponentEditorState};
 use crate::utils::should_process_input;
 
 pub struct EditorInputPlugin;
@@ -85,11 +85,7 @@ fn handle_mode_input(
             *transform_op = TransformOperation::None;
             *axis_constraint = AxisConstraint::None;
             // Open command palette automatically in Insert mode
-            palette_state.open = true;
-            palette_state.query.clear();
-            palette_state.selected_index = 0;
-            palette_state.just_opened = true;
-            palette_state.mode = PaletteMode::Insert;
+            palette_state.open_insert();
         }
         return;
     }

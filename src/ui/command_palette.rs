@@ -140,14 +140,42 @@ impl Default for CommandPaletteState {
     }
 }
 
+impl CommandPaletteState {
+    /// Reset and open the palette in a specific mode
+    fn open_mode(&mut self, mode: PaletteMode) {
+        self.open = true;
+        self.query.clear();
+        self.selected_index = 0;
+        self.just_opened = true;
+        self.mode = mode;
+        self.target_entity = None;
+    }
+
+    /// Open the palette in Commands mode
+    pub fn open_commands(&mut self) {
+        self.open_mode(PaletteMode::Commands);
+    }
+
+    /// Open the palette in Insert mode
+    pub fn open_insert(&mut self) {
+        self.open_mode(PaletteMode::Insert);
+    }
+
+    /// Open the palette in ComponentSearch mode
+    pub fn open_component_search(&mut self) {
+        self.open_mode(PaletteMode::ComponentSearch);
+    }
+
+    /// Open the palette in AddComponent mode for a specific entity
+    pub fn open_add_component(&mut self, entity: Entity) {
+        self.open_mode(PaletteMode::AddComponent);
+        self.target_entity = Some(entity);
+    }
+}
+
 /// Open the command palette in AddComponent mode for a specific entity
 pub fn open_add_component_palette(state: &mut CommandPaletteState, entity: Entity) {
-    state.open = true;
-    state.query.clear();
-    state.selected_index = 0;
-    state.just_opened = true;
-    state.mode = PaletteMode::AddComponent;
-    state.target_entity = Some(entity);
+    state.open_add_component(entity);
 }
 
 /// Resource containing all available commands
@@ -546,20 +574,12 @@ fn handle_palette_toggle(
 
     // "/" key opens component search in ObjectInspector mode
     if keyboard.just_pressed(KeyCode::Slash) && *editor_mode.get() == EditorMode::ObjectInspector {
-        state.open = true;
-        state.query.clear();
-        state.selected_index = 0;
-        state.just_opened = true;
-        state.mode = PaletteMode::ComponentSearch;
+        state.open_component_search();
         return;
     }
 
     if keyboard.just_pressed(KeyCode::KeyC) {
-        state.open = true;
-        state.query.clear();
-        state.selected_index = 0;
-        state.just_opened = true;
-        state.mode = PaletteMode::Commands;
+        state.open_commands();
         // Refresh dynamic commands
         registry.add_mark_commands(&marks);
     }
@@ -892,11 +912,7 @@ fn draw_command_palette(
                 CommandAction::AddComponent => {
                     // Get first selected entity and switch to AddComponent mode
                     if let Some(entity) = selected.iter().next() {
-                        state.query.clear();
-                        state.selected_index = 0;
-                        state.just_opened = true;
-                        state.mode = PaletteMode::AddComponent;
-                        state.target_entity = Some(entity);
+                        state.open_add_component(entity);
                         // Don't close the palette, we're switching modes
                         should_close = false;
                     }
@@ -1223,173 +1239,100 @@ fn draw_component_search_palette(
     type_registry: &Res<AppTypeRegistry>,
     selected: &Query<Entity, With<Selected>>,
 ) -> Result {
+    use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteResult, PaletteState};
+
     // Get selected entity
     let Some(_entity) = selected.iter().next() else {
-        // No entity selected, close the palette
         state.open = false;
         return Ok(());
     };
 
     // Build list of components from the type registry
-    // Note: In a full implementation, we'd want to filter to only components on the entity
     let type_registry_guard = type_registry.read();
-
     let mut components: Vec<ComponentSearchItem> = type_registry_guard
         .iter()
         .filter_map(|registration| {
-            // Only include types with ReflectComponent
             registration.data::<ReflectComponent>()?;
-
             let type_id = registration.type_id();
             let short_name = registration
                 .type_info()
                 .type_path_table()
                 .short_path()
                 .to_string();
-
-            Some(ComponentSearchItem {
-                type_id,
-                name: short_name,
-            })
+            Some(ComponentSearchItem { type_id, name: short_name })
         })
         .collect();
-
     components.sort_by(|a, b| a.name.cmp(&b.name));
     drop(type_registry_guard);
 
-    // Filter using fuzzy matching
-    let filtered = super::fuzzy_palette::fuzzy_filter(&components, &state.query);
+    // Bridge CommandPaletteState to PaletteState
+    let mut palette_state = PaletteState {
+        query: std::mem::take(&mut state.query),
+        selected_index: state.selected_index,
+        just_opened: state.just_opened,
+    };
 
-    // Clamp selected index
-    if !filtered.is_empty() {
-        state.selected_index = state.selected_index.min(filtered.len() - 1);
-    }
+    let config = PaletteConfig {
+        title: "INSPECT MODE",
+        title_color: colors::ACCENT_PURPLE,
+        subtitle: "Search for component to edit",
+        hint_text: "Type to search components...",
+        action_label: "edit",
+        size: [400.0, 300.0],
+        show_categories: false,
+    };
 
-    let mut should_close = false;
-    let mut selected_component: Option<(TypeId, String)> = None;
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &components, &config);
 
-    // Check for keyboard input before rendering UI
-    let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
-    let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-    let down_pressed = ctx.input(|i| i.key_pressed(egui::Key::ArrowDown));
-    let up_pressed = ctx.input(|i| i.key_pressed(egui::Key::ArrowUp));
+    // Sync state back
+    state.query = palette_state.query;
+    state.selected_index = palette_state.selected_index;
+    state.just_opened = palette_state.just_opened;
 
-    // Handle Enter to select component
-    if enter_pressed && !filtered.is_empty() {
-        if let Some(filtered_item) = filtered.get(state.selected_index) {
-            selected_component = Some((filtered_item.item.type_id, filtered_item.item.name.clone()));
-            should_close = true;
+    match result {
+        PaletteResult::Selected(index) => {
+            let item = &components[index];
+            component_editor_state.editing_component = Some((item.type_id, item.name.clone()));
+            component_editor_state.just_opened = true;
+            state.open = false;
         }
-    }
-
-    // Handle Escape to close
-    if escape_pressed {
-        should_close = true;
-    }
-
-    // Handle arrow keys for navigation
-    if down_pressed && !filtered.is_empty() {
-        state.selected_index = (state.selected_index + 1).min(filtered.len() - 1);
-    }
-    if up_pressed {
-        state.selected_index = state.selected_index.saturating_sub(1);
-    }
-
-    egui::Window::new("Search Components")
-        .collapsible(false)
-        .resizable(false)
-        .title_bar(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .fixed_size([400.0, 300.0])
-        .show(ctx, |ui| {
-            // Mode indicator
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("INSPECT MODE")
-                        .small()
-                        .strong()
-                        .color(colors::ACCENT_PURPLE),
-                );
-                ui.label(
-                    egui::RichText::new("- Search for component to edit")
-                        .small()
-                        .color(colors::TEXT_MUTED),
-                );
-            });
-            ui.add_space(4.0);
-
-            // Search input
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut state.query)
-                    .hint_text("Type to search components...")
-                    .desired_width(f32::INFINITY),
-            );
-
-            // Focus the input when just opened
-            if state.just_opened {
-                response.request_focus();
-                state.just_opened = false;
-            }
-
-            ui.separator();
-
-            // Component list
-            egui::ScrollArea::vertical()
-                .max_height(250.0)
-                .show(ui, |ui| {
-                    if filtered.is_empty() {
-                        ui.label(egui::RichText::new("No matching components").color(colors::TEXT_MUTED));
-                    } else {
-                        for (display_idx, filtered_item) in filtered.iter().enumerate() {
-                            let is_selected = display_idx == state.selected_index;
-                            let text_color = if is_selected {
-                                colors::TEXT_PRIMARY
-                            } else {
-                                colors::TEXT_SECONDARY
-                            };
-
-                            let response = ui.selectable_label(
-                                is_selected,
-                                egui::RichText::new(filtered_item.item.name.as_str()).color(text_color),
-                            );
-
-                            if response.clicked() {
-                                selected_component = Some((filtered_item.item.type_id, filtered_item.item.name.clone()));
-                                should_close = true;
-                            }
-
-                            // Scroll selected item into view
-                            if is_selected {
-                                response.scroll_to_me(Some(egui::Align::Center));
-                            }
-                        }
-                    }
-                });
-
-            ui.separator();
-
-            // Help text
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Enter").small().strong().color(colors::ACCENT_BLUE));
-                ui.label(egui::RichText::new("to edit").small().color(colors::TEXT_MUTED));
-                ui.add_space(10.0);
-                ui.label(egui::RichText::new("Esc").small().strong().color(colors::ACCENT_BLUE));
-                ui.label(egui::RichText::new("to close").small().color(colors::TEXT_MUTED));
-            });
-        });
-
-    // Handle selected component
-    if let Some((type_id, name)) = selected_component {
-        component_editor_state.editing_component = Some((type_id, name));
-        component_editor_state.just_opened = true;
-    }
-
-    if should_close {
-        state.open = false;
+        PaletteResult::Closed => {
+            state.open = false;
+        }
+        PaletteResult::Open => {}
     }
 
     Ok(())
+}
+
+/// Wrapper for adding components that implements PaletteItem
+struct AddComponentItem {
+    type_id: TypeId,
+    short_name: String,
+    category: String,
+    can_instantiate: bool,
+}
+
+impl super::fuzzy_palette::PaletteItem for AddComponentItem {
+    fn label(&self) -> &str {
+        &self.short_name
+    }
+
+    fn category(&self) -> Option<&str> {
+        Some(&self.category)
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.can_instantiate
+    }
+
+    fn suffix(&self) -> Option<&str> {
+        if self.can_instantiate {
+            None
+        } else {
+            Some("(no default)")
+        }
+    }
 }
 
 /// Draw the add component palette for adding new components to an entity
@@ -1400,9 +1343,10 @@ fn draw_add_component_palette(
     type_registry: &Res<AppTypeRegistry>,
     commands: &mut Commands,
 ) -> Result {
+    use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteResult, PaletteState};
+
     // Get target entity
     let Some(target_entity) = state.target_entity else {
-        // No target entity, close the palette
         state.open = false;
         return Ok(());
     };
@@ -1413,174 +1357,59 @@ fn draw_add_component_palette(
         component_registry.populate(&type_registry_guard);
     }
 
-    // Filter components
-    let filtered = component_registry.filter(&state.query);
+    // Convert to PaletteItem wrappers
+    let items: Vec<AddComponentItem> = component_registry
+        .components
+        .iter()
+        .map(|c| AddComponentItem {
+            type_id: c.type_id,
+            short_name: c.short_name.clone(),
+            category: c.category.clone(),
+            can_instantiate: c.can_instantiate,
+        })
+        .collect();
 
-    // Clamp selected index
-    if !filtered.is_empty() {
-        state.selected_index = state.selected_index.min(filtered.len() - 1);
-    }
+    // Bridge CommandPaletteState to PaletteState
+    let mut palette_state = PaletteState {
+        query: std::mem::take(&mut state.query),
+        selected_index: state.selected_index,
+        just_opened: state.just_opened,
+    };
 
-    let mut should_close = false;
-    let mut component_to_add: Option<TypeId> = None;
+    let config = PaletteConfig {
+        title: "ADD COMPONENT",
+        title_color: colors::ACCENT_GREEN,
+        subtitle: "Select component to add",
+        hint_text: "Type to search components...",
+        action_label: "add",
+        size: [400.0, 350.0],
+        show_categories: true,
+    };
 
-    // Check for keyboard input before rendering UI
-    let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
-    let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-    let down_pressed = ctx.input(|i| i.key_pressed(egui::Key::ArrowDown));
-    let up_pressed = ctx.input(|i| i.key_pressed(egui::Key::ArrowUp));
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &items, &config);
 
-    // Handle Enter to add component
-    if enter_pressed && !filtered.is_empty() {
-        if let Some((_, info, _)) = filtered.get(state.selected_index) {
-            if info.can_instantiate {
-                component_to_add = Some(info.type_id);
-                should_close = true;
-            }
+    // Sync state back
+    state.query = palette_state.query;
+    state.selected_index = palette_state.selected_index;
+    state.just_opened = palette_state.just_opened;
+
+    match result {
+        PaletteResult::Selected(index) => {
+            let item = &items[index];
+            // Queue a command to add the component
+            commands.queue(AddComponentCommand {
+                entity: target_entity,
+                type_id: item.type_id,
+                component_name: item.short_name.clone(),
+            });
+            state.open = false;
+            state.target_entity = None;
         }
-    }
-
-    // Handle Escape to close
-    if escape_pressed {
-        should_close = true;
-    }
-
-    // Handle arrow keys for navigation
-    if down_pressed && !filtered.is_empty() {
-        state.selected_index = (state.selected_index + 1).min(filtered.len() - 1);
-    }
-    if up_pressed {
-        state.selected_index = state.selected_index.saturating_sub(1);
-    }
-
-    egui::Window::new("Add Component")
-        .collapsible(false)
-        .resizable(false)
-        .title_bar(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .fixed_size([400.0, 350.0])
-        .show(ctx, |ui| {
-            // Mode indicator
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("ADD COMPONENT")
-                        .small()
-                        .strong()
-                        .color(colors::ACCENT_GREEN),
-                );
-                ui.label(
-                    egui::RichText::new("- Select component to add")
-                        .small()
-                        .color(colors::TEXT_MUTED),
-                );
-            });
-            ui.add_space(4.0);
-
-            // Search input
-            let response = ui.add(
-                egui::TextEdit::singleline(&mut state.query)
-                    .hint_text("Type to search components...")
-                    .desired_width(f32::INFINITY),
-            );
-
-            // Focus the input when just opened
-            if state.just_opened {
-                response.request_focus();
-                state.just_opened = false;
-            }
-
-            ui.separator();
-
-            // Component list
-            egui::ScrollArea::vertical()
-                .max_height(280.0)
-                .show(ui, |ui| {
-                    if filtered.is_empty() {
-                        ui.label(egui::RichText::new("No matching components").color(colors::TEXT_MUTED));
-                    } else {
-                        let mut current_category: Option<&str> = None;
-
-                        for (display_idx, (_, info, _)) in filtered.iter().enumerate() {
-                            // Category header
-                            if current_category != Some(&info.category) {
-                                current_category = Some(&info.category);
-                                ui.add_space(4.0);
-                                ui.label(
-                                    egui::RichText::new(&info.category)
-                                        .small()
-                                        .color(colors::TEXT_MUTED),
-                                );
-                            }
-
-                            let is_selected = display_idx == state.selected_index;
-                            let can_add = info.can_instantiate;
-
-                            let text_color = if !can_add {
-                                colors::TEXT_MUTED
-                            } else if is_selected {
-                                colors::TEXT_PRIMARY
-                            } else {
-                                colors::TEXT_SECONDARY
-                            };
-
-                            let label_text = if can_add {
-                                info.short_name.clone()
-                            } else {
-                                format!("{} (no default)", info.short_name)
-                            };
-
-                            let response = ui.selectable_label(
-                                is_selected,
-                                egui::RichText::new(&label_text).color(text_color),
-                            );
-
-                            if response.clicked() && can_add {
-                                component_to_add = Some(info.type_id);
-                                should_close = true;
-                            }
-
-                            // Scroll selected item into view
-                            if is_selected {
-                                response.scroll_to_me(Some(egui::Align::Center));
-                            }
-                        }
-                    }
-                });
-
-            ui.separator();
-
-            // Help text
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Enter").small().strong().color(colors::ACCENT_BLUE));
-                ui.label(egui::RichText::new("to add").small().color(colors::TEXT_MUTED));
-                ui.add_space(10.0);
-                ui.label(egui::RichText::new("Esc").small().strong().color(colors::ACCENT_BLUE));
-                ui.label(egui::RichText::new("to close").small().color(colors::TEXT_MUTED));
-            });
-        });
-
-    // Handle adding component - we need to defer this since we need world access
-    if let Some(type_id) = component_to_add {
-        // Get the component name for the editor popup
-        let component_name = component_registry
-            .components
-            .iter()
-            .find(|c| c.type_id == type_id)
-            .map(|c| c.short_name.clone())
-            .unwrap_or_else(|| "Component".to_string());
-
-        // Store the component to add in a command that will run later
-        commands.queue(AddComponentCommand {
-            entity: target_entity,
-            type_id,
-            component_name,
-        });
-    }
-
-    if should_close {
-        state.open = false;
-        state.target_entity = None;
+        PaletteResult::Closed => {
+            state.open = false;
+            state.target_entity = None;
+        }
+        PaletteResult::Open => {}
     }
 
     Ok(())
