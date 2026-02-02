@@ -6,7 +6,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use crate::commands::SnapshotHistory;
 use crate::editor::{AxisConstraint, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::scene::SceneFile;
-use crate::ui::theme::colors;
+use crate::ui::theme::{colors, popup_frame};
 use crate::ui::Settings;
 
 pub struct PanelsPlugin;
@@ -201,9 +201,7 @@ fn draw_hint_bubble(
     egui::Area::new(egui::Id::new("hint_bubble"))
         .anchor(egui::Align2::CENTER_BOTTOM, [0.0, -35.0])
         .show(ctx, |ui| {
-            egui::Frame::popup(&ctx.style())
-                .fill(colors::BG_DARK.gamma_multiply(0.95))
-                .corner_radius(egui::CornerRadius::same(8))
+            popup_frame(&ctx.style())
                 .inner_margin(egui::Margin::symmetric(12, 6))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {

@@ -14,6 +14,29 @@ impl Plugin for ThemePlugin {
     }
 }
 
+/// Standard shadow for floating windows and popups
+pub const WINDOW_SHADOW: egui::Shadow = egui::Shadow {
+    offset: [0, 2],
+    blur: 8,
+    spread: 0,
+    color: egui::Color32::from_black_alpha(60),
+};
+
+/// Create a standard window frame with consistent styling
+pub fn window_frame(style: &egui::Style) -> egui::Frame {
+    egui::Frame::window(style)
+        .fill(colors::BG_DARK)
+        .shadow(WINDOW_SHADOW)
+}
+
+/// Create a popup/tooltip frame with consistent styling
+pub fn popup_frame(style: &egui::Style) -> egui::Frame {
+    egui::Frame::popup(style)
+        .fill(colors::BG_DARK.gamma_multiply(0.95))
+        .corner_radius(egui::CornerRadius::same(8))
+        .shadow(WINDOW_SHADOW)
+}
+
 /// Color palette matching Bevy editor style
 pub mod colors {
     use bevy_egui::egui::Color32;
