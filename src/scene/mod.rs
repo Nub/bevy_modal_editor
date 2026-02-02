@@ -1,6 +1,8 @@
+mod gltf_source;
 mod primitives;
 mod serialization;
 
+pub use gltf_source::*;
 pub use primitives::*;
 pub use serialization::*;
 
@@ -22,6 +24,7 @@ impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(PrimitivesPlugin)
             .add_plugins(SerializationPlugin)
+            .add_plugins(GltfSourcePlugin)
             .add_message::<SpawnDemoSceneEvent>()
             .add_systems(Update, handle_spawn_demo_scene)
             // Register types for scene serialization
