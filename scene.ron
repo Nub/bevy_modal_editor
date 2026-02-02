@@ -1,183 +1,180 @@
 (
   resources: {},
   entities: {
-    4294967179: (
+    4294967203: (
       components: {
-        "bevy_ecs::name::Name": "Accent Light 4",
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_ecs::hierarchy::Children": ([
+          4294967202,
+          8589934498,
+        ]),
+        "bevy_ecs::name::Name": "Duck",
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.8,
-            blue: 0.5,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
+        "bevy_modal_editor::scene::collider_constructor::RecursiveColliderConstructor": (
+          collider_type: ConvexDecomposition,
+        ),
+        "bevy_modal_editor::scene::gltf_source::GltfSource": (
+          path: "Duck.glb",
+          scene_index: 0,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.5, -3.0),
+          translation: (-2.5580854, -0.09993079, 3.2004476),
+          rotation: (0.00006735125, -0.9739439, 0.00007853392, 0.22678909),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967204: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Ground",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, -0.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (20.0, 1.0, 20.0),
+        ),
+      },
+    ),
+    4294967205: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Central Pillar",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 2.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.5, 4.0, 1.5),
+        ),
+      },
+    ),
+    4294967206: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Corner Pillar",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 1.5, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967207: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Corner Pillar",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 1.5, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967208: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Corner Pillar",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 1.5, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967209: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Corner Pillar",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 1.5, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967210: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_ecs::name::Name": "Bouncy Sphere 1",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Sphere,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (2.0, 0.4999731, 2.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967180: (
+    4294967211: (
       components: {
-        "bevy_ecs::name::Name": "Accent Light 3",
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_ecs::name::Name": "Bouncy Sphere 2",
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.8,
-            green: 1.0,
-            blue: 0.5,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Sphere,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.5, 3.0),
+          translation: (-2.0, 0.4999731, -2.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967181: (
+    4294967212: (
       components: {
-        "bevy_ecs::name::Name": "Accent Light 2",
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_ecs::name::Name": "Bouncy Sphere 3",
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.5,
-            blue: 0.8,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Sphere,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (-3.0, 0.5, 0.0),
+          translation: (0.0, 0.4999731, 3.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967182: (
+    4294967213: (
       components: {
-        "bevy_ecs::name::Name": "Accent Light 1",
+        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
+        "bevy_ecs::name::Name": "Falling Cube",
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.5,
-            green: 0.8,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (3.0, 0.5, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
+          translation: (-2.529221, 0.4999731, -0.090653814),
+          rotation: (0.000000022100238, 0.05301782, 0.0000000002139866, 0.99859357),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967183: (
-      components: {
-        "bevy_ecs::name::Name": "Purple Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.9,
-            green: 0.2,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 4.0, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967184: (
-      components: {
-        "bevy_ecs::name::Name": "Green Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.2,
-            green: 1.0,
-            blue: 0.3,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 4.0, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967185: (
-      components: {
-        "bevy_ecs::name::Name": "Blue Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.2,
-            green: 0.4,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 4.0, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967186: (
-      components: {
-        "bevy_ecs::name::Name": "Red Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.2,
-            blue: 0.2,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 4.0, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967187: (
+    4294967214: (
       components: {
         "bevy_ecs::name::Name": "Central Light",
         "bevy_modal_editor::scene::SceneEntity": (),
@@ -199,174 +196,297 @@
         ),
       },
     ),
-    4294967188: (
+    4294967215: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_ecs::name::Name": "Falling Cube",
+        "bevy_ecs::name::Name": "Red Light",
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cube,
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 0.2,
+            blue: 0.2,
+            alpha: 1.0,
+          )),
+          intensity: 30000.0,
+          range: 15.0,
+          shadows_enabled: true,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (-2.5292206, 0.49997303, -0.09065397),
-          rotation: (0.0000000038613406, 0.053017735, -0.000000031130362, 0.9985935),
+          translation: (-6.0, 4.0, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967189: (
+    4294967216: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_ecs::name::Name": "Bouncy Sphere 3",
+        "bevy_ecs::name::Name": "Blue Light",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.2,
+            green: 0.4,
+            blue: 1.0,
+            alpha: 1.0,
+          )),
+          intensity: 30000.0,
+          range: 15.0,
+          shadows_enabled: true,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-6.0, 4.0, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967217: (
+      components: {
+        "bevy_ecs::name::Name": "Green Light",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.2,
+            green: 1.0,
+            blue: 0.3,
+            alpha: 1.0,
+          )),
+          intensity: 30000.0,
+          range: 15.0,
+          shadows_enabled: true,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 4.0, -6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967218: (
+      components: {
+        "bevy_ecs::name::Name": "Purple Light",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.9,
+            green: 0.2,
+            blue: 1.0,
+            alpha: 1.0,
+          )),
+          intensity: 30000.0,
+          range: 15.0,
+          shadows_enabled: true,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.0, 4.0, 6.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967219: (
+      components: {
+        "bevy_ecs::name::Name": "Accent Light 1",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.5,
+            green: 0.8,
+            blue: 1.0,
+            alpha: 1.0,
+          )),
+          intensity: 10000.0,
+          range: 8.0,
+          shadows_enabled: false,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (3.0, 0.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967220: (
+      components: {
+        "bevy_ecs::name::Name": "Accent Light 2",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 0.5,
+            blue: 0.8,
+            alpha: 1.0,
+          )),
+          intensity: 10000.0,
+          range: 8.0,
+          shadows_enabled: false,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-3.0, 0.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967221: (
+      components: {
+        "bevy_ecs::name::Name": "Accent Light 3",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 0.8,
+            green: 1.0,
+            blue: 0.5,
+            alpha: 1.0,
+          )),
+          intensity: 10000.0,
+          range: 8.0,
+          shadows_enabled: false,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.5, 3.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967222: (
+      components: {
+        "bevy_ecs::name::Name": "Accent Light 4",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 0.8,
+            blue: 0.5,
+            alpha: 1.0,
+          )),
+          intensity: 10000.0,
+          range: 8.0,
+          shadows_enabled: false,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.5, -3.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    8589934487: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::hierarchy::ChildOf": (12884901789),
+        "bevy_ecs::name::Name": "Cylinder 1",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cylinder,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 1.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 2.0, 1.0),
+        ),
+      },
+    ),
+    8589934488: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::hierarchy::ChildOf": (12884901789),
+        "bevy_ecs::name::Name": "Sphere 3",
         "bevy_modal_editor::scene::SceneEntity": (),
         "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
           shape: Sphere,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.4999731, 3.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
+          translation: (0.20830822, 2.2743542, 0.49126357),
+          rotation: (0.4796018, 0.000000008728467, -0.20336357, 0.8535956),
+          scale: (0.19999993, 0.19999993, 0.19999993),
+        ),
+      },
+    ),
+    8589934489: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::hierarchy::ChildOf": (12884901789),
+        "bevy_ecs::name::Name": "Capsule 2",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Capsule,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.8538861, 1.3763847, 0.52046084),
+          rotation: (0.36817428, 0.000000021073424, -0.60369503, 0.70710677),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967190: (
+    8589934490: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_ecs::name::Name": "Bouncy Sphere 2",
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::hierarchy::ChildOf": (12884901789),
+        "bevy_ecs::name::Name": "Capsule 1",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Capsule,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-0.791132, 1.4665499, 0.6116463),
+          rotation: (0.43248418, -0.000000021073426, 0.55942607, 0.7071067),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    8589934491: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::hierarchy::ChildOf": (12884901789),
+        "bevy_ecs::name::Name": "Sphere 1",
         "bevy_modal_editor::scene::SceneEntity": (),
         "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
           shape: Sphere,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (-2.0, 0.4999731, -2.0),
+          translation: (0.0, 2.0000033, 0.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967191: (
+    8589934492: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_ecs::name::Name": "Bouncy Sphere 1",
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::hierarchy::ChildOf": (12884901789),
+        "bevy_ecs::name::Name": "Sphere 2",
         "bevy_modal_editor::scene::SceneEntity": (),
         "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
           shape: Sphere,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (2.0, 0.4999731, 2.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
+          translation: (-0.20217276, 2.2611852, 0.50090903),
+          rotation: (0.49274355, 0.000000008794947, 0.1988769, 0.8471433),
+          scale: (0.19999993, 0.19999993, 0.19999993),
         ),
       },
     ),
-    4294967192: (
+    12884901789: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 1.5, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967193: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 1.5, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967194: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 1.5, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967195: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 1.5, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967196: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Central Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 2.0, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.5, 4.0, 1.5),
-        ),
-      },
-    ),
-    4294967197: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Ground",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cube,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, -0.5, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (20.0, 1.0, 20.0),
-        ),
-      },
-    ),
-    12884901802: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
         "bevy_ecs::hierarchy::Children": ([
-          12884901803,
+          8589934488,
+          8589934492,
+          8589934489,
+          8589934490,
+          8589934491,
+          8589934487,
         ]),
-        "bevy_ecs::name::Name": "Duck",
+        "bevy_ecs::name::Name": "dude",
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::collider_constructor::RecursiveColliderConstructor": (
-          collider_type: ConvexDecomposition,
-        ),
-        "bevy_modal_editor::scene::gltf_source::GltfSource": (
-          path: "Duck.glb",
-          scene_index: 0,
+        "bevy_modal_editor::scene::primitives::GroupMarker": (),
+        "bevy_modal_editor::scene::scene_source::SceneSource": (
+          path: "/home/zach/src/bevy_modal_editor/dude.ron",
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (-3.0916595, -0.099671245, 3.424256),
-          rotation: (0.00035077217, 0.01383367, -0.00021481796, 0.9999042),
+          translation: (-5.360215, 0.5, -0.30319595),
+          rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
       },
