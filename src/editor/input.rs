@@ -17,6 +17,7 @@ impl Plugin for EditorInputPlugin {
             handle_mode_input,
             handle_group_shortcut,
             handle_preview_mode_shortcut,
+            handle_measurement_toggle,
         ));
     }
 }
@@ -222,5 +223,25 @@ fn handle_preview_mode_shortcut(
     // P to toggle preview mode
     if keyboard.just_pressed(KeyCode::KeyP) {
         preview_events.write(TogglePreviewModeEvent);
+    }
+}
+
+/// Handle M key to toggle distance measurements
+fn handle_measurement_toggle(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut editor_state: ResMut<EditorState>,
+    mut contexts: EguiContexts,
+) {
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+
+    // M to toggle measurements
+    if keyboard.just_pressed(KeyCode::KeyM) {
+        editor_state.measurements_visible = !editor_state.measurements_visible;
+        info!(
+            "Measurements: {}",
+            if editor_state.measurements_visible { "ON" } else { "OFF" }
+        );
     }
 }

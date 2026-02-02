@@ -78,6 +78,8 @@ pub struct EditorState {
     pub ui_enabled: bool,
     /// Whether gizmos are visible
     pub gizmos_visible: bool,
+    /// Whether distance measurements are visible (M to toggle)
+    pub measurements_visible: bool,
     /// Grid snap amount (0.0 = disabled)
     pub grid_snap: f32,
     /// Rotation snap in degrees (0.0 = disabled)
@@ -90,6 +92,7 @@ impl Default for EditorState {
             editor_active: true,
             ui_enabled: true,
             gizmos_visible: true,
+            measurements_visible: false,
             grid_snap: 0.0,
             rotation_snap: 0.0,
         }

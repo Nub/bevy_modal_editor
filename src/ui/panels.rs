@@ -150,19 +150,21 @@ fn draw_status_bar(
                     .color(colors::TEXT_MUTED),
                 );
 
-                // Distance measurement (when 2+ objects selected)
-                let positions: Vec<Vec3> = selected_query.iter().map(|t| t.translation()).collect();
-                if positions.len() >= 2 {
-                    ui.separator();
-                    // Calculate total distance for chain of selections
-                    let total_distance: f32 = positions
-                        .windows(2)
-                        .map(|w| w[0].distance(w[1]))
-                        .sum();
-                    ui.label(
-                        egui::RichText::new(format!("📏 {:.2}", total_distance))
-                            .color(colors::ACCENT_CYAN),
-                    );
+                // Distance measurement (when enabled and 2+ objects selected)
+                if editor_state.measurements_visible {
+                    let positions: Vec<Vec3> = selected_query.iter().map(|t| t.translation()).collect();
+                    if positions.len() >= 2 {
+                        ui.separator();
+                        // Calculate total distance for chain of selections
+                        let total_distance: f32 = positions
+                            .windows(2)
+                            .map(|w| w[0].distance(w[1]))
+                            .sum();
+                        ui.label(
+                            egui::RichText::new(format!("📏 {:.2}", total_distance))
+                                .color(colors::ACCENT_CYAN),
+                        );
+                    }
                 }
 
                 // Right-justified file info

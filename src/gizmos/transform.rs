@@ -170,7 +170,7 @@ fn draw_distance_measurements(
     selected: Query<&GlobalTransform, With<Selected>>,
     editor_state: Res<EditorState>,
 ) {
-    if !editor_state.gizmos_visible {
+    if !editor_state.gizmos_visible || !editor_state.measurements_visible {
         return;
     }
 
