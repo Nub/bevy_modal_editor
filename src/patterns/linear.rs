@@ -33,6 +33,7 @@ fn handle_linear_pattern(
             spawn_events.write(SpawnPrimitiveEvent {
                 shape: event.shape,
                 position,
+                rotation: Quat::IDENTITY,
             });
         }
 

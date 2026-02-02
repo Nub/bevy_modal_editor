@@ -83,12 +83,14 @@ impl PrimitiveShape {
 pub struct SpawnPrimitiveEvent {
     pub shape: PrimitiveShape,
     pub position: Vec3,
+    pub rotation: Quat,
 }
 
 /// Event to spawn an empty group
 #[derive(Message)]
 pub struct SpawnGroupEvent {
     pub position: Vec3,
+    pub rotation: Quat,
 }
 
 /// Event to parent selected entity to a target group
@@ -116,12 +118,14 @@ pub struct GroupSelectedEvent;
 #[derive(Message)]
 pub struct SpawnPointLightEvent {
     pub position: Vec3,
+    pub rotation: Quat,
 }
 
 /// Event to spawn a directional light (sun)
 #[derive(Message)]
 pub struct SpawnDirectionalLightEvent {
     pub position: Vec3,
+    pub rotation: Quat,
 }
 
 /// Component to track what primitive shape an entity is
@@ -193,8 +197,10 @@ fn handle_spawn_primitive(
             }
         };
 
-        // Select the newly spawned entity
-        commands.entity(new_entity).insert(Selected);
+        // Apply rotation and select the newly spawned entity
+        commands.entity(new_entity)
+            .insert(Selected)
+            .insert(Transform::from_translation(event.position).with_rotation(event.rotation));
     }
 }
 
@@ -348,7 +354,7 @@ fn handle_spawn_group(
             SceneEntity,
             GroupMarker,
             Name::new(name),
-            Transform::from_translation(event.position),
+            Transform::from_translation(event.position).with_rotation(event.rotation),
             Visibility::default(),
         )).id();
 
@@ -460,7 +466,7 @@ fn handle_spawn_point_light(
                 shadows_enabled: light_marker.shadows_enabled,
                 ..default()
             },
-            Transform::from_translation(event.position),
+            Transform::from_translation(event.position).with_rotation(event.rotation),
             Visibility::default(),
             // Collider for selection via raycasting
             Collider::sphere(LIGHT_COLLIDER_RADIUS),
@@ -496,7 +502,7 @@ fn handle_spawn_directional_light(
                 shadows_enabled: light_marker.shadows_enabled,
                 ..default()
             },
-            Transform::from_translation(event.position).looking_at(Vec3::ZERO, Vec3::Y),
+            Transform::from_translation(event.position).with_rotation(event.rotation),
             Visibility::default(),
             // Collider for selection via raycasting
             Collider::sphere(LIGHT_COLLIDER_RADIUS),

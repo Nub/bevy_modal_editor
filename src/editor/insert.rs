@@ -1,10 +1,11 @@
 use avian3d::prelude::*;
+use bevy::input::mouse::AccumulatedMouseScroll;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 
 use super::camera::EditorCamera;
-use super::state::{EditorMode, InsertObjectType, InsertPreview, InsertState, StartInsertEvent};
+use super::state::{EditorMode, EditorState, InsertObjectType, InsertPreview, InsertState, SnapSubMode, StartInsertEvent};
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::{
     GroupMarker, PrimitiveMarker, PrimitiveShape, SpawnDirectionalLightEvent, SpawnGroupEvent,
@@ -19,6 +20,7 @@ impl Plugin for InsertModePlugin {
             Update,
             (
                 handle_start_insert,
+                handle_insert_submode_keys,
                 update_preview_position,
                 handle_insert_click,
                 cleanup_on_mode_exit,
@@ -52,6 +54,54 @@ fn handle_start_insert(
 
         info!("Insert mode: placing {:?}", event.object_type);
     }
+}
+
+/// Handle scroll wheel to cycle snap sub-mode in Insert mode
+fn handle_insert_submode_keys(
+    scroll: Res<AccumulatedMouseScroll>,
+    editor_state: Res<EditorState>,
+    mut snap_submode: ResMut<SnapSubMode>,
+    mut contexts: EguiContexts,
+) {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return;
+    }
+
+    // Don't handle when UI wants pointer input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    let scroll_y = scroll.delta.y;
+    if scroll_y == 0.0 {
+        return;
+    }
+
+    // Scroll up = next mode, scroll down = previous mode
+    let new_mode = if scroll_y > 0.0 {
+        match *snap_submode {
+            SnapSubMode::Surface => SnapSubMode::Center,
+            SnapSubMode::Center => SnapSubMode::Aligned,
+            SnapSubMode::Aligned => SnapSubMode::Surface,
+        }
+    } else {
+        match *snap_submode {
+            SnapSubMode::Surface => SnapSubMode::Aligned,
+            SnapSubMode::Center => SnapSubMode::Surface,
+            SnapSubMode::Aligned => SnapSubMode::Center,
+        }
+    };
+
+    *snap_submode = new_mode;
+    let mode_name = match new_mode {
+        SnapSubMode::Surface => "Surface",
+        SnapSubMode::Center => "Center",
+        SnapSubMode::Aligned => "Aligned",
+    };
+    info!("Insert mode: {}", mode_name);
 }
 
 /// Create a preview entity for the given object type
@@ -142,9 +192,11 @@ pub fn spawn_preview_entity(
 /// Update the preview entity position based on camera raycast
 fn update_preview_position(
     insert_state: Res<InsertState>,
+    snap_submode: Res<SnapSubMode>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     spatial_query: SpatialQuery,
     mut preview_query: Query<&mut Transform, With<InsertPreview>>,
+    target_query: Query<(&Transform, Option<&Collider>), Without<InsertPreview>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
 ) {
     let Some(preview_entity) = insert_state.preview_entity else {
@@ -176,34 +228,140 @@ fn update_preview_position(
     // Cast ray against physics colliders (exclude preview entity)
     let filter = SpatialQueryFilter::default().with_excluded_entities([preview_entity]);
 
-    let position = if let Some(hit) = spatial_query.cast_ray(
+    let Some(hit) = spatial_query.cast_ray(
         ray.origin,
         ray.direction,
         100.0,
         true,
         &filter,
-    ) {
-        // Hit a surface - position on top of it
-        let hit_point = ray.origin + ray.direction * hit.distance;
-        let surface_normal = hit.normal;
-
-        // Calculate offset to place object on top of surface
-        let offset = get_object_offset(&insert_state, surface_normal);
-        hit_point + offset
-    } else {
+    ) else {
         // No hit - position at default distance from camera
-        ray.origin + ray.direction * insert_state.default_distance
+        preview_transform.translation = ray.origin + ray.direction * insert_state.default_distance;
+        preview_transform.rotation = Quat::IDENTITY;
+        return;
     };
 
-    preview_transform.translation = position;
+    let hit_point = ray.origin + ray.direction * hit.distance;
+    let surface_normal = hit.normal.normalize();
+
+    // Get preview object half-height for offset calculation
+    let half_height = get_object_half_height(&insert_state);
+
+    match *snap_submode {
+        SnapSubMode::Surface => {
+            // Surface mode: align Y axis with surface normal
+            let rotation = rotation_from_normal(surface_normal);
+            let position = hit_point + surface_normal * half_height;
+            preview_transform.translation = position;
+            preview_transform.rotation = rotation;
+        }
+        SnapSubMode::Center => {
+            // Center mode: align centers through AABBs (world-axis aligned)
+            let Ok((target_transform, target_collider)) = target_query.get(hit.entity) else {
+                // Fallback to surface mode
+                let position = hit_point + surface_normal * half_height;
+                preview_transform.translation = position;
+                return;
+            };
+
+            let target_half_extents = target_collider
+                .map(|c| c.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5)
+                .unwrap_or(Vec3::splat(0.5));
+
+            let target_center = target_transform.translation;
+
+            // Determine which axis the surface normal is most aligned with
+            let abs_normal = surface_normal.abs();
+            let (primary_axis, axis_idx) = if abs_normal.x >= abs_normal.y && abs_normal.x >= abs_normal.z {
+                (Vec3::X, 0)
+            } else if abs_normal.y >= abs_normal.x && abs_normal.y >= abs_normal.z {
+                (Vec3::Y, 1)
+            } else {
+                (Vec3::Z, 2)
+            };
+
+            let axis_offset = if surface_normal.dot(primary_axis) > 0.0 {
+                primary_axis
+            } else {
+                -primary_axis
+            };
+
+            let target_extent = match axis_idx {
+                0 => target_half_extents.x,
+                1 => target_half_extents.y,
+                _ => target_half_extents.z,
+            };
+
+            let position = target_center + axis_offset * (target_extent + half_height);
+            preview_transform.translation = position;
+            // Don't change rotation in center mode
+        }
+        SnapSubMode::Aligned => {
+            // Aligned mode: use target's rotation for off-axis objects
+            let Ok((target_transform, target_collider)) = target_query.get(hit.entity) else {
+                // Fallback to surface mode
+                let rotation = rotation_from_normal(surface_normal);
+                let position = hit_point + surface_normal * half_height;
+                preview_transform.translation = position;
+                preview_transform.rotation = rotation;
+                return;
+            };
+
+            let target_half_extents = target_collider
+                .map(|c| c.aabb(Vec3::ZERO, Quat::IDENTITY).size() * 0.5)
+                .unwrap_or(Vec3::splat(0.5));
+
+            let target_center = target_transform.translation;
+            let target_rotation = target_transform.rotation;
+
+            // Transform surface normal into target's local space
+            let local_normal = target_rotation.inverse() * surface_normal;
+
+            // Determine which local axis the surface normal is most aligned with
+            let abs_local_normal = local_normal.abs();
+            let (local_axis, axis_idx) = if abs_local_normal.x >= abs_local_normal.y && abs_local_normal.x >= abs_local_normal.z {
+                (Vec3::X, 0)
+            } else if abs_local_normal.y >= abs_local_normal.x && abs_local_normal.y >= abs_local_normal.z {
+                (Vec3::Y, 1)
+            } else {
+                (Vec3::Z, 2)
+            };
+
+            // Get the world-space direction for this local axis
+            let world_axis = target_rotation * local_axis;
+            let axis_sign = if local_normal.dot(local_axis) > 0.0 { 1.0 } else { -1.0 };
+
+            let target_extent = match axis_idx {
+                0 => target_half_extents.x,
+                1 => target_half_extents.y,
+                _ => target_half_extents.z,
+            };
+
+            let position = target_center + world_axis * axis_sign * (target_extent + half_height);
+            preview_transform.translation = position;
+            preview_transform.rotation = target_rotation;
+        }
+    }
 }
 
-/// Get the offset to position the object on top of a surface
-fn get_object_offset(insert_state: &InsertState, surface_normal: Vec3) -> Vec3 {
-    let normal = surface_normal;
+/// Calculate a rotation quaternion that aligns the local Y axis with the given normal
+fn rotation_from_normal(normal: Vec3) -> Quat {
+    let up = Vec3::Y;
 
-    // Default half-height for objects
-    let half_height = match insert_state.object_type {
+    if normal.dot(up).abs() > 0.999 {
+        if normal.y > 0.0 {
+            Quat::IDENTITY
+        } else {
+            Quat::from_rotation_x(std::f32::consts::PI)
+        }
+    } else {
+        Quat::from_rotation_arc(up, normal)
+    }
+}
+
+/// Get the half-height of the object being inserted (for offset calculation)
+fn get_object_half_height(insert_state: &InsertState) -> f32 {
+    match insert_state.object_type {
         Some(InsertObjectType::Primitive(shape)) => match shape {
             PrimitiveShape::Cube => 0.5,
             PrimitiveShape::Sphere => 0.5,
@@ -215,10 +373,7 @@ fn get_object_offset(insert_state: &InsertState, surface_normal: Vec3) -> Vec3 {
         Some(InsertObjectType::DirectionalLight) => 0.5,
         Some(InsertObjectType::Group) => 0.25,
         None => 0.5,
-    };
-
-    // Offset along surface normal
-    normal * half_height
+    }
 }
 
 /// Handle click to confirm placement
@@ -262,6 +417,7 @@ fn handle_insert_click(
     };
 
     let position = preview_transform.translation;
+    let rotation = preview_transform.rotation;
 
     // Take snapshot before inserting
     let object_name = match object_type {
@@ -277,16 +433,16 @@ fn handle_insert_click(
     // Spawn the actual object
     match object_type {
         InsertObjectType::Primitive(shape) => {
-            spawn_primitive_events.write(SpawnPrimitiveEvent { shape, position });
+            spawn_primitive_events.write(SpawnPrimitiveEvent { shape, position, rotation });
         }
         InsertObjectType::PointLight => {
-            spawn_light_events.write(SpawnPointLightEvent { position });
+            spawn_light_events.write(SpawnPointLightEvent { position, rotation });
         }
         InsertObjectType::DirectionalLight => {
-            spawn_directional_light_events.write(SpawnDirectionalLightEvent { position });
+            spawn_directional_light_events.write(SpawnDirectionalLightEvent { position, rotation });
         }
         InsertObjectType::Group => {
-            spawn_group_events.write(SpawnGroupEvent { position });
+            spawn_group_events.write(SpawnGroupEvent { position, rotation });
         }
     }
 

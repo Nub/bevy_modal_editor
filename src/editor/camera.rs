@@ -2,7 +2,7 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
-use super::{EditorMode, EditorState};
+use super::{EditorMode, EditorState, TransformOperation};
 use crate::selection::Selected;
 use crate::ui::Settings;
 
@@ -237,9 +237,21 @@ fn camera_movement(
 /// Handle scroll wheel to adjust FOV / switch to orthographic
 fn camera_zoom(
     scroll: Res<AccumulatedMouseScroll>,
+    mode: Res<State<EditorMode>>,
+    transform_op: Res<TransformOperation>,
     mut query: Query<(&mut FlyCamera, &mut Projection), With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
+    // Don't zoom in Insert mode (scroll used for sub-mode selection)
+    if *mode.get() == EditorMode::Insert {
+        return;
+    }
+
+    // Don't zoom in Edit mode with SnapToObject (scroll used for sub-mode selection)
+    if *mode.get() == EditorMode::Edit && *transform_op == TransformOperation::SnapToObject {
+        return;
+    }
+
     // Don't zoom when UI wants pointer input
     if let Ok(ctx) = contexts.ctx_mut() {
         if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {

@@ -99,6 +99,7 @@ fn handle_duplicate_selected(
                 spawn_events.write(SpawnPrimitiveEvent {
                     shape: primitive.shape,
                     position: transform.translation + offset,
+                    rotation: transform.rotation,
                 });
             }
         }

@@ -264,26 +264,33 @@ fn get_hints_for_mode(
                 ],
                 TransformOperation::SnapToObject => {
                     let submode_hint = match snap_submode {
-                        SnapSubMode::Surface => ("A", "Surface"),
-                        SnapSubMode::Center => ("S", "Center"),
-                        SnapSubMode::Aligned => ("D", "Aligned"),
+                        SnapSubMode::Surface => ("●", "Surface"),
+                        SnapSubMode::Center => ("●", "Center"),
+                        SnapSubMode::Aligned => ("●", "Aligned"),
                     };
                     vec![
                         submode_hint,
-                        ("A/S/D", "Mode"),
+                        ("Scroll", "Mode"),
                         ("Click", "Confirm"),
                         ("Esc", "Cancel"),
                     ]
                 }
             }
         }
-        EditorMode::Insert => vec![
-            ("Type", "Search"),
-            ("Enter", "Select"),
-            ("Click", "Place"),
-            ("Shift+Click", "Multi"),
-            ("Esc", "Cancel"),
-        ],
+        EditorMode::Insert => {
+            let submode_hint = match snap_submode {
+                SnapSubMode::Surface => ("●", "Surface"),
+                SnapSubMode::Center => ("●", "Center"),
+                SnapSubMode::Aligned => ("●", "Aligned"),
+            };
+            vec![
+                submode_hint,
+                ("Scroll", "Mode"),
+                ("Click", "Place"),
+                ("Shift+Click", "Multi"),
+                ("Esc", "Cancel"),
+            ]
+        }
         EditorMode::ObjectInspector => vec![
             ("/", "Search"),
             ("I", "Add component"),

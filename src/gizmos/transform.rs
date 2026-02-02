@@ -1,5 +1,5 @@
 use avian3d::prelude::{Collider, SimpleCollider, Sleeping, SleepingDisabled, SpatialQuery, SpatialQueryFilter};
-use bevy::input::mouse::AccumulatedMouseMotion;
+use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
@@ -152,9 +152,9 @@ fn handle_axis_keys(
     }
 }
 
-/// Handle A/S keys to select snap sub-mode in SnapToObject mode
+/// Handle scroll wheel to cycle snap sub-mode in SnapToObject mode
 fn handle_snap_submode_keys(
-    keyboard: Res<ButtonInput<KeyCode>>,
+    scroll: Res<AccumulatedMouseScroll>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
     editor_state: Res<EditorState>,
@@ -171,26 +171,40 @@ fn handle_snap_submode_keys(
         return;
     }
 
-    // Don't handle when UI wants keyboard input
+    // Don't handle when UI wants pointer input
     if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
             return;
         }
     }
 
-    // A = Surface alignment, S = Center alignment, D = Aligned (rotated)
-    if keyboard.just_pressed(KeyCode::KeyA) {
-        *snap_submode = SnapSubMode::Surface;
-        info!("Snap mode: Surface alignment");
+    let scroll_y = scroll.delta.y;
+    if scroll_y == 0.0 {
+        return;
     }
-    if keyboard.just_pressed(KeyCode::KeyS) {
-        *snap_submode = SnapSubMode::Center;
-        info!("Snap mode: Center alignment");
-    }
-    if keyboard.just_pressed(KeyCode::KeyD) {
-        *snap_submode = SnapSubMode::Aligned;
-        info!("Snap mode: Aligned (rotated)");
-    }
+
+    // Scroll up = next mode, scroll down = previous mode
+    let new_mode = if scroll_y > 0.0 {
+        match *snap_submode {
+            SnapSubMode::Surface => SnapSubMode::Center,
+            SnapSubMode::Center => SnapSubMode::Aligned,
+            SnapSubMode::Aligned => SnapSubMode::Surface,
+        }
+    } else {
+        match *snap_submode {
+            SnapSubMode::Surface => SnapSubMode::Aligned,
+            SnapSubMode::Center => SnapSubMode::Surface,
+            SnapSubMode::Aligned => SnapSubMode::Center,
+        }
+    };
+
+    *snap_submode = new_mode;
+    let mode_name = match new_mode {
+        SnapSubMode::Surface => "Surface",
+        SnapSubMode::Center => "Center",
+        SnapSubMode::Aligned => "Aligned",
+    };
+    info!("Snap mode: {}", mode_name);
 }
 
 /// Handle J/K keys to decrease/increase transform values by step amount

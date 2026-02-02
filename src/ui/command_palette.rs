@@ -775,16 +775,19 @@ fn draw_command_palette(
                     events.spawn_primitive.write(SpawnPrimitiveEvent {
                         shape,
                         position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
                     });
                 }
                 CommandAction::SpawnPointLight => {
                     events.spawn_light.write(SpawnPointLightEvent {
                         position: Vec3::new(0.0, 3.0, 0.0),
+                        rotation: Quat::IDENTITY,
                     });
                 }
                 CommandAction::SpawnDirectionalLight => {
                     events.spawn_directional_light.write(SpawnDirectionalLightEvent {
                         position: Vec3::new(4.0, 8.0, 4.0),
+                        rotation: Quat::IDENTITY,
                     });
                 }
                 CommandAction::SetCameraMark(name) => {
@@ -828,6 +831,7 @@ fn draw_command_palette(
                 CommandAction::SpawnGroup => {
                     events.spawn_group.write(SpawnGroupEvent {
                         position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
                     });
                 }
                 CommandAction::UnparentSelected => {
