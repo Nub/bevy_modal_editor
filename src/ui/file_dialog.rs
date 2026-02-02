@@ -1,11 +1,29 @@
 use std::path::PathBuf;
 
 use bevy::prelude::*;
+use bevy_egui::egui::Align2;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass};
 use egui_file_dialog::FileDialog;
 
 use crate::editor::{EditorMode, EditorState, InsertObjectType, InsertState, StartInsertEvent};
 use crate::scene::{LoadSceneEvent, SaveSceneEvent};
+
+/// Create a centered file dialog with common settings
+fn create_centered_dialog() -> FileDialog {
+    FileDialog::new()
+        .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
+        .default_size([600.0, 400.0])
+}
+
+/// File extensions for scene files
+fn scene_extensions() -> Vec<&'static str> {
+    vec!["ron"]
+}
+
+/// File extensions for GLTF/GLB models
+fn gltf_extensions() -> Vec<&'static str> {
+    vec!["gltf", "glb"]
+}
 
 /// The type of file operation being performed
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -38,51 +56,63 @@ impl Default for FileDialogState {
 impl FileDialogState {
     /// Open the file dialog for loading a scene
     pub fn open_load_scene(&mut self, current_path: Option<&str>) {
-        // Create a new dialog configured with the current path
+        self.dialog = create_centered_dialog()
+            .add_file_filter_extensions("Scene files", scene_extensions())
+            .default_file_filter("Scene files");
+
         if let Some(path) = current_path {
-            self.dialog = FileDialog::new().initial_directory(PathBuf::from(path));
-        } else {
-            self.dialog = FileDialog::new();
+            self.dialog = std::mem::take(&mut self.dialog).initial_directory(PathBuf::from(path));
         }
+
         self.dialog.pick_file();
         self.operation = Some(FileDialogOperation::LoadScene);
     }
 
     /// Open the file dialog for saving a scene
     pub fn open_save_scene(&mut self, current_path: Option<&str>) {
-        // Create a new dialog configured with the current path and filename
+        self.dialog = create_centered_dialog()
+            .add_file_filter_extensions("Scene files", scene_extensions())
+            .default_file_filter("Scene files")
+            .default_file_name("scene.ron");
+
         if let Some(path) = current_path {
             let path_buf = PathBuf::from(path);
             let file_name = path_buf
                 .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or("scene.ron");
-            self.dialog = FileDialog::new()
-                .initial_directory(path_buf.clone())
-                .default_file_name(file_name);
-        } else {
-            self.dialog = FileDialog::new().default_file_name("scene.ron");
+                .unwrap_or("scene.ron")
+                .to_string();
+            self.dialog = std::mem::take(&mut self.dialog)
+                .initial_directory(path_buf)
+                .default_file_name(&file_name);
         }
+
         self.dialog.save_file();
         self.operation = Some(FileDialogOperation::SaveScene);
     }
 
     /// Open the file dialog for picking a GLTF file to insert
     pub fn open_insert_gltf(&mut self) {
+        self.dialog = create_centered_dialog()
+            .add_file_filter_extensions("GLTF models", gltf_extensions())
+            .default_file_filter("GLTF models");
+
         // Start in the assets directory if it exists
         let assets_dir = PathBuf::from("assets");
         if assets_dir.exists() {
-            self.dialog = FileDialog::new().initial_directory(assets_dir);
-        } else {
-            self.dialog = FileDialog::new();
+            self.dialog = std::mem::take(&mut self.dialog).initial_directory(assets_dir);
         }
+
         self.dialog.pick_file();
         self.operation = Some(FileDialogOperation::InsertGltf);
     }
 
     /// Open the file dialog for picking a RON scene file to insert
     pub fn open_insert_scene(&mut self) {
-        self.dialog = FileDialog::new();
+        self.dialog = create_centered_dialog()
+            .add_file_filter_extensions("Scene files", scene_extensions())
+            .default_file_filter("Scene files");
+
         self.dialog.pick_file();
         self.operation = Some(FileDialogOperation::InsertScene);
     }
