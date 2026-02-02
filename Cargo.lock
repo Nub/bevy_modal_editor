@@ -1159,6 +1159,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ef8e4b7e61dfe7719bb03c884dc270cd46a82efb40f93e9933b990c5c190c59"
 
 [[package]]
+name = "bevy_mod_outline"
+version = "0.11.0"
+source = "git+https://github.com/LesserKnownThings/bevy_mod_outline?branch=master#531d8cff46fae8b5d5acc008dd4860dd0a42489a"
+dependencies = [
+ "bevy",
+ "bitfield",
+ "interpolation",
+ "itertools 0.14.0",
+ "nonmax",
+ "thiserror 2.0.18",
+ "wgpu",
+]
+
+[[package]]
 name = "bevy_modal_editor"
 version = "0.1.0"
 dependencies = [
@@ -1166,6 +1180,7 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "bevy_infinite_grid",
+ "bevy_mod_outline",
  "dirs",
  "fuzzy-matcher",
  "ron 0.8.1",
@@ -1765,6 +1780,26 @@ name = "bit-vec"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e764a1d40d510daf35e07be9eb06e75770908c27d411ee6c92109c9840eaaf7"
+
+[[package]]
+name = "bitfield"
+version = "0.19.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "21ba6517c6b0f2bf08be60e187ab64b038438f22dd755614d8fe4d4098c46419"
+dependencies = [
+ "bitfield-macros",
+]
+
+[[package]]
+name = "bitfield-macros"
+version = "0.19.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f48d6ace212fdf1b45fd6b566bb40808415344642b76c3224c07c8df9da81e97"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "bitflags"
@@ -3366,6 +3401,12 @@ checksum = "e05c02b5e89bff3b946cedeca278abc628fe811e604f027c45a8aa3cf793d0eb"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "interpolation"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9c13ae9d91148fcb4aab6654c4c2a7d02a15395ea9e23f65170f175f8b269ce"
 
 [[package]]
 name = "inventory"
@@ -5905,12 +5946,14 @@ dependencies = [
  "js-sys",
  "log",
  "naga",
+ "parking_lot",
  "portable-atomic",
  "profiling",
  "raw-window-handle",
  "smallvec",
  "static_assertions",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
  "wgpu-core",
  "wgpu-hal",
@@ -5943,6 +5986,7 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.18",
  "wgpu-core-deps-apple",
+ "wgpu-core-deps-emscripten",
  "wgpu-core-deps-wasm",
  "wgpu-core-deps-windows-linux-android",
  "wgpu-hal",
@@ -5954,6 +5998,15 @@ name = "wgpu-core-deps-apple"
 version = "27.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0772ae958e9be0c729561d5e3fd9a19679bcdfb945b8b1a1969d9bfe8056d233"
+dependencies = [
+ "wgpu-hal",
+]
+
+[[package]]
+name = "wgpu-core-deps-emscripten"
+version = "27.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b06ac3444a95b0813ecfd81ddb2774b66220b264b3e2031152a4a29fda4da6b5"
 dependencies = [
  "wgpu-hal",
 ]
