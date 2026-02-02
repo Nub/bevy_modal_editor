@@ -92,13 +92,15 @@ fn handle_insert_submode_keys(
         match *snap_submode {
             SnapSubMode::Surface => SnapSubMode::Center,
             SnapSubMode::Center => SnapSubMode::Aligned,
-            SnapSubMode::Aligned => SnapSubMode::Surface,
+            SnapSubMode::Aligned => SnapSubMode::Vertex,
+            SnapSubMode::Vertex => SnapSubMode::Surface,
         }
     } else {
         match *snap_submode {
-            SnapSubMode::Surface => SnapSubMode::Aligned,
+            SnapSubMode::Surface => SnapSubMode::Vertex,
             SnapSubMode::Center => SnapSubMode::Surface,
             SnapSubMode::Aligned => SnapSubMode::Center,
+            SnapSubMode::Vertex => SnapSubMode::Aligned,
         }
     };
 
@@ -107,6 +109,7 @@ fn handle_insert_submode_keys(
         SnapSubMode::Surface => "Surface",
         SnapSubMode::Center => "Center",
         SnapSubMode::Aligned => "Aligned",
+        SnapSubMode::Vertex => "Vertex",
     };
     info!("Insert mode: {}", mode_name);
 }
@@ -408,6 +411,12 @@ fn update_preview_position(
             let position = target_center + world_axis * axis_sign * (target_extent + half_height);
             preview_transform.translation = position;
             preview_transform.rotation = target_rotation;
+        }
+        SnapSubMode::Vertex => {
+            // Vertex mode: snap to exact hit point (vertex snapping simplified)
+            // This places the object center at the hit point
+            preview_transform.translation = hit_point;
+            // Keep current rotation in vertex mode
         }
     }
 }

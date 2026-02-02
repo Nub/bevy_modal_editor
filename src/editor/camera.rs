@@ -1,3 +1,4 @@
+use avian3d::prelude::*;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
@@ -18,8 +19,10 @@ const ORTHO_SCALE: f32 = 10.0;
 
 pub struct EditorCameraPlugin;
 
-/// Distance from target when looking at an object
-const LOOK_AT_DISTANCE: f32 = 25.0;
+/// Minimum distance from target when framing objects
+const MIN_FRAME_DISTANCE: f32 = 5.0;
+/// Padding multiplier for framing (1.5 = 50% extra space around objects)
+const FRAME_PADDING: f32 = 1.5;
 
 impl Plugin for EditorCameraPlugin {
     fn build(&self, app: &mut App) {
@@ -304,12 +307,12 @@ fn handle_camera_preset(
     }
 }
 
-/// Look at the currently selected object when L is pressed
+/// Focus/frame the camera on selected objects when L is pressed
 fn look_at_selected(
     keyboard: Res<ButtonInput<KeyCode>>,
     editor_state: Res<EditorState>,
-    selected_query: Query<&Transform, (With<Selected>, Without<EditorCamera>)>,
-    mut camera_query: Query<(&mut FlyCamera, &mut Transform), With<EditorCamera>>,
+    selected_query: Query<(&Transform, Option<&Collider>), (With<Selected>, Without<EditorCamera>)>,
+    mut camera_query: Query<(&mut FlyCamera, &mut Transform, &Projection), With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
     if !should_process_input(&editor_state, &mut contexts) {
@@ -320,19 +323,61 @@ fn look_at_selected(
         return;
     }
 
-    // Get the selected entity's position
-    let Ok(selected_transform) = selected_query.single() else {
-        return;
-    };
-    let target = selected_transform.translation;
+    // Calculate bounding box of all selected objects
+    let mut min_bounds = Vec3::splat(f32::MAX);
+    let mut max_bounds = Vec3::splat(f32::MIN);
+    let mut count = 0;
 
-    for (mut fly_cam, mut camera_transform) in &mut camera_query {
+    for (transform, collider) in &selected_query {
+        count += 1;
+        let pos = transform.translation;
+
+        // Get object half-extents from collider or use default
+        let half_extents = collider
+            .map(|c| {
+                let aabb = c.aabb(pos, transform.rotation);
+                let min: Vec3 = aabb.min.into();
+                let max: Vec3 = aabb.max.into();
+                (max - min) * 0.5
+            })
+            .unwrap_or(Vec3::splat(0.5));
+
+        min_bounds = min_bounds.min(pos - half_extents);
+        max_bounds = max_bounds.max(pos + half_extents);
+    }
+
+    if count == 0 {
+        return;
+    }
+
+    // Calculate center and size of bounding box
+    let center = (min_bounds + max_bounds) * 0.5;
+    let size = max_bounds - min_bounds;
+    let max_extent = size.max_element().max(1.0);
+
+    for (mut fly_cam, mut camera_transform, projection) in &mut camera_query {
+        // Calculate distance based on FOV and bounding box size
+        let distance = match projection {
+            Projection::Perspective(persp) => {
+                let fov = persp.fov;
+                let half_fov = fov * 0.5;
+                // Distance needed to fit the object
+                (max_extent * FRAME_PADDING) / half_fov.tan()
+            }
+            Projection::Orthographic(_) | Projection::Custom(_) => {
+                // For ortho or custom, use a fixed multiplier
+                max_extent * FRAME_PADDING * 2.0
+            }
+        };
+
+        let distance = distance.max(MIN_FRAME_DISTANCE);
+
         // 3/4 view offset: diagonal from above
-        let offset = Vec3::new(1.0, 0.7, 1.0).normalize() * LOOK_AT_DISTANCE;
-        let new_pos = target + offset;
+        let offset = Vec3::new(1.0, 0.7, 1.0).normalize() * distance;
+        let new_pos = center + offset;
 
         camera_transform.translation = new_pos;
-        camera_transform.look_at(target, Vec3::Y);
+        camera_transform.look_at(center, Vec3::Y);
 
         // Extract yaw and pitch from the resulting rotation
         let (yaw, pitch, _) = camera_transform.rotation.to_euler(EulerRot::YXZ);

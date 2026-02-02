@@ -6,6 +6,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use crate::commands::SnapshotHistory;
 use crate::editor::{AxisConstraint, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::scene::SceneFile;
+use crate::selection::Selected;
 use crate::ui::theme::{colors, popup_frame};
 use crate::ui::Settings;
 
@@ -27,6 +28,7 @@ fn draw_status_bar(
     scene_file: Res<SceneFile>,
     physics_time: Res<Time<Physics>>,
     snapshot_history: Res<SnapshotHistory>,
+    selected_query: Query<&GlobalTransform, With<Selected>>,
 ) -> Result {
     // Don't draw UI when editor is disabled
     if !editor_state.ui_enabled {
@@ -148,6 +150,21 @@ fn draw_status_bar(
                     .color(colors::TEXT_MUTED),
                 );
 
+                // Distance measurement (when 2+ objects selected)
+                let positions: Vec<Vec3> = selected_query.iter().map(|t| t.translation()).collect();
+                if positions.len() >= 2 {
+                    ui.separator();
+                    // Calculate total distance for chain of selections
+                    let total_distance: f32 = positions
+                        .windows(2)
+                        .map(|w| w[0].distance(w[1]))
+                        .sum();
+                    ui.label(
+                        egui::RichText::new(format!("📏 {:.2}", total_distance))
+                            .color(colors::ACCENT_CYAN),
+                    );
+                }
+
                 // Right-justified file info
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Modified indicator (appears first due to RTL layout)
@@ -267,6 +284,7 @@ fn get_hints_for_mode(
                         SnapSubMode::Surface => ("●", "Surface"),
                         SnapSubMode::Center => ("●", "Center"),
                         SnapSubMode::Aligned => ("●", "Aligned"),
+                        SnapSubMode::Vertex => ("●", "Vertex"),
                     };
                     vec![
                         submode_hint,
@@ -282,6 +300,7 @@ fn get_hints_for_mode(
                 SnapSubMode::Surface => ("●", "Surface"),
                 SnapSubMode::Center => ("●", "Center"),
                 SnapSubMode::Aligned => ("●", "Aligned"),
+                SnapSubMode::Vertex => ("●", "Vertex"),
             };
             vec![
                 submode_hint,

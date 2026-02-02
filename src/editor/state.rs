@@ -64,6 +64,8 @@ pub enum SnapSubMode {
     Center,
     /// Align using target's rotation - combines surface + center for off-axis objects (D key)
     Aligned,
+    /// Snap to nearest vertex of target mesh (F key)
+    Vertex,
 }
 
 /// Editor-wide state resource

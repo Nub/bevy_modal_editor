@@ -104,6 +104,7 @@ fn draw_edit_info_window(
                             SnapSubMode::Surface => "A:Surface",
                             SnapSubMode::Center => "S:Center",
                             SnapSubMode::Aligned => "D:Aligned",
+                            SnapSubMode::Vertex => "F:Vertex",
                         };
                         ui.label(egui::RichText::new(submode_text).color(colors::ACCENT_BLUE));
                         ui.label(egui::RichText::new("Click to snap").color(colors::TEXT_MUTED));

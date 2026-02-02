@@ -47,6 +47,7 @@ impl Plugin for TransformGizmoPlugin {
             Update,
             (
                 draw_selection_gizmos,
+                draw_distance_measurements,
                 handle_axis_keys,
                 handle_snap_submode_keys,
                 handle_step_keys,
@@ -163,6 +164,66 @@ struct Aabb {
     max: Vec3,
 }
 
+/// Draw distance measurements between selected objects
+fn draw_distance_measurements(
+    mut gizmos: Gizmos,
+    selected: Query<&GlobalTransform, With<Selected>>,
+    editor_state: Res<EditorState>,
+) {
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
+    // Collect positions of all selected entities
+    let positions: Vec<Vec3> = selected.iter().map(|t| t.translation()).collect();
+
+    // Only show measurements when 2 or more objects are selected
+    if positions.len() < 2 {
+        return;
+    }
+
+    // Draw distance lines between consecutive pairs (for simplicity)
+    // For 2 objects: show distance between them
+    // For 3+ objects: show distances forming a chain
+    for i in 0..positions.len() - 1 {
+        let start = positions[i];
+        let end = positions[i + 1];
+        let distance = start.distance(end);
+        let midpoint = (start + end) * 0.5;
+
+        // Draw a dashed line between objects
+        let direction = (end - start).normalize_or_zero();
+        let segments = 10;
+        let segment_len = distance / segments as f32;
+
+        for j in 0..segments {
+            if j % 2 == 0 {
+                let seg_start = start + direction * (j as f32 * segment_len);
+                let seg_end = start + direction * ((j as f32 + 0.8) * segment_len);
+                gizmos.line(seg_start, seg_end, Color::srgba(1.0, 1.0, 0.0, 0.7));
+            }
+        }
+
+        // Draw small spheres at endpoints
+        gizmos.sphere(Isometry3d::from_translation(start), 0.05, Color::srgba(1.0, 1.0, 0.0, 0.9));
+        gizmos.sphere(Isometry3d::from_translation(end), 0.05, Color::srgba(1.0, 1.0, 0.0, 0.9));
+
+        // Draw distance text indicator at midpoint (as a small cross)
+        let text_size = 0.15;
+        gizmos.line(
+            midpoint - Vec3::X * text_size,
+            midpoint + Vec3::X * text_size,
+            Color::srgba(1.0, 1.0, 0.0, 1.0),
+        );
+        gizmos.line(
+            midpoint - Vec3::Z * text_size,
+            midpoint + Vec3::Z * text_size,
+            Color::srgba(1.0, 1.0, 0.0, 1.0),
+        );
+
+    }
+}
+
 /// Handle A/S/D keys to select X/Y/Z axis constraint in Edit mode
 /// (A/S are handled separately in SnapToObject mode)
 fn handle_axis_keys(
@@ -250,13 +311,15 @@ fn handle_snap_submode_keys(
         match *snap_submode {
             SnapSubMode::Surface => SnapSubMode::Center,
             SnapSubMode::Center => SnapSubMode::Aligned,
-            SnapSubMode::Aligned => SnapSubMode::Surface,
+            SnapSubMode::Aligned => SnapSubMode::Vertex,
+            SnapSubMode::Vertex => SnapSubMode::Surface,
         }
     } else {
         match *snap_submode {
-            SnapSubMode::Surface => SnapSubMode::Aligned,
+            SnapSubMode::Surface => SnapSubMode::Vertex,
             SnapSubMode::Center => SnapSubMode::Surface,
             SnapSubMode::Aligned => SnapSubMode::Center,
+            SnapSubMode::Vertex => SnapSubMode::Aligned,
         }
     };
 
@@ -265,6 +328,7 @@ fn handle_snap_submode_keys(
         SnapSubMode::Surface => "Surface",
         SnapSubMode::Center => "Center",
         SnapSubMode::Aligned => "Aligned",
+        SnapSubMode::Vertex => "Vertex",
     };
     info!("Snap mode: {}", mode_name);
 }
@@ -1103,6 +1167,29 @@ fn handle_snap_to_object_mode(
                 transform.translation = new_pos;
                 // Match target's rotation
                 transform.rotation = target_rotation;
+            }
+        }
+        SnapSubMode::Vertex => {
+            // Vertex mode: snap to nearest vertex of target mesh
+            // For now, snap to the hit point (vertex snapping requires mesh data access)
+            // This is a simplified implementation - just snap to the exact hit point
+            let position = hit_point;
+
+            // Apply to all selected entities
+            if selected.iter().count() == 1 {
+                for (_, mut transform, _) in selected.iter_mut() {
+                    transform.translation = position;
+                    // Keep current rotation in vertex mode
+                }
+            } else {
+                let center: Vec3 = selected.iter().map(|(_, t, _)| t.translation).sum::<Vec3>()
+                    / selected.iter().count() as f32;
+                let offset = position - center;
+
+                for (_, mut transform, _) in selected.iter_mut() {
+                    transform.translation += offset;
+                    // Keep current rotation
+                }
             }
         }
     }
