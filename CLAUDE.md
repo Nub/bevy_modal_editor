@@ -41,6 +41,7 @@ The editor uses vim-like modal editing (`src/editor/state.rs`):
   - `sizes` - Default dimension constants
 
 - **utils** (`src/utils.rs`) - Shared utility functions
+  - `should_process_input()` - Check if editor input should be handled (guards against disabled editor or UI focus)
   - `get_half_height_along_normal()` - Calculate object height for surface placement
   - `rotation_from_normal()` - Create rotation quaternion from surface normal
 
@@ -78,6 +79,7 @@ The `EditorPlugin` composes these sub-plugins:
 - **patterns/** - Pattern-based entity duplication
   - `LinearPatternPlugin` - Linear array spawning
   - `CircularPatternPlugin` - Circular array spawning
+  - `spawn_pattern()` helper and `PatternPosition` struct for shared spawning logic
 
 - **ui/** - egui-based interface
   - `PanelsPlugin` - Main panel layout
@@ -118,8 +120,31 @@ events.spawn_entity.write(SpawnEntityEvent {
 
 `PrimitiveShape` provides factory methods:
 - `create_mesh()` - Returns the mesh for this shape
+- `create_material()` - Returns a StandardMaterial with the shape's default color
 - `create_collider()` - Returns the physics collider
 - `default_color()` - Returns the standard color from `constants::primitive_colors`
+
+### Pattern Generation
+
+Use `spawn_pattern()` helper with pattern events that implement position generation:
+
+```rust
+// Linear pattern generates positions along a line
+let event = LinearPatternEvent { shape, start, direction, spacing, count };
+spawn_pattern(&mut spawn_events, event.shape, event.generate_positions());
+
+// Circular pattern generates positions around an axis
+let event = CircularPatternEvent { shape, center, radius, count, axis };
+spawn_pattern(&mut spawn_events, event.shape, event.generate_positions());
+```
+
+### Scene Snapshots
+
+Use `build_editor_scene()` for consistent scene building (single source of truth for serializable components):
+
+```rust
+let scene = build_editor_scene(world, entity_ids.into_iter());
+```
 
 ### Entity Markers
 
