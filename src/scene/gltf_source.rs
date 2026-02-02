@@ -1,7 +1,10 @@
+use avian3d::prelude::*;
 use bevy::gltf::GltfAssetLabel;
 use bevy::prelude::*;
 use bevy::scene::SceneRoot;
 use serde::{Deserialize, Serialize};
+
+use super::SceneEntity;
 
 /// Component that specifies a GLTF/GLB file to load as children of this entity.
 /// The path is relative to the assets folder.
@@ -12,6 +15,17 @@ pub struct GltfSource {
     pub path: String,
     /// Which scene index to load (defaults to 0)
     pub scene_index: usize,
+}
+
+/// Event to spawn a GLTF object in the scene
+#[derive(Message)]
+pub struct SpawnGltfEvent {
+    /// Path to the GLTF/GLB file (relative to assets folder)
+    pub path: String,
+    /// Position to spawn at
+    pub position: Vec3,
+    /// Rotation to spawn with
+    pub rotation: Quat,
 }
 
 /// Marker component for the child entity that holds the loaded GLTF scene
@@ -30,7 +44,38 @@ pub struct GltfSourcePlugin;
 impl Plugin for GltfSourcePlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<GltfSource>()
-            .add_systems(Update, (load_gltf_sources, cleanup_gltf_on_remove));
+            .add_message::<SpawnGltfEvent>()
+            .add_systems(Update, (load_gltf_sources, cleanup_gltf_on_remove, handle_spawn_gltf));
+    }
+}
+
+/// Handle spawning GLTF objects
+fn handle_spawn_gltf(
+    mut commands: Commands,
+    mut events: MessageReader<SpawnGltfEvent>,
+) {
+    for event in events.read() {
+        // Extract filename for the entity name
+        let name = event.path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&event.path)
+            .trim_end_matches(".gltf")
+            .trim_end_matches(".glb")
+            .to_string();
+
+        commands.spawn((
+            SceneEntity,
+            Name::new(name),
+            GltfSource {
+                path: event.path.clone(),
+                scene_index: 0,
+            },
+            Transform::from_translation(event.position).with_rotation(event.rotation),
+            RigidBody::Static,
+        ));
+
+        info!("Spawned GLTF object: {}", event.path);
     }
 }
 

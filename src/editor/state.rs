@@ -122,6 +122,8 @@ pub enum InsertObjectType {
     PointLight,
     DirectionalLight,
     Group,
+    /// GLTF/GLB model (path stored in InsertState.gltf_path)
+    Gltf,
 }
 
 /// Marker component for preview entities in Insert mode
@@ -137,6 +139,8 @@ pub struct InsertState {
     pub preview_entity: Option<Entity>,
     /// Default distance from camera when no surface is hit
     pub default_distance: f32,
+    /// Path for GLTF objects (used when object_type is Gltf)
+    pub gltf_path: Option<String>,
 }
 
 impl InsertState {
@@ -145,6 +149,7 @@ impl InsertState {
             object_type: None,
             preview_entity: None,
             default_distance: 10.0,
+            gltf_path: None,
         }
     }
 }

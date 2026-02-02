@@ -81,6 +81,8 @@ pub enum CommandAction {
     Undo,
     Redo,
     AddComponent,
+    /// Open file dialog to insert a GLTF/GLB model
+    InsertGltf,
 }
 
 /// The mode the command palette is operating in
@@ -209,6 +211,15 @@ impl CommandRegistry {
             keywords: vec!["directional".into(), "sun".into(), "lighting".into(), "shadow".into()],
             category: "Lights",
             action: CommandAction::SpawnDirectionalLight,
+            insertable: true,
+        });
+
+        // Models
+        self.commands.push(Command {
+            name: "Add GLTF Model".to_string(),
+            keywords: vec!["model".into(), "glb".into(), "mesh".into(), "import".into(), "3d".into()],
+            category: "Models",
+            action: CommandAction::InsertGltf,
             insertable: true,
         });
 
@@ -571,6 +582,7 @@ fn draw_command_palette(
     selected: Query<Entity, With<Selected>>,
     mut events: CommandEvents,
     mut commands: Commands,
+    mut next_mode: ResMut<NextState<EditorMode>>,
 ) -> Result {
     // Don't draw UI when editor is disabled
     if !editor_state.ui_enabled {
@@ -754,18 +766,35 @@ fn draw_command_palette(
     if let Some(action) = action_to_execute {
         // In Insert mode, send event to create preview entity
         if in_insert_mode {
-            let object_type = match &action {
-                CommandAction::SpawnPrimitive(shape) => Some(InsertObjectType::Primitive(*shape)),
-                CommandAction::SpawnPointLight => Some(InsertObjectType::PointLight),
-                CommandAction::SpawnDirectionalLight => Some(InsertObjectType::DirectionalLight),
-                CommandAction::SpawnGroup => Some(InsertObjectType::Group),
-                _ => None,
-            };
-
-            if let Some(obj_type) = object_type {
-                events.start_insert.write(StartInsertEvent {
-                    object_type: obj_type,
-                });
+            match &action {
+                CommandAction::SpawnPrimitive(shape) => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::Primitive(*shape),
+                    });
+                }
+                CommandAction::SpawnPointLight => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::PointLight,
+                    });
+                }
+                CommandAction::SpawnDirectionalLight => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::DirectionalLight,
+                    });
+                }
+                CommandAction::SpawnGroup => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::Group,
+                    });
+                }
+                CommandAction::InsertGltf => {
+                    // Use same code path as command palette - exit insert mode first,
+                    // file dialog will re-enter insert mode after file is picked
+                    file_dialog_state.open_insert_gltf();
+                    // Exit insert mode so the state transition triggers properly when file is picked
+                    next_mode.set(EditorMode::View);
+                }
+                _ => {}
             }
         } else {
             // Normal mode - execute action immediately
@@ -861,6 +890,10 @@ fn draw_command_palette(
                         // Don't close the palette, we're switching modes
                         should_close = false;
                     }
+                }
+                CommandAction::InsertGltf => {
+                    // Open file dialog to pick a GLTF file
+                    file_dialog_state.open_insert_gltf();
                 }
             }
         }

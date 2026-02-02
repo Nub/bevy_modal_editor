@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiContexts, EguiPrimaryContextPass};
 use egui_file_dialog::FileDialog;
 
-use crate::editor::EditorState;
+use crate::editor::{EditorMode, EditorState, InsertObjectType, InsertState, StartInsertEvent};
 use crate::scene::{LoadSceneEvent, SaveSceneEvent};
 
 /// The type of file operation being performed
@@ -12,6 +12,8 @@ use crate::scene::{LoadSceneEvent, SaveSceneEvent};
 pub enum FileDialogOperation {
     LoadScene,
     SaveScene,
+    /// Pick a GLTF file to insert
+    InsertGltf,
 }
 
 /// Resource managing the egui file dialog state
@@ -62,6 +64,19 @@ impl FileDialogState {
         self.dialog.save_file();
         self.operation = Some(FileDialogOperation::SaveScene);
     }
+
+    /// Open the file dialog for picking a GLTF file to insert
+    pub fn open_insert_gltf(&mut self) {
+        // Start in the assets directory if it exists
+        let assets_dir = PathBuf::from("assets");
+        if assets_dir.exists() {
+            self.dialog = FileDialog::new().initial_directory(assets_dir);
+        } else {
+            self.dialog = FileDialog::new();
+        }
+        self.dialog.pick_file();
+        self.operation = Some(FileDialogOperation::InsertGltf);
+    }
 }
 
 pub struct FileDialogPlugin;
@@ -78,6 +93,9 @@ fn update_file_dialog(
     mut state: ResMut<FileDialogState>,
     mut load_events: MessageWriter<LoadSceneEvent>,
     mut save_events: MessageWriter<SaveSceneEvent>,
+    mut insert_events: MessageWriter<StartInsertEvent>,
+    mut insert_state: ResMut<InsertState>,
+    mut next_mode: ResMut<NextState<EditorMode>>,
     editor_state: Res<EditorState>,
 ) -> Result {
     if !editor_state.ui_enabled {
@@ -102,6 +120,27 @@ fn update_file_dialog(
                     save_events.write(SaveSceneEvent {
                         path: path.to_string_lossy().to_string(),
                     });
+                }
+                FileDialogOperation::InsertGltf => {
+                    // Convert absolute path to assets-relative path
+                    let path_str = path.to_string_lossy().to_string();
+                    let assets_relative = if let Some(idx) = path_str.find("/assets/") {
+                        path_str[idx + 8..].to_string()
+                    } else if let Some(idx) = path_str.find("assets/") {
+                        path_str[idx + 7..].to_string()
+                    } else {
+                        // Just use the filename if we can't find assets folder
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or(path_str)
+                    };
+
+                    // Set the GLTF path and trigger insert mode
+                    insert_state.gltf_path = Some(assets_relative);
+                    insert_events.write(StartInsertEvent {
+                        object_type: InsertObjectType::Gltf,
+                    });
+                    next_mode.set(EditorMode::Insert);
                 }
             }
         }
