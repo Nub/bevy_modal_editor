@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 
-use crate::scene::{PrimitiveShape, SpawnEntityEvent, SpawnEntityKind};
+use super::{spawn_pattern, PatternPosition};
+use crate::scene::{PrimitiveShape, SpawnEntityEvent};
 
 /// Event to create a linear pattern of primitives
 #[derive(Message)]
@@ -10,6 +11,17 @@ pub struct LinearPatternEvent {
     pub direction: Vec3,
     pub spacing: f32,
     pub count: usize,
+}
+
+impl LinearPatternEvent {
+    /// Generate positions for this linear pattern
+    fn generate_positions(&self) -> impl Iterator<Item = PatternPosition> + '_ {
+        let direction = self.direction.normalize_or_zero();
+        (0..self.count).map(move |i| {
+            let position = self.start + direction * (self.spacing * i as f32);
+            PatternPosition::new(position)
+        })
+    }
 }
 
 pub struct LinearPatternPlugin;
@@ -26,20 +38,12 @@ fn handle_linear_pattern(
     mut spawn_events: MessageWriter<SpawnEntityEvent>,
 ) {
     for event in events.read() {
+        let count = spawn_pattern(&mut spawn_events, event.shape, event.generate_positions());
         let direction = event.direction.normalize_or_zero();
-
-        for i in 0..event.count {
-            let position = event.start + direction * (event.spacing * i as f32);
-            spawn_events.write(SpawnEntityEvent {
-                kind: SpawnEntityKind::Primitive(event.shape),
-                position,
-                rotation: Quat::IDENTITY,
-            });
-        }
 
         info!(
             "Created linear pattern: {} {} along {:?}",
-            event.count,
+            count,
             event.shape.display_name(),
             direction
         );

@@ -5,6 +5,7 @@ use super::TakeSnapshotCommand;
 use crate::editor::EditorState;
 use crate::scene::{SpawnEntityEvent, SpawnEntityKind};
 use crate::selection::Selected;
+use crate::utils::should_process_input;
 
 /// Event to delete selected entities
 #[derive(Message)]
@@ -34,16 +35,8 @@ fn handle_delete_input(
     mut duplicate_events: MessageWriter<DuplicateSelectedEvent>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
-    }
-
-    // Don't handle when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
     }
 
     // Delete or X to delete selected

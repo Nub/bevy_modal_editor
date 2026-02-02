@@ -2,8 +2,44 @@
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_egui::EguiContexts;
 
 use crate::constants::sizes;
+use crate::editor::EditorState;
+
+/// Check if keyboard input should be processed by editor systems.
+///
+/// Returns `false` (block input) if:
+/// - The editor is disabled (`editor_state.editor_active` is false)
+/// - The egui UI wants keyboard input (e.g., text fields are focused)
+///
+/// # Example
+/// ```ignore
+/// fn my_input_handler(
+///     editor_state: Res<EditorState>,
+///     mut contexts: EguiContexts,
+/// ) {
+///     if !should_process_input(&editor_state, &mut contexts) {
+///         return;
+///     }
+///     // Handle input...
+/// }
+/// ```
+pub fn should_process_input(editor_state: &EditorState, contexts: &mut EguiContexts) -> bool {
+    // Don't handle when editor is disabled
+    if !editor_state.editor_active {
+        return false;
+    }
+
+    // Don't handle when UI wants keyboard input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_keyboard_input() {
+            return false;
+        }
+    }
+
+    true
+}
 
 /// Calculate the half-height of an object along a surface normal direction.
 /// This determines how far to offset the object from a surface so it sits on top.

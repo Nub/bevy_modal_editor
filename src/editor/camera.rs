@@ -5,6 +5,7 @@ use bevy_egui::EguiContexts;
 use super::{EditorMode, EditorState, TransformOperation};
 use crate::selection::Selected;
 use crate::ui::Settings;
+use crate::utils::should_process_input;
 
 /// Minimum FOV before switching to orthographic (in degrees)
 const MIN_FOV_DEGREES: f32 = 5.0;
@@ -172,21 +173,13 @@ fn camera_movement(
     mut query: Query<&mut Transform, With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
-        return;
-    }
-
     // Disable camera movement in Edit mode (WASD used for axis selection)
     if *mode.get() == EditorMode::Edit {
         return;
     }
 
-    // Don't move camera when UI wants keyboard input (e.g., text fields)
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
     }
 
     for mut transform in &mut query {
@@ -319,16 +312,8 @@ fn look_at_selected(
     mut camera_query: Query<(&mut FlyCamera, &mut Transform), With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
-    }
-
-    // Don't trigger when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
     }
 
     if !keyboard.just_pressed(KeyCode::KeyL) {

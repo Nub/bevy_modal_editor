@@ -94,6 +94,14 @@ impl PrimitiveShape {
         primitive_colors::for_shape(*self)
     }
 
+    /// Create a standard material for this primitive shape
+    pub fn create_material(&self) -> StandardMaterial {
+        StandardMaterial {
+            base_color: self.default_color(),
+            ..default()
+        }
+    }
+
     /// Create the collider for this primitive shape
     pub fn create_collider(&self) -> Collider {
         match self {
@@ -255,10 +263,7 @@ pub fn spawn_primitive(
             Name::new(name.to_string()),
             PrimitiveMarker { shape },
             Mesh3d(meshes.add(shape.create_mesh())),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: shape.default_color(),
-                ..default()
-            })),
+            MeshMaterial3d(materials.add(shape.create_material())),
             Transform::from_translation(position).with_rotation(rotation),
             RigidBody::Static,
             shape.create_collider(),

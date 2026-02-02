@@ -13,6 +13,27 @@ use crate::scene::{
     SceneLightMarker, LIGHT_COLLIDER_RADIUS,
 };
 use crate::ui::Settings;
+use crate::utils::should_process_input;
+
+/// Build a DynamicScene from the world with editor-relevant components.
+/// This is the single source of truth for which components are included in snapshots/saves.
+fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>) -> DynamicScene {
+    DynamicSceneBuilder::from_world(world)
+        .deny_all()
+        .allow_component::<SceneEntity>()
+        .allow_component::<Name>()
+        .allow_component::<Transform>()
+        .allow_component::<PrimitiveMarker>()
+        .allow_component::<GroupMarker>()
+        .allow_component::<Locked>()
+        .allow_component::<SceneLightMarker>()
+        .allow_component::<DirectionalLightMarker>()
+        .allow_component::<RigidBody>()
+        .allow_component::<ChildOf>()
+        .allow_component::<Children>()
+        .extract_entities(entities)
+        .build()
+}
 
 /// A snapshot of the scene state for undo/redo
 #[derive(Clone)]
@@ -95,16 +116,8 @@ fn handle_undo_redo_input(
     mut redo_events: MessageWriter<RedoEvent>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
-    }
-
-    // Don't handle when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
     }
 
     let ctrl = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
@@ -147,22 +160,8 @@ impl Command for TakeSnapshotCommand {
 
         info!("Taking snapshot '{}' with {} entities", self.description, scene_entity_ids.len());
 
-        // Build the scene
-        let scene = DynamicSceneBuilder::from_world(world)
-            .deny_all()
-            .allow_component::<SceneEntity>()
-            .allow_component::<Name>()
-            .allow_component::<Transform>()
-            .allow_component::<PrimitiveMarker>()
-            .allow_component::<GroupMarker>()
-            .allow_component::<Locked>()
-            .allow_component::<SceneLightMarker>()
-            .allow_component::<DirectionalLightMarker>()
-            .allow_component::<RigidBody>()
-            .allow_component::<ChildOf>()
-            .allow_component::<Children>()
-            .extract_entities(scene_entity_ids.into_iter())
-            .build();
+        // Build the scene using shared helper
+        let scene = build_editor_scene(world, scene_entity_ids.into_iter());
 
         // Serialize the scene
         let type_registry = world.resource::<AppTypeRegistry>().clone();
@@ -329,22 +328,7 @@ fn take_current_snapshot(world: &mut World, description: &str) -> Option<SceneSn
     };
 
     // Note: We allow empty scenes - an empty state is valid for undo/redo
-
-    let scene = DynamicSceneBuilder::from_world(world)
-        .deny_all()
-        .allow_component::<SceneEntity>()
-        .allow_component::<Name>()
-        .allow_component::<Transform>()
-        .allow_component::<PrimitiveMarker>()
-        .allow_component::<GroupMarker>()
-        .allow_component::<Locked>()
-        .allow_component::<SceneLightMarker>()
-        .allow_component::<DirectionalLightMarker>()
-        .allow_component::<RigidBody>()
-        .allow_component::<ChildOf>()
-        .allow_component::<Children>()
-        .extract_entities(scene_entity_ids.into_iter())
-        .build();
+    let scene = build_editor_scene(world, scene_entity_ids.into_iter());
 
     let type_registry = world.resource::<AppTypeRegistry>().clone();
     let type_registry = type_registry.read();
@@ -424,53 +408,11 @@ fn regenerate_scene_components(world: &mut World) {
     }
 
     for (entity, shape) in primitives_to_update {
-        let (mesh_handle, material_handle, collider) = {
-            let mesh = match shape {
-                PrimitiveShape::Cube => Mesh::from(Cuboid::new(1.0, 1.0, 1.0)),
-                PrimitiveShape::Sphere => Mesh::from(Sphere::new(0.5)),
-                PrimitiveShape::Cylinder => Mesh::from(Cylinder::new(0.5, 1.0)),
-                PrimitiveShape::Capsule => Mesh::from(Capsule3d::new(0.25, 0.5)),
-                PrimitiveShape::Plane => Plane3d::default().mesh().size(2.0, 2.0).build(),
-            };
-
-            let material = match shape {
-                PrimitiveShape::Cube => StandardMaterial {
-                    base_color: Color::srgb(0.8, 0.7, 0.6),
-                    ..default()
-                },
-                PrimitiveShape::Sphere => StandardMaterial {
-                    base_color: Color::srgb(0.6, 0.7, 0.8),
-                    ..default()
-                },
-                PrimitiveShape::Cylinder => StandardMaterial {
-                    base_color: Color::srgb(0.7, 0.8, 0.6),
-                    ..default()
-                },
-                PrimitiveShape::Capsule => StandardMaterial {
-                    base_color: Color::srgb(0.8, 0.6, 0.7),
-                    ..default()
-                },
-                PrimitiveShape::Plane => StandardMaterial {
-                    base_color: Color::srgb(0.6, 0.6, 0.8),
-                    ..default()
-                },
-            };
-
-            let collider = match shape {
-                PrimitiveShape::Cube => Collider::cuboid(1.0, 1.0, 1.0),
-                PrimitiveShape::Sphere => Collider::sphere(0.5),
-                PrimitiveShape::Cylinder => Collider::cylinder(0.5, 0.5),
-                PrimitiveShape::Capsule => Collider::capsule(0.25, 0.5),
-                PrimitiveShape::Plane => Collider::cuboid(2.0, 0.01, 2.0),
-            };
-
-            let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(mesh);
-            let material_handle = world
-                .resource_mut::<Assets<StandardMaterial>>()
-                .add(material);
-
-            (mesh_handle, material_handle, collider)
-        };
+        let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
+        let material_handle = world
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(shape.create_material());
+        let collider = shape.create_collider();
 
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.insert((Mesh3d(mesh_handle), MeshMaterial3d(material_handle), collider));

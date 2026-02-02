@@ -20,6 +20,7 @@ use crate::ui::component_browser::{add_component_by_type_id, ComponentRegistry};
 use crate::ui::file_dialog::FileDialogState;
 use crate::ui::theme::colors;
 use crate::ui::SettingsWindowState;
+use crate::utils::should_process_input;
 
 /// System parameter grouping all command palette event writers
 #[derive(SystemParam)]
@@ -527,15 +528,8 @@ fn handle_palette_toggle(
     editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
 ) {
-    // Don't open when editor is disabled
-    if !editor_state.editor_active {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
-    }
-
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
     }
 
     // "?" (Shift+/) opens help window

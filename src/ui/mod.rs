@@ -47,18 +47,24 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InspectorPanelState>()
             .init_resource::<ImmutableComponentCache>()
-            .add_plugins(ThemePlugin)
-            .add_plugins(SettingsPlugin)
-            .add_plugins(PanelsPlugin)
-            .add_plugins(HierarchyPlugin)
-            .add_plugins(InspectorPlugin)
-            .add_plugins(ToolbarPlugin)
-            .add_plugins(ViewGizmoPlugin)
-            .add_plugins(EditInfoPlugin)
-            .add_plugins(MarksPlugin)
-            .add_plugins(CommandPalettePlugin)
-            .add_plugins(FindObjectPlugin)
-            .add_plugins(ComponentBrowserPlugin)
-            .add_plugins(FileDialogPlugin);
+            // Core UI - theming and global settings
+            .add_plugins((ThemePlugin, SettingsPlugin))
+            // Main panels - persistent UI areas
+            .add_plugins((
+                PanelsPlugin,
+                HierarchyPlugin,
+                InspectorPlugin,
+                ToolbarPlugin,
+                ViewGizmoPlugin,
+                EditInfoPlugin,
+            ))
+            // Popups and dialogs - modal UI elements
+            .add_plugins((
+                CommandPalettePlugin,
+                FindObjectPlugin,
+                ComponentBrowserPlugin,
+                FileDialogPlugin,
+                MarksPlugin,
+            ));
     }
 }

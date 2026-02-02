@@ -8,7 +8,7 @@ use crate::commands::TakeSnapshotCommand;
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::scene::Locked;
 use crate::selection::Selected;
-use crate::utils::get_half_height_along_normal_from_collider;
+use crate::utils::{get_half_height_along_normal_from_collider, should_process_input};
 
 /// Default distance from camera when placing objects without hitting a surface
 const PLACE_DEFAULT_DISTANCE: f32 = 10.0;
@@ -173,11 +173,6 @@ fn handle_axis_keys(
     mut axis_constraint: ResMut<AxisConstraint>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
-        return;
-    }
-
     // Only handle in Edit mode with an active transform operation
     if *mode.get() != EditorMode::Edit {
         return;
@@ -192,11 +187,8 @@ fn handle_axis_keys(
         return;
     }
 
-    // Don't handle when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
     }
 
     // A = X axis, S = Y axis, D = Z axis
@@ -232,13 +224,12 @@ fn handle_snap_submode_keys(
     mut snap_submode: ResMut<SnapSubMode>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
+    // Only handle in Edit mode with SnapToObject operation
+    if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::SnapToObject {
         return;
     }
 
-    // Only handle in Edit mode with SnapToObject operation
-    if *mode.get() != EditorMode::Edit || *transform_op != TransformOperation::SnapToObject {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
     }
 
@@ -290,11 +281,6 @@ fn handle_step_keys(
     mut contexts: EguiContexts,
     mut commands: Commands,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
-        return;
-    }
-
     // Only handle in Edit mode with an active transform operation
     if *mode.get() != EditorMode::Edit {
         return;
@@ -304,11 +290,8 @@ fn handle_step_keys(
         return;
     }
 
-    // Don't handle when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
     }
 
     // J = decrease, K = increase

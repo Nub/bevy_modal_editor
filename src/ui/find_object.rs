@@ -6,6 +6,7 @@ use super::theme::colors;
 use crate::editor::{EditorMode, EditorState};
 use crate::scene::SceneEntity;
 use crate::selection::Selected;
+use crate::utils::should_process_input;
 
 /// Resource to track find object palette state
 #[derive(Resource)]
@@ -41,20 +42,13 @@ fn handle_find_toggle(
     editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
 ) {
-    // Don't open when editor is disabled
-    if !editor_state.editor_active {
-        return;
-    }
-
-    // Don't open if already open or UI wants keyboard input
+    // Don't open if already open
     if state.open {
         return;
     }
 
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
     }
 
     let in_hierarchy = *editor_mode.get() == EditorMode::Hierarchy;

@@ -433,10 +433,7 @@ pub fn regenerate_meshes(world: &mut World) {
         let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
         let material_handle = world
             .resource_mut::<Assets<StandardMaterial>>()
-            .add(StandardMaterial {
-                base_color: shape.default_color(),
-                ..default()
-            });
+            .add(shape.create_material());
         let collider = shape.create_collider();
 
         // Insert components

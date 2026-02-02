@@ -6,6 +6,7 @@ use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
 use crate::selection::Selected;
 use crate::ui::{open_add_component_palette, CommandPaletteState, ComponentEditorState, PaletteMode};
+use crate::utils::should_process_input;
 
 pub struct EditorInputPlugin;
 
@@ -44,16 +45,8 @@ fn handle_mode_input(
     mut commands: Commands,
     selected: Query<Entity, With<Selected>>,
 ) {
-    // Don't handle shortcuts when editor is disabled
-    if !editor_state.editor_active {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
-    }
-
-    // Don't handle shortcuts when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
     }
 
     let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
@@ -201,16 +194,8 @@ fn handle_group_shortcut(
     mut group_events: MessageWriter<GroupSelectedEvent>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
-    }
-
-    // Don't handle when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
     }
 
     // G to group selected entities
@@ -226,16 +211,8 @@ fn handle_preview_mode_shortcut(
     mut preview_events: MessageWriter<TogglePreviewModeEvent>,
     mut contexts: EguiContexts,
 ) {
-    // Don't handle when editor is disabled
-    if !editor_state.editor_active {
+    if !should_process_input(&editor_state, &mut contexts) {
         return;
-    }
-
-    // Don't handle when UI wants keyboard input
-    if let Ok(ctx) = contexts.ctx_mut() {
-        if ctx.wants_keyboard_input() {
-            return;
-        }
     }
 
     // P to toggle preview mode
