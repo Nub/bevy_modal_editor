@@ -79,8 +79,16 @@ fn handle_mode_input(
             return;
         }
 
+        // If already in Insert mode, reopen the palette if closed
+        if *current_mode.get() == EditorMode::Insert {
+            if !palette_state.open {
+                palette_state.open_insert();
+            }
+            return;
+        }
+
         // Otherwise, enter Insert mode (only from View mode or with Shift)
-        if can_change_mode && *current_mode.get() != EditorMode::Insert {
+        if can_change_mode {
             next_mode.set(EditorMode::Insert);
             *transform_op = TransformOperation::None;
             *axis_constraint = AxisConstraint::None;
