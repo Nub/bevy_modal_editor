@@ -12,11 +12,12 @@ use crate::editor::{
     TogglePhysicsEvent,
 };
 use crate::scene::{
-    LoadSceneEvent, PrimitiveShape, SaveSceneEvent, SpawnDemoSceneEvent, SpawnDirectionalLightEvent,
+    PrimitiveShape, SceneFile, SpawnDemoSceneEvent, SpawnDirectionalLightEvent,
     SpawnGroupEvent, SpawnPointLightEvent, SpawnPrimitiveEvent, UnparentSelectedEvent,
 };
 use crate::selection::Selected;
-use crate::ui::component_browser::{add_component_by_type_id, ComponentBrowserState, ComponentRegistry};
+use crate::ui::component_browser::{add_component_by_type_id, ComponentRegistry};
+use crate::ui::file_dialog::FileDialogState;
 use crate::ui::theme::colors;
 use crate::ui::SettingsWindowState;
 
@@ -31,8 +32,6 @@ struct CommandEvents<'w> {
     set_mark: MessageWriter<'w, SetCameraMarkEvent>,
     jump_mark: MessageWriter<'w, JumpToMarkEvent>,
     jump_last: MessageWriter<'w, JumpToLastPositionEvent>,
-    save_scene: MessageWriter<'w, SaveSceneEvent>,
-    load_scene: MessageWriter<'w, LoadSceneEvent>,
     toggle_debug: MessageWriter<'w, TogglePhysicsDebugEvent>,
     toggle_physics: MessageWriter<'w, TogglePhysicsEvent>,
     toggle_grid: MessageWriter<'w, ToggleGridEvent>,
@@ -563,12 +562,12 @@ fn draw_command_palette(
     mut settings_state: ResMut<SettingsWindowState>,
     mut custom_mark_state: ResMut<CustomMarkDialogState>,
     mut editor_state: ResMut<EditorState>,
-    _browser_state: ResMut<ComponentBrowserState>,
+    mut file_dialog_state: ResMut<FileDialogState>,
+    scene_file: Res<SceneFile>,
     mut component_editor_state: ResMut<super::inspector::ComponentEditorState>,
     mut component_registry: ResMut<ComponentRegistry>,
     registry: Res<CommandRegistry>,
     type_registry: Res<AppTypeRegistry>,
-    _mode: Res<State<EditorMode>>,
     selected: Query<Entity, With<Selected>>,
     mut events: CommandEvents,
     mut commands: Commands,
@@ -800,16 +799,12 @@ fn draw_command_palette(
                     events.jump_last.write(JumpToLastPositionEvent);
                 }
                 CommandAction::SaveScene => {
-                    // For now, save to a default location
-                    events.save_scene.write(SaveSceneEvent {
-                        path: "scene.ron".to_string(),
-                    });
+                    // Open the egui file dialog for saving
+                    file_dialog_state.open_save_scene(scene_file.path.as_deref());
                 }
                 CommandAction::LoadScene => {
-                    // For now, load from a default location
-                    events.load_scene.write(LoadSceneEvent {
-                        path: "scene.ron".to_string(),
-                    });
+                    // Open the egui file dialog for loading
+                    file_dialog_state.open_load_scene(scene_file.path.as_deref());
                 }
                 CommandAction::ShowHelp => {
                     help_state.open = true;

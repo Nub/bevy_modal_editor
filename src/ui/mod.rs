@@ -1,6 +1,7 @@
 mod command_palette;
 mod component_browser;
 mod edit_info;
+mod file_dialog;
 mod find_object;
 pub mod fuzzy_palette;
 mod hierarchy;
@@ -16,6 +17,7 @@ mod view_gizmo;
 pub use command_palette::*;
 pub use component_browser::*;
 pub use edit_info::*;
+pub use file_dialog::*;
 pub use find_object::*;
 pub use fuzzy_palette::{
     draw_fuzzy_palette, fuzzy_filter, CategorizedItem, FilteredItem, KeywordItem, PaletteConfig,
@@ -56,6 +58,7 @@ impl Plugin for UiPlugin {
             .add_plugins(MarksPlugin)
             .add_plugins(CommandPalettePlugin)
             .add_plugins(FindObjectPlugin)
-            .add_plugins(ComponentBrowserPlugin);
+            .add_plugins(ComponentBrowserPlugin)
+            .add_plugins(FileDialogPlugin);
     }
 }
