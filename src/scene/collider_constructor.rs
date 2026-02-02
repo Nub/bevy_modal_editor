@@ -56,6 +56,7 @@ impl Plugin for ColliderConstructorPlugin {
             .add_systems(Update, (
                 apply_recursive_collider_constructor,
                 handle_constructor_changed,
+                handle_new_meshes,
                 cleanup_on_remove,
             ));
     }
@@ -155,6 +156,40 @@ fn handle_constructor_changed(
 
             // Remove the applied marker so it gets re-processed
             commands.entity(entity).remove::<AppliedColliderType>();
+        }
+    }
+}
+
+/// Watch for newly added meshes and trigger reprocessing if parent has RecursiveColliderConstructor
+fn handle_new_meshes(
+    mut commands: Commands,
+    new_meshes: Query<Entity, Added<Mesh3d>>,
+    parent_query: Query<&ChildOf>,
+    constructor_query: Query<Entity, (With<RecursiveColliderConstructor>, With<AppliedColliderType>)>,
+    collider_query: Query<(), With<Collider>>,
+) {
+    for mesh_entity in new_meshes.iter() {
+        // Skip if this mesh already has a collider
+        if collider_query.get(mesh_entity).is_ok() {
+            continue;
+        }
+
+        // Walk up the parent hierarchy to find a RecursiveColliderConstructor
+        let mut current = mesh_entity;
+        loop {
+            // Check if current entity has RecursiveColliderConstructor with AppliedColliderType
+            if constructor_query.get(current).is_ok() {
+                // Remove AppliedColliderType to trigger reprocessing
+                commands.entity(current).remove::<AppliedColliderType>();
+                break;
+            }
+
+            // Move to parent
+            if let Ok(child_of) = parent_query.get(current) {
+                current = child_of.parent();
+            } else {
+                break;
+            }
         }
     }
 }
