@@ -150,8 +150,8 @@ fn draw_status_bar(
                     .color(colors::TEXT_MUTED),
                 );
 
-                // Distance measurement (when enabled and 2+ objects selected)
-                if editor_state.measurements_visible {
+                // Distance measurement (View mode only, when enabled and 2+ objects selected)
+                if *mode.get() == EditorMode::View && editor_state.measurements_visible {
                     let positions: Vec<Vec3> = selected_query.iter().map(|t| t.translation()).collect();
                     if positions.len() >= 2 {
                         ui.separator();
@@ -257,7 +257,7 @@ fn get_hints_for_mode(
             ("I", "Insert"),
             ("O", "Inspect"),
             ("H", "Hierarchy"),
-            ("C", "Commands"),
+            ("M", "Measure"),
             ("?", "Help"),
         ],
         EditorMode::Edit => {

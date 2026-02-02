@@ -164,12 +164,18 @@ struct Aabb {
     max: Vec3,
 }
 
-/// Draw distance measurements between selected objects
+/// Draw distance measurements between selected objects (View mode only)
 fn draw_distance_measurements(
     mut gizmos: Gizmos,
     selected: Query<&GlobalTransform, With<Selected>>,
     editor_state: Res<EditorState>,
+    mode: Res<State<EditorMode>>,
 ) {
+    // Only show measurements in View mode
+    if *mode.get() != EditorMode::View {
+        return;
+    }
+
     if !editor_state.gizmos_visible || !editor_state.measurements_visible {
         return;
     }

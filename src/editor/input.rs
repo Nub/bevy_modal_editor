@@ -226,9 +226,10 @@ fn handle_preview_mode_shortcut(
     }
 }
 
-/// Handle M key to toggle distance measurements
+/// Handle M key to toggle distance measurements (View mode only)
 fn handle_measurement_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mode: Res<State<EditorMode>>,
     mut editor_state: ResMut<EditorState>,
     mut contexts: EguiContexts,
 ) {
@@ -236,8 +237,8 @@ fn handle_measurement_toggle(
         return;
     }
 
-    // M to toggle measurements
-    if keyboard.just_pressed(KeyCode::KeyM) {
+    // M to toggle measurements (only in View mode)
+    if *mode.get() == EditorMode::View && keyboard.just_pressed(KeyCode::KeyM) {
         editor_state.measurements_visible = !editor_state.measurements_visible;
         info!(
             "Measurements: {}",
