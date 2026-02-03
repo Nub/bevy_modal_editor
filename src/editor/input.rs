@@ -224,10 +224,11 @@ fn handle_group_shortcut(
     }
 }
 
-/// Handle P key to toggle preview mode
+/// Handle P key to toggle preview mode (only in View mode)
 fn handle_preview_mode_shortcut(
     keyboard: Res<ButtonInput<KeyCode>>,
     editor_state: Res<EditorState>,
+    mode: Res<State<EditorMode>>,
     mut preview_events: MessageWriter<TogglePreviewModeEvent>,
     mut contexts: EguiContexts,
 ) {
@@ -235,8 +236,9 @@ fn handle_preview_mode_shortcut(
         return;
     }
 
-    // P to toggle preview mode
-    if keyboard.just_pressed(KeyCode::KeyP) {
+    // P to toggle preview mode (only in View mode)
+    // In Material mode, P is used for pasting materials
+    if keyboard.just_pressed(KeyCode::KeyP) && *mode.get() == EditorMode::View {
         preview_events.write(TogglePreviewModeEvent);
     }
 }

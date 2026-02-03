@@ -2,23 +2,79 @@
 
 use bevy::pbr::StandardMaterial;
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiPrimaryContextPass};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::editor::{EditorMode, EditorState};
 use crate::selection::Selected;
 use crate::ui::theme::{colors, panel, panel_frame};
+use crate::utils::should_process_input;
+
+/// Resource storing copied material data for paste operations
+#[derive(Resource, Default)]
+pub struct CopiedMaterial(pub Option<StandardMaterialData>);
 
 pub struct MaterialEditorPlugin;
 
 impl Plugin for MaterialEditorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, draw_material_panel);
+        app.init_resource::<CopiedMaterial>()
+            .add_systems(Update, handle_material_copy_paste)
+            .add_systems(EguiPrimaryContextPass, draw_material_panel);
+    }
+}
+
+/// Handle Y to copy and P to paste materials in Material mode
+fn handle_material_copy_paste(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mode: Res<State<EditorMode>>,
+    editor_state: Res<EditorState>,
+    mut contexts: EguiContexts,
+    mut copied_material: ResMut<CopiedMaterial>,
+    selected: Query<&MeshMaterial3d<StandardMaterial>, With<Selected>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+
+    // Only handle Y/P in Material mode
+    if *mode.get() != EditorMode::Material {
+        return;
+    }
+
+    // Y to copy material from first selected entity
+    if keyboard.just_pressed(KeyCode::KeyY) {
+        if let Some(mat_handle) = selected.iter().next() {
+            if let Some(material) = materials.get(&mat_handle.0) {
+                copied_material.0 = Some(StandardMaterialData::from_material(material));
+                info!("Copied material");
+            }
+        }
+        return;
+    }
+
+    // P to paste material to all selected entities
+    if keyboard.just_pressed(KeyCode::KeyP) {
+        if let Some(ref data) = copied_material.0 {
+            let mut count = 0;
+            for mat_handle in selected.iter() {
+                if let Some(material) = materials.get_mut(&mat_handle.0) {
+                    data.apply_to_material(material);
+                    count += 1;
+                }
+            }
+            if count > 0 {
+                info!("Pasted material to {} entities", count);
+            }
+        } else {
+            info!("No material copied");
+        }
     }
 }
 
 /// Extracted StandardMaterial data for UI editing
 #[derive(Clone)]
-struct StandardMaterialData {
+pub struct StandardMaterialData {
     base_color: [f32; 4],
     emissive: [f32; 4],
     metallic: f32,
