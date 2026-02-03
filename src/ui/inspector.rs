@@ -6,6 +6,7 @@ use std::any::TypeId;
 
 use super::command_palette::{open_add_component_palette, CommandPaletteState};
 use super::component_browser::{add_component_by_type_id, draw_component_browser};
+use super::entity_picker::{draw_entity_field, make_callback_id, EntityPickerState, PendingEntitySelection};
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::editor::{EditorMode, EditorState};
@@ -320,8 +321,21 @@ fn draw_directional_light_section(ui: &mut egui::Ui, data: &mut DirectionalLight
 }
 
 /// Draw SplineFollower properties section
-fn draw_spline_follower_section(ui: &mut egui::Ui, data: &mut SplineFollowerData) -> bool {
-    let mut changed = false;
+/// Result from drawing spline follower section
+struct SplineFollowerResult {
+    changed: bool,
+    open_spline_picker: bool,
+}
+
+fn draw_spline_follower_section(
+    ui: &mut egui::Ui,
+    data: &mut SplineFollowerData,
+    spline_name: Option<&str>,
+) -> SplineFollowerResult {
+    let mut result = SplineFollowerResult {
+        changed: false,
+        open_spline_picker: false,
+    };
 
     egui::CollapsingHeader::new(
         egui::RichText::new("Spline Follower").strong().color(colors::TEXT_PRIMARY),
@@ -330,21 +344,18 @@ fn draw_spline_follower_section(ui: &mut egui::Ui, data: &mut SplineFollowerData
     .show(ui, |ui| {
         ui.add_space(4.0);
 
-        // Spline entity reference (read-only for now)
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Spline").color(colors::TEXT_SECONDARY));
-            ui.label(egui::RichText::new(format!("{:?}", data.spline)).color(colors::TEXT_MUTED));
-        });
+        // Spline entity reference - clickable to open picker
+        result.open_spline_picker = draw_entity_field(ui, "Spline", data.spline, spline_name);
         ui.add_space(4.0);
 
         // Speed
-        changed |= draw_drag_row(ui, "Speed", &mut data.speed, 0.1, 0.0..=100.0);
+        result.changed |= draw_drag_row(ui, "Speed", &mut data.speed, 0.1, 0.0..=100.0);
         ui.add_space(4.0);
 
         // Position on spline (t)
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Position (t)").color(colors::TEXT_SECONDARY));
-            changed |= ui
+            result.changed |= ui
                 .add(egui::Slider::new(&mut data.t, 0.0..=1.0).show_value(true))
                 .changed();
         });
@@ -361,13 +372,13 @@ fn draw_spline_follower_section(ui: &mut egui::Ui, data: &mut SplineFollowerData
                 })
                 .show_ui(ui, |ui| {
                     if ui.selectable_value(&mut data.loop_mode, LoopMode::Once, "Once").clicked() {
-                        changed = true;
+                        result.changed = true;
                     }
                     if ui.selectable_value(&mut data.loop_mode, LoopMode::Loop, "Loop").clicked() {
-                        changed = true;
+                        result.changed = true;
                     }
                     if ui.selectable_value(&mut data.loop_mode, LoopMode::PingPong, "Ping Pong").clicked() {
-                        changed = true;
+                        result.changed = true;
                     }
                 });
         });
@@ -384,13 +395,13 @@ fn draw_spline_follower_section(ui: &mut egui::Ui, data: &mut SplineFollowerData
                 })
                 .show_ui(ui, |ui| {
                     if ui.selectable_value(&mut data.state, FollowerState::Playing, "Playing").clicked() {
-                        changed = true;
+                        result.changed = true;
                     }
                     if ui.selectable_value(&mut data.state, FollowerState::Paused, "Paused").clicked() {
-                        changed = true;
+                        result.changed = true;
                     }
                     if ui.selectable_value(&mut data.state, FollowerState::Finished, "Finished").clicked() {
-                        changed = true;
+                        result.changed = true;
                     }
                 });
         });
@@ -401,21 +412,21 @@ fn draw_spline_follower_section(ui: &mut egui::Ui, data: &mut SplineFollowerData
             ui.label(egui::RichText::new("Direction").color(colors::TEXT_SECONDARY));
             if ui.selectable_label(data.direction >= 0.0, "Forward").clicked() {
                 data.direction = 1.0;
-                changed = true;
+                result.changed = true;
             }
             if ui.selectable_label(data.direction < 0.0, "Backward").clicked() {
                 data.direction = -1.0;
-                changed = true;
+                result.changed = true;
             }
         });
         ui.add_space(4.0);
 
         // Align to tangent
-        changed |= draw_checkbox_row(ui, "Align to Tangent", &mut data.align_to_tangent);
+        result.changed |= draw_checkbox_row(ui, "Align to Tangent", &mut data.align_to_tangent);
         ui.add_space(4.0);
 
         // Constant speed
-        changed |= draw_checkbox_row(ui, "Constant Speed", &mut data.constant_speed);
+        result.changed |= draw_checkbox_row(ui, "Constant Speed", &mut data.constant_speed);
         ui.add_space(4.0);
 
         // Up vector (only show if align_to_tangent is true)
@@ -425,11 +436,11 @@ fn draw_spline_follower_section(ui: &mut egui::Ui, data: &mut SplineFollowerData
             });
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-                changed |= ui.add(egui::DragValue::new(&mut data.up_vector[0]).speed(0.01)).changed();
+                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[0]).speed(0.01)).changed();
                 ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-                changed |= ui.add(egui::DragValue::new(&mut data.up_vector[1]).speed(0.01)).changed();
+                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[1]).speed(0.01)).changed();
                 ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-                changed |= ui.add(egui::DragValue::new(&mut data.up_vector[2]).speed(0.01)).changed();
+                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[2]).speed(0.01)).changed();
             });
             ui.add_space(4.0);
         }
@@ -440,16 +451,16 @@ fn draw_spline_follower_section(ui: &mut egui::Ui, data: &mut SplineFollowerData
         });
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-            changed |= ui.add(egui::DragValue::new(&mut data.offset[0]).speed(0.1)).changed();
+            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[0]).speed(0.1)).changed();
             ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-            changed |= ui.add(egui::DragValue::new(&mut data.offset[1]).speed(0.1)).changed();
+            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[1]).speed(0.1)).changed();
             ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-            changed |= ui.add(egui::DragValue::new(&mut data.offset[2]).speed(0.1)).changed();
+            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[2]).speed(0.1)).changed();
         });
         ui.add_space(4.0);
     });
 
-    changed
+    result
 }
 
 /// Draw a RigidBody type selector with remove button
@@ -575,6 +586,11 @@ fn draw_inspector_panel(world: &mut World) {
         world.get::<SplineFollower>(e).map(|f| SplineFollowerData::from(f))
     });
 
+    // Get the spline entity's name (for display in the picker)
+    let spline_name: Option<String> = spline_follower_data.as_ref().and_then(|data| {
+        world.get::<Name>(data.spline).map(|n| n.as_str().to_string())
+    });
+
     // Get egui context
     let ctx = {
         let Some(mut egui_ctx) = world
@@ -592,6 +608,7 @@ fn draw_inspector_panel(world: &mut World) {
     let mut point_light_changed = false;
     let mut directional_light_changed = false;
     let mut spline_follower_changed = false;
+    let mut open_spline_picker = false;
 
     // Check for "N" key to focus name field (only for single selection)
     let focus_name_field = selection_count == 1
@@ -738,7 +755,9 @@ fn draw_inspector_panel(world: &mut World) {
 
                             // Spline follower properties
                             if let Some(ref mut data) = spline_follower_data {
-                                spline_follower_changed = draw_spline_follower_section(ui, data);
+                                let result = draw_spline_follower_section(ui, data, spline_name.as_deref());
+                                spline_follower_changed = result.changed;
+                                open_spline_picker = result.open_spline_picker;
                                 ui.add_space(4.0);
                             }
 
@@ -902,7 +921,7 @@ fn draw_inspector_panel(world: &mut World) {
 
     // Apply spline follower changes
     if spline_follower_changed {
-        if let (Some(entity), Some(data)) = (single_entity, spline_follower_data) {
+        if let (Some(entity), Some(data)) = (single_entity, spline_follower_data.clone()) {
             if let Some(mut follower) = world.get_mut::<SplineFollower>(entity) {
                 follower.spline = data.spline;
                 follower.speed = data.speed;
@@ -914,6 +933,53 @@ fn draw_inspector_panel(world: &mut World) {
                 follower.direction = data.direction;
                 follower.offset = Vec3::new(data.offset[0], data.offset[1], data.offset[2]);
                 follower.constant_speed = data.constant_speed;
+            }
+        }
+    }
+
+    // Open entity picker for spline field
+    if open_spline_picker {
+        if let Some(entity) = single_entity {
+            let callback_id = make_callback_id(entity, "spline");
+            let mut picker_state = world.resource_mut::<EntityPickerState>();
+            picker_state.open_for_field(entity, "Spline", callback_id);
+        }
+    }
+
+    // Handle pending entity selection from picker
+    {
+        let pending = world.resource::<PendingEntitySelection>().0;
+        if let Some(selection) = pending {
+            // Check if this is for the spline field
+            if let Some(entity) = single_entity {
+                let expected_callback = make_callback_id(entity, "spline");
+                if selection.callback_id == expected_callback {
+                    // Update the SplineFollower's spline field
+                    if let Some(mut follower) = world.get_mut::<SplineFollower>(entity) {
+                        follower.spline = selection.selected_entity;
+                    }
+                }
+            }
+            // Clear the pending selection
+            world.resource_mut::<PendingEntitySelection>().0 = None;
+        }
+    }
+
+    // Check for entity picker request from reflection editor
+    {
+        let field_name: Option<String> = ctx.memory(|mem| {
+            mem.data.get_temp::<String>(egui::Id::new("entity_picker_request"))
+        });
+        if let Some(field) = field_name {
+            // Clear the request
+            ctx.memory_mut(|mem| {
+                mem.data.remove::<String>(egui::Id::new("entity_picker_request"));
+            });
+            // Open the entity picker
+            if let Some(entity) = single_entity {
+                let callback_id = make_callback_id(entity, &field);
+                let mut picker_state = world.resource_mut::<EntityPickerState>();
+                picker_state.open_for_field(entity, &field, callback_id);
             }
         }
     }

@@ -7,7 +7,7 @@ use std::any::TypeId;
 
 use bevy_spline_3d::prelude::SplineType;
 
-use crate::commands::{RedoEvent, UndoEvent};
+use crate::commands::{RedoEvent, TakeSnapshotCommand, UndoEvent};
 use crate::editor::{
     CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
     JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent, ToggleGridEvent, TogglePhysicsDebugEvent,
@@ -39,6 +39,17 @@ struct CommandEvents<'w> {
     spawn_demo: MessageWriter<'w, SpawnDemoSceneEvent>,
     undo: MessageWriter<'w, UndoEvent>,
     redo: MessageWriter<'w, RedoEvent>,
+}
+
+/// System parameter grouping palette UI state resources
+#[derive(SystemParam)]
+struct PaletteState2<'w> {
+    help_state: ResMut<'w, HelpWindowState>,
+    settings_state: ResMut<'w, SettingsWindowState>,
+    custom_mark_state: ResMut<'w, CustomMarkDialogState>,
+    component_editor_state: ResMut<'w, super::inspector::ComponentEditorState>,
+    component_registry: ResMut<'w, ComponentRegistry>,
+    removable_cache: Res<'w, RemovableComponentsCache>,
 }
 
 /// A command that can be executed from the palette
@@ -101,6 +112,8 @@ pub enum PaletteMode {
     ComponentSearch,
     /// Add component - show all available components to add
     AddComponent,
+    /// Remove component - show components that can be removed
+    RemoveComponent,
 }
 
 /// Resource to track command palette state
@@ -129,6 +142,13 @@ pub struct CustomMarkDialogState {
     pub open: bool,
     pub name: String,
     pub just_opened: bool,
+}
+
+/// Cached list of removable components for an entity
+#[derive(Resource, Default)]
+pub struct RemovableComponentsCache {
+    pub entity: Option<Entity>,
+    pub components: Vec<(TypeId, String)>,
 }
 
 impl Default for CommandPaletteState {
@@ -173,6 +193,12 @@ impl CommandPaletteState {
     /// Open the palette in AddComponent mode for a specific entity
     pub fn open_add_component(&mut self, entity: Entity) {
         self.open_mode(PaletteMode::AddComponent);
+        self.target_entity = Some(entity);
+    }
+
+    /// Open the palette in RemoveComponent mode for a specific entity
+    pub fn open_remove_component(&mut self, entity: Entity) {
+        self.open_mode(PaletteMode::RemoveComponent);
         self.target_entity = Some(entity);
     }
 }
@@ -565,23 +591,97 @@ impl Plugin for CommandPalettePlugin {
         app.init_resource::<CommandPaletteState>()
             .init_resource::<HelpWindowState>()
             .init_resource::<CustomMarkDialogState>()
+            .init_resource::<RemovableComponentsCache>()
             .insert_resource(registry)
-            .add_systems(Update, handle_palette_toggle)
+            .add_systems(Update, (handle_palette_toggle, populate_removable_components))
             .add_systems(EguiPrimaryContextPass, (draw_command_palette, draw_help_window, draw_custom_mark_dialog));
     }
 }
 
+/// Populate the removable components cache when RemoveComponent mode is active
+fn populate_removable_components(world: &mut World) {
+    // Check if we're in RemoveComponent mode
+    let state = world.resource::<CommandPaletteState>();
+    if state.mode != PaletteMode::RemoveComponent || !state.open {
+        return;
+    }
+
+    let target_entity = state.target_entity;
+    let Some(entity) = target_entity else {
+        return;
+    };
+
+    // Check if cache is already populated for this entity
+    let cache = world.resource::<RemovableComponentsCache>();
+    if cache.entity == Some(entity) && !cache.components.is_empty() {
+        return;
+    }
+
+    // Get the type registry
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry_guard = type_registry.read();
+
+    // Get components on this entity
+    let entity_ref = world.entity(entity);
+    let archetype = entity_ref.archetype();
+
+    let mut components: Vec<(TypeId, String)> = archetype
+        .components()
+        .iter()
+        .filter_map(|component_id| {
+            let component_info = world.components().get_info(*component_id)?;
+            let type_id = component_info.type_id()?;
+
+            // Check if this type is registered for reflection
+            let registration = type_registry_guard.get(type_id)?;
+
+            // Check if it has ReflectComponent (can be removed)
+            registration.data::<ReflectComponent>()?;
+
+            let short_name = registration
+                .type_info()
+                .type_path_table()
+                .short_path()
+                .to_string();
+
+            // Skip core components that shouldn't be removed
+            if short_name == "Transform"
+                || short_name == "GlobalTransform"
+                || short_name == "Visibility"
+                || short_name == "InheritedVisibility"
+                || short_name == "ViewVisibility"
+                || short_name == "SceneEntity"
+            {
+                return None;
+            }
+
+            Some((type_id, short_name))
+        })
+        .collect();
+
+    components.sort_by(|a, b| a.1.cmp(&b.1));
+
+    drop(type_registry_guard);
+
+    // Update the cache
+    let mut cache = world.resource_mut::<RemovableComponentsCache>();
+    cache.entity = Some(entity);
+    cache.components = components;
+}
+
 /// Open palette with C key, or / key for component search in ObjectInspector mode
-/// Also handles ? (Shift+/) to open help window
+/// Also handles ? (Shift+/) to open help window and X to remove component
 fn handle_palette_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
     mut state: ResMut<CommandPaletteState>,
     mut help_state: ResMut<HelpWindowState>,
     mut registry: ResMut<CommandRegistry>,
+    mut removable_cache: ResMut<RemovableComponentsCache>,
     marks: Res<CameraMarks>,
     editor_mode: Res<State<EditorMode>>,
     editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
+    selected: Query<Entity, With<Selected>>,
 ) {
     if !should_process_input(&editor_state, &mut contexts) {
         return;
@@ -605,6 +705,17 @@ fn handle_palette_toggle(
         return;
     }
 
+    // "X" key opens remove component palette in ObjectInspector mode
+    if keyboard.just_pressed(KeyCode::KeyX) && *editor_mode.get() == EditorMode::ObjectInspector {
+        if let Some(entity) = selected.iter().next() {
+            // Clear cache to force refresh
+            removable_cache.entity = None;
+            removable_cache.components.clear();
+            state.open_remove_component(entity);
+        }
+        return;
+    }
+
     if keyboard.just_pressed(KeyCode::KeyC) {
         state.open_commands();
         // Refresh dynamic commands
@@ -616,14 +727,10 @@ fn handle_palette_toggle(
 fn draw_command_palette(
     mut contexts: EguiContexts,
     mut state: ResMut<CommandPaletteState>,
-    mut help_state: ResMut<HelpWindowState>,
-    mut settings_state: ResMut<SettingsWindowState>,
-    mut custom_mark_state: ResMut<CustomMarkDialogState>,
+    mut palette_state2: PaletteState2,
     mut editor_state: ResMut<EditorState>,
     mut file_dialog_state: ResMut<FileDialogState>,
     scene_file: Res<SceneFile>,
-    mut component_editor_state: ResMut<super::inspector::ComponentEditorState>,
-    mut component_registry: ResMut<ComponentRegistry>,
     registry: Res<CommandRegistry>,
     type_registry: Res<AppTypeRegistry>,
     selected: Query<Entity, With<Selected>>,
@@ -647,7 +754,7 @@ fn draw_command_palette(
         return draw_component_search_palette(
             ctx,
             &mut state,
-            &mut component_editor_state,
+            &mut palette_state2.component_editor_state,
             &type_registry,
             &selected,
         );
@@ -658,8 +765,19 @@ fn draw_command_palette(
         return draw_add_component_palette(
             ctx,
             &mut state,
-            &mut component_registry,
+            &mut palette_state2.component_registry,
             &type_registry,
+            &mut commands,
+        );
+    }
+
+    // Handle RemoveComponent mode separately
+    if state.mode == PaletteMode::RemoveComponent {
+        return draw_remove_component_palette(
+            ctx,
+            &mut state,
+            &palette_state2.removable_cache,
+            &selected,
             &mut commands,
         );
     }
@@ -904,10 +1022,10 @@ fn draw_command_palette(
                     file_dialog_state.open_load_scene(scene_file.path.as_deref());
                 }
                 CommandAction::ShowHelp => {
-                    help_state.open = true;
+                    palette_state2.help_state.open = true;
                 }
                 CommandAction::OpenSettings => {
-                    settings_state.open = true;
+                    palette_state2.settings_state.open = true;
                 }
                 CommandAction::SetGridSnap(value) => {
                     editor_state.grid_snap = value;
@@ -916,9 +1034,9 @@ fn draw_command_palette(
                     editor_state.rotation_snap = value;
                 }
                 CommandAction::ShowCustomMarkDialog => {
-                    custom_mark_state.open = true;
-                    custom_mark_state.name.clear();
-                    custom_mark_state.just_opened = true;
+                    palette_state2.custom_mark_state.open = true;
+                    palette_state2.custom_mark_state.name.clear();
+                    palette_state2.custom_mark_state.just_opened = true;
                 }
                 CommandAction::SpawnGroup => {
                     events.spawn_entity.write(SpawnEntityEvent {
@@ -1087,6 +1205,7 @@ fn draw_help_window(
                     help_section(ui, "Inspector Mode (O)");
                     shortcut_row(ui, "/", "Search components");
                     shortcut_row(ui, "I", "Add component");
+                    shortcut_row(ui, "X", "Remove component");
                     shortcut_row(ui, "N", "Focus name field");
 
                     ui.add_space(12.0);
@@ -1469,5 +1588,143 @@ impl bevy::prelude::Command for AddComponentCommand {
             editor_state.editing_component = Some((self.type_id, self.component_name));
             editor_state.just_opened = true;
         }
+    }
+}
+
+/// Item for the remove component palette
+struct RemoveComponentItem {
+    type_id: TypeId,
+    short_name: String,
+}
+
+impl super::fuzzy_palette::PaletteItem for RemoveComponentItem {
+    fn label(&self) -> &str {
+        &self.short_name
+    }
+
+    fn category(&self) -> Option<&str> {
+        None
+    }
+
+    fn is_enabled(&self) -> bool {
+        true
+    }
+
+    fn suffix(&self) -> Option<&str> {
+        None
+    }
+
+    fn keywords(&self) -> &[String] {
+        &[]
+    }
+}
+
+/// Draw the remove component palette
+fn draw_remove_component_palette(
+    ctx: &egui::Context,
+    state: &mut ResMut<CommandPaletteState>,
+    removable_cache: &Res<RemovableComponentsCache>,
+    selected: &Query<Entity, With<Selected>>,
+    commands: &mut Commands,
+) -> Result {
+    use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteResult, PaletteState};
+
+    // Get target entity (either from state or first selected)
+    let target_entity = state.target_entity.or_else(|| selected.iter().next());
+    let Some(target_entity) = target_entity else {
+        state.open = false;
+        return Ok(());
+    };
+
+    // Store in state so the populate_removable_components system can fill the cache
+    state.target_entity = Some(target_entity);
+
+    // Bridge CommandPaletteState to PaletteState
+    let mut palette_state = PaletteState {
+        query: std::mem::take(&mut state.query),
+        selected_index: state.selected_index,
+        just_opened: state.just_opened,
+    };
+
+    // Use the cached component list (populated by populate_removable_components system)
+    let items: Vec<RemoveComponentItem> = removable_cache
+        .components
+        .iter()
+        .map(|(type_id, name)| RemoveComponentItem {
+            type_id: *type_id,
+            short_name: name.clone(),
+        })
+        .collect();
+
+    let config = PaletteConfig {
+        title: "REMOVE COMPONENT",
+        title_color: colors::STATUS_ERROR,
+        subtitle: "Select component to remove",
+        hint_text: "Type to search components...",
+        action_label: "remove",
+        size: [400.0, 350.0],
+        show_categories: false,
+    };
+
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &items, &config);
+
+    // Sync state back
+    state.query = palette_state.query;
+    state.selected_index = palette_state.selected_index;
+    state.just_opened = palette_state.just_opened;
+
+    match result {
+        PaletteResult::Selected(index) => {
+            if let Some(item) = items.get(index) {
+                // Queue snapshot and remove commands
+                commands.queue(TakeSnapshotCommand {
+                    description: format!("Remove {} component", item.short_name),
+                });
+                commands.queue(RemoveComponentCommand {
+                    entity: target_entity,
+                    type_id: item.type_id,
+                    component_name: item.short_name.clone(),
+                });
+            }
+            state.open = false;
+            state.target_entity = None;
+        }
+        PaletteResult::Closed => {
+            state.open = false;
+            state.target_entity = None;
+        }
+        PaletteResult::Open => {}
+    }
+
+    Ok(())
+}
+
+/// Command to remove a component via reflection (deferred execution)
+struct RemoveComponentCommand {
+    entity: Entity,
+    type_id: TypeId,
+    component_name: String,
+}
+
+impl bevy::prelude::Command for RemoveComponentCommand {
+    fn apply(self, world: &mut World) {
+        let type_registry = world.resource::<AppTypeRegistry>().clone();
+        let type_registry_guard = type_registry.read();
+
+        // Find the component registration
+        let Some(registration) = type_registry_guard.get(self.type_id) else {
+            warn!("Cannot find type registration for component: {}", self.component_name);
+            return;
+        };
+
+        // Get ReflectComponent to remove
+        let Some(reflect_component) = registration.data::<ReflectComponent>() else {
+            warn!("Component {} does not have ReflectComponent", self.component_name);
+            return;
+        };
+
+        // Remove the component
+        reflect_component.remove(&mut world.entity_mut(self.entity));
+        info!("Removed component {} from entity {:?}", self.component_name, self.entity);
     }
 }

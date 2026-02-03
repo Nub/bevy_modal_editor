@@ -702,14 +702,29 @@ fn opaque_editor_inner(
         return color_editor(ui, v, name);
     }
 
-    // Entity - show as read-only
+    // Entity - clickable to open entity picker
     if let Some(v) = value.try_downcast_ref::<Entity>() {
-        ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-        ui.label(
-            egui::RichText::new(format!("{:?}", v))
-                .color(colors::TEXT_MUTED)
-                .small(),
-        );
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
+            let button = ui.add(
+                egui::Button::new(
+                    egui::RichText::new(format!("{:?}", v))
+                        .color(super::theme::colors::ACCENT_CYAN)
+                        .small(),
+                )
+                .frame(true),
+            );
+            if button.clicked() {
+                // Store the field path in egui memory for the inspector to pick up
+                ui.ctx().memory_mut(|mem| {
+                    mem.data.insert_temp(
+                        egui::Id::new("entity_picker_request"),
+                        name.to_string(),
+                    );
+                });
+            }
+            button.on_hover_text("Click to select entity");
+        });
         return EditResult::Unchanged;
     }
 

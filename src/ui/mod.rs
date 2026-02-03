@@ -1,6 +1,7 @@
 mod command_palette;
 mod component_browser;
 mod edit_info;
+mod entity_picker;
 mod file_dialog;
 mod find_object;
 pub mod fuzzy_palette;
@@ -17,6 +18,7 @@ mod view_gizmo;
 pub use command_palette::*;
 pub use component_browser::*;
 pub use edit_info::*;
+pub use entity_picker::*;
 pub use file_dialog::*;
 pub use find_object::*;
 pub use fuzzy_palette::{
@@ -65,6 +67,7 @@ impl Plugin for UiPlugin {
                 ComponentBrowserPlugin,
                 FileDialogPlugin,
                 MarksPlugin,
+                EntityPickerPlugin,
             ));
     }
 }
