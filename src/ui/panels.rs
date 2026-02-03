@@ -38,6 +38,9 @@ fn draw_status_bar(
 
     let ctx = contexts.ctx_mut()?;
 
+    // Get screen width for centering calculation
+    let screen_width = ctx.input(|i| i.viewport_rect().width());
+
     egui::TopBottomPanel::bottom("status_bar")
         .frame(
             egui::Frame::side_top_panel(&ctx.style())
@@ -45,7 +48,45 @@ fn draw_status_bar(
                 .inner_margin(egui::Margin::symmetric(12, 6)),
         )
         .show(ctx, |ui| {
+            // Draw file name centered using an overlay
+            let file_name = scene_file.display_name();
+            let status_bar_rect = ui.max_rect();
+            let center_x = screen_width / 2.0;
+
+            // Create text for centering calculation
+            let file_text = if scene_file.modified {
+                format!("📄 {} ●", file_name)
+            } else {
+                format!("📄 {}", file_name)
+            };
+
+            // Draw centered file name using painter
+            let painter = ui.painter();
+            let galley = painter.layout_no_wrap(
+                file_text.clone(),
+                egui::FontId::default(),
+                colors::TEXT_SECONDARY,
+            );
+            let text_width = galley.rect.width();
+            let text_pos = egui::pos2(center_x - text_width / 2.0, status_bar_rect.center().y - galley.rect.height() / 2.0);
+            painter.galley(text_pos, galley, colors::TEXT_SECONDARY);
+
+            // Draw modified indicator if needed (colored)
+            if scene_file.modified {
+                let mod_galley = painter.layout_no_wrap(
+                    "●".to_string(),
+                    egui::FontId::proportional(12.0),
+                    colors::STATUS_WARNING,
+                );
+                let mod_pos = egui::pos2(
+                    center_x + text_width / 2.0 - mod_galley.rect.width() - 2.0,
+                    status_bar_rect.center().y - mod_galley.rect.height() / 2.0,
+                );
+                painter.galley(mod_pos, mod_galley, colors::STATUS_WARNING);
+            }
+
             ui.horizontal(|ui| {
+                // LEFT: Mode, operation, FOV/Ortho, distance
                 // Mode indicator
                 let mode_text = match mode.get() {
                     EditorMode::View => "VIEW",
@@ -110,26 +151,6 @@ fn draw_status_bar(
 
                 ui.separator();
 
-                // Grid snap
-                let grid_text = if editor_state.grid_snap > 0.0 {
-                    format!("Grid: {:.2}", editor_state.grid_snap)
-                } else {
-                    "Grid: Off".to_string()
-                };
-                ui.label(egui::RichText::new(grid_text).color(colors::TEXT_MUTED));
-
-                ui.separator();
-
-                // Rotation snap
-                let rot_text = if editor_state.rotation_snap > 0.0 {
-                    format!("Rot: {:.0}°", editor_state.rotation_snap)
-                } else {
-                    "Rot: Off".to_string()
-                };
-                ui.label(egui::RichText::new(rot_text).color(colors::TEXT_MUTED));
-
-                ui.separator();
-
                 // FOV / Ortho scale
                 if let Ok(fly_cam) = camera_query.single() {
                     let cam_text = if fly_cam.fov_degrees == 0.0 {
@@ -145,7 +166,6 @@ fn draw_status_bar(
                     let positions: Vec<Vec3> = selected_query.iter().map(|t| t.translation()).collect();
                     if positions.len() >= 2 {
                         ui.separator();
-                        // Calculate total distance for chain of selections
                         let total_distance: f32 = positions
                             .windows(2)
                             .map(|w| w[0].distance(w[1]))
@@ -157,26 +177,7 @@ fn draw_status_bar(
                     }
                 }
 
-                // Center: file name
-                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("📄").size(14.0));
-                        let file_name = scene_file.display_name();
-                        ui.label(
-                            egui::RichText::new(file_name)
-                                .color(colors::TEXT_SECONDARY),
-                        );
-                        if scene_file.modified {
-                            ui.label(
-                                egui::RichText::new("●")
-                                    .size(12.0)
-                                    .color(colors::STATUS_WARNING),
-                            );
-                        }
-                    });
-                });
-
-                // Right-justified: Physics + Undo/Redo
+                // RIGHT: Physics + Undo/Redo (right-aligned)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Undo/redo counts (appears first due to RTL layout)
                     ui.label(

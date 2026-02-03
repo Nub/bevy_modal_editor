@@ -7,7 +7,9 @@ use super::{EditorCamera, EditorState, FlyCamera};
 use crate::utils::should_process_input;
 
 /// Orthographic scale when switching to ortho mode for axis views
-const ORTHO_SCALE: f32 = 0.05;
+const ORTHO_SCALE: f32 = 0.005;
+/// Distance from origin for orthographic axis views
+const ORTHO_DISTANCE: f32 = 1000.0;
 
 /// A saved camera position and orientation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,7 +32,6 @@ pub struct CameraMarks {
 impl Default for CameraMarks {
     fn default() -> Self {
         use std::f32::consts::{FRAC_PI_2, PI};
-        const DISTANCE: f32 = 10.0;
 
         let mut marks = HashMap::new();
 
@@ -39,7 +40,7 @@ impl Default for CameraMarks {
             "1".to_string(),
             CameraMark {
                 name: "1".to_string(),
-                position: Vec3::new(DISTANCE, 0.0, 0.0),
+                position: Vec3::new(ORTHO_DISTANCE, 0.0, 0.0),
                 yaw: -FRAC_PI_2,
                 pitch: 0.0,
             },
@@ -50,7 +51,7 @@ impl Default for CameraMarks {
             "-1".to_string(),
             CameraMark {
                 name: "-1".to_string(),
-                position: Vec3::new(-DISTANCE, 0.0, 0.0),
+                position: Vec3::new(-ORTHO_DISTANCE, 0.0, 0.0),
                 yaw: FRAC_PI_2,
                 pitch: 0.0,
             },
@@ -61,7 +62,7 @@ impl Default for CameraMarks {
             "2".to_string(),
             CameraMark {
                 name: "2".to_string(),
-                position: Vec3::new(0.0, DISTANCE, 0.0),
+                position: Vec3::new(0.0, ORTHO_DISTANCE, 0.0),
                 yaw: 0.0,
                 pitch: -FRAC_PI_2 + 0.001,
             },
@@ -72,7 +73,7 @@ impl Default for CameraMarks {
             "-2".to_string(),
             CameraMark {
                 name: "-2".to_string(),
-                position: Vec3::new(0.0, -DISTANCE, 0.0),
+                position: Vec3::new(0.0, -ORTHO_DISTANCE, 0.0),
                 yaw: 0.0,
                 pitch: FRAC_PI_2 - 0.001,
             },
@@ -83,7 +84,7 @@ impl Default for CameraMarks {
             "3".to_string(),
             CameraMark {
                 name: "3".to_string(),
-                position: Vec3::new(0.0, 0.0, DISTANCE),
+                position: Vec3::new(0.0, 0.0, ORTHO_DISTANCE),
                 yaw: 0.0,
                 pitch: 0.0,
             },
@@ -94,7 +95,7 @@ impl Default for CameraMarks {
             "-3".to_string(),
             CameraMark {
                 name: "-3".to_string(),
-                position: Vec3::new(0.0, 0.0, -DISTANCE),
+                position: Vec3::new(0.0, 0.0, -ORTHO_DISTANCE),
                 yaw: PI,
                 pitch: 0.0,
             },
@@ -362,6 +363,7 @@ fn handle_jump_to_mark_ortho(
 
                 // Switch to orthographic
                 fly_cam.fov_degrees = 0.0;
+                fly_cam.ortho_scale = ORTHO_SCALE;
                 *projection = Projection::Orthographic(OrthographicProjection {
                     scale: ORTHO_SCALE,
                     ..OrthographicProjection::default_3d()
