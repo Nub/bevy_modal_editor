@@ -147,8 +147,8 @@ fn camera_look(
     mut query: Query<(&mut FlyCamera, &mut Transform), With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
-    // Disable freelook in Edit mode
-    if *mode.get() == EditorMode::Edit {
+    // Must hold right mouse button for freelook
+    if !mouse_button.pressed(MouseButton::Right) {
         return;
     }
 
@@ -157,10 +157,6 @@ fn camera_look(
         if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
             return;
         }
-    }
-
-    if !mouse_button.pressed(MouseButton::Right) {
-        return;
     }
 
     let delta = mouse_motion.delta;
@@ -180,6 +176,7 @@ fn camera_look(
 /// WASD movement for fly camera
 fn camera_movement(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
     settings: Res<Settings>,
     mode: Res<State<EditorMode>>,
@@ -187,8 +184,9 @@ fn camera_movement(
     mut query: Query<&mut Transform, With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
-    // Disable camera movement in Edit mode (WASD used for axis selection)
-    if *mode.get() == EditorMode::Edit {
+    // In Edit mode, only allow camera movement when right mouse button is held
+    // (otherwise WASD is used for axis selection)
+    if *mode.get() == EditorMode::Edit && !mouse_button.pressed(MouseButton::Right) {
         return;
     }
 

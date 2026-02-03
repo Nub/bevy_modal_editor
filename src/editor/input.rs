@@ -35,6 +35,7 @@ fn handle_editor_toggle(
 /// Handle modal input switching and transform operation selection
 fn handle_mode_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
     current_mode: Res<State<EditorMode>>,
     mut next_mode: ResMut<NextState<EditorMode>>,
     mut transform_op: ResMut<TransformOperation>,
@@ -49,6 +50,9 @@ fn handle_mode_input(
     if !should_process_input(&editor_state, &mut contexts) {
         return;
     }
+
+    // In Edit mode with right mouse held, skip transform operations to allow camera movement
+    let right_mouse_flying = *current_mode.get() == EditorMode::Edit && mouse_button.pressed(MouseButton::Right);
 
     let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
     let in_view_mode = *current_mode.get() == EditorMode::View;
@@ -160,9 +164,9 @@ fn handle_mode_input(
         return;
     }
 
-    // Transform operations only in Edit mode
+    // Transform operations only in Edit mode (but not when right-click flying)
     // Q = Translate, W = Rotate, R = Place, T = Snap to Object
-    if *current_mode.get() == EditorMode::Edit {
+    if *current_mode.get() == EditorMode::Edit && !right_mouse_flying {
         if keyboard.just_pressed(KeyCode::KeyQ) {
             *transform_op = TransformOperation::Translate;
             *axis_constraint = AxisConstraint::None;

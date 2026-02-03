@@ -379,6 +379,7 @@ fn point_to_ray_distance(point: Vec3, ray_origin: Vec3, ray_dir: Vec3) -> f32 {
 /// (A/S are handled separately in SnapToObject mode)
 fn handle_axis_keys(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
     editor_state: Res<EditorState>,
@@ -387,6 +388,11 @@ fn handle_axis_keys(
 ) {
     // Only handle in Edit mode with an active transform operation
     if *mode.get() != EditorMode::Edit {
+        return;
+    }
+
+    // Don't handle axis keys when right mouse is held (used for camera movement)
+    if mouse_button.pressed(MouseButton::Right) {
         return;
     }
 
