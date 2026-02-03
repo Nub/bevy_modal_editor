@@ -59,21 +59,6 @@ fn handle_mode_input(
     // Modes can only be entered from View mode, unless Shift is held
     let can_change_mode = in_view_mode || shift_held;
 
-    // V toggles between View and Edit modes
-    if keyboard.just_pressed(KeyCode::KeyV) {
-        match current_mode.get() {
-            EditorMode::View => {
-                next_mode.set(EditorMode::Edit);
-            }
-            EditorMode::Edit | EditorMode::Insert | EditorMode::ObjectInspector | EditorMode::Hierarchy | EditorMode::Blockout => {
-                next_mode.set(EditorMode::View);
-                *transform_op = TransformOperation::None;
-                *axis_constraint = AxisConstraint::None;
-            }
-        }
-        return;
-    }
-
     // I key behavior depends on mode
     if keyboard.just_pressed(KeyCode::KeyI) {
         // In ObjectInspector mode, I opens the Add Component palette

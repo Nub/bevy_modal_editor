@@ -1248,10 +1248,11 @@ fn draw_help_window(
                     ui.set_min_width(220.0);
 
                     help_section(ui, "Mode Switching");
-                    shortcut_row(ui, "V", "Toggle View/Edit mode");
+                    shortcut_row(ui, "E", "Edit mode");
                     shortcut_row(ui, "I", "Insert mode");
                     shortcut_row(ui, "O", "Object Inspector mode");
                     shortcut_row(ui, "H", "Hierarchy mode");
+                    shortcut_row(ui, "B", "Blockout mode");
                     shortcut_row(ui, "Shift+key", "Switch from any mode");
                     shortcut_row(ui, "Esc", "Return to View mode");
 
@@ -1267,11 +1268,13 @@ fn draw_help_window(
                     shortcut_row(ui, "`", "Last position");
 
                     ui.add_space(12.0);
-                    help_section(ui, "Selection");
+                    help_section(ui, "Selection & Edit");
                     shortcut_row(ui, "Click", "Select object");
                     shortcut_row(ui, "Shift+Click", "Multi-select");
+                    shortcut_row(ui, "Ctrl+D", "Duplicate");
+                    shortcut_row(ui, "Arrows", "Nudge selected");
                     shortcut_row(ui, "G", "Group selected");
-                    shortcut_row(ui, "Delete", "Delete selected");
+                    shortcut_row(ui, "Delete/X", "Delete selected");
                 });
 
                 ui.add_space(16.0);
@@ -1288,11 +1291,9 @@ fn draw_help_window(
                     shortcut_row(ui, "E", "Scale");
                     shortcut_row(ui, "R", "Place (raycast)");
                     shortcut_row(ui, "T", "Snap to object");
-                    shortcut_row(ui, "  A", "  Surface align");
-                    shortcut_row(ui, "  S", "  Center align");
-                    shortcut_row(ui, "  D", "  Aligned (rotated)");
                     shortcut_row(ui, "A/S/D", "Constrain X/Y/Z");
                     shortcut_row(ui, "J/K", "Step -/+");
+                    shortcut_row(ui, "Alt+Drag", "Edge snap");
 
                     ui.add_space(12.0);
                     help_section(ui, "Insert Mode (I)");
@@ -1309,7 +1310,6 @@ fn draw_help_window(
                     shortcut_row(ui, "U", "Undo");
                     shortcut_row(ui, "Ctrl+R", "Redo");
                     shortcut_row(ui, "P", "Preview mode");
-                    shortcut_row(ui, "Ctrl+S", "Save scene");
                 });
 
                 ui.add_space(16.0);
@@ -1333,34 +1333,12 @@ fn draw_help_window(
                     shortcut_row(ui, "N", "Focus name field");
 
                     ui.add_space(12.0);
-                    help_section(ui, "Scene File");
-                    shortcut_row(ui, "Ctrl+S", "Save");
-                    shortcut_row(ui, "Ctrl+Shift+S", "Save As");
-                    shortcut_row(ui, "Ctrl+O", "Open");
-                    shortcut_row(ui, "Ctrl+N", "New scene");
+                    help_section(ui, "Blockout Mode (B)");
+                    shortcut_row(ui, "1-5", "Select shape");
+                    shortcut_row(ui, "WASDQE", "Select face");
+                    shortcut_row(ui, "R", "Rotate 90°");
+                    shortcut_row(ui, "Enter", "Place tile");
 
-                    ui.add_space(12.0);
-                    help_section(ui, "Physics");
-                    ui.label(
-                        egui::RichText::new("Use command palette (C):")
-                            .small()
-                            .color(colors::TEXT_MUTED),
-                    );
-                    ui.label(
-                        egui::RichText::new("  Toggle Physics")
-                            .small()
-                            .color(colors::TEXT_SECONDARY),
-                    );
-                    ui.label(
-                        egui::RichText::new("  Toggle Physics Debug")
-                            .small()
-                            .color(colors::TEXT_SECONDARY),
-                    );
-                    ui.label(
-                        egui::RichText::new("  Toggle Grid")
-                            .small()
-                            .color(colors::TEXT_SECONDARY),
-                    );
                 });
             });
 

@@ -255,11 +255,11 @@ fn get_hints_for_mode(
 ) -> Vec<(&'static str, &'static str)> {
     match mode {
         EditorMode::View => vec![
-            ("V", "Edit"),
+            ("E", "Edit"),
             ("I", "Insert"),
             ("O", "Inspect"),
             ("H", "Hierarchy"),
-            ("M", "Measure"),
+            ("B", "Blockout"),
             ("?", "Help"),
         ],
         EditorMode::Edit => {
