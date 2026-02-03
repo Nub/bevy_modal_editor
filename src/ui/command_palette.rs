@@ -98,6 +98,8 @@ pub enum CommandAction {
     InsertScene,
     /// Spawn a spline of the specified type
     SpawnSpline(SplineType),
+    /// Spawn a volumetric fog volume
+    SpawnFogVolume,
 }
 
 /// The mode the command palette is operating in
@@ -308,6 +310,15 @@ impl CommandRegistry {
             keywords: vec!["curve".into(), "path".into(), "bspline".into()],
             category: "Splines",
             action: CommandAction::SpawnSpline(SplineType::BSpline),
+            insertable: true,
+        });
+
+        // Effects (insertable)
+        self.commands.push(Command {
+            name: "Add Fog Volume".to_string(),
+            keywords: vec!["volumetric".into(), "fog".into(), "atmosphere".into(), "mist".into(), "haze".into()],
+            category: "Effects",
+            action: CommandAction::SpawnFogVolume,
             insertable: true,
         });
 
@@ -971,6 +982,11 @@ fn draw_command_palette(
                         object_type: InsertObjectType::Spline(*spline_type),
                     });
                 }
+                CommandAction::SpawnFogVolume => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::FogVolume,
+                    });
+                }
                 _ => {}
             }
         } else {
@@ -1000,6 +1016,13 @@ fn draw_command_palette(
                 CommandAction::SpawnSpline(spline_type) => {
                     events.spawn_entity.write(SpawnEntityEvent {
                         kind: SpawnEntityKind::Spline(spline_type),
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    });
+                }
+                CommandAction::SpawnFogVolume => {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::FogVolume,
                         position: Vec3::ZERO,
                         rotation: Quat::IDENTITY,
                     });

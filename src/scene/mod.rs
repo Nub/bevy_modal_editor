@@ -48,7 +48,9 @@ impl Plugin for ScenePlugin {
             // Spline types
             .register_type::<SplineMarker>()
             .register_type::<Spline>()
-            .register_type::<SplineType>();
+            .register_type::<SplineType>()
+            // Fog volume types
+            .register_type::<FogVolumeMarker>();
     }
 }
 

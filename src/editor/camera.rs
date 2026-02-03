@@ -1,6 +1,8 @@
 use avian3d::prelude::*;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
+use bevy::light::VolumetricFog;
 use bevy::prelude::*;
+use bevy::render::view::Hdr;
 use bevy_egui::EguiContexts;
 
 use super::{EditorMode, EditorState, TransformOperation};
@@ -123,7 +125,13 @@ fn spawn_editor_camera(mut commands: Commands) {
         EditorCamera,
         fly_cam,
         Camera3d::default(),
+        Hdr,
         Transform::from_translation(Vec3::new(0.0, 5.0, 10.0)).with_rotation(rotation),
+        // Enable volumetric fog system (requires FogVolume entities to be visible)
+        VolumetricFog {
+            ambient_intensity: 0.0,
+            ..default()
+        },
     ));
 }
 

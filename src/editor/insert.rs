@@ -275,6 +275,22 @@ pub fn spawn_preview_entity(
                 ))
                 .id()
         }
+        InsertObjectType::FogVolume => {
+            // For fog volumes, show a semi-transparent cube representing the volume bounds
+            commands
+                .spawn((
+                    InsertPreview,
+                    Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(0.5, 0.7, 1.0, 0.3),
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    // Default fog volume size of 10 units
+                    Transform::from_translation(Vec3::ZERO).with_scale(Vec3::splat(10.0)),
+                ))
+                .id()
+        }
     }
 }
 
@@ -502,6 +518,7 @@ fn handle_insert_click(
             SplineType::CatmullRom => "Catmull-Rom Spline".to_string(),
             SplineType::BSpline => "B-Spline".to_string(),
         },
+        InsertObjectType::FogVolume => "Fog Volume".to_string(),
     };
     commands.queue(TakeSnapshotCommand {
         description: format!("Insert {}", object_name),
@@ -558,6 +575,13 @@ fn handle_insert_click(
         InsertObjectType::Spline(spline_type) => {
             spawn_entity_events.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::Spline(spline_type),
+                position,
+                rotation,
+            });
+        }
+        InsertObjectType::FogVolume => {
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::FogVolume,
                 position,
                 rotation,
             });

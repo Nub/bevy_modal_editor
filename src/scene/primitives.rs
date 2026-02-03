@@ -1,4 +1,5 @@
 use avian3d::prelude::*;
+use bevy::light::FogVolume;
 use bevy::prelude::*;
 use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,33 @@ impl Default for DirectionalLightMarker {
 #[derive(Component, Serialize, Deserialize, Clone, Default, Reflect)]
 #[reflect(Component)]
 pub struct SplineMarker;
+
+/// Marker component for fog volume entities (stores serializable fog settings)
+#[derive(Component, Serialize, Deserialize, Clone, Reflect)]
+#[reflect(Component)]
+pub struct FogVolumeMarker {
+    pub fog_color: Color,
+    pub density_factor: f32,
+    pub absorption: f32,
+    pub scattering: f32,
+    pub scattering_asymmetry: f32,
+    pub light_tint: Color,
+    pub light_intensity: f32,
+}
+
+impl Default for FogVolumeMarker {
+    fn default() -> Self {
+        Self {
+            fog_color: Color::WHITE,
+            density_factor: 0.1,
+            absorption: 0.3,
+            scattering: 0.3,
+            scattering_asymmetry: 0.8,
+            light_tint: Color::WHITE,
+            light_intensity: 1.0,
+        }
+    }
+}
 
 /// Available primitive shapes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Reflect, Default)]
@@ -133,6 +161,8 @@ pub enum SpawnEntityKind {
     DirectionalLight,
     /// A spline curve
     Spline(SplineType),
+    /// A volumetric fog volume
+    FogVolume,
 }
 
 impl SpawnEntityKind {
@@ -148,6 +178,7 @@ impl SpawnEntityKind {
                 SplineType::CatmullRom => "Catmull-Rom Spline",
                 SplineType::BSpline => "B-Spline",
             },
+            SpawnEntityKind::FogVolume => "Fog Volume",
         }
     }
 }
@@ -241,6 +272,7 @@ fn handle_spawn_entity(
             SpawnEntityKind::PointLight => spawn_point_light(&mut commands, event.position, event.rotation, &name),
             SpawnEntityKind::DirectionalLight => spawn_directional_light(&mut commands, event.position, event.rotation, &name),
             SpawnEntityKind::Spline(spline_type) => spawn_spline(&mut commands, *spline_type, event.position, event.rotation, &name),
+            SpawnEntityKind::FogVolume => spawn_fog_volume(&mut commands, event.position, event.rotation, &name),
         };
 
         // Select the newly spawned entity
@@ -364,6 +396,33 @@ pub fn spawn_spline(commands: &mut Commands, spline_type: SplineType, position: 
             spline,
             Transform::from_translation(position).with_rotation(rotation),
             Visibility::default(),
+        ))
+        .id()
+}
+
+/// Spawn a fog volume entity
+pub fn spawn_fog_volume(commands: &mut Commands, position: Vec3, rotation: Quat, name: &str) -> Entity {
+    let marker = FogVolumeMarker::default();
+    commands
+        .spawn((
+            SceneEntity,
+            Name::new(name.to_string()),
+            marker.clone(),
+            FogVolume {
+                fog_color: marker.fog_color,
+                density_factor: marker.density_factor,
+                absorption: marker.absorption,
+                scattering: marker.scattering,
+                scattering_asymmetry: marker.scattering_asymmetry,
+                light_tint: marker.light_tint,
+                light_intensity: marker.light_intensity,
+                ..default()
+            },
+            // Default scale of 10 units for the fog volume bounding box
+            Transform::from_translation(position).with_rotation(rotation).with_scale(Vec3::splat(10.0)),
+            Visibility::default(),
+            // Small collider for selection (fog volume size is determined by transform scale)
+            Collider::cuboid(0.5, 0.5, 0.5),
         ))
         .id()
 }

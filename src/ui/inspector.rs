@@ -1,4 +1,5 @@
 use avian3d::prelude::RigidBody;
+use bevy::light::VolumetricLight;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_spline_3d::path_follow::{FollowerState, LoopMode, SplineFollower};
@@ -10,7 +11,7 @@ use super::entity_picker::{draw_entity_field, make_callback_id, EntityPickerStat
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::editor::{EditorMode, EditorState};
-use crate::scene::{DirectionalLightMarker, Locked, SceneLightMarker};
+use crate::scene::{DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::colors;
 
@@ -86,6 +87,7 @@ struct PointLightData {
     intensity: f32,
     range: f32,
     shadows_enabled: bool,
+    volumetric: bool,
 }
 
 impl From<&SceneLightMarker> for PointLightData {
@@ -96,6 +98,7 @@ impl From<&SceneLightMarker> for PointLightData {
             intensity: marker.intensity,
             range: marker.range,
             shadows_enabled: marker.shadows_enabled,
+            volumetric: false, // Set separately based on VolumetricLight component
         }
     }
 }
@@ -106,6 +109,7 @@ struct DirectionalLightData {
     color: [f32; 3],
     illuminance: f32,
     shadows_enabled: bool,
+    volumetric: bool,
 }
 
 impl From<&DirectionalLightMarker> for DirectionalLightData {
@@ -115,6 +119,35 @@ impl From<&DirectionalLightMarker> for DirectionalLightData {
             color: [color.red, color.green, color.blue],
             illuminance: marker.illuminance,
             shadows_enabled: marker.shadows_enabled,
+            volumetric: false, // Set separately based on VolumetricLight component
+        }
+    }
+}
+
+/// Data for fog volume editing
+#[derive(Clone)]
+struct FogVolumeData {
+    fog_color: [f32; 3],
+    density_factor: f32,
+    absorption: f32,
+    scattering: f32,
+    scattering_asymmetry: f32,
+    light_tint: [f32; 3],
+    light_intensity: f32,
+}
+
+impl From<&FogVolumeMarker> for FogVolumeData {
+    fn from(marker: &FogVolumeMarker) -> Self {
+        let fog_color = marker.fog_color.to_srgba();
+        let light_tint = marker.light_tint.to_srgba();
+        Self {
+            fog_color: [fog_color.red, fog_color.green, fog_color.blue],
+            density_factor: marker.density_factor,
+            absorption: marker.absorption,
+            scattering: marker.scattering,
+            scattering_asymmetry: marker.scattering_asymmetry,
+            light_tint: [light_tint.red, light_tint.green, light_tint.blue],
+            light_intensity: marker.light_intensity,
         }
     }
 }
@@ -294,6 +327,8 @@ fn draw_point_light_section(ui: &mut egui::Ui, data: &mut PointLightData) -> boo
         ui.add_space(4.0);
         changed |= draw_checkbox_row(ui, "Shadows", &mut data.shadows_enabled);
         ui.add_space(4.0);
+        changed |= draw_checkbox_row(ui, "Volumetric", &mut data.volumetric);
+        ui.add_space(4.0);
     });
 
     changed
@@ -314,6 +349,43 @@ fn draw_directional_light_section(ui: &mut egui::Ui, data: &mut DirectionalLight
         changed |= draw_drag_row(ui, "Illuminance", &mut data.illuminance, 100.0, 0.0..=200000.0);
         ui.add_space(4.0);
         changed |= draw_checkbox_row(ui, "Shadows", &mut data.shadows_enabled);
+        ui.add_space(4.0);
+        changed |= draw_checkbox_row(ui, "Volumetric", &mut data.volumetric);
+        ui.add_space(4.0);
+    });
+
+    changed
+}
+
+/// Draw fog volume properties section
+fn draw_fog_volume_section(ui: &mut egui::Ui, data: &mut FogVolumeData) -> bool {
+    let mut changed = false;
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("Fog Volume").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Fog Color").color(colors::TEXT_SECONDARY));
+            changed |= ui.color_edit_button_rgb(&mut data.fog_color).changed();
+        });
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Density", &mut data.density_factor, 0.01, 0.0..=1.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Absorption", &mut data.absorption, 0.01, 0.0..=1.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Scattering", &mut data.scattering, 0.01, 0.0..=1.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Scattering Asymmetry", &mut data.scattering_asymmetry, 0.01, -1.0..=1.0);
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Light Tint").color(colors::TEXT_SECONDARY));
+            changed |= ui.color_edit_button_rgb(&mut data.light_tint).changed();
+        });
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Light Intensity", &mut data.light_intensity, 0.1, 0.0..=10.0);
         ui.add_space(4.0);
     });
 
@@ -573,12 +645,25 @@ fn draw_inspector_panel(world: &mut World) {
 
     // Get point light data for single selection
     let mut point_light_data = single_entity.and_then(|e| {
-        world.get::<SceneLightMarker>(e).map(|m| PointLightData::from(m))
+        world.get::<SceneLightMarker>(e).map(|m| {
+            let mut data = PointLightData::from(m);
+            data.volumetric = world.get::<VolumetricLight>(e).is_some();
+            data
+        })
     });
 
     // Get directional light data for single selection
     let mut directional_light_data = single_entity.and_then(|e| {
-        world.get::<DirectionalLightMarker>(e).map(|m| DirectionalLightData::from(m))
+        world.get::<DirectionalLightMarker>(e).map(|m| {
+            let mut data = DirectionalLightData::from(m);
+            data.volumetric = world.get::<VolumetricLight>(e).is_some();
+            data
+        })
+    });
+
+    // Get fog volume data for single selection
+    let mut fog_volume_data = single_entity.and_then(|e| {
+        world.get::<FogVolumeMarker>(e).map(|m| FogVolumeData::from(m))
     });
 
     // Get spline follower data for single selection
@@ -607,6 +692,7 @@ fn draw_inspector_panel(world: &mut World) {
     let mut rigidbody_action: ComponentAction<RigidBodyType> = ComponentAction::None;
     let mut point_light_changed = false;
     let mut directional_light_changed = false;
+    let mut fog_volume_changed = false;
     let mut spline_follower_changed = false;
     let mut open_spline_picker = false;
 
@@ -753,6 +839,12 @@ fn draw_inspector_panel(world: &mut World) {
                                 ui.add_space(4.0);
                             }
 
+                            // Fog volume properties
+                            if let Some(ref mut data) = fog_volume_data {
+                                fog_volume_changed = draw_fog_volume_section(ui, data);
+                                ui.add_space(4.0);
+                            }
+
                             // Spline follower properties
                             if let Some(ref mut data) = spline_follower_data {
                                 let result = draw_spline_follower_section(ui, data, spline_name.as_deref());
@@ -895,6 +987,14 @@ fn draw_inspector_panel(world: &mut World) {
                 light.range = data.range;
                 light.shadows_enabled = data.shadows_enabled;
             }
+
+            // Toggle VolumetricLight component
+            let has_volumetric = world.get::<VolumetricLight>(entity).is_some();
+            if data.volumetric && !has_volumetric {
+                world.entity_mut(entity).insert(VolumetricLight);
+            } else if !data.volumetric && has_volumetric {
+                world.entity_mut(entity).remove::<VolumetricLight>();
+            }
         }
     }
 
@@ -915,6 +1015,44 @@ fn draw_inspector_panel(world: &mut World) {
                 light.color = new_color;
                 light.illuminance = data.illuminance;
                 light.shadows_enabled = data.shadows_enabled;
+            }
+
+            // Toggle VolumetricLight component
+            let has_volumetric = world.get::<VolumetricLight>(entity).is_some();
+            if data.volumetric && !has_volumetric {
+                world.entity_mut(entity).insert(VolumetricLight);
+            } else if !data.volumetric && has_volumetric {
+                world.entity_mut(entity).remove::<VolumetricLight>();
+            }
+        }
+    }
+
+    // Apply fog volume changes
+    if fog_volume_changed {
+        if let (Some(entity), Some(data)) = (single_entity, fog_volume_data) {
+            let new_fog_color = Color::srgb(data.fog_color[0], data.fog_color[1], data.fog_color[2]);
+            let new_light_tint = Color::srgb(data.light_tint[0], data.light_tint[1], data.light_tint[2]);
+
+            // Update the marker component
+            if let Some(mut marker) = world.get_mut::<FogVolumeMarker>(entity) {
+                marker.fog_color = new_fog_color;
+                marker.density_factor = data.density_factor;
+                marker.absorption = data.absorption;
+                marker.scattering = data.scattering;
+                marker.scattering_asymmetry = data.scattering_asymmetry;
+                marker.light_tint = new_light_tint;
+                marker.light_intensity = data.light_intensity;
+            }
+
+            // Update the actual FogVolume component
+            if let Some(mut fog) = world.get_mut::<bevy::light::FogVolume>(entity) {
+                fog.fog_color = new_fog_color;
+                fog.density_factor = data.density_factor;
+                fog.absorption = data.absorption;
+                fog.scattering = data.scattering;
+                fog.scattering_asymmetry = data.scattering_asymmetry;
+                fog.light_tint = new_light_tint;
+                fog.light_intensity = data.light_intensity;
             }
         }
     }
@@ -1054,6 +1192,7 @@ fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
         if name == "Transform"
             || name == "SceneLightMarker"
             || name == "DirectionalLightMarker"
+            || name == "FogVolumeMarker"
             || name == "RigidBody"
             || name == "SplineFollower"
         {

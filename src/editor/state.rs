@@ -139,6 +139,8 @@ pub enum InsertObjectType {
     Scene,
     /// Spline with the specified type
     Spline(SplineType),
+    /// Volumetric fog volume
+    FogVolume,
 }
 
 /// Marker component for preview entities in Insert mode
