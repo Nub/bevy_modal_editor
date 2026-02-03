@@ -2,23 +2,34 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Related Projects
+## Workspace Structure
 
-This project depends on and is tightly integrated with:
+This is a Cargo workspace containing:
 
-- **bevy_spline_3d** (`/home/zach/src/bevy_spline_3d`) - Spline curve library providing:
+```
+bevy_modal_editor/
+├── Cargo.toml          (workspace root + editor package)
+├── src/                (editor code)
+├── crates/
+│   ├── bevy_outliner/  (JFA-based object outlining)
+│   └── bevy_spline_3d/ (3D spline editing with gizmos)
+```
+
+**Member crates:**
+
+- **bevy_outliner** (`crates/bevy_outliner`) - Jump Flood Algorithm based object outlining for mesh selection visualization
+
+- **bevy_spline_3d** (`crates/bevy_spline_3d`) - Spline curve library providing:
   - Spline types: Cubic Bezier, Catmull-Rom, B-Spline
   - Control point editing with gizmos
   - Road mesh generation, distribution along splines, path following
   - Surface projection onto terrain
 
-The `SplineEditPlugin` in this project bridges `bevy_spline_3d` with the modal editor:
+The `SplineEditPlugin` bridges `bevy_spline_3d` with the modal editor:
 - Disables library hotkeys (uses modal-aware input instead)
 - Syncs `EditorSettings` based on editor mode
 - Control points only editable in Edit mode with spline selected
 - X-ray rendering enabled only during spline editing
-
-When making changes to spline functionality, you may need to modify both projects.
 
 ## Build Commands
 
@@ -26,11 +37,18 @@ When making changes to spline functionality, you may need to modify both project
 # Enter development environment (required for dependencies)
 nix develop
 
-# Build and run
+# Build and run the editor
 cargo run
 
-# Check for errors without building
-cargo check
+# Build all workspace members
+cargo build --workspace
+
+# Check all crates for errors
+cargo check --workspace
+
+# Run a specific crate's example
+cargo run -p bevy_outliner --example basic
+cargo run -p bevy_spline_3d --example editor
 
 # Build release
 cargo build --release

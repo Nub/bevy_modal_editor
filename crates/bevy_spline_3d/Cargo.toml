@@ -1,0 +1,41 @@
+[package]
+name = "bevy_spline_3d"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "A Bevy plugin for 3D spline editing with interactive gizmos"
+repository.workspace = true
+keywords = ["bevy", "spline", "bezier", "editor", "3d"]
+categories = ["game-development", "graphics", "rendering"]
+
+[features]
+default = ["editor"]
+editor = []
+
+[dependencies]
+bevy.workspace = true
+avian3d = { workspace = true, default-features = false }
+
+[[example]]
+name = "editor"
+path = "examples/editor.rs"
+
+[[example]]
+name = "distribution"
+path = "examples/distribution.rs"
+
+[[example]]
+name = "road"
+path = "examples/road.rs"
+
+[[example]]
+name = "intersection"
+path = "examples/intersection.rs"
+
+[[example]]
+name = "path_follow"
+path = "examples/path_follow.rs"
+
+[[example]]
+name = "surface_projection"
+path = "examples/surface_projection.rs"

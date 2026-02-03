@@ -21,6 +21,13 @@ Modal editing solves this by organizing commands into modes, each with its own f
 
 Every action has a keyboard shortcut. The command palette (`C`) gives you fuzzy-searchable access to all commands. Press `?` at any time to see all available hotkeys for your current mode.
 
+## Workspace Structure
+
+This is a Cargo workspace containing:
+- **bevy_modal_editor** (root) - The modal level editor
+- **crates/bevy_outliner** - JFA-based object outlining for selection visualization
+- **crates/bevy_spline_3d** - 3D spline editing with interactive gizmos
+
 ## Quick Start
 
 ```bash
@@ -29,6 +36,13 @@ nix develop
 
 # Run the editor
 cargo run
+
+# Build all workspace crates
+cargo build --workspace
+
+# Run examples from member crates
+cargo run -p bevy_outliner --example basic
+cargo run -p bevy_spline_3d --example editor
 ```
 
 ### Loading a Demo Scene

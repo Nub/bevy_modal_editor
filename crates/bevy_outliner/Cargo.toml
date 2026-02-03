@@ -1,0 +1,32 @@
+[package]
+name = "bevy_outliner"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "Jump Flood Algorithm based object outlining for Bevy"
+repository.workspace = true
+keywords = ["bevy", "outline", "shader", "jfa", "gamedev"]
+categories = ["game-development", "graphics", "rendering"]
+
+[dependencies]
+bevy.workspace = true
+bytemuck.workspace = true
+
+[dev-dependencies]
+bevy_egui.workspace = true
+
+[features]
+default = []
+trace_tracy = ["bevy/trace_tracy"]
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "with_egui"
+path = "examples/with_egui.rs"
+
+[lints.clippy]
+type_complexity = "allow"
+too_many_arguments = "allow"
