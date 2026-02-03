@@ -6,12 +6,17 @@
 mod mesh_gen;
 
 use avian3d::prelude::*;
+use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
+use bevy_grid_shader::GridMaterial;
 use serde::{Deserialize, Serialize};
 
 pub use mesh_gen::*;
 
 use super::SceneEntity;
+
+/// Type alias for grid material
+pub type GridMat = ExtendedMaterial<StandardMaterial, GridMaterial>;
 
 /// Available blockout shapes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -171,7 +176,7 @@ impl Plugin for BlockoutPlugin {
 pub fn spawn_stairs(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
+    materials: &mut ResMut<Assets<GridMat>>,
     position: Vec3,
     rotation: Quat,
     name: &str,
@@ -186,9 +191,12 @@ pub fn spawn_stairs(
             Name::new(name.to_string()),
             marker,
             Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: blockout_colors::STAIRS,
-                ..default()
+            MeshMaterial3d(materials.add(ExtendedMaterial {
+                base: StandardMaterial {
+                    base_color: blockout_colors::STAIRS,
+                    ..default()
+                },
+                extension: GridMaterial::default(),
             })),
             Transform::from_translation(position).with_rotation(rotation),
             RigidBody::Static,
@@ -201,7 +209,7 @@ pub fn spawn_stairs(
 pub fn spawn_ramp(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
+    materials: &mut ResMut<Assets<GridMat>>,
     position: Vec3,
     rotation: Quat,
     name: &str,
@@ -216,9 +224,12 @@ pub fn spawn_ramp(
             Name::new(name.to_string()),
             marker,
             Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: blockout_colors::RAMP,
-                ..default()
+            MeshMaterial3d(materials.add(ExtendedMaterial {
+                base: StandardMaterial {
+                    base_color: blockout_colors::RAMP,
+                    ..default()
+                },
+                extension: GridMaterial::default(),
             })),
             Transform::from_translation(position).with_rotation(rotation),
             RigidBody::Static,
@@ -231,7 +242,7 @@ pub fn spawn_ramp(
 pub fn spawn_arch(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
+    materials: &mut ResMut<Assets<GridMat>>,
     position: Vec3,
     rotation: Quat,
     name: &str,
@@ -246,9 +257,12 @@ pub fn spawn_arch(
             Name::new(name.to_string()),
             marker,
             Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: blockout_colors::ARCH,
-                ..default()
+            MeshMaterial3d(materials.add(ExtendedMaterial {
+                base: StandardMaterial {
+                    base_color: blockout_colors::ARCH,
+                    ..default()
+                },
+                extension: GridMaterial::default(),
             })),
             Transform::from_translation(position).with_rotation(rotation),
             RigidBody::Static,
@@ -261,7 +275,7 @@ pub fn spawn_arch(
 pub fn spawn_lshape(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
+    materials: &mut ResMut<Assets<GridMat>>,
     position: Vec3,
     rotation: Quat,
     name: &str,
@@ -276,9 +290,12 @@ pub fn spawn_lshape(
             Name::new(name.to_string()),
             marker,
             Mesh3d(meshes.add(mesh)),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: blockout_colors::LSHAPE,
-                ..default()
+            MeshMaterial3d(materials.add(ExtendedMaterial {
+                base: StandardMaterial {
+                    base_color: blockout_colors::LSHAPE,
+                    ..default()
+                },
+                extension: GridMaterial::default(),
             })),
             Transform::from_translation(position).with_rotation(rotation),
             RigidBody::Static,

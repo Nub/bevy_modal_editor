@@ -196,7 +196,7 @@ fn handle_blockout_input(
     mut contexts: EguiContexts,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<GridMat>>,
     preview_query: Query<&Transform, With<BlockoutPreview>>,
 ) {
     if !should_process_input(&editor_state, &mut contexts) {
@@ -278,6 +278,8 @@ fn handle_blockout_input(
         // Spawn the actual entity directly to get the entity ID for anchor chaining
         let new_entity = match blockout_state.selected_shape {
             BlockoutShapeSelection::Cube => {
+                use bevy::pbr::ExtendedMaterial;
+                use bevy_grid_shader::GridMaterial;
                 use crate::scene::PrimitiveShape;
                 let shape = PrimitiveShape::Cube;
                 commands
@@ -285,7 +287,10 @@ fn handle_blockout_input(
                         SceneEntity,
                         Name::new("Cube"),
                         Mesh3d(meshes.add(shape.create_mesh())),
-                        MeshMaterial3d(materials.add(shape.create_material())),
+                        MeshMaterial3d(materials.add(ExtendedMaterial {
+                            base: shape.create_material(),
+                            extension: GridMaterial::default(),
+                        })),
                         Transform::from_translation(position).with_rotation(rotation),
                         RigidBody::Static,
                         shape.create_collider(),

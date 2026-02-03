@@ -81,7 +81,7 @@ impl Default for GridMaterial {
                 major_line_width: 3.0,
                 grid_scale: 1.0,
                 major_line_every: 10,
-                axes: GridAxes::XZ.bits(),
+                axes: GridAxes::ALL.bits(),
                 fade_distance: 0.0,
                 fade_strength: 1.0,
                 _padding: 0.0,

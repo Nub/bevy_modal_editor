@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
 
-use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs};
+use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs, GridMat};
 use super::SceneEntity;
 use crate::constants::{light_colors, physics, primitive_colors};
 use crate::selection::Selected;
@@ -269,6 +269,7 @@ fn handle_spawn_entity(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut grid_materials: ResMut<Assets<GridMat>>,
     existing_entities: Query<&Name, With<SceneEntity>>,
     selected_entities: Query<Entity, With<Selected>>,
 ) {
@@ -295,10 +296,10 @@ fn handle_spawn_entity(
             SpawnEntityKind::DirectionalLight => spawn_directional_light(&mut commands, event.position, event.rotation, &name),
             SpawnEntityKind::Spline(spline_type) => spawn_spline(&mut commands, *spline_type, event.position, event.rotation, &name),
             SpawnEntityKind::FogVolume => spawn_fog_volume(&mut commands, event.position, event.rotation, &name),
-            SpawnEntityKind::Stairs => spawn_stairs(&mut commands, &mut meshes, &mut materials, event.position, event.rotation, &name),
-            SpawnEntityKind::Ramp => spawn_ramp(&mut commands, &mut meshes, &mut materials, event.position, event.rotation, &name),
-            SpawnEntityKind::Arch => spawn_arch(&mut commands, &mut meshes, &mut materials, event.position, event.rotation, &name),
-            SpawnEntityKind::LShape => spawn_lshape(&mut commands, &mut meshes, &mut materials, event.position, event.rotation, &name),
+            SpawnEntityKind::Stairs => spawn_stairs(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
+            SpawnEntityKind::Ramp => spawn_ramp(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
+            SpawnEntityKind::Arch => spawn_arch(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
+            SpawnEntityKind::LShape => spawn_lshape(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
         };
 
         // Select the newly spawned entity
