@@ -12,6 +12,10 @@ pub use serialization::*;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_spline_3d::distribution::{
+    DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
+    SplineDistribution,
+};
 use bevy_spline_3d::prelude::{Spline, SplineType};
 
 /// Marker component for entities that are part of the editable scene
@@ -49,6 +53,12 @@ impl Plugin for ScenePlugin {
             .register_type::<SplineMarker>()
             .register_type::<Spline>()
             .register_type::<SplineType>()
+            // Spline distribution types
+            .register_type::<SplineDistribution>()
+            .register_type::<DistributionOrientation>()
+            .register_type::<DistributionSpacing>()
+            .register_type::<DistributionSource>()
+            .register_type::<DistributedInstance>()
             // Fog volume types
             .register_type::<FogVolumeMarker>();
     }

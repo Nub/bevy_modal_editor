@@ -2,6 +2,7 @@ use avian3d::prelude::RigidBody;
 use bevy::light::VolumetricLight;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
+use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSpacing, SplineDistribution};
 use bevy_spline_3d::path_follow::{FollowerState, LoopMode, SplineFollower};
 use std::any::TypeId;
 
@@ -182,6 +183,49 @@ impl From<&SplineFollower> for SplineFollowerData {
             constant_speed: follower.constant_speed,
         }
     }
+}
+
+/// Data for SplineDistribution editing
+#[derive(Clone)]
+struct SplineDistributionData {
+    spline: Entity,
+    source: Entity,
+    count: usize,
+    orientation_mode: usize, // 0=PositionOnly, 1=AlignToTangent
+    up_vector: [f32; 3],
+    spacing_mode: usize, // 0=Uniform, 1=Parametric
+    offset: [f32; 3],
+    enabled: bool,
+}
+
+impl From<&SplineDistribution> for SplineDistributionData {
+    fn from(dist: &SplineDistribution) -> Self {
+        let (orientation_mode, up_vector) = match dist.orientation {
+            DistributionOrientation::PositionOnly => (0, [0.0, 1.0, 0.0]),
+            DistributionOrientation::AlignToTangent { up } => (1, [up.x, up.y, up.z]),
+        };
+        let spacing_mode = match dist.spacing {
+            DistributionSpacing::Uniform => 0,
+            DistributionSpacing::Parametric => 1,
+        };
+        Self {
+            spline: dist.spline,
+            source: dist.source,
+            count: dist.count,
+            orientation_mode,
+            up_vector,
+            spacing_mode,
+            offset: [dist.offset.x, dist.offset.y, dist.offset.z],
+            enabled: dist.enabled,
+        }
+    }
+}
+
+/// Result from drawing spline distribution section
+struct SplineDistributionResult {
+    changed: bool,
+    open_spline_picker: bool,
+    open_source_picker: bool,
 }
 
 /// Draw a labeled color picker row
@@ -535,6 +579,121 @@ fn draw_spline_follower_section(
     result
 }
 
+/// Draw SplineDistribution properties section
+fn draw_spline_distribution_section(
+    ui: &mut egui::Ui,
+    data: &mut SplineDistributionData,
+    spline_name: Option<&str>,
+    source_name: Option<&str>,
+) -> SplineDistributionResult {
+    let mut result = SplineDistributionResult {
+        changed: false,
+        open_spline_picker: false,
+        open_source_picker: false,
+    };
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("Spline Distribution").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+
+        // Spline entity reference - clickable to open picker
+        result.open_spline_picker = draw_entity_field(ui, "Spline", data.spline, spline_name);
+        ui.add_space(4.0);
+
+        // Source entity reference - clickable to open picker
+        result.open_source_picker = draw_entity_field(ui, "Source", data.source, source_name);
+        ui.add_space(4.0);
+
+        // Count
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Count").color(colors::TEXT_SECONDARY));
+            let mut count_i32 = data.count as i32;
+            if ui.add(egui::DragValue::new(&mut count_i32).speed(1).range(1..=1000)).changed() {
+                data.count = count_i32.max(1) as usize;
+                result.changed = true;
+            }
+        });
+        ui.add_space(4.0);
+
+        // Enabled checkbox
+        result.changed |= draw_checkbox_row(ui, "Enabled", &mut data.enabled);
+        ui.add_space(4.0);
+
+        // Orientation mode
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Orientation").color(colors::TEXT_SECONDARY));
+            egui::ComboBox::from_id_salt("distribution_orientation")
+                .selected_text(match data.orientation_mode {
+                    0 => "Position Only",
+                    _ => "Align to Tangent",
+                })
+                .show_ui(ui, |ui| {
+                    if ui.selectable_value(&mut data.orientation_mode, 0, "Position Only").clicked() {
+                        result.changed = true;
+                    }
+                    if ui.selectable_value(&mut data.orientation_mode, 1, "Align to Tangent").clicked() {
+                        result.changed = true;
+                    }
+                });
+        });
+        ui.add_space(4.0);
+
+        // Up vector (only show if align_to_tangent)
+        if data.orientation_mode == 1 {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Up Vector").color(colors::TEXT_SECONDARY));
+            });
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
+                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[0]).speed(0.01)).changed();
+                ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
+                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[1]).speed(0.01)).changed();
+                ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
+                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[2]).speed(0.01)).changed();
+            });
+            ui.add_space(4.0);
+        }
+
+        // Spacing mode
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Spacing").color(colors::TEXT_SECONDARY));
+            egui::ComboBox::from_id_salt("distribution_spacing")
+                .selected_text(match data.spacing_mode {
+                    0 => "Uniform",
+                    _ => "Parametric",
+                })
+                .show_ui(ui, |ui| {
+                    if ui.selectable_value(&mut data.spacing_mode, 0, "Uniform").clicked() {
+                        result.changed = true;
+                    }
+                    if ui.selectable_value(&mut data.spacing_mode, 1, "Parametric").clicked() {
+                        result.changed = true;
+                    }
+                });
+        });
+        ui.add_space(4.0);
+
+        // Offset
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Offset").color(colors::TEXT_SECONDARY));
+        });
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
+            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[0]).speed(0.1)).changed();
+            ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
+            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[1]).speed(0.1)).changed();
+            ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
+            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[2]).speed(0.1)).changed();
+        });
+        ui.add_space(4.0);
+    });
+
+    result
+}
+
 /// Draw a RigidBody type selector with remove button
 /// current_type is None if entities have mixed types
 fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>) -> ComponentAction<RigidBodyType> {
@@ -676,6 +835,19 @@ fn draw_inspector_panel(world: &mut World) {
         world.get::<Name>(data.spline).map(|n| n.as_str().to_string())
     });
 
+    // Get spline distribution data for single selection
+    let mut spline_distribution_data = single_entity.and_then(|e| {
+        world.get::<SplineDistribution>(e).map(|d| SplineDistributionData::from(d))
+    });
+
+    // Get the distribution spline and source entity names (for display in the picker)
+    let distribution_spline_name: Option<String> = spline_distribution_data.as_ref().and_then(|data| {
+        world.get::<Name>(data.spline).map(|n| n.as_str().to_string())
+    });
+    let distribution_source_name: Option<String> = spline_distribution_data.as_ref().and_then(|data| {
+        world.get::<Name>(data.source).map(|n| n.as_str().to_string())
+    });
+
     // Get egui context
     let ctx = {
         let Some(mut egui_ctx) = world
@@ -695,6 +867,9 @@ fn draw_inspector_panel(world: &mut World) {
     let mut fog_volume_changed = false;
     let mut spline_follower_changed = false;
     let mut open_spline_picker = false;
+    let mut spline_distribution_changed = false;
+    let mut open_distribution_spline_picker = false;
+    let mut open_distribution_source_picker = false;
 
     // Check for "N" key to focus name field (only for single selection)
     let focus_name_field = selection_count == 1
@@ -850,6 +1025,20 @@ fn draw_inspector_panel(world: &mut World) {
                                 let result = draw_spline_follower_section(ui, data, spline_name.as_deref());
                                 spline_follower_changed = result.changed;
                                 open_spline_picker = result.open_spline_picker;
+                                ui.add_space(4.0);
+                            }
+
+                            // Spline distribution properties
+                            if let Some(ref mut data) = spline_distribution_data {
+                                let result = draw_spline_distribution_section(
+                                    ui,
+                                    data,
+                                    distribution_spline_name.as_deref(),
+                                    distribution_source_name.as_deref(),
+                                );
+                                spline_distribution_changed = result.changed;
+                                open_distribution_spline_picker = result.open_spline_picker;
+                                open_distribution_source_picker = result.open_source_picker;
                                 ui.add_space(4.0);
                             }
 
@@ -1075,7 +1264,30 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
-    // Open entity picker for spline field
+    // Apply spline distribution changes
+    if spline_distribution_changed {
+        if let (Some(entity), Some(data)) = (single_entity, spline_distribution_data.clone()) {
+            if let Some(mut dist) = world.get_mut::<SplineDistribution>(entity) {
+                dist.spline = data.spline;
+                dist.source = data.source;
+                dist.count = data.count;
+                dist.enabled = data.enabled;
+                dist.orientation = match data.orientation_mode {
+                    0 => DistributionOrientation::PositionOnly,
+                    _ => DistributionOrientation::AlignToTangent {
+                        up: Vec3::new(data.up_vector[0], data.up_vector[1], data.up_vector[2]),
+                    },
+                };
+                dist.spacing = match data.spacing_mode {
+                    0 => DistributionSpacing::Uniform,
+                    _ => DistributionSpacing::Parametric,
+                };
+                dist.offset = Vec3::new(data.offset[0], data.offset[1], data.offset[2]);
+            }
+        }
+    }
+
+    // Open entity picker for spline field (SplineFollower)
     if open_spline_picker {
         if let Some(entity) = single_entity {
             let callback_id = make_callback_id(entity, "spline");
@@ -1084,17 +1296,50 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
+    // Open entity picker for distribution spline field
+    if open_distribution_spline_picker {
+        if let Some(entity) = single_entity {
+            let callback_id = make_callback_id(entity, "distribution_spline");
+            let mut picker_state = world.resource_mut::<EntityPickerState>();
+            picker_state.open_for_field(entity, "Distribution Spline", callback_id);
+        }
+    }
+
+    // Open entity picker for distribution source field
+    if open_distribution_source_picker {
+        if let Some(entity) = single_entity {
+            let callback_id = make_callback_id(entity, "distribution_source");
+            let mut picker_state = world.resource_mut::<EntityPickerState>();
+            picker_state.open_for_field(entity, "Distribution Source", callback_id);
+        }
+    }
+
     // Handle pending entity selection from picker
     {
         let pending = world.resource::<PendingEntitySelection>().0;
         if let Some(selection) = pending {
-            // Check if this is for the spline field
             if let Some(entity) = single_entity {
-                let expected_callback = make_callback_id(entity, "spline");
-                if selection.callback_id == expected_callback {
-                    // Update the SplineFollower's spline field
+                // Check if this is for the SplineFollower spline field
+                let spline_callback = make_callback_id(entity, "spline");
+                if selection.callback_id == spline_callback {
                     if let Some(mut follower) = world.get_mut::<SplineFollower>(entity) {
                         follower.spline = selection.selected_entity;
+                    }
+                }
+
+                // Check if this is for the distribution spline field
+                let dist_spline_callback = make_callback_id(entity, "distribution_spline");
+                if selection.callback_id == dist_spline_callback {
+                    if let Some(mut dist) = world.get_mut::<SplineDistribution>(entity) {
+                        dist.spline = selection.selected_entity;
+                    }
+                }
+
+                // Check if this is for the distribution source field
+                let dist_source_callback = make_callback_id(entity, "distribution_source");
+                if selection.callback_id == dist_source_callback {
+                    if let Some(mut dist) = world.get_mut::<SplineDistribution>(entity) {
+                        dist.source = selection.selected_entity;
                     }
                 }
             }
@@ -1195,6 +1440,10 @@ fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
             || name == "FogVolumeMarker"
             || name == "RigidBody"
             || name == "SplineFollower"
+            || name == "SplineDistribution"
+            || name == "DistributionSource"
+            || name == "DistributedInstance"
+            || name == "DistributionState"
         {
             continue;
         }

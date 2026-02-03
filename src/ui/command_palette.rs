@@ -5,7 +5,8 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::any::TypeId;
 
-use bevy_spline_3d::prelude::SplineType;
+use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSource, SplineDistribution};
+use bevy_spline_3d::prelude::{Spline, SplineType};
 
 use crate::commands::{RedoEvent, TakeSnapshotCommand, UndoEvent};
 use crate::editor::{
@@ -100,6 +101,8 @@ pub enum CommandAction {
     SpawnSpline(SplineType),
     /// Spawn a volumetric fog volume
     SpawnFogVolume,
+    /// Create a distribution from selected entities (requires 1 spline + 1 source selected)
+    CreateDistribution,
 }
 
 /// The mode the command palette is operating in
@@ -311,6 +314,13 @@ impl CommandRegistry {
             category: "Splines",
             action: CommandAction::SpawnSpline(SplineType::BSpline),
             insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Create Distribution".to_string(),
+            keywords: vec!["distribute".into(), "clone".into(), "array".into(), "spline".into(), "copy".into(), "instances".into()],
+            category: "Splines",
+            action: CommandAction::CreateDistribution,
+            insertable: false,
         });
 
         // Effects (insertable)
@@ -1105,6 +1115,11 @@ fn draw_command_palette(
                     // Open file dialog to pick a RON scene file
                     file_dialog_state.open_insert_scene();
                 }
+                CommandAction::CreateDistribution => {
+                    // Queue a deferred command to create the distribution
+                    let selected_entities: Vec<Entity> = selected.iter().collect();
+                    commands.queue(CreateDistributionCommand { selected_entities });
+                }
             }
         }
     }
@@ -1749,5 +1764,49 @@ impl bevy::prelude::Command for RemoveComponentCommand {
         // Remove the component
         reflect_component.remove(&mut world.entity_mut(self.entity));
         info!("Removed component {} from entity {:?}", self.component_name, self.entity);
+    }
+}
+
+/// Command to create a spline distribution from selected entities (deferred execution)
+struct CreateDistributionCommand {
+    selected_entities: Vec<Entity>,
+}
+
+impl bevy::prelude::Command for CreateDistributionCommand {
+    fn apply(self, world: &mut World) {
+        if self.selected_entities.len() != 2 {
+            info!("Select exactly 2 entities: a spline and a source object");
+            return;
+        }
+
+        // Determine which entity is the spline
+        let has_spline_0 = world.get::<Spline>(self.selected_entities[0]).is_some();
+        let has_spline_1 = world.get::<Spline>(self.selected_entities[1]).is_some();
+
+        let (spline_entity, source_entity) = match (has_spline_0, has_spline_1) {
+            (true, false) => (self.selected_entities[0], self.selected_entities[1]),
+            (false, true) => (self.selected_entities[1], self.selected_entities[0]),
+            (true, true) => {
+                info!("Both selected entities are splines. Select one spline and one source object.");
+                return;
+            }
+            (false, false) => {
+                info!("Neither selected entity is a spline. Select one spline and one source object.");
+                return;
+            }
+        };
+
+        // Create the distribution entity
+        world.spawn((
+            SplineDistribution::new(spline_entity, source_entity, 10)
+                .with_orientation(DistributionOrientation::align_to_tangent())
+                .uniform(),
+            Name::new("Distribution"),
+        ));
+
+        // Mark source as DistributionSource (hides it from rendering)
+        world.entity_mut(source_entity).insert(DistributionSource);
+
+        info!("Created distribution with 10 instances along spline");
     }
 }
