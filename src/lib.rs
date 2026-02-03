@@ -67,6 +67,9 @@ pub use selection::Selected;
 // Re-export editor state types
 pub use editor::{AxisConstraint, EditorMode, TransformOperation};
 
+// Re-export camera types
+pub use editor::{EditorCamera, GameCamera};
+
 // Re-export serialization events
 pub use scene::{LoadSceneEvent, SaveSceneEvent};
 

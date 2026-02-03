@@ -6,7 +6,7 @@ use bevy::render::view::Hdr;
 use bevy_egui::EguiContexts;
 use bevy_outliner::prelude::*;
 
-use super::{EditorMode, EditorState, TransformOperation};
+use super::{EditorMode, EditorState, ToggleEditorEvent, TransformOperation};
 use crate::selection::Selected;
 use crate::ui::Settings;
 use crate::utils::should_process_input;
@@ -31,13 +31,40 @@ impl Plugin for EditorCameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SetCameraPresetEvent>()
             .add_systems(Startup, spawn_editor_camera)
-            .add_systems(Update, (camera_look, camera_movement, camera_zoom, handle_camera_preset, look_at_selected));
+            .add_systems(
+                Update,
+                (
+                    camera_look,
+                    camera_movement,
+                    camera_zoom,
+                    handle_camera_preset,
+                    look_at_selected,
+                    sync_camera_states,
+                ),
+            );
     }
 }
 
 /// Marker component for the editor camera
 #[derive(Component)]
 pub struct EditorCamera;
+
+/// Marker component for game cameras that should be disabled when the editor is active.
+///
+/// Add this component to your game's camera to automatically disable it when the editor
+/// is enabled (F10), and re-enable it when the editor is disabled.
+///
+/// # Example
+///
+/// ```ignore
+/// commands.spawn((
+///     Camera3d::default(),
+///     GameCamera,
+///     Transform::from_xyz(0.0, 5.0, 10.0),
+/// ));
+/// ```
+#[derive(Component)]
+pub struct GameCamera;
 
 /// Fly camera state
 #[derive(Component)]
@@ -392,5 +419,46 @@ fn look_at_selected(
         let (yaw, pitch, _) = camera_transform.rotation.to_euler(EulerRot::YXZ);
         fly_cam.yaw = yaw;
         fly_cam.pitch = pitch;
+    }
+}
+
+/// Sync camera enabled states when the editor is toggled.
+///
+/// - When editor is active: EditorCamera enabled, GameCamera disabled
+/// - When editor is inactive: EditorCamera disabled (only if GameCamera exists), GameCamera enabled
+fn sync_camera_states(
+    mut events: MessageReader<ToggleEditorEvent>,
+    editor_state: Res<EditorState>,
+    mut editor_cameras: Query<&mut Camera, (With<EditorCamera>, Without<GameCamera>)>,
+    mut game_cameras: Query<&mut Camera, (With<GameCamera>, Without<EditorCamera>)>,
+) {
+    // Only process when ToggleEditorEvent is fired
+    if events.read().next().is_none() {
+        return;
+    }
+
+    // Drain remaining events
+    for _ in events.read() {}
+
+    let editor_active = editor_state.editor_active;
+    let has_game_camera = !game_cameras.is_empty();
+
+    // Enable/disable editor cameras
+    // Only disable if there's a game camera to take over, otherwise keep editor camera active
+    for mut camera in &mut editor_cameras {
+        camera.is_active = editor_active || !has_game_camera;
+    }
+
+    // Enable/disable game cameras (inverse of editor)
+    for mut camera in &mut game_cameras {
+        camera.is_active = !editor_active;
+    }
+
+    if has_game_camera {
+        info!(
+            "Camera sync: EditorCamera={}, GameCamera={}",
+            if editor_active { "active" } else { "inactive" },
+            if !editor_active { "active" } else { "inactive" }
+        );
     }
 }
