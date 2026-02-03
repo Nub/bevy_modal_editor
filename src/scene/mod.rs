@@ -63,7 +63,9 @@ impl Plugin for ScenePlugin {
             .register_type::<DistributionSource>()
             .register_type::<DistributedInstance>()
             // Fog volume types
-            .register_type::<FogVolumeMarker>();
+            .register_type::<FogVolumeMarker>()
+            // Material types
+            .register_type::<MaterialType>();
     }
 }
 

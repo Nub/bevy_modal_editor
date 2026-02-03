@@ -43,6 +43,7 @@ bevy_egui.workspace = true
 bevy_infinite_grid = { git = "https://github.com/ForesightMiningSoftwareCorporation/bevy_infinite_grid", branch = "main" }
 bevy_spline_3d.workspace = true
 bevy_outliner.workspace = true
+bevy_grid_shader.workspace = true
 serde.workspace = true
 ron.workspace = true
 dirs = "6"

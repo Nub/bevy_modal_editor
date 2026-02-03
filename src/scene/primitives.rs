@@ -91,6 +91,15 @@ impl Default for FogVolumeMarker {
     }
 }
 
+/// Marker indicating the material type for an entity
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+#[reflect(Component)]
+pub enum MaterialType {
+    #[default]
+    Standard,
+    Grid,
+}
+
 /// Available primitive shapes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Reflect, Default)]
 pub enum PrimitiveShape {
@@ -325,6 +334,7 @@ pub fn spawn_primitive(
             SceneEntity,
             Name::new(name.to_string()),
             PrimitiveMarker { shape },
+            MaterialType::Standard,
             Mesh3d(meshes.add(shape.create_mesh())),
             MeshMaterial3d(materials.add(shape.create_material())),
             Transform::from_translation(position).with_rotation(rotation),

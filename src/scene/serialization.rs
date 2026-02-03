@@ -1,8 +1,10 @@
 use avian3d::prelude::*;
+use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_grid_shader::GridMaterial;
 use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -11,8 +13,11 @@ use std::path::Path;
 
 use bevy_spline_3d::prelude::Spline;
 
+/// Type alias for the extended grid material
+type GridMat = ExtendedMaterial<StandardMaterial, GridMaterial>;
+
 use super::blockout::{ArchMarker, LShapeMarker, RampMarker, StairsMarker};
-use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, SceneSource, SplineMarker, LIGHT_COLLIDER_RADIUS};
+use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, MaterialType, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, SceneSource, SplineMarker, LIGHT_COLLIDER_RADIUS};
 use crate::editor::{CameraMark, CameraMarks};
 use crate::ui::draw_error_dialog as draw_themed_error_dialog;
 
@@ -251,6 +256,8 @@ impl Command for SaveSceneCommand {
             .allow_component::<RampMarker>()
             .allow_component::<ArchMarker>()
             .allow_component::<LShapeMarker>()
+            // Material types
+            .allow_component::<MaterialType>()
             .extract_entities(scene_entity_ids.into_iter())
             .build();
 
@@ -430,30 +437,42 @@ impl Command for LoadSceneCommand {
 /// PointLight, DirectionalLight, and Collider components from the marker components.
 pub fn regenerate_meshes(world: &mut World) {
     // Get all entities with PrimitiveMarker but no Mesh3d
-    let mut entities_to_update: Vec<(Entity, PrimitiveShape)> = Vec::new();
+    let mut entities_to_update: Vec<(Entity, PrimitiveShape, MaterialType)> = Vec::new();
 
     {
-        let mut query = world.query_filtered::<(Entity, &PrimitiveMarker), Without<Mesh3d>>();
-        for (entity, marker) in query.iter(world) {
-            entities_to_update.push((entity, marker.shape));
+        let mut query = world.query_filtered::<(Entity, &PrimitiveMarker, Option<&MaterialType>), Without<Mesh3d>>();
+        for (entity, marker, mat_type) in query.iter(world) {
+            entities_to_update.push((entity, marker.shape, mat_type.copied().unwrap_or(MaterialType::Standard)));
         }
     }
 
     // Add meshes and materials using PrimitiveShape helper methods
-    for (entity, shape) in entities_to_update {
+    for (entity, shape, mat_type) in entities_to_update {
         let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
-        let material_handle = world
-            .resource_mut::<Assets<StandardMaterial>>()
-            .add(shape.create_material());
         let collider = shape.create_collider();
 
-        // Insert components
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert((
-                Mesh3d(mesh_handle),
-                MeshMaterial3d(material_handle),
-                collider,
-            ));
+        // Create material handles before getting entity_mut to avoid borrow conflicts
+        match mat_type {
+            MaterialType::Standard => {
+                let material_handle = world
+                    .resource_mut::<Assets<StandardMaterial>>()
+                    .add(shape.create_material());
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    entity_mut.insert((Mesh3d(mesh_handle), collider, MeshMaterial3d(material_handle)));
+                }
+            }
+            MaterialType::Grid => {
+                let grid_mat = ExtendedMaterial {
+                    base: shape.create_material(),
+                    extension: GridMaterial::default(),
+                };
+                let material_handle = world
+                    .resource_mut::<Assets<GridMat>>()
+                    .add(grid_mat);
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    entity_mut.insert((Mesh3d(mesh_handle), collider, MeshMaterial3d(material_handle)));
+                }
+            }
         }
     }
 

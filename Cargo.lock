@@ -1196,6 +1196,7 @@ dependencies = [
  "avian3d",
  "bevy",
  "bevy_egui",
+ "bevy_grid_shader",
  "bevy_infinite_grid",
  "bevy_outliner",
  "bevy_spline_3d",

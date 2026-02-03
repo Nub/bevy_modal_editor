@@ -7,13 +7,18 @@ use bevy_egui::EguiContexts;
 use serde::de::DeserializeSeed;
 use std::collections::VecDeque;
 
+use bevy::pbr::ExtendedMaterial;
+use bevy_grid_shader::GridMaterial;
+
 use crate::editor::EditorState;
 use crate::scene::{
-    DirectionalLightMarker, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity,
-    SceneLightMarker, LIGHT_COLLIDER_RADIUS,
+    DirectionalLightMarker, GroupMarker, Locked, MaterialType, PrimitiveMarker, PrimitiveShape,
+    SceneEntity, SceneLightMarker, LIGHT_COLLIDER_RADIUS,
 };
 use crate::ui::Settings;
 use crate::utils::should_process_input;
+
+type GridMat = ExtendedMaterial<StandardMaterial, GridMaterial>;
 
 /// Build a DynamicScene from the world with editor-relevant components.
 /// This is the single source of truth for which components are included in snapshots/saves.
@@ -31,6 +36,7 @@ fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>) -> 
         .allow_component::<RigidBody>()
         .allow_component::<ChildOf>()
         .allow_component::<Children>()
+        .allow_component::<MaterialType>()
         .extract_entities(entities)
         .build()
 }
@@ -398,24 +404,39 @@ fn restore_snapshot(world: &mut World, snapshot: &SceneSnapshot) {
 
 /// Regenerate meshes and materials for entities loaded from snapshot
 fn regenerate_scene_components(world: &mut World) {
-    // Handle primitives
-    let mut primitives_to_update: Vec<(Entity, PrimitiveShape)> = Vec::new();
+    // Handle primitives - collect entity, shape, and material type
+    let mut primitives_to_update: Vec<(Entity, PrimitiveShape, MaterialType)> = Vec::new();
     {
-        let mut query = world.query_filtered::<(Entity, &PrimitiveMarker), Without<Mesh3d>>();
-        for (entity, marker) in query.iter(world) {
-            primitives_to_update.push((entity, marker.shape));
+        let mut query = world.query_filtered::<(Entity, &PrimitiveMarker, Option<&MaterialType>), Without<Mesh3d>>();
+        for (entity, marker, mat_type) in query.iter(world) {
+            primitives_to_update.push((entity, marker.shape, mat_type.copied().unwrap_or_default()));
         }
     }
 
-    for (entity, shape) in primitives_to_update {
+    for (entity, shape, mat_type) in primitives_to_update {
         let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
-        let material_handle = world
-            .resource_mut::<Assets<StandardMaterial>>()
-            .add(shape.create_material());
         let collider = shape.create_collider();
 
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert((Mesh3d(mesh_handle), MeshMaterial3d(material_handle), collider));
+        // Create material handles before getting entity_mut to avoid borrow conflicts
+        match mat_type {
+            MaterialType::Standard => {
+                let material_handle = world
+                    .resource_mut::<Assets<StandardMaterial>>()
+                    .add(shape.create_material());
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    entity_mut.insert((Mesh3d(mesh_handle), collider, MeshMaterial3d(material_handle)));
+                }
+            }
+            MaterialType::Grid => {
+                let grid_mat = ExtendedMaterial {
+                    base: shape.create_material(),
+                    extension: GridMaterial::default(),
+                };
+                let material_handle = world.resource_mut::<Assets<GridMat>>().add(grid_mat);
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    entity_mut.insert((Mesh3d(mesh_handle), collider, MeshMaterial3d(material_handle)));
+                }
+            }
         }
     }
 
