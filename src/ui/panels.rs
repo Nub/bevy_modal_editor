@@ -133,38 +133,12 @@ fn draw_status_bar(
                 // FOV / Ortho scale
                 if let Ok(fly_cam) = camera_query.single() {
                     let cam_text = if fly_cam.fov_degrees == 0.0 {
-                        format!("Ortho: {:.1}", fly_cam.ortho_scale)
+                        format!("Ortho: {:.3}", fly_cam.ortho_scale)
                     } else {
                         format!("FOV: {:.0}°", fly_cam.fov_degrees)
                     };
                     ui.label(egui::RichText::new(cam_text).color(colors::TEXT_MUTED));
-                    ui.separator();
                 }
-
-                // Physics status
-                if physics_time.relative_speed() == 0.0 {
-                    ui.label(
-                        egui::RichText::new("▶ Physics: OFF")
-                            .color(colors::STATUS_ERROR),
-                    );
-                } else {
-                    ui.label(
-                        egui::RichText::new("▶ Physics: ON")
-                            .color(colors::STATUS_SUCCESS),
-                    );
-                }
-
-                ui.separator();
-
-                // Undo/redo counts
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Undo: {} | Redo: {}",
-                        snapshot_history.undo_count(),
-                        snapshot_history.redo_count()
-                    ))
-                    .color(colors::TEXT_MUTED),
-                );
 
                 // Distance measurement (View mode only, when enabled and 2+ objects selected)
                 if *mode.get() == EditorMode::View && editor_state.measurements_visible {
@@ -183,26 +157,51 @@ fn draw_status_bar(
                     }
                 }
 
-                // Right-justified file info
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Modified indicator (appears first due to RTL layout)
-                    if scene_file.modified {
+                // Center: file name
+                ui.with_layout(egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("📄").size(14.0));
+                        let file_name = scene_file.display_name();
                         ui.label(
-                            egui::RichText::new("●")
-                                .size(12.0)
-                                .color(colors::STATUS_WARNING),
+                            egui::RichText::new(file_name)
+                                .color(colors::TEXT_SECONDARY),
                         );
-                    }
+                        if scene_file.modified {
+                            ui.label(
+                                egui::RichText::new("●")
+                                    .size(12.0)
+                                    .color(colors::STATUS_WARNING),
+                            );
+                        }
+                    });
+                });
 
-                    // File name
-                    let file_name = scene_file.display_name();
+                // Right-justified: Physics + Undo/Redo
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Undo/redo counts (appears first due to RTL layout)
                     ui.label(
-                        egui::RichText::new(file_name)
-                            .color(colors::TEXT_SECONDARY),
+                        egui::RichText::new(format!(
+                            "Undo: {} | Redo: {}",
+                            snapshot_history.undo_count(),
+                            snapshot_history.redo_count()
+                        ))
+                        .color(colors::TEXT_MUTED),
                     );
 
-                    // File icon
-                    ui.label(egui::RichText::new("📄").size(14.0));
+                    ui.separator();
+
+                    // Physics status
+                    if physics_time.relative_speed() == 0.0 {
+                        ui.label(
+                            egui::RichText::new("Physics: OFF")
+                                .color(colors::STATUS_ERROR),
+                        );
+                    } else {
+                        ui.label(
+                            egui::RichText::new("Physics: ON")
+                                .color(colors::STATUS_SUCCESS),
+                        );
+                    }
                 });
             });
         });

@@ -183,7 +183,7 @@ fn camera_look(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     settings: Res<Settings>,
-    mode: Res<State<EditorMode>>,
+    _mode: Res<State<EditorMode>>,
     mut query: Query<(&mut FlyCamera, &mut Transform), With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
@@ -205,6 +205,11 @@ fn camera_look(
     }
 
     for (mut fly_cam, mut transform) in &mut query {
+        // Don't allow rotation in orthographic mode
+        if fly_cam.fov_degrees == 0.0 {
+            return;
+        }
+
         fly_cam.yaw -= delta.x * settings.camera_sensitivity;
         fly_cam.pitch = (fly_cam.pitch - delta.y * settings.camera_sensitivity)
             .clamp(-std::f32::consts::FRAC_PI_2 + 0.1, std::f32::consts::FRAC_PI_2 - 0.1);
