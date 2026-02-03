@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 use bevy_outliner::prelude::*;
+use bevy_spline_3d::distribution::{DistributionSource, SplineDistribution};
 use bevy_spline_3d::prelude::Spline;
 
 use crate::editor::{EditorCamera, EditorMode, EditorState};
@@ -24,7 +25,7 @@ pub struct SelectionSystemPlugin;
 impl Plugin for SelectionSystemPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SelectionState>()
-            .add_systems(Update, (update_multi_select_state, handle_click_selection, sync_selection_outlines));
+            .add_systems(Update, (update_multi_select_state, handle_click_selection, sync_selection_outlines, sync_distribution_source_visibility));
     }
 }
 
@@ -315,6 +316,39 @@ fn add_outline_to_descendants(
             }
             // Recurse into grandchildren
             add_outline_to_descendants(commands, child, children_query, child_meshes, outline_width);
+        }
+    }
+}
+
+/// Show distribution source entities when their distribution is selected,
+/// hide them otherwise
+fn sync_distribution_source_visibility(
+    selected_distributions: Query<&SplineDistribution, With<Selected>>,
+    all_distributions: Query<&SplineDistribution>,
+    mut source_visibility: Query<&mut Visibility, With<DistributionSource>>,
+) {
+    // Collect source entities of selected distributions
+    let selected_sources: std::collections::HashSet<Entity> = selected_distributions
+        .iter()
+        .map(|d| d.source)
+        .collect();
+
+    // Collect all distribution source entities
+    let all_sources: std::collections::HashSet<Entity> = all_distributions
+        .iter()
+        .map(|d| d.source)
+        .collect();
+
+    // Update visibility for each source
+    for source_entity in all_sources {
+        if let Ok(mut visibility) = source_visibility.get_mut(source_entity) {
+            if selected_sources.contains(&source_entity) {
+                // Show source if its distribution is selected
+                *visibility = Visibility::Visible;
+            } else {
+                // Hide source if its distribution is not selected
+                *visibility = Visibility::Hidden;
+            }
         }
     }
 }

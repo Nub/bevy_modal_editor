@@ -4,6 +4,7 @@ use avian3d::schedule::PhysicsTime;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use bevy_outliner::prelude::*;
+use bevy_spline_3d::distribution::SplineDistributionPlugin;
 use bevy_spline_3d::path_follow::SplineFollowPlugin;
 
 use super::camera::EditorCameraPlugin;
@@ -148,6 +149,7 @@ impl Plugin for EditorPlugin {
             .add_plugins(InsertModePlugin)
             .add_plugins(SplineEditPlugin)
             .add_plugins(SplineFollowPlugin)
+            .add_plugins(SplineDistributionPlugin)
             // Editor systems
             .add_plugins(SelectionPlugin)
             .add_plugins(EditorGizmosPlugin)

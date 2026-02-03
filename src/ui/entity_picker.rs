@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteItem, PaletteResult, PaletteState};
 use super::theme::colors;
@@ -88,7 +88,7 @@ impl Plugin for EntityPickerPlugin {
             .init_resource::<PendingEntitySelection>()
             .init_resource::<CurrentInspectedEntity>()
             .init_resource::<PendingEntityPickerRequest>()
-            .add_systems(Update, draw_entity_picker);
+            .add_systems(EguiPrimaryContextPass, draw_entity_picker);
     }
 }
 

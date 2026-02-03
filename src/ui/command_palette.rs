@@ -1796,17 +1796,16 @@ impl bevy::prelude::Command for CreateDistributionCommand {
             }
         };
 
-        // Create the distribution entity
-        world.spawn((
+        // Add distribution component directly to the spline entity
+        world.entity_mut(spline_entity).insert(
             SplineDistribution::new(spline_entity, source_entity, 10)
                 .with_orientation(DistributionOrientation::align_to_tangent())
                 .uniform(),
-            Name::new("Distribution"),
-        ));
+        );
 
         // Mark source as DistributionSource (hides it from rendering)
         world.entity_mut(source_entity).insert(DistributionSource);
 
-        info!("Created distribution with 10 instances along spline");
+        info!("Added distribution to spline with 10 instances");
     }
 }

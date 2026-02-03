@@ -212,6 +212,7 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
         .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .fixed_size(config.size)
+        .order(egui::Order::Foreground)
         .show(ctx, |ui| {
             // Mode indicator
             if !config.title.is_empty() || !config.subtitle.is_empty() {
