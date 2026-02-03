@@ -30,6 +30,48 @@ fn snap_to_grid(value: f32, grid_size: f32) -> f32 {
     }
 }
 
+/// Calculate world-space movement along an axis based on mouse delta in screen space.
+/// Projects the axis to screen space and determines how much mouse movement should
+/// translate to world movement, ensuring the object tracks the mouse 1:1 in screen space.
+fn calculate_axis_movement(
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    _window_query: &Query<&Window, With<PrimaryWindow>>,
+    object_pos: Vec3,
+    axis_dir: Vec3,
+    mouse_delta: Vec2,
+) -> f32 {
+    // Project object position and a point 1 unit along the axis to screen space
+    let Ok(screen_pos) = camera.world_to_viewport(camera_transform, object_pos) else {
+        // Fallback to simple calculation if projection fails
+        return (mouse_delta.x - mouse_delta.y) * 0.01;
+    };
+
+    let axis_point = object_pos + axis_dir;
+    let Ok(screen_axis_pos) = camera.world_to_viewport(camera_transform, axis_point) else {
+        return (mouse_delta.x - mouse_delta.y) * 0.01;
+    };
+
+    // Calculate the screen-space vector for 1 world unit along the axis
+    let screen_axis_dir = screen_axis_pos - screen_pos;
+    let screen_axis_len = screen_axis_dir.length();
+
+    if screen_axis_len < 0.001 {
+        // Axis is pointing directly at/away from camera, use fallback
+        return -mouse_delta.y * 0.01;
+    }
+
+    let screen_axis_normalized = screen_axis_dir / screen_axis_len;
+
+    // Project mouse delta onto the screen-space axis direction
+    let projected_delta = mouse_delta.dot(screen_axis_normalized);
+
+    // screen_axis_len = pixels per world unit along this axis
+    // To move projected_delta pixels, we need projected_delta / screen_axis_len world units
+    // This gives exact 1:1 tracking regardless of distance or FOV
+    projected_delta / screen_axis_len
+}
+
 /// Snap rotation (in radians) to nearest angle increment
 fn snap_rotation(radians: f32, snap_degrees: f32) -> f32 {
     if snap_degrees <= 0.0 {
@@ -840,10 +882,11 @@ fn handle_transform_manipulation(
     axis_constraint: Res<AxisConstraint>,
     editor_state: Res<EditorState>,
     dimension_snap: Res<DimensionSnapSettings>,
-    camera_query: Query<&GlobalTransform, With<EditorCamera>>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     mut selected: Query<(Entity, &mut Transform, Option<&Collider>), (With<Selected>, Without<Locked>)>,
     other_objects: Query<(Entity, &Transform, Option<&Collider>), (With<crate::scene::SceneEntity>, Without<Selected>)>,
     mut active_snaps: ResMut<ActiveEdgeSnaps>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
     mut contexts: EguiContexts,
 ) {
     // Only manipulate in Edit mode with left mouse held
@@ -872,7 +915,7 @@ fn handle_transform_manipulation(
         return;
     }
 
-    let Ok(camera_transform) = camera_query.single() else {
+    let Ok((camera, camera_transform)) = camera_query.single() else {
         return;
     };
 
@@ -915,17 +958,25 @@ fn handle_transform_manipulation(
                         let move_up = camera_up * -delta.y * sensitivity;
                         transform.translation += move_right + move_up;
                     }
-                    AxisConstraint::X => {
-                        let movement = (delta.x - delta.y) * sensitivity;
-                        transform.translation.x += movement;
-                    }
-                    AxisConstraint::Y => {
-                        let movement = -delta.y * sensitivity;
-                        transform.translation.y += movement;
-                    }
-                    AxisConstraint::Z => {
-                        let movement = (delta.y - delta.x) * sensitivity;
-                        transform.translation.z += movement;
+                    AxisConstraint::X | AxisConstraint::Y | AxisConstraint::Z => {
+                        // Get the world-space axis direction
+                        let axis_dir = match *axis_constraint {
+                            AxisConstraint::X => Vec3::X,
+                            AxisConstraint::Y => Vec3::Y,
+                            AxisConstraint::Z => Vec3::Z,
+                            AxisConstraint::None => unreachable!(),
+                        };
+
+                        // Project axis to screen space to determine how mouse movement maps to world movement
+                        let movement = calculate_axis_movement(
+                            camera,
+                            camera_transform,
+                            &window_query,
+                            transform.translation,
+                            axis_dir,
+                            delta,
+                        );
+                        transform.translation += axis_dir * movement;
                     }
                 }
 
