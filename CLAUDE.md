@@ -2,6 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Related Projects
+
+This project depends on and is tightly integrated with:
+
+- **bevy_spline_3d** (`/home/zach/src/bevy_spline_3d`) - Spline curve library providing:
+  - Spline types: Cubic Bezier, Catmull-Rom, B-Spline
+  - Control point editing with gizmos
+  - Road mesh generation, distribution along splines, path following
+  - Surface projection onto terrain
+
+The `SplineEditPlugin` in this project bridges `bevy_spline_3d` with the modal editor:
+- Disables library hotkeys (uses modal-aware input instead)
+- Syncs `EditorSettings` based on editor mode
+- Control points only editable in Edit mode with spline selected
+- X-ray rendering enabled only during spline editing
+
+When making changes to spline functionality, you may need to modify both projects.
+
 ## Build Commands
 
 ```bash
@@ -53,6 +71,7 @@ The `EditorPlugin` composes these sub-plugins:
   - `EditorStatePlugin` - Modal state machine (`EditorMode`) and `TransformOperation` resource
   - `EditorInputPlugin` - Keyboard handling for mode/operation switching
   - `EditorCameraPlugin` - Orbit camera controls
+  - `SplineEditPlugin` - Spline control point editing (bridges bevy_spline_3d)
 
 - **selection/** - Entity selection via physics raycasting against `SceneEntity` components. `Selected` marker component indicates selection state.
 
@@ -306,7 +325,7 @@ events.spawn_entity.write(SpawnEntityEvent {
 });
 ```
 
-`SpawnEntityKind` variants: `Primitive(PrimitiveShape)`, `Group`, `PointLight`, `DirectionalLight`
+`SpawnEntityKind` variants: `Primitive(PrimitiveShape)`, `Group`, `PointLight`, `DirectionalLight`, `Spline(SplineType)`
 
 `PrimitiveShape` provides factory methods:
 - `create_mesh()` - Returns the mesh for this shape
@@ -330,4 +349,5 @@ let scene = build_editor_scene(world, entity_ids.into_iter());
 - `PrimitiveMarker` - Identifies primitive shape type
 - `GroupMarker` - Empty container for organizing entities
 - `SceneLightMarker` / `DirectionalLightMarker` - Light configuration that persists to scene files
+- `SplineMarker` - Identifies spline entities (from bevy_spline_3d integration)
 - `GltfLoaded` / `SceneSourceLoaded` - Marks children loaded from external files
