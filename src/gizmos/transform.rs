@@ -7,7 +7,7 @@ use bevy_egui::EguiContexts;
 use bevy_spline_3d::prelude::Spline;
 
 use crate::commands::TakeSnapshotCommand;
-use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
+use crate::editor::{ActiveEdgeSnaps, AxisConstraint, DimensionSnapSettings, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::gizmos::{XRayGizmoConfig, XRayGizmoDimmed};
 use crate::scene::{Locked, SplineMarker};
 use crate::selection::Selected;
@@ -55,6 +55,7 @@ impl Plugin for TransformGizmoPlugin {
             (
                 draw_selection_gizmos,
                 draw_distance_measurements,
+                draw_edge_snap_guides,
                 handle_gizmo_axis_click,
                 handle_axis_keys,
                 handle_snap_submode_keys,
@@ -65,6 +66,7 @@ impl Plugin for TransformGizmoPlugin {
                 handle_snap_to_object_mode,
                 handle_snap_to_object_click,
                 manage_editing_sleep_state,
+                clear_edge_snaps_when_idle,
             ),
         );
     }
@@ -817,6 +819,7 @@ fn draw_small_cube_dimmed(gizmos: &mut Gizmos<XRayGizmoDimmed>, pos: Vec3, size:
 }
 
 /// Handle mouse-based transform manipulation
+#[allow(clippy::too_many_arguments)]
 fn handle_transform_manipulation(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
@@ -824,8 +827,11 @@ fn handle_transform_manipulation(
     transform_op: Res<TransformOperation>,
     axis_constraint: Res<AxisConstraint>,
     editor_state: Res<EditorState>,
+    dimension_snap: Res<DimensionSnapSettings>,
     camera_query: Query<&GlobalTransform, With<EditorCamera>>,
-    mut selected: Query<&mut Transform, (With<Selected>, Without<Locked>)>,
+    mut selected: Query<(Entity, &mut Transform, Option<&Collider>), (With<Selected>, Without<Locked>)>,
+    other_objects: Query<(Entity, &Transform, Option<&Collider>), (With<crate::scene::SceneEntity>, Without<Selected>)>,
+    mut active_snaps: ResMut<ActiveEdgeSnaps>,
     mut contexts: EguiContexts,
 ) {
     // Only manipulate in Edit mode with left mouse held
@@ -863,7 +869,28 @@ fn handle_transform_manipulation(
 
     let sensitivity = 0.01;
 
-    for mut transform in selected.iter_mut() {
+    // Collect nearby objects for edge snapping (only when translating with edge snap enabled)
+    let nearby_objects: Vec<(Vec3, Vec3)> = if dimension_snap.enabled && *transform_op == TransformOperation::Translate {
+        other_objects
+            .iter()
+            .map(|(_, t, c)| {
+                let half_extents = c
+                    .map(|collider| {
+                        let aabb = collider.aabb(Vec3::ZERO, Quat::IDENTITY);
+                        aabb.size() * 0.5
+                    })
+                    .unwrap_or(Vec3::splat(0.5));
+                (t.translation, half_extents)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Clear previous snap lines
+    active_snaps.snap_lines.clear();
+
+    for (_entity, mut transform, collider) in selected.iter_mut() {
         match *transform_op {
             TransformOperation::Translate => {
                 match *axis_constraint {
@@ -886,6 +913,19 @@ fn handle_transform_manipulation(
                         transform.translation.z += movement;
                     }
                 }
+
+                // Apply edge snapping if enabled (before grid snap)
+                if dimension_snap.enabled && !nearby_objects.is_empty() {
+                    let (snapped_pos, snap_lines) = calculate_edge_snaps(
+                        transform.translation,
+                        collider,
+                        &nearby_objects,
+                        dimension_snap.threshold,
+                    );
+                    transform.translation = snapped_pos;
+                    active_snaps.snap_lines.extend(snap_lines);
+                }
+
                 // Apply grid snap if enabled
                 if editor_state.grid_snap > 0.0 {
                     transform.translation.x = snap_to_grid(transform.translation.x, editor_state.grid_snap);
@@ -1427,4 +1467,166 @@ fn handle_snap_to_object_click(
     // Exit snap to object mode
     *transform_op = TransformOperation::None;
     info!("Snap to object confirmed");
+}
+
+/// Calculate edge snaps for a position based on nearby objects
+/// Returns the snapped position and a list of snap guide lines
+fn calculate_edge_snaps(
+    position: Vec3,
+    selected_collider: Option<&Collider>,
+    nearby_objects: &[(Vec3, Vec3)], // (position, half_extents) of other objects
+    threshold: f32,
+) -> (Vec3, Vec<(Vec3, Vec3)>) {
+    let mut snapped_pos = position;
+    let mut snap_lines = Vec::new();
+
+    // Get selected object's half extents (default to 0.5 cube)
+    let selected_half = selected_collider
+        .map(|c| {
+            let aabb = c.aabb(Vec3::ZERO, Quat::IDENTITY);
+            aabb.size() * 0.5
+        })
+        .unwrap_or(Vec3::splat(0.5));
+
+    // Calculate selected object's AABB edges at current position
+    let sel_min = position - selected_half;
+    let sel_max = position + selected_half;
+
+    // Check against each nearby object
+    for (other_pos, other_half) in nearby_objects {
+        let other_min = *other_pos - *other_half;
+        let other_max = *other_pos + *other_half;
+
+        // Check X axis edges
+        // Selected min X vs Other max X (left edge to right edge)
+        let x_snap_left = other_max.x - sel_min.x + position.x;
+        if (sel_min.x - other_max.x).abs() < threshold {
+            snapped_pos.x = x_snap_left;
+            // Draw vertical guide line at the snap point
+            let snap_x = other_max.x;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
+        }
+        // Selected max X vs Other min X (right edge to left edge)
+        let x_snap_right = other_min.x - sel_max.x + position.x;
+        if (sel_max.x - other_min.x).abs() < threshold {
+            snapped_pos.x = x_snap_right;
+            let snap_x = other_min.x;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
+        }
+        // Selected min X vs Other min X (left to left alignment)
+        if (sel_min.x - other_min.x).abs() < threshold {
+            snapped_pos.x = other_min.x + selected_half.x;
+            let snap_x = other_min.x;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
+        }
+        // Selected max X vs Other max X (right to right alignment)
+        if (sel_max.x - other_max.x).abs() < threshold {
+            snapped_pos.x = other_max.x - selected_half.x;
+            let snap_x = other_max.x;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
+        }
+
+        // Check Z axis edges
+        // Selected min Z vs Other max Z
+        if (sel_min.z - other_max.z).abs() < threshold {
+            snapped_pos.z = other_max.z + selected_half.z;
+            let snap_z = other_max.z;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
+        }
+        // Selected max Z vs Other min Z
+        if (sel_max.z - other_min.z).abs() < threshold {
+            snapped_pos.z = other_min.z - selected_half.z;
+            let snap_z = other_min.z;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
+        }
+        // Selected min Z vs Other min Z (alignment)
+        if (sel_min.z - other_min.z).abs() < threshold {
+            snapped_pos.z = other_min.z + selected_half.z;
+            let snap_z = other_min.z;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
+        }
+        // Selected max Z vs Other max Z (alignment)
+        if (sel_max.z - other_max.z).abs() < threshold {
+            snapped_pos.z = other_max.z - selected_half.z;
+            let snap_z = other_max.z;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
+        }
+
+        // Check Y axis edges (vertical alignment)
+        // Selected min Y vs Other max Y (bottom to top)
+        if (sel_min.y - other_max.y).abs() < threshold {
+            snapped_pos.y = other_max.y + selected_half.y;
+            let snap_y = other_max.y;
+            snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
+        }
+        // Selected max Y vs Other min Y (top to bottom)
+        if (sel_max.y - other_min.y).abs() < threshold {
+            snapped_pos.y = other_min.y - selected_half.y;
+            let snap_y = other_min.y;
+            snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
+        }
+        // Selected min Y vs Other min Y (bottom alignment)
+        if (sel_min.y - other_min.y).abs() < threshold {
+            snapped_pos.y = other_min.y + selected_half.y;
+            let snap_y = other_min.y;
+            snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
+        }
+        // Selected max Y vs Other max Y (top alignment)
+        if (sel_max.y - other_max.y).abs() < threshold {
+            snapped_pos.y = other_max.y - selected_half.y;
+            let snap_y = other_max.y;
+            snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
+        }
+    }
+
+    (snapped_pos, snap_lines)
+}
+
+/// Draw edge snap guide lines
+fn draw_edge_snap_guides(
+    mut gizmos: Gizmos,
+    active_snaps: Res<ActiveEdgeSnaps>,
+    editor_state: Res<EditorState>,
+) {
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
+    let snap_color = Color::srgba(0.0, 1.0, 1.0, 0.8); // Cyan
+
+    for (start, end) in &active_snaps.snap_lines {
+        gizmos.line(*start, *end, snap_color);
+    }
+}
+
+/// Clear edge snaps when not actively translating
+fn clear_edge_snaps_when_idle(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mode: Res<State<EditorMode>>,
+    transform_op: Res<TransformOperation>,
+    mut active_snaps: ResMut<ActiveEdgeSnaps>,
+) {
+    let should_clear = *mode.get() != EditorMode::Edit
+        || *transform_op != TransformOperation::Translate
+        || !mouse_button.pressed(MouseButton::Left);
+
+    if should_clear && !active_snaps.snap_lines.is_empty() {
+        active_snaps.snap_lines.clear();
+    }
 }

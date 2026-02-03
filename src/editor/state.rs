@@ -124,6 +124,31 @@ impl Default for EditStepAmount {
     }
 }
 
+/// Settings for dimension/edge snapping during translate operations
+#[derive(Debug, Resource)]
+pub struct DimensionSnapSettings {
+    /// Whether edge snapping is enabled
+    pub enabled: bool,
+    /// Distance threshold for snapping (in world units)
+    pub threshold: f32,
+}
+
+impl Default for DimensionSnapSettings {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            threshold: 0.5,
+        }
+    }
+}
+
+/// Tracks active edge snaps for visualization
+#[derive(Debug, Default, Resource)]
+pub struct ActiveEdgeSnaps {
+    /// Lines to draw showing active snaps (start, end, color)
+    pub snap_lines: Vec<(Vec3, Vec3)>,
+}
+
 /// Tracks the selected control point index within the currently selected spline
 #[derive(Debug, Clone, Copy, Default, Resource)]
 pub struct SelectedControlPointIndex(pub Option<usize>);
@@ -222,6 +247,8 @@ impl Plugin for EditorStatePlugin {
             .init_resource::<EditorState>()
             .init_resource::<EditStepAmount>()
             .init_resource::<SelectedControlPointIndex>()
+            .init_resource::<DimensionSnapSettings>()
+            .init_resource::<ActiveEdgeSnaps>()
             .insert_resource(InsertState::new())
             .add_message::<TogglePhysicsDebugEvent>()
             .add_message::<TogglePhysicsEvent>()

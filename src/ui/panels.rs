@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::commands::SnapshotHistory;
-use crate::editor::{AxisConstraint, EditorMode, EditorState, SnapSubMode, TransformOperation};
+use crate::editor::{AxisConstraint, DimensionSnapSettings, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::scene::SceneFile;
 use crate::selection::Selected;
 use crate::ui::theme::{colors, popup_frame};
@@ -14,7 +14,7 @@ pub struct PanelsPlugin;
 
 impl Plugin for PanelsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, (draw_status_bar, draw_hint_bubble));
+        app.add_systems(EguiPrimaryContextPass, (draw_status_bar, draw_hint_bubble, draw_edge_snap_panel));
     }
 }
 
@@ -334,4 +334,72 @@ fn get_hints_for_mode(
             ("Esc", "View"),
         ],
     }
+}
+
+/// Draw edge snap helper panel during Edit mode translate operations
+fn draw_edge_snap_panel(
+    mut contexts: EguiContexts,
+    mode: Res<State<EditorMode>>,
+    transform_op: Res<TransformOperation>,
+    editor_state: Res<EditorState>,
+    mut dimension_snap: ResMut<DimensionSnapSettings>,
+) -> Result {
+    // Only show during Edit mode translate operation
+    if !editor_state.ui_enabled
+        || *mode.get() != EditorMode::Edit
+        || *transform_op != TransformOperation::Translate
+    {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+
+    // Position in top-right corner
+    egui::Area::new(egui::Id::new("edge_snap_panel"))
+        .anchor(egui::Align2::RIGHT_TOP, [-10.0, 50.0])
+        .show(ctx, |ui| {
+            popup_frame(&ctx.style())
+                .inner_margin(egui::Margin::symmetric(10, 8))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        // Toggle checkbox
+                        let mut enabled = dimension_snap.enabled;
+                        if ui
+                            .checkbox(&mut enabled, "")
+                            .on_hover_text("Enable edge snapping")
+                            .changed()
+                        {
+                            dimension_snap.enabled = enabled;
+                        }
+
+                        ui.label(
+                            egui::RichText::new("Edge Snap")
+                                .color(if dimension_snap.enabled {
+                                    colors::ACCENT_CYAN
+                                } else {
+                                    colors::TEXT_MUTED
+                                }),
+                        );
+                    });
+
+                    if dimension_snap.enabled {
+                        ui.add_space(4.0);
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("Threshold:")
+                                    .color(colors::TEXT_SECONDARY)
+                                    .small(),
+                            );
+                            ui.add(
+                                egui::DragValue::new(&mut dimension_snap.threshold)
+                                    .range(0.1..=2.0)
+                                    .speed(0.05)
+                                    .suffix(" m"),
+                            );
+                        });
+                    }
+                });
+        });
+
+    Ok(())
 }
