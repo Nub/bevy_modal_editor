@@ -4,10 +4,12 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 
+use bevy_spline_3d::prelude::Spline;
+
 use crate::commands::TakeSnapshotCommand;
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
 use crate::gizmos::{XRayGizmoConfig, XRayGizmoDimmed};
-use crate::scene::Locked;
+use crate::scene::{Locked, SplineMarker};
 use crate::selection::Selected;
 use crate::ui::Settings;
 use crate::utils::{get_half_height_along_normal_from_collider, should_process_input};
@@ -69,11 +71,12 @@ impl Plugin for TransformGizmoPlugin {
 }
 
 /// Draw gizmos for selected entities
+#[allow(clippy::too_many_arguments)]
 fn draw_selection_gizmos(
     mut gizmos: Gizmos,
     mut xray_gizmos: Gizmos<XRayGizmoConfig>,
     mut dimmed_gizmos: Gizmos<XRayGizmoDimmed>,
-    selected: Query<(Entity, &GlobalTransform, &Transform, Option<&Collider>), With<Selected>>,
+    selected: Query<(Entity, &GlobalTransform, &Transform, Option<&Collider>, Option<&SplineMarker>, Option<&Spline>), With<Selected>>,
     children_query: Query<&Children>,
     collider_query: Query<(&GlobalTransform, &Collider)>,
     mode: Res<State<EditorMode>>,
@@ -86,14 +89,21 @@ fn draw_selection_gizmos(
         return;
     }
 
-    for (entity, global_transform, transform, collider) in selected.iter() {
+    for (entity, global_transform, transform, collider, spline_marker, spline) in selected.iter() {
         let pos = global_transform.translation();
 
-        // Calculate AABB for selection box
-        let aabb = compute_hierarchy_aabb(entity, global_transform, transform, collider, &children_query, &collider_query);
+        // For splines, draw a selection highlight along the curve instead of AABB
+        if spline_marker.is_some() {
+            if let Some(spline) = spline {
+                draw_spline_selection_highlight(&mut gizmos, spline, global_transform);
+            }
+        } else {
+            // Calculate AABB for selection box (non-spline entities)
+            let aabb = compute_hierarchy_aabb(entity, global_transform, transform, collider, &children_query, &collider_query);
 
-        // Draw selection outline using AABB
-        draw_selection_box_aabb(&mut gizmos, &aabb);
+            // Draw selection outline using AABB
+            draw_selection_box_aabb(&mut gizmos, &aabb);
+        }
 
         // Draw transform gizmo in Edit mode using x-ray gizmos (always visible)
         let gizmo_scale = settings.gizmos.transform_scale;
@@ -105,6 +115,36 @@ fn draw_selection_gizmos(
                 TransformOperation::Place | TransformOperation::SnapToObject | TransformOperation::None => {}
             }
         }
+    }
+}
+
+/// Draw a selection highlight along the spline curve
+fn draw_spline_selection_highlight(gizmos: &mut Gizmos, spline: &Spline, transform: &GlobalTransform) {
+    if !spline.is_valid() {
+        return;
+    }
+
+    // Sample the spline curve
+    let points = spline.sample(32);
+    if points.len() < 2 {
+        return;
+    }
+
+    // Selection highlight color - orange to match other selection indicators
+    let highlight_color = Color::srgb(1.0, 0.8, 0.0);
+
+    // Draw the curve with selection highlight
+    for i in 0..points.len() - 1 {
+        let p0 = transform.transform_point(points[i]);
+        let p1 = transform.transform_point(points[i + 1]);
+        gizmos.line(p0, p1, highlight_color);
+    }
+
+    // If closed, draw the closing segment
+    if spline.closed && points.len() >= 2 {
+        let p0 = transform.transform_point(*points.last().unwrap());
+        let p1 = transform.transform_point(points[0]);
+        gizmos.line(p0, p1, highlight_color);
     }
 }
 
