@@ -1178,7 +1178,7 @@ dependencies = [
 [[package]]
 name = "bevy_outliner"
 version = "0.1.0"
-source = "git+https://github.com/Nub/bevy_outliner#bd515b8564017f80d961e55398517dc5a3a9f12e"
+source = "git+https://github.com/Nub/bevy_outliner#b73c61bdf2ab53042b61cc0c226ff8ab86677fa8"
 dependencies = [
  "bevy",
  "bytemuck",
