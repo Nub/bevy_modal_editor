@@ -11,6 +11,7 @@ use std::path::Path;
 
 use bevy_spline_3d::prelude::Spline;
 
+use super::blockout::{ArchMarker, LShapeMarker, RampMarker, StairsMarker};
 use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, SceneSource, SplineMarker, LIGHT_COLLIDER_RADIUS};
 use crate::editor::{CameraMark, CameraMarks};
 use crate::ui::draw_error_dialog as draw_themed_error_dialog;
@@ -245,6 +246,11 @@ impl Command for SaveSceneCommand {
             // Spline components
             .allow_component::<Spline>()
             .allow_component::<SplineMarker>()
+            // Blockout shape components
+            .allow_component::<StairsMarker>()
+            .allow_component::<RampMarker>()
+            .allow_component::<ArchMarker>()
+            .allow_component::<LShapeMarker>()
             .extract_entities(scene_entity_ids.into_iter())
             .build();
 

@@ -23,6 +23,8 @@ pub enum EditorMode {
     ObjectInspector,
     /// Hierarchy mode: shows scene hierarchy panel, '/' searches objects
     Hierarchy,
+    /// Blockout mode: keyboard-first tile snapping for rapid prototyping
+    Blockout,
 }
 
 /// The active transform operation in Edit mode
@@ -141,6 +143,14 @@ pub enum InsertObjectType {
     Spline(SplineType),
     /// Volumetric fog volume
     FogVolume,
+    /// Parametric stairs
+    Stairs,
+    /// Parametric ramp/wedge
+    Ramp,
+    /// Parametric arch/doorway
+    Arch,
+    /// Parametric L-shape corner
+    LShape,
 }
 
 /// Marker component for preview entities in Insert mode

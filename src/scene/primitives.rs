@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
 
+use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs};
 use super::SceneEntity;
 use crate::constants::{light_colors, physics, primitive_colors};
 use crate::selection::Selected;
@@ -163,6 +164,14 @@ pub enum SpawnEntityKind {
     Spline(SplineType),
     /// A volumetric fog volume
     FogVolume,
+    /// Parametric stairs
+    Stairs,
+    /// Parametric ramp/wedge
+    Ramp,
+    /// Parametric arch/doorway
+    Arch,
+    /// Parametric L-shape corner
+    LShape,
 }
 
 impl SpawnEntityKind {
@@ -179,6 +188,10 @@ impl SpawnEntityKind {
                 SplineType::BSpline => "B-Spline",
             },
             SpawnEntityKind::FogVolume => "Fog Volume",
+            SpawnEntityKind::Stairs => "Stairs",
+            SpawnEntityKind::Ramp => "Ramp",
+            SpawnEntityKind::Arch => "Arch",
+            SpawnEntityKind::LShape => "L-Shape",
         }
     }
 }
@@ -273,6 +286,10 @@ fn handle_spawn_entity(
             SpawnEntityKind::DirectionalLight => spawn_directional_light(&mut commands, event.position, event.rotation, &name),
             SpawnEntityKind::Spline(spline_type) => spawn_spline(&mut commands, *spline_type, event.position, event.rotation, &name),
             SpawnEntityKind::FogVolume => spawn_fog_volume(&mut commands, event.position, event.rotation, &name),
+            SpawnEntityKind::Stairs => spawn_stairs(&mut commands, &mut meshes, &mut materials, event.position, event.rotation, &name),
+            SpawnEntityKind::Ramp => spawn_ramp(&mut commands, &mut meshes, &mut materials, event.position, event.rotation, &name),
+            SpawnEntityKind::Arch => spawn_arch(&mut commands, &mut meshes, &mut materials, event.position, event.rotation, &name),
+            SpawnEntityKind::LShape => spawn_lshape(&mut commands, &mut meshes, &mut materials, event.position, event.rotation, &name),
         };
 
         // Select the newly spawned entity

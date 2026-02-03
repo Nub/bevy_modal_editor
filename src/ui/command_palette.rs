@@ -103,6 +103,14 @@ pub enum CommandAction {
     SpawnFogVolume,
     /// Create a distribution from selected entities (requires 1 spline + 1 source selected)
     CreateDistribution,
+    /// Spawn parametric stairs
+    SpawnStairs,
+    /// Spawn parametric ramp
+    SpawnRamp,
+    /// Spawn parametric arch
+    SpawnArch,
+    /// Spawn parametric L-shape
+    SpawnLShape,
 }
 
 /// The mode the command palette is operating in
@@ -258,6 +266,36 @@ impl CommandRegistry {
             keywords: vec!["floor".into(), "ground".into(), "primitive".into()],
             category: "Primitives",
             action: CommandAction::SpawnPrimitive(PrimitiveShape::Plane),
+            insertable: true,
+        });
+
+        // Blockout shapes (insertable)
+        self.commands.push(Command {
+            name: "Add Stairs".to_string(),
+            keywords: vec!["steps".into(), "staircase".into(), "blockout".into()],
+            category: "Blockout",
+            action: CommandAction::SpawnStairs,
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add Ramp".to_string(),
+            keywords: vec!["wedge".into(), "slope".into(), "incline".into(), "blockout".into()],
+            category: "Blockout",
+            action: CommandAction::SpawnRamp,
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add Arch".to_string(),
+            keywords: vec!["doorway".into(), "door".into(), "opening".into(), "blockout".into()],
+            category: "Blockout",
+            action: CommandAction::SpawnArch,
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add L-Shape".to_string(),
+            keywords: vec!["corner".into(), "wall".into(), "blockout".into()],
+            category: "Blockout",
+            action: CommandAction::SpawnLShape,
             insertable: true,
         });
 
@@ -997,6 +1035,26 @@ fn draw_command_palette(
                         object_type: InsertObjectType::FogVolume,
                     });
                 }
+                CommandAction::SpawnStairs => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::Stairs,
+                    });
+                }
+                CommandAction::SpawnRamp => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::Ramp,
+                    });
+                }
+                CommandAction::SpawnArch => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::Arch,
+                    });
+                }
+                CommandAction::SpawnLShape => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::LShape,
+                    });
+                }
                 _ => {}
             }
         } else {
@@ -1033,6 +1091,34 @@ fn draw_command_palette(
                 CommandAction::SpawnFogVolume => {
                     events.spawn_entity.write(SpawnEntityEvent {
                         kind: SpawnEntityKind::FogVolume,
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    });
+                }
+                CommandAction::SpawnStairs => {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::Stairs,
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    });
+                }
+                CommandAction::SpawnRamp => {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::Ramp,
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    });
+                }
+                CommandAction::SpawnArch => {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::Arch,
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    });
+                }
+                CommandAction::SpawnLShape => {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::LShape,
                         position: Vec3::ZERO,
                         rotation: Quat::IDENTITY,
                     });

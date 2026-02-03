@@ -1,3 +1,4 @@
+mod blockout;
 mod camera;
 mod input;
 mod insert;
@@ -6,6 +7,7 @@ mod plugin;
 mod spline_edit;
 mod state;
 
+pub use blockout::*;
 pub use camera::*;
 pub use input::*;
 pub use insert::*;

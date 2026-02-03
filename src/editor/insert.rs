@@ -10,6 +10,8 @@ use crate::commands::TakeSnapshotCommand;
 use bevy_spline_3d::prelude::SplineType;
 
 use crate::scene::{
+    blockout::{generate_stairs_mesh, generate_ramp_mesh, generate_arch_mesh, generate_lshape_mesh,
+               StairsMarker, RampMarker, ArchMarker, LShapeMarker, blockout_colors},
     GroupMarker, GltfSource, PrimitiveMarker, PrimitiveShape, SceneSource, SpawnEntityEvent,
     SpawnEntityKind, SpawnGltfEvent, SpawnSceneSourceEvent,
 };
@@ -291,6 +293,74 @@ pub fn spawn_preview_entity(
                 ))
                 .id()
         }
+        InsertObjectType::Stairs => {
+            let marker = StairsMarker::default();
+            let mesh = generate_stairs_mesh(&marker);
+            commands
+                .spawn((
+                    InsertPreview,
+                    marker,
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: blockout_colors::STAIRS.with_alpha(0.5),
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
+        InsertObjectType::Ramp => {
+            let marker = RampMarker::default();
+            let mesh = generate_ramp_mesh(&marker);
+            commands
+                .spawn((
+                    InsertPreview,
+                    marker,
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: blockout_colors::RAMP.with_alpha(0.5),
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
+        InsertObjectType::Arch => {
+            let marker = ArchMarker::default();
+            let mesh = generate_arch_mesh(&marker);
+            commands
+                .spawn((
+                    InsertPreview,
+                    marker,
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: blockout_colors::ARCH.with_alpha(0.5),
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
+        InsertObjectType::LShape => {
+            let marker = LShapeMarker::default();
+            let mesh = generate_lshape_mesh(&marker);
+            commands
+                .spawn((
+                    InsertPreview,
+                    marker,
+                    Mesh3d(meshes.add(mesh)),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: blockout_colors::LSHAPE.with_alpha(0.5),
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
     }
 }
 
@@ -519,6 +589,10 @@ fn handle_insert_click(
             SplineType::BSpline => "B-Spline".to_string(),
         },
         InsertObjectType::FogVolume => "Fog Volume".to_string(),
+        InsertObjectType::Stairs => "Stairs".to_string(),
+        InsertObjectType::Ramp => "Ramp".to_string(),
+        InsertObjectType::Arch => "Arch".to_string(),
+        InsertObjectType::LShape => "L-Shape".to_string(),
     };
     commands.queue(TakeSnapshotCommand {
         description: format!("Insert {}", object_name),
@@ -582,6 +656,34 @@ fn handle_insert_click(
         InsertObjectType::FogVolume => {
             spawn_entity_events.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::FogVolume,
+                position,
+                rotation,
+            });
+        }
+        InsertObjectType::Stairs => {
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Stairs,
+                position,
+                rotation,
+            });
+        }
+        InsertObjectType::Ramp => {
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Ramp,
+                position,
+                rotation,
+            });
+        }
+        InsertObjectType::Arch => {
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Arch,
+                position,
+                rotation,
+            });
+        }
+        InsertObjectType::LShape => {
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::LShape,
                 position,
                 rotation,
             });

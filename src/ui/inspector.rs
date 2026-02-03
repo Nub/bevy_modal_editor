@@ -12,7 +12,10 @@ use super::entity_picker::{draw_entity_field, make_callback_id, EntityPickerStat
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::editor::{EditorMode, EditorState};
-use crate::scene::{DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker};
+use crate::scene::{
+    blockout::{ArchMarker, LShapeMarker, RampMarker, StairsMarker},
+    DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker,
+};
 use crate::selection::Selected;
 use crate::ui::theme::colors;
 
@@ -149,6 +152,84 @@ impl From<&FogVolumeMarker> for FogVolumeData {
             scattering_asymmetry: marker.scattering_asymmetry,
             light_tint: [light_tint.red, light_tint.green, light_tint.blue],
             light_intensity: marker.light_intensity,
+        }
+    }
+}
+
+/// Data for stairs editing
+struct StairsData {
+    step_count: u32,
+    height: f32,
+    depth: f32,
+    width: f32,
+}
+
+impl From<&StairsMarker> for StairsData {
+    fn from(marker: &StairsMarker) -> Self {
+        Self {
+            step_count: marker.step_count,
+            height: marker.height,
+            depth: marker.depth,
+            width: marker.width,
+        }
+    }
+}
+
+/// Data for ramp editing
+struct RampData {
+    height: f32,
+    length: f32,
+    width: f32,
+}
+
+impl From<&RampMarker> for RampData {
+    fn from(marker: &RampMarker) -> Self {
+        Self {
+            height: marker.height,
+            length: marker.length,
+            width: marker.width,
+        }
+    }
+}
+
+/// Data for arch editing
+struct ArchData {
+    opening_width: f32,
+    opening_height: f32,
+    thickness: f32,
+    wall_width: f32,
+    wall_height: f32,
+    arch_segments: u32,
+}
+
+impl From<&ArchMarker> for ArchData {
+    fn from(marker: &ArchMarker) -> Self {
+        Self {
+            opening_width: marker.opening_width,
+            opening_height: marker.opening_height,
+            thickness: marker.thickness,
+            wall_width: marker.wall_width,
+            wall_height: marker.wall_height,
+            arch_segments: marker.arch_segments,
+        }
+    }
+}
+
+/// Data for L-shape editing
+struct LShapeData {
+    arm1_length: f32,
+    arm2_length: f32,
+    arm_width: f32,
+    height: f32,
+}
+
+impl From<&LShapeMarker> for LShapeData {
+    fn from(marker: &LShapeMarker) -> Self {
+        Self {
+            arm1_length: marker.arm1_length,
+            arm2_length: marker.arm2_length,
+            arm_width: marker.arm_width,
+            height: marker.height,
         }
     }
 }
@@ -430,6 +511,114 @@ fn draw_fog_volume_section(ui: &mut egui::Ui, data: &mut FogVolumeData) -> bool 
         });
         ui.add_space(4.0);
         changed |= draw_drag_row(ui, "Light Intensity", &mut data.light_intensity, 0.1, 0.0..=10.0);
+        ui.add_space(4.0);
+    });
+
+    changed
+}
+
+/// Draw stairs properties section
+fn draw_stairs_section(ui: &mut egui::Ui, data: &mut StairsData) -> bool {
+    let mut changed = false;
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("Stairs").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Steps").color(colors::TEXT_SECONDARY));
+            let mut steps = data.step_count as i32;
+            if ui.add(egui::DragValue::new(&mut steps).range(1..=50)).changed() {
+                data.step_count = steps.max(1) as u32;
+                changed = true;
+            }
+        });
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Height", &mut data.height, 0.1, 0.1..=50.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Depth", &mut data.depth, 0.1, 0.1..=50.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Width", &mut data.width, 0.1, 0.1..=50.0);
+        ui.add_space(4.0);
+    });
+
+    changed
+}
+
+/// Draw ramp properties section
+fn draw_ramp_section(ui: &mut egui::Ui, data: &mut RampData) -> bool {
+    let mut changed = false;
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("Ramp").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Height", &mut data.height, 0.1, 0.1..=50.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Length", &mut data.length, 0.1, 0.1..=50.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Width", &mut data.width, 0.1, 0.1..=50.0);
+        ui.add_space(4.0);
+    });
+
+    changed
+}
+
+/// Draw arch properties section
+fn draw_arch_section(ui: &mut egui::Ui, data: &mut ArchData) -> bool {
+    let mut changed = false;
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("Arch").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Opening Width", &mut data.opening_width, 0.1, 0.1..=20.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Opening Height", &mut data.opening_height, 0.1, 0.1..=20.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Thickness", &mut data.thickness, 0.1, 0.1..=10.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Wall Width", &mut data.wall_width, 0.1, 0.1..=20.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Wall Height", &mut data.wall_height, 0.1, 0.1..=20.0);
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Arch Segments").color(colors::TEXT_SECONDARY));
+            let mut segments = data.arch_segments as i32;
+            if ui.add(egui::DragValue::new(&mut segments).range(4..=32)).changed() {
+                data.arch_segments = segments.max(4) as u32;
+                changed = true;
+            }
+        });
+        ui.add_space(4.0);
+    });
+
+    changed
+}
+
+/// Draw L-shape properties section
+fn draw_lshape_section(ui: &mut egui::Ui, data: &mut LShapeData) -> bool {
+    let mut changed = false;
+
+    egui::CollapsingHeader::new(
+        egui::RichText::new("L-Shape").strong().color(colors::TEXT_PRIMARY),
+    )
+    .default_open(true)
+    .show(ui, |ui| {
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Arm 1 Length", &mut data.arm1_length, 0.1, 0.1..=50.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Arm 2 Length", &mut data.arm2_length, 0.1, 0.1..=50.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Arm Width", &mut data.arm_width, 0.1, 0.1..=20.0);
+        ui.add_space(4.0);
+        changed |= draw_drag_row(ui, "Height", &mut data.height, 0.1, 0.1..=50.0);
         ui.add_space(4.0);
     });
 
@@ -825,6 +1014,20 @@ fn draw_inspector_panel(world: &mut World) {
         world.get::<FogVolumeMarker>(e).map(|m| FogVolumeData::from(m))
     });
 
+    // Get blockout shape data for single selection
+    let mut stairs_data = single_entity.and_then(|e| {
+        world.get::<StairsMarker>(e).map(|m| StairsData::from(m))
+    });
+    let mut ramp_data = single_entity.and_then(|e| {
+        world.get::<RampMarker>(e).map(|m| RampData::from(m))
+    });
+    let mut arch_data = single_entity.and_then(|e| {
+        world.get::<ArchMarker>(e).map(|m| ArchData::from(m))
+    });
+    let mut lshape_data = single_entity.and_then(|e| {
+        world.get::<LShapeMarker>(e).map(|m| LShapeData::from(m))
+    });
+
     // Get spline follower data for single selection
     let mut spline_follower_data = single_entity.and_then(|e| {
         world.get::<SplineFollower>(e).map(|f| SplineFollowerData::from(f))
@@ -865,6 +1068,10 @@ fn draw_inspector_panel(world: &mut World) {
     let mut point_light_changed = false;
     let mut directional_light_changed = false;
     let mut fog_volume_changed = false;
+    let mut stairs_changed = false;
+    let mut ramp_changed = false;
+    let mut arch_changed = false;
+    let mut lshape_changed = false;
     let mut spline_follower_changed = false;
     let mut open_spline_picker = false;
     let mut spline_distribution_changed = false;
@@ -1017,6 +1224,24 @@ fn draw_inspector_panel(world: &mut World) {
                             // Fog volume properties
                             if let Some(ref mut data) = fog_volume_data {
                                 fog_volume_changed = draw_fog_volume_section(ui, data);
+                                ui.add_space(4.0);
+                            }
+
+                            // Blockout shape properties
+                            if let Some(ref mut data) = stairs_data {
+                                stairs_changed = draw_stairs_section(ui, data);
+                                ui.add_space(4.0);
+                            }
+                            if let Some(ref mut data) = ramp_data {
+                                ramp_changed = draw_ramp_section(ui, data);
+                                ui.add_space(4.0);
+                            }
+                            if let Some(ref mut data) = arch_data {
+                                arch_changed = draw_arch_section(ui, data);
+                                ui.add_space(4.0);
+                            }
+                            if let Some(ref mut data) = lshape_data {
+                                lshape_changed = draw_lshape_section(ui, data);
                                 ui.add_space(4.0);
                             }
 
@@ -1246,6 +1471,52 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
+    // Apply blockout shape changes (mesh regeneration is handled by Changed<T> systems)
+    if stairs_changed {
+        if let (Some(entity), Some(data)) = (single_entity, stairs_data) {
+            if let Some(mut marker) = world.get_mut::<StairsMarker>(entity) {
+                marker.step_count = data.step_count;
+                marker.height = data.height;
+                marker.depth = data.depth;
+                marker.width = data.width;
+            }
+        }
+    }
+
+    if ramp_changed {
+        if let (Some(entity), Some(data)) = (single_entity, ramp_data) {
+            if let Some(mut marker) = world.get_mut::<RampMarker>(entity) {
+                marker.height = data.height;
+                marker.length = data.length;
+                marker.width = data.width;
+            }
+        }
+    }
+
+    if arch_changed {
+        if let (Some(entity), Some(data)) = (single_entity, arch_data) {
+            if let Some(mut marker) = world.get_mut::<ArchMarker>(entity) {
+                marker.opening_width = data.opening_width;
+                marker.opening_height = data.opening_height;
+                marker.thickness = data.thickness;
+                marker.wall_width = data.wall_width;
+                marker.wall_height = data.wall_height;
+                marker.arch_segments = data.arch_segments;
+            }
+        }
+    }
+
+    if lshape_changed {
+        if let (Some(entity), Some(data)) = (single_entity, lshape_data) {
+            if let Some(mut marker) = world.get_mut::<LShapeMarker>(entity) {
+                marker.arm1_length = data.arm1_length;
+                marker.arm2_length = data.arm2_length;
+                marker.arm_width = data.arm_width;
+                marker.height = data.height;
+            }
+        }
+    }
+
     // Apply spline follower changes
     if spline_follower_changed {
         if let (Some(entity), Some(data)) = (single_entity, spline_follower_data.clone()) {
@@ -1444,6 +1715,10 @@ fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
             || name == "DistributionSource"
             || name == "DistributedInstance"
             || name == "DistributionState"
+            || name == "StairsMarker"
+            || name == "RampMarker"
+            || name == "ArchMarker"
+            || name == "LShapeMarker"
         {
             continue;
         }

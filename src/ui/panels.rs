@@ -52,6 +52,7 @@ fn draw_status_bar(
                     EditorMode::Insert => "INSERT",
                     EditorMode::ObjectInspector => "INSPECT",
                     EditorMode::Hierarchy => "HIERARCHY",
+                    EditorMode::Blockout => "BLOCKOUT",
                 };
                 let mode_color = match mode.get() {
                     EditorMode::View => colors::ACCENT_BLUE,
@@ -59,6 +60,7 @@ fn draw_status_bar(
                     EditorMode::Insert => colors::ACCENT_GREEN,
                     EditorMode::ObjectInspector => colors::ACCENT_PURPLE,
                     EditorMode::Hierarchy => colors::ACCENT_CYAN,
+                    EditorMode::Blockout => colors::ACCENT_ORANGE,
                 };
                 ui.label(
                     egui::RichText::new(format!("[{}]", mode_text))
@@ -322,6 +324,13 @@ fn get_hints_for_mode(
             ("/", "Search"),
             ("F", "Filter"),
             ("Drag", "Reparent"),
+            ("Esc", "View"),
+        ],
+        EditorMode::Blockout => vec![
+            ("1-5", "Shape"),
+            ("WASDQE", "Face"),
+            ("R", "Rotate"),
+            ("Enter", "Place"),
             ("Esc", "View"),
         ],
     }
