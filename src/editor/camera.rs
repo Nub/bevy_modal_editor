@@ -18,11 +18,11 @@ const MAX_FOV_DEGREES: f32 = 120.0;
 /// FOV change per scroll unit
 const FOV_SCROLL_SPEED: f32 = 5.0;
 /// Default orthographic scale
-const ORTHO_SCALE: f32 = 10.0;
+const ORTHO_SCALE: f32 = 0.05;
 /// Minimum orthographic scale (most zoomed in)
-const MIN_ORTHO_SCALE: f32 = 0.5;
+const MIN_ORTHO_SCALE: f32 = 0.001;
 /// Maximum orthographic scale (most zoomed out)
-const MAX_ORTHO_SCALE: f32 = 100.0;
+const MAX_ORTHO_SCALE: f32 = 0.1;
 /// Orthographic scale change multiplier per scroll unit
 const ORTHO_ZOOM_SPEED: f32 = 0.1;
 
@@ -314,12 +314,23 @@ fn camera_zoom(
             // In orthographic mode: scroll adjusts scale
             // Scroll up = zoom in (decrease scale), scroll down = zoom out (increase scale)
             let zoom_factor = 1.0 - scroll_y * ORTHO_ZOOM_SPEED;
-            fly_cam.ortho_scale = (fly_cam.ortho_scale * zoom_factor).clamp(MIN_ORTHO_SCALE, MAX_ORTHO_SCALE);
+            let new_scale = fly_cam.ortho_scale * zoom_factor;
 
-            *projection = Projection::Orthographic(OrthographicProjection {
-                scale: fly_cam.ortho_scale,
-                ..OrthographicProjection::default_3d()
-            });
+            if new_scale >= MAX_ORTHO_SCALE && scroll_y < 0.0 {
+                // Zooming out past max scale: switch to perspective
+                fly_cam.fov_degrees = MIN_FOV_DEGREES;
+                *projection = Projection::Perspective(PerspectiveProjection {
+                    fov: fly_cam.fov_degrees.to_radians(),
+                    ..default()
+                });
+            } else {
+                // Stay in orthographic, clamp scale
+                fly_cam.ortho_scale = new_scale.clamp(MIN_ORTHO_SCALE, MAX_ORTHO_SCALE);
+                *projection = Projection::Orthographic(OrthographicProjection {
+                    scale: fly_cam.ortho_scale,
+                    ..OrthographicProjection::default_3d()
+                });
+            }
         } else {
             // In perspective mode: scroll adjusts FOV
             // Scroll up = zoom in (decrease FOV), scroll down = zoom out (increase FOV)

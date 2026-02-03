@@ -7,7 +7,7 @@ use super::{EditorCamera, EditorState, FlyCamera};
 use crate::utils::should_process_input;
 
 /// Orthographic scale when switching to ortho mode for axis views
-const ORTHO_SCALE: f32 = 10.0;
+const ORTHO_SCALE: f32 = 0.05;
 
 /// A saved camera position and orientation
 #[derive(Debug, Clone, Serialize, Deserialize)]

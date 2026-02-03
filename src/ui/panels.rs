@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::commands::SnapshotHistory;
-use crate::editor::{AxisConstraint, EditorMode, EditorState, SnapSubMode, TransformOperation};
+use crate::editor::{AxisConstraint, EditorCamera, EditorMode, EditorState, FlyCamera, SnapSubMode, TransformOperation};
 use crate::scene::SceneFile;
 use crate::selection::Selected;
 use crate::ui::theme::{colors, popup_frame};
@@ -29,6 +29,7 @@ fn draw_status_bar(
     physics_time: Res<Time<Physics>>,
     snapshot_history: Res<SnapshotHistory>,
     selected_query: Query<&GlobalTransform, With<Selected>>,
+    camera_query: Query<&FlyCamera, With<EditorCamera>>,
 ) -> Result {
     // Don't draw UI when editor is disabled
     if !editor_state.ui_enabled {
@@ -128,6 +129,17 @@ fn draw_status_bar(
                 ui.label(egui::RichText::new(rot_text).color(colors::TEXT_MUTED));
 
                 ui.separator();
+
+                // FOV / Ortho scale
+                if let Ok(fly_cam) = camera_query.single() {
+                    let cam_text = if fly_cam.fov_degrees == 0.0 {
+                        format!("Ortho: {:.1}", fly_cam.ortho_scale)
+                    } else {
+                        format!("FOV: {:.0}°", fly_cam.fov_degrees)
+                    };
+                    ui.label(egui::RichText::new(cam_text).color(colors::TEXT_MUTED));
+                    ui.separator();
+                }
 
                 // Physics status
                 if physics_time.relative_speed() == 0.0 {
