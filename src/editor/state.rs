@@ -25,6 +25,8 @@ pub enum EditorMode {
     Hierarchy,
     /// Blockout mode: keyboard-first tile snapping for rapid prototyping
     Blockout,
+    /// Material mode: select and edit materials on selected entity
+    Material,
 }
 
 /// The active transform operation in Edit mode

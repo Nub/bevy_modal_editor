@@ -127,6 +127,19 @@ fn handle_mode_input(
         return;
     }
 
+    // M enters Material mode (only from View mode or with Shift)
+    if keyboard.just_pressed(KeyCode::KeyM) && !shift_held {
+        if *current_mode.get() == EditorMode::Material {
+            // If already in Material mode, return to View mode
+            next_mode.set(EditorMode::View);
+        } else if can_change_mode {
+            next_mode.set(EditorMode::Material);
+            *transform_op = TransformOperation::None;
+            *axis_constraint = AxisConstraint::None;
+        }
+        return;
+    }
+
     // Escape returns to View mode from any mode, unless a popup is open
     // (let the popup handle Escape first)
     if keyboard.just_pressed(KeyCode::Escape) {
@@ -157,7 +170,7 @@ fn handle_mode_input(
                 // With Shift, can enter Edit mode from any mode
                 next_mode.set(EditorMode::Edit);
             }
-            EditorMode::Insert | EditorMode::ObjectInspector | EditorMode::Hierarchy | EditorMode::Blockout => {}
+            EditorMode::Insert | EditorMode::ObjectInspector | EditorMode::Hierarchy | EditorMode::Blockout | EditorMode::Material => {}
         }
         return;
     }
@@ -228,10 +241,9 @@ fn handle_preview_mode_shortcut(
     }
 }
 
-/// Handle M key to toggle distance measurements (View mode only)
+/// Handle Shift+M to toggle distance measurements
 fn handle_measurement_toggle(
     keyboard: Res<ButtonInput<KeyCode>>,
-    mode: Res<State<EditorMode>>,
     mut editor_state: ResMut<EditorState>,
     mut contexts: EguiContexts,
 ) {
@@ -239,8 +251,9 @@ fn handle_measurement_toggle(
         return;
     }
 
-    // M to toggle measurements (only in View mode)
-    if *mode.get() == EditorMode::View && keyboard.just_pressed(KeyCode::KeyM) {
+    // Shift+M to toggle measurements
+    let shift_held = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+    if shift_held && keyboard.just_pressed(KeyCode::KeyM) {
         editor_state.measurements_visible = !editor_state.measurements_visible;
         info!(
             "Measurements: {}",

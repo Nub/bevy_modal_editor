@@ -8,6 +8,7 @@ pub mod fuzzy_palette;
 mod hierarchy;
 mod inspector;
 mod marks;
+mod material_editor;
 mod panels;
 mod reflect_editor;
 mod settings;
@@ -56,6 +57,7 @@ impl Plugin for UiPlugin {
                 PanelsPlugin,
                 HierarchyPlugin,
                 InspectorPlugin,
+                material_editor::MaterialEditorPlugin,
                 ToolbarPlugin,
                 ViewGizmoPlugin,
                 EditInfoPlugin,
