@@ -6,8 +6,10 @@ use bevy_egui::EguiContexts;
 
 use crate::commands::TakeSnapshotCommand;
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
+use crate::gizmos::XRayGizmoConfig;
 use crate::scene::Locked;
 use crate::selection::Selected;
+use crate::ui::Settings;
 use crate::utils::{get_half_height_along_normal_from_collider, should_process_input};
 
 /// Default distance from camera when placing objects without hitting a surface
@@ -39,6 +41,9 @@ fn snap_rotation(radians: f32, snap_degrees: f32) -> f32 {
 /// Length of gizmo axes
 const GIZMO_LENGTH: f32 = 1.5;
 
+/// Click radius for gizmo axis detection (in world units, scaled by distance)
+const GIZMO_CLICK_RADIUS: f32 = 0.15;
+
 pub struct TransformGizmoPlugin;
 
 impl Plugin for TransformGizmoPlugin {
@@ -48,6 +53,7 @@ impl Plugin for TransformGizmoPlugin {
             (
                 draw_selection_gizmos,
                 draw_distance_measurements,
+                handle_gizmo_axis_click,
                 handle_axis_keys,
                 handle_snap_submode_keys,
                 handle_step_keys,
@@ -65,6 +71,7 @@ impl Plugin for TransformGizmoPlugin {
 /// Draw gizmos for selected entities
 fn draw_selection_gizmos(
     mut gizmos: Gizmos,
+    mut xray_gizmos: Gizmos<XRayGizmoConfig>,
     selected: Query<(Entity, &GlobalTransform, &Transform, Option<&Collider>), With<Selected>>,
     children_query: Query<&Children>,
     collider_query: Query<(&GlobalTransform, &Collider)>,
@@ -72,6 +79,7 @@ fn draw_selection_gizmos(
     transform_op: Res<TransformOperation>,
     axis_constraint: Res<AxisConstraint>,
     editor_state: Res<EditorState>,
+    settings: Res<Settings>,
 ) {
     if !editor_state.gizmos_visible {
         return;
@@ -86,13 +94,13 @@ fn draw_selection_gizmos(
         // Draw selection outline using AABB
         draw_selection_box_aabb(&mut gizmos, &aabb);
 
-        // Draw transform gizmo in Edit mode (use a scale of 1.0 for gizmo, not object size)
-        let gizmo_scale = 1.0;
+        // Draw transform gizmo in Edit mode using x-ray gizmos (always visible)
+        let gizmo_scale = settings.gizmos.transform_scale;
         if *mode.get() == EditorMode::Edit {
             match *transform_op {
-                TransformOperation::Translate => draw_translate_gizmo(&mut gizmos, pos, gizmo_scale, &axis_constraint),
-                TransformOperation::Rotate => draw_rotate_gizmo(&mut gizmos, pos, gizmo_scale, &axis_constraint),
-                TransformOperation::Scale => draw_scale_gizmo(&mut gizmos, pos, gizmo_scale, &axis_constraint),
+                TransformOperation::Translate => draw_translate_gizmo(&mut xray_gizmos, pos, gizmo_scale, &axis_constraint),
+                TransformOperation::Rotate => draw_rotate_gizmo(&mut xray_gizmos, pos, gizmo_scale, &axis_constraint),
+                TransformOperation::Scale => draw_scale_gizmo(&mut xray_gizmos, pos, gizmo_scale, &axis_constraint),
                 TransformOperation::Place | TransformOperation::SnapToObject | TransformOperation::None => {}
             }
         }
@@ -228,6 +236,173 @@ fn draw_distance_measurements(
         );
 
     }
+}
+
+/// Handle clicking on gizmo axes to set axis constraint
+fn handle_gizmo_axis_click(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mode: Res<State<EditorMode>>,
+    transform_op: Res<TransformOperation>,
+    editor_state: Res<EditorState>,
+    settings: Res<Settings>,
+    mut axis_constraint: ResMut<AxisConstraint>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
+    selected: Query<&GlobalTransform, With<Selected>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    mut contexts: EguiContexts,
+) {
+    // Only handle in Edit mode with Translate, Rotate, or Scale operation
+    if *mode.get() != EditorMode::Edit {
+        return;
+    }
+
+    match *transform_op {
+        TransformOperation::Translate | TransformOperation::Rotate | TransformOperation::Scale => {}
+        _ => return,
+    }
+
+    // Only on left click
+    if !mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // Don't handle when UI wants pointer input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    let Ok(window) = window_query.single() else {
+        return;
+    };
+
+    let Some(cursor_position) = window.cursor_position() else {
+        return;
+    };
+
+    // Create ray from camera through cursor position
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    let gizmo_scale = settings.gizmos.transform_scale;
+
+    // Check each selected entity's gizmo
+    for global_transform in selected.iter() {
+        let gizmo_pos = global_transform.translation();
+        let gizmo_length = gizmo_scale * GIZMO_LENGTH;
+
+        // Calculate distance from ray to each axis
+        let axes = [
+            (Vec3::X, AxisConstraint::X),
+            (Vec3::Y, AxisConstraint::Y),
+            (Vec3::Z, AxisConstraint::Z),
+        ];
+
+        let mut closest_axis: Option<AxisConstraint> = None;
+        let mut closest_distance = f32::MAX;
+
+        for (axis_dir, constraint) in axes {
+            let axis_end = gizmo_pos + axis_dir * gizmo_length;
+
+            // Calculate distance from ray to line segment (gizmo_pos to axis_end)
+            let distance = ray_to_line_segment_distance(
+                ray.origin,
+                ray.direction.into(),
+                gizmo_pos,
+                axis_end,
+            );
+
+            // Scale click radius based on distance from camera for consistent feel
+            let camera_distance = (gizmo_pos - camera_transform.translation()).length();
+            let click_radius = GIZMO_CLICK_RADIUS * gizmo_scale * (camera_distance / 5.0).max(1.0);
+
+            if distance < click_radius && distance < closest_distance {
+                closest_distance = distance;
+                closest_axis = Some(constraint);
+            }
+        }
+
+        // If we found an axis, set the constraint
+        if let Some(constraint) = closest_axis {
+            // Toggle: if already on this axis, clear it; otherwise set it
+            if *axis_constraint == constraint {
+                *axis_constraint = AxisConstraint::None;
+            } else {
+                *axis_constraint = constraint;
+            }
+            return; // Only handle one gizmo click
+        }
+    }
+}
+
+/// Calculate the minimum distance from a ray to a line segment
+fn ray_to_line_segment_distance(
+    ray_origin: Vec3,
+    ray_dir: Vec3,
+    seg_start: Vec3,
+    seg_end: Vec3,
+) -> f32 {
+    let seg_dir = seg_end - seg_start;
+    let seg_len = seg_dir.length();
+
+    if seg_len < 0.0001 {
+        // Degenerate segment - just distance to point
+        return point_to_ray_distance(seg_start, ray_origin, ray_dir);
+    }
+
+    let seg_dir_norm = seg_dir / seg_len;
+
+    // Find closest points between ray and infinite line containing segment
+    let w0 = ray_origin - seg_start;
+    let a = ray_dir.dot(ray_dir);
+    let b = ray_dir.dot(seg_dir_norm);
+    let c = seg_dir_norm.dot(seg_dir_norm);
+    let d = ray_dir.dot(w0);
+    let e = seg_dir_norm.dot(w0);
+
+    let denom = a * c - b * b;
+
+    let (sc, tc) = if denom.abs() < 0.0001 {
+        // Lines are nearly parallel
+        (0.0, if b > c { d / b } else { e / c })
+    } else {
+        let sc = (b * e - c * d) / denom;
+        let tc = (a * e - b * d) / denom;
+        (sc.max(0.0), tc) // Ray only goes forward
+    };
+
+    // Clamp tc to segment bounds [0, seg_len]
+    let tc_clamped = tc.clamp(0.0, seg_len);
+
+    // Calculate closest points
+    let closest_on_ray = ray_origin + ray_dir * sc;
+    let closest_on_seg = seg_start + seg_dir_norm * tc_clamped;
+
+    (closest_on_ray - closest_on_seg).length()
+}
+
+/// Calculate distance from a point to a ray
+fn point_to_ray_distance(point: Vec3, ray_origin: Vec3, ray_dir: Vec3) -> f32 {
+    let w = point - ray_origin;
+    let c1 = w.dot(ray_dir);
+    if c1 <= 0.0 {
+        // Point is behind ray origin
+        return w.length();
+    }
+    let c2 = ray_dir.dot(ray_dir);
+    let b = c1 / c2;
+    let closest = ray_origin + ray_dir * b;
+    (point - closest).length()
 }
 
 /// Handle A/S/D keys to select X/Y/Z axis constraint in Edit mode
@@ -463,7 +638,7 @@ fn draw_selection_box_aabb(gizmos: &mut Gizmos, aabb: &Aabb) {
     gizmos.line(Vec3::new(min.x, min.y, max.z), Vec3::new(min.x, max.y, max.z), color);
 }
 
-fn draw_translate_gizmo(gizmos: &mut Gizmos, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
+fn draw_translate_gizmo(gizmos: &mut Gizmos<XRayGizmoConfig>, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
     let length = scale * GIZMO_LENGTH;
     let arrow_size = scale * 0.15;
 
@@ -524,7 +699,7 @@ fn draw_translate_gizmo(gizmos: &mut Gizmos, pos: Vec3, scale: f32, axis_constra
     );
 }
 
-fn draw_rotate_gizmo(gizmos: &mut Gizmos, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
+fn draw_rotate_gizmo(gizmos: &mut Gizmos<XRayGizmoConfig>, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
     let radius = scale * 1.2;
     let segments = 32;
 
@@ -579,7 +754,7 @@ fn draw_rotate_gizmo(gizmos: &mut Gizmos, pos: Vec3, scale: f32, axis_constraint
     }
 }
 
-fn draw_scale_gizmo(gizmos: &mut Gizmos, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
+fn draw_scale_gizmo(gizmos: &mut Gizmos<XRayGizmoConfig>, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
     let length = scale * 1.5;
     let box_size = scale * 0.1;
 
@@ -613,7 +788,7 @@ fn draw_scale_gizmo(gizmos: &mut Gizmos, pos: Vec3, scale: f32, axis_constraint:
     draw_small_cube(gizmos, pos + Vec3::Z * length, box_size, z_color);
 }
 
-fn draw_small_cube(gizmos: &mut Gizmos, pos: Vec3, size: f32, color: Color) {
+fn draw_small_cube(gizmos: &mut Gizmos<XRayGizmoConfig>, pos: Vec3, size: f32, color: Color) {
     let half = size * 0.5;
 
     // Just draw the edges of a small cube
@@ -705,7 +880,7 @@ fn handle_transform_manipulation(
                         transform.translation.y += movement;
                     }
                     AxisConstraint::Z => {
-                        let movement = (delta.x - delta.y) * sensitivity;
+                        let movement = (delta.y - delta.x) * sensitivity;
                         transform.translation.z += movement;
                     }
                 }

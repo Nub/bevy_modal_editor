@@ -2,28 +2,55 @@ mod transform;
 
 pub use transform::*;
 
-use bevy::gizmos::config::{DefaultGizmoConfigGroup, GizmoConfigStore};
+use bevy::gizmos::config::{DefaultGizmoConfigGroup, GizmoConfigGroup, GizmoConfigStore};
 use bevy::prelude::*;
 use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin, InfiniteGridSettings};
 
 use crate::editor::EditorState;
 use crate::scene::{DirectionalLightMarker, SceneLightMarker};
+use crate::ui::Settings;
+
+/// Custom gizmo config group for x-ray transform gizmos (always visible through objects)
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct XRayGizmoConfig;
 
 pub struct EditorGizmosPlugin;
 
 impl Plugin for EditorGizmosPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(TransformGizmoPlugin)
+        app.init_gizmo_group::<XRayGizmoConfig>()
+            .add_plugins(TransformGizmoPlugin)
             .add_plugins(InfiniteGridPlugin)
             .add_systems(Startup, (configure_gizmos, spawn_grid))
-            .add_systems(Update, (draw_origin_axes, draw_directional_light_gizmos, draw_point_light_gizmos));
+            .add_systems(Update, (update_gizmo_settings, draw_origin_axes, draw_directional_light_gizmos, draw_point_light_gizmos));
     }
 }
 
-/// Configure gizmo appearance
-fn configure_gizmos(mut config_store: ResMut<GizmoConfigStore>) {
+/// Configure gizmo appearance from settings
+fn configure_gizmos(mut config_store: ResMut<GizmoConfigStore>, settings: Res<Settings>) {
+    // Configure default gizmos
     let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
-    config.line.width = 3.0;
+    config.line.width = settings.gizmos.line_width;
+
+    // Configure x-ray gizmos (for transform handles)
+    let (xray_config, _) = config_store.config_mut::<XRayGizmoConfig>();
+    xray_config.line.width = settings.gizmos.line_width;
+    xray_config.depth_bias = -1.0; // Render on top of everything
+}
+
+/// Update gizmo settings when they change
+fn update_gizmo_settings(settings: Res<Settings>, mut config_store: ResMut<GizmoConfigStore>) {
+    if !settings.is_changed() {
+        return;
+    }
+    // Update default gizmos
+    let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
+    config.line.width = settings.gizmos.line_width;
+
+    // Update x-ray gizmos
+    let (xray_config, _) = config_store.config_mut::<XRayGizmoConfig>();
+    xray_config.line.width = settings.gizmos.line_width;
+    xray_config.depth_bias = -1.0;
 }
 
 /// Spawn the infinite grid

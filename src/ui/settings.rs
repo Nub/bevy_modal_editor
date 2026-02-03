@@ -14,6 +14,24 @@ struct FontsLoaded(bool);
 #[derive(Resource, Default)]
 struct FontSizesApplied(bool);
 
+/// Gizmo appearance settings
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct GizmoSettings {
+    /// Line width for gizmos
+    pub line_width: f32,
+    /// Scale multiplier for transform gizmos
+    pub transform_scale: f32,
+}
+
+impl Default for GizmoSettings {
+    fn default() -> Self {
+        Self {
+            line_width: 9.0,
+            transform_scale: 1.5,
+        }
+    }
+}
+
 /// Font size settings for various UI elements
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FontSettings {
@@ -65,6 +83,9 @@ pub struct Settings {
     /// Show hotkey hints above status bar
     #[serde(default = "default_show_hints")]
     pub show_hints: bool,
+    /// Gizmo appearance settings
+    #[serde(default)]
+    pub gizmos: GizmoSettings,
 }
 
 fn default_show_hints() -> bool {
@@ -86,6 +107,7 @@ impl Default for Settings {
             undo_history_size: 50,
             fonts: FontSettings::default(),
             show_hints: true,
+            gizmos: GizmoSettings::default(),
         }
     }
 }
@@ -229,6 +251,28 @@ fn draw_settings_window(
 
                     ui.label("Show Hints:");
                     if ui.checkbox(&mut settings.show_hints, "").changed() {
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Gizmo Width:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.gizmos.line_width, 1.0..=20.0)
+                            .step_by(1.0)
+                            .suffix("px"),
+                    );
+                    if response.changed() {
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Gizmo Scale:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.gizmos.transform_scale, 0.5..=3.0)
+                            .step_by(0.25)
+                            .suffix("x"),
+                    );
+                    if response.changed() {
                         settings.save();
                     }
                     ui.end_row();
