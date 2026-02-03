@@ -38,6 +38,7 @@ impl Plugin for EditorCameraPlugin {
                     camera_movement,
                     camera_zoom,
                     handle_camera_preset,
+                    handle_camera_number_keys,
                     look_at_selected,
                     sync_camera_states,
                 ),
@@ -143,7 +144,11 @@ impl CameraPreset {
 
 /// Event to set camera to a preset view
 #[derive(Message)]
-pub struct SetCameraPresetEvent(pub CameraPreset);
+pub struct SetCameraPresetEvent {
+    pub preset: CameraPreset,
+    /// If true, switch to orthographic projection
+    pub orthographic: bool,
+}
 
 fn spawn_editor_camera(mut commands: Commands) {
     let fly_cam = FlyCamera::default();
@@ -328,18 +333,61 @@ fn camera_zoom(
 /// Handle camera preset switching
 fn handle_camera_preset(
     mut events: MessageReader<SetCameraPresetEvent>,
-    mut query: Query<(&mut FlyCamera, &mut Transform), With<EditorCamera>>,
+    mut query: Query<(&mut FlyCamera, &mut Transform, &mut Projection), With<EditorCamera>>,
 ) {
     for event in events.read() {
-        let preset = &event.0;
+        let preset = &event.preset;
         let (yaw, pitch) = preset.angles();
         let position = preset.position();
-        for (mut fly_cam, mut transform) in &mut query {
+        for (mut fly_cam, mut transform, mut projection) in &mut query {
             fly_cam.yaw = yaw;
             fly_cam.pitch = pitch;
             transform.translation = position;
             transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
+
+            // Switch to orthographic if requested
+            if event.orthographic {
+                fly_cam.fov_degrees = 0.0;
+                *projection = Projection::Orthographic(OrthographicProjection {
+                    scale: ORTHO_SCALE,
+                    ..OrthographicProjection::default_3d()
+                });
+            }
         }
+    }
+}
+
+/// Handle number key shortcuts for orthographic axis views
+/// 1 = Right (+X) / Shift+1 = Left (-X)
+/// 2 = Top (+Y) / Shift+2 = Bottom (-Y)
+/// 3 = Front (+Z) / Shift+3 = Back (-Z)
+fn handle_camera_number_keys(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
+    mut preset_events: MessageWriter<SetCameraPresetEvent>,
+    mut contexts: EguiContexts,
+) {
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+
+    let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+
+    let preset = if keyboard.just_pressed(KeyCode::Digit1) {
+        Some(if shift { CameraPreset::Left } else { CameraPreset::Right })
+    } else if keyboard.just_pressed(KeyCode::Digit2) {
+        Some(if shift { CameraPreset::Bottom } else { CameraPreset::Top })
+    } else if keyboard.just_pressed(KeyCode::Digit3) {
+        Some(if shift { CameraPreset::Back } else { CameraPreset::Front })
+    } else {
+        None
+    };
+
+    if let Some(preset) = preset {
+        preset_events.write(SetCameraPresetEvent {
+            preset,
+            orthographic: true,
+        });
     }
 }
 

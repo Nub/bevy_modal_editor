@@ -171,8 +171,11 @@ fn draw_view_gizmo(
                                     *axis_constraint = *constraint;
                                 }
                             } else {
-                                // In View mode: set camera preset
-                                preset_events.write(SetCameraPresetEvent(*preset));
+                                // In View mode: set camera preset (keep current projection mode)
+                                preset_events.write(SetCameraPresetEvent {
+                                    preset: *preset,
+                                    orthographic: false,
+                                });
                             }
                             break;
                         }
