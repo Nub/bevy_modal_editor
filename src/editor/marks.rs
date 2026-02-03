@@ -6,6 +6,9 @@ use std::collections::HashMap;
 use super::{EditorCamera, EditorState, FlyCamera};
 use crate::utils::should_process_input;
 
+/// Orthographic scale when switching to ortho mode for axis views
+const ORTHO_SCALE: f32 = 10.0;
+
 /// A saved camera position and orientation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CameraMark {
@@ -26,12 +29,12 @@ pub struct CameraMarks {
 
 impl Default for CameraMarks {
     fn default() -> Self {
-        use std::f32::consts::FRAC_PI_2;
+        use std::f32::consts::{FRAC_PI_2, PI};
         const DISTANCE: f32 = 10.0;
 
         let mut marks = HashMap::new();
 
-        // 1 = X axis (Right view)
+        // 1 = X axis (Right view, looking from +X toward origin)
         marks.insert(
             "1".to_string(),
             CameraMark {
@@ -42,7 +45,18 @@ impl Default for CameraMarks {
             },
         );
 
-        // 2 = Y axis (Top view)
+        // -1 = -X axis (Left view, looking from -X toward origin)
+        marks.insert(
+            "-1".to_string(),
+            CameraMark {
+                name: "-1".to_string(),
+                position: Vec3::new(-DISTANCE, 0.0, 0.0),
+                yaw: FRAC_PI_2,
+                pitch: 0.0,
+            },
+        );
+
+        // 2 = Y axis (Top view, looking from +Y toward origin)
         marks.insert(
             "2".to_string(),
             CameraMark {
@@ -53,13 +67,35 @@ impl Default for CameraMarks {
             },
         );
 
-        // 3 = Z axis (Front view)
+        // -2 = -Y axis (Bottom view, looking from -Y toward origin)
+        marks.insert(
+            "-2".to_string(),
+            CameraMark {
+                name: "-2".to_string(),
+                position: Vec3::new(0.0, -DISTANCE, 0.0),
+                yaw: 0.0,
+                pitch: FRAC_PI_2 - 0.001,
+            },
+        );
+
+        // 3 = Z axis (Front view, looking from +Z toward origin)
         marks.insert(
             "3".to_string(),
             CameraMark {
                 name: "3".to_string(),
                 position: Vec3::new(0.0, 0.0, DISTANCE),
                 yaw: 0.0,
+                pitch: 0.0,
+            },
+        );
+
+        // -3 = -Z axis (Back view, looking from -Z toward origin)
+        marks.insert(
+            "-3".to_string(),
+            CameraMark {
+                name: "-3".to_string(),
+                position: Vec3::new(0.0, 0.0, -DISTANCE),
+                yaw: PI,
                 pitch: 0.0,
             },
         );
@@ -129,12 +165,14 @@ impl Plugin for CameraMarksPlugin {
         app.init_resource::<CameraMarks>()
             .add_message::<SetCameraMarkEvent>()
             .add_message::<JumpToMarkEvent>()
+            .add_message::<JumpToMarkOrthoEvent>()
             .add_message::<JumpToLastPositionEvent>()
             .add_systems(
                 Update,
                 (
                     handle_set_mark,
                     handle_jump_to_mark,
+                    handle_jump_to_mark_ortho,
                     handle_jump_to_last,
                     handle_mark_shortcuts,
                 ),
@@ -220,16 +258,23 @@ fn handle_jump_to_last(
     }
 }
 
+/// Message to jump to mark and optionally switch to orthographic
+#[derive(Message)]
+pub struct JumpToMarkOrthoEvent {
+    pub name: String,
+}
+
 /// Handle keyboard shortcuts for marks (in View mode)
 /// Backtick (`) to jump to last position
-/// Number keys 1-9 to jump to marks "1"-"9"
-/// Shift + number to set marks "1"-"9"
+/// 1/2/3 = orthographic axis views (X/Y/Z), Shift+1/2/3 = inverted axis views (-X/-Y/-Z)
+/// 4-9 = jump to marks, Shift+4-9 = set marks
 fn handle_mark_shortcuts(
     keyboard: Res<ButtonInput<KeyCode>>,
     mode: Res<State<super::EditorMode>>,
     editor_state: Res<EditorState>,
     mut set_events: MessageWriter<SetCameraMarkEvent>,
     mut jump_events: MessageWriter<JumpToMarkEvent>,
+    mut ortho_events: MessageWriter<JumpToMarkOrthoEvent>,
     mut last_events: MessageWriter<JumpToLastPositionEvent>,
     mut contexts: EguiContexts,
 ) {
@@ -250,11 +295,27 @@ fn handle_mark_shortcuts(
         return;
     }
 
-    // Number keys for quick marks
+    // 1/2/3 are special: orthographic axis views
+    // Without shift: positive axis (+X, +Y, +Z)
+    // With shift: negative axis (-X, -Y, -Z)
+    let axis_keys = [
+        (KeyCode::Digit1, "1", "-1"),
+        (KeyCode::Digit2, "2", "-2"),
+        (KeyCode::Digit3, "3", "-3"),
+    ];
+
+    for (key, pos_name, neg_name) in axis_keys {
+        if keyboard.just_pressed(key) {
+            let name = if shift { neg_name } else { pos_name };
+            ortho_events.write(JumpToMarkOrthoEvent {
+                name: name.to_string(),
+            });
+            return;
+        }
+    }
+
+    // 4-9: regular marks (jump without shift, set with shift)
     let number_keys = [
-        (KeyCode::Digit1, "1"),
-        (KeyCode::Digit2, "2"),
-        (KeyCode::Digit3, "3"),
         (KeyCode::Digit4, "4"),
         (KeyCode::Digit5, "5"),
         (KeyCode::Digit6, "6"),
@@ -275,6 +336,41 @@ fn handle_mark_shortcuts(
                 });
             }
             return;
+        }
+    }
+}
+
+/// Handle jumping to mark and switching to orthographic
+fn handle_jump_to_mark_ortho(
+    mut events: MessageReader<JumpToMarkOrthoEvent>,
+    mut marks: ResMut<CameraMarks>,
+    mut camera_query: Query<(&mut Transform, &mut FlyCamera, &mut Projection), With<EditorCamera>>,
+) {
+    for event in events.read() {
+        // Store current position before jumping
+        if let Ok((transform, fly_cam, _)) = camera_query.single() {
+            marks.store_last_position(transform.translation, fly_cam.yaw, fly_cam.pitch);
+        }
+
+        if let Some(mark) = marks.get_mark(&event.name).cloned() {
+            if let Ok((mut transform, mut fly_cam, mut projection)) = camera_query.single_mut() {
+                transform.translation = mark.position;
+                fly_cam.yaw = mark.yaw;
+                fly_cam.pitch = mark.pitch;
+                transform.rotation =
+                    Quat::from_euler(EulerRot::YXZ, fly_cam.yaw, fly_cam.pitch, 0.0);
+
+                // Switch to orthographic
+                fly_cam.fov_degrees = 0.0;
+                *projection = Projection::Orthographic(OrthographicProjection {
+                    scale: ORTHO_SCALE,
+                    ..OrthographicProjection::default_3d()
+                });
+
+                info!("Jumped to orthographic view: {}", event.name);
+            }
+        } else {
+            warn!("Mark not found: {}", event.name);
         }
     }
 }

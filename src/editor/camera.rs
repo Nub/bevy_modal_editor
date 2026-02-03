@@ -17,8 +17,14 @@ const MIN_FOV_DEGREES: f32 = 5.0;
 const MAX_FOV_DEGREES: f32 = 120.0;
 /// FOV change per scroll unit
 const FOV_SCROLL_SPEED: f32 = 5.0;
-/// Orthographic scale when in ortho mode
+/// Default orthographic scale
 const ORTHO_SCALE: f32 = 10.0;
+/// Minimum orthographic scale (most zoomed in)
+const MIN_ORTHO_SCALE: f32 = 0.5;
+/// Maximum orthographic scale (most zoomed out)
+const MAX_ORTHO_SCALE: f32 = 100.0;
+/// Orthographic scale change multiplier per scroll unit
+const ORTHO_ZOOM_SPEED: f32 = 0.1;
 
 pub struct EditorCameraPlugin;
 
@@ -38,7 +44,6 @@ impl Plugin for EditorCameraPlugin {
                     camera_movement,
                     camera_zoom,
                     handle_camera_preset,
-                    handle_camera_number_keys,
                     look_at_selected,
                     sync_camera_states,
                 ),
@@ -76,6 +81,8 @@ pub struct FlyCamera {
     pub sensitivity: f32,
     /// Current FOV in degrees (0 = orthographic)
     pub fov_degrees: f32,
+    /// Current orthographic scale (only used when fov_degrees == 0)
+    pub ortho_scale: f32,
 }
 
 impl Default for FlyCamera {
@@ -86,6 +93,7 @@ impl Default for FlyCamera {
             speed: 10.0,
             sensitivity: 0.003,
             fov_degrees: 60.0, // Default perspective FOV
+            ortho_scale: ORTHO_SCALE,
         }
     }
 }
@@ -302,30 +310,36 @@ fn camera_zoom(
     }
 
     for (mut fly_cam, mut projection) in &mut query {
-        // Scroll up = zoom in (decrease FOV), scroll down = zoom out (increase FOV)
-        let new_fov = fly_cam.fov_degrees - scroll_y * FOV_SCROLL_SPEED;
+        if fly_cam.fov_degrees == 0.0 {
+            // In orthographic mode: scroll adjusts scale
+            // Scroll up = zoom in (decrease scale), scroll down = zoom out (increase scale)
+            let zoom_factor = 1.0 - scroll_y * ORTHO_ZOOM_SPEED;
+            fly_cam.ortho_scale = (fly_cam.ortho_scale * zoom_factor).clamp(MIN_ORTHO_SCALE, MAX_ORTHO_SCALE);
 
-        if new_fov <= 0.0 {
-            // Switch to orthographic
-            fly_cam.fov_degrees = 0.0;
             *projection = Projection::Orthographic(OrthographicProjection {
-                scale: ORTHO_SCALE,
+                scale: fly_cam.ortho_scale,
                 ..OrthographicProjection::default_3d()
             });
-        } else if new_fov >= MIN_FOV_DEGREES {
-            // Perspective mode
-            fly_cam.fov_degrees = new_fov.min(MAX_FOV_DEGREES);
-            *projection = Projection::Perspective(PerspectiveProjection {
-                fov: fly_cam.fov_degrees.to_radians(),
-                ..default()
-            });
-        } else if fly_cam.fov_degrees == 0.0 && scroll_y < 0.0 {
-            // Switching from ortho back to perspective
-            fly_cam.fov_degrees = MIN_FOV_DEGREES;
-            *projection = Projection::Perspective(PerspectiveProjection {
-                fov: fly_cam.fov_degrees.to_radians(),
-                ..default()
-            });
+        } else {
+            // In perspective mode: scroll adjusts FOV
+            // Scroll up = zoom in (decrease FOV), scroll down = zoom out (increase FOV)
+            let new_fov = fly_cam.fov_degrees - scroll_y * FOV_SCROLL_SPEED;
+
+            if new_fov <= 0.0 {
+                // Switch to orthographic
+                fly_cam.fov_degrees = 0.0;
+                *projection = Projection::Orthographic(OrthographicProjection {
+                    scale: fly_cam.ortho_scale,
+                    ..OrthographicProjection::default_3d()
+                });
+            } else {
+                // Stay in perspective mode
+                fly_cam.fov_degrees = new_fov.clamp(MIN_FOV_DEGREES, MAX_FOV_DEGREES);
+                *projection = Projection::Perspective(PerspectiveProjection {
+                    fov: fly_cam.fov_degrees.to_radians(),
+                    ..default()
+                });
+            }
         }
     }
 }
@@ -354,40 +368,6 @@ fn handle_camera_preset(
                 });
             }
         }
-    }
-}
-
-/// Handle number key shortcuts for orthographic axis views
-/// 1 = Right (+X) / Shift+1 = Left (-X)
-/// 2 = Top (+Y) / Shift+2 = Bottom (-Y)
-/// 3 = Front (+Z) / Shift+3 = Back (-Z)
-fn handle_camera_number_keys(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    editor_state: Res<EditorState>,
-    mut preset_events: MessageWriter<SetCameraPresetEvent>,
-    mut contexts: EguiContexts,
-) {
-    if !should_process_input(&editor_state, &mut contexts) {
-        return;
-    }
-
-    let shift = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
-
-    let preset = if keyboard.just_pressed(KeyCode::Digit1) {
-        Some(if shift { CameraPreset::Left } else { CameraPreset::Right })
-    } else if keyboard.just_pressed(KeyCode::Digit2) {
-        Some(if shift { CameraPreset::Bottom } else { CameraPreset::Top })
-    } else if keyboard.just_pressed(KeyCode::Digit3) {
-        Some(if shift { CameraPreset::Back } else { CameraPreset::Front })
-    } else {
-        None
-    };
-
-    if let Some(preset) = preset {
-        preset_events.write(SetCameraPresetEvent {
-            preset,
-            orthographic: true,
-        });
     }
 }
 
