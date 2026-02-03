@@ -45,6 +45,7 @@ fn handle_click_selection(
     splines: Query<(Entity, &Spline, &GlobalTransform), With<SplineMarker>>,
     parent_query: Query<&ChildOf>,
     selected: Query<Entity, With<Selected>>,
+    selected_splines: Query<(), (With<Selected>, With<SplineMarker>)>,
     selection_state: Res<SelectionState>,
     mode: Res<State<EditorMode>>,
     mut commands: Commands,
@@ -53,6 +54,12 @@ fn handle_click_selection(
 ) {
     // Only select on left click
     if !mouse_button.just_pressed(MouseButton::Left) {
+        return;
+    }
+
+    // In Edit mode with a spline selected, don't process entity selection
+    // The spline library handles control point selection/dragging
+    if *mode.get() == EditorMode::Edit && !selected_splines.is_empty() {
         return;
     }
 

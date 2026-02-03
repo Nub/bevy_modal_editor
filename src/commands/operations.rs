@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
 use super::TakeSnapshotCommand;
-use crate::editor::EditorState;
+use crate::editor::{EditorMode, EditorState};
 use crate::scene::{SpawnEntityEvent, SpawnEntityKind};
 use crate::selection::Selected;
 use crate::utils::should_process_input;
@@ -31,6 +31,7 @@ impl Plugin for OperationsPlugin {
 fn handle_delete_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     editor_state: Res<EditorState>,
+    editor_mode: Res<State<EditorMode>>,
     mut delete_events: MessageWriter<DeleteSelectedEvent>,
     mut duplicate_events: MessageWriter<DuplicateSelectedEvent>,
     mut contexts: EguiContexts,
@@ -39,8 +40,10 @@ fn handle_delete_input(
         return;
     }
 
-    // Delete or X to delete selected
-    if keyboard.just_pressed(KeyCode::Delete) || keyboard.just_pressed(KeyCode::KeyX) {
+    // Delete key always deletes, X only deletes outside ObjectInspector mode
+    // (in ObjectInspector mode, X opens the remove component palette instead)
+    let x_pressed = keyboard.just_pressed(KeyCode::KeyX) && *editor_mode.get() != EditorMode::ObjectInspector;
+    if keyboard.just_pressed(KeyCode::Delete) || x_pressed {
         delete_events.write(DeleteSelectedEvent);
     }
 

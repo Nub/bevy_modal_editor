@@ -1761,8 +1761,12 @@ impl bevy::prelude::Command for RemoveComponentCommand {
             return;
         };
 
-        // Remove the component
-        reflect_component.remove(&mut world.entity_mut(self.entity));
+        // Remove the component (entity may have been despawned)
+        let Ok(mut entity_mut) = world.get_entity_mut(self.entity) else {
+            warn!("Entity {:?} no longer exists, cannot remove component", self.entity);
+            return;
+        };
+        reflect_component.remove(&mut entity_mut);
         info!("Removed component {} from entity {:?}", self.component_name, self.entity);
     }
 }
