@@ -17,7 +17,7 @@ use crate::scene::{
     DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker,
 };
 use crate::selection::Selected;
-use crate::ui::theme::colors;
+use crate::ui::theme::{colors, panel, panel_frame};
 
 /// Represents the RigidBody type for UI selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1084,36 +1084,25 @@ fn draw_inspector_panel(world: &mut World) {
         && ctx.input(|i| i.key_pressed(egui::Key::N));
     let name_field_id = egui::Id::new("inspector_name_field");
 
-    // Floating window padding from edges
-    let window_padding = 8.0;
-    let status_bar_height = 24.0;
-    let available_height = ctx.content_rect().height() - status_bar_height - window_padding * 2.0;
+    // Calculate available height using shared panel settings
+    let available_height = ctx.content_rect().height()
+        - panel::STATUS_BAR_HEIGHT
+        - panel::WINDOW_PADDING * 2.0;
 
     let panel_response = egui::Window::new("Inspector")
-        .default_size([250.0, available_height])
-        .min_width(250.0)
-        .min_height(100.0)
+        .default_size([panel::DEFAULT_WIDTH, available_height])
+        .min_width(panel::MIN_WIDTH)
+        .min_height(panel::MIN_HEIGHT)
         .max_height(available_height)
-        .anchor(egui::Align2::RIGHT_TOP, [-window_padding, window_padding])
+        .anchor(egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
         .scroll(false)
-        .frame(
-            egui::Frame::window(&ctx.style())
-                .fill(colors::PANEL_BG)
-                .shadow(egui::Shadow {
-                    offset: [0, 2],
-                    blur: 4,
-                    spread: 0,
-                    color: egui::Color32::from_black_alpha(40),
-                }),
-        )
+        .frame(panel_frame(&ctx.style()))
         .show(&ctx, |ui| {
             // Force the window content to fill available height
-            let title_bar_height = 28.0;
-            let bottom_padding = 30.0;
-            ui.set_min_height(available_height - title_bar_height - bottom_padding);
+            ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
 
             match selection_count {
                 0 => {

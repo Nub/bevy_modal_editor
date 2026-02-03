@@ -22,11 +22,44 @@ pub const WINDOW_SHADOW: egui::Shadow = egui::Shadow {
     color: egui::Color32::from_black_alpha(60),
 };
 
+/// Lighter shadow for side panels
+pub const PANEL_SHADOW: egui::Shadow = egui::Shadow {
+    offset: [0, 2],
+    blur: 4,
+    spread: 0,
+    color: egui::Color32::from_black_alpha(40),
+};
+
+/// Shared configuration for side panels (Inspector, Material, Hierarchy)
+pub mod panel {
+    /// Padding from window edges
+    pub const WINDOW_PADDING: f32 = 8.0;
+    /// Height of the status bar at bottom
+    pub const STATUS_BAR_HEIGHT: f32 = 24.0;
+    /// Default panel width
+    pub const DEFAULT_WIDTH: f32 = 250.0;
+    /// Minimum panel width
+    pub const MIN_WIDTH: f32 = 250.0;
+    /// Minimum panel height
+    pub const MIN_HEIGHT: f32 = 100.0;
+    /// Title bar height for content calculations
+    pub const TITLE_BAR_HEIGHT: f32 = 28.0;
+    /// Bottom padding inside panel
+    pub const BOTTOM_PADDING: f32 = 30.0;
+}
+
 /// Create a standard window frame with consistent styling
 pub fn window_frame(style: &egui::Style) -> egui::Frame {
     egui::Frame::window(style)
         .fill(colors::BG_DARK)
         .shadow(WINDOW_SHADOW)
+}
+
+/// Create a side panel frame with consistent styling
+pub fn panel_frame(style: &egui::Style) -> egui::Frame {
+    egui::Frame::window(style)
+        .fill(colors::PANEL_BG)
+        .shadow(PANEL_SHADOW)
 }
 
 /// Create a popup/tooltip frame with consistent styling
