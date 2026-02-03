@@ -484,7 +484,7 @@ fn draw_settings_window(
     Ok(())
 }
 
-/// Load custom Inter font for egui UI
+/// Load custom Arimo Nerd Font for egui UI (includes Nerd Font icons)
 fn load_custom_fonts(mut contexts: EguiContexts, mut fonts_loaded: ResMut<FontsLoaded>) {
     // Only load fonts once
     if fonts_loaded.0 {
@@ -495,31 +495,37 @@ fn load_custom_fonts(mut contexts: EguiContexts, mut fonts_loaded: ResMut<FontsL
         return;
     };
 
-    // Load the Inter font from assets
-    let font_path = "assets/fonts/Inter-VariableFont_opsz,wght.ttf";
+    let mut fonts = egui::FontDefinitions::default();
+
+    // Load Arimo Nerd Font Regular
+    let font_path = "assets/fonts/ArimoNerdFont-Regular.ttf";
     let Ok(font_data) = fs::read(font_path) else {
         warn!("Failed to load font from {}", font_path);
         return;
     };
 
-    let mut fonts = egui::FontDefinitions::default();
-
-    // Add Inter font
     fonts.font_data.insert(
-        "Inter".to_owned(),
+        "Arimo".to_owned(),
         egui::FontData::from_owned(font_data).into(),
     );
 
-    // Set Inter as the primary proportional font
+    // Set Arimo as the primary proportional font
     fonts
         .families
         .entry(egui::FontFamily::Proportional)
         .or_default()
-        .insert(0, "Inter".to_owned());
+        .insert(0, "Arimo".to_owned());
+
+    // Also use Arimo for monospace to get icon support there too
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .insert(0, "Arimo".to_owned());
 
     ctx.set_fonts(fonts);
     fonts_loaded.0 = true;
-    info!("Loaded Inter font for UI");
+    info!("Loaded Arimo Nerd Font for UI");
 }
 
 /// Apply font sizes from settings to egui text styles

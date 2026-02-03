@@ -293,24 +293,41 @@ fn draw_hierarchy_panel(
     Ok(())
 }
 
+/// Nerd Font icons (Font Awesome subset)
+pub mod icons {
+    pub const FOLDER: &str = "\u{f07b}";      //
+    pub const FILE: &str = "\u{f15b}";        //
+    pub const LIGHTBULB: &str = "\u{f0eb}";   //
+    pub const CUBE: &str = "\u{f1b2}";        //
+    pub const CIRCLE: &str = "\u{f111}";      //
+    pub const DATABASE: &str = "\u{f1c0}";    //  (cylinder-like)
+    pub const CAPSULE: &str = "\u{f46b}";     //
+    pub const SQUARE: &str = "\u{f0c8}";      //
+    pub const BOX: &str = "\u{f466}";         //
+    pub const LOCK: &str = "\u{f023}";        //
+    pub const RULER: &str = "\u{f546}";       //
+    pub const DOT: &str = "\u{f111}";         //  (filled circle)
+    pub const SUN: &str = "\u{f185}";         //  (directional light)
+}
+
 /// Get icon for entity based on its type
 fn get_entity_icon(is_group: bool, primitive: Option<&PrimitiveMarker>, is_light: bool) -> &'static str {
     if is_group {
-        return "📁";
+        return icons::FOLDER;
     }
     if is_light {
-        return "💡";
+        return icons::LIGHTBULB;
     }
     if let Some(prim) = primitive {
         return match prim.shape {
-            PrimitiveShape::Cube => "🔲",
-            PrimitiveShape::Sphere => "🔵",
-            PrimitiveShape::Cylinder => "🔷",
-            PrimitiveShape::Capsule => "💊",
-            PrimitiveShape::Plane => "⬜",
+            PrimitiveShape::Cube => icons::CUBE,
+            PrimitiveShape::Sphere => icons::CIRCLE,
+            PrimitiveShape::Cylinder => icons::DATABASE,
+            PrimitiveShape::Capsule => icons::CAPSULE,
+            PrimitiveShape::Plane => icons::SQUARE,
         };
     }
-    "📦"
+    icons::BOX
 }
 
 /// Returns Some((child, new_parent)) if a reparent operation should occur
@@ -379,7 +396,7 @@ fn draw_entity_row(
 
     // Entity icon
     let icon = get_entity_icon(is_group, primitive, is_light);
-    let lock_icon = if is_locked { "🔒 " } else { "" };
+    let lock_icon = if is_locked { format!("{} ", icons::LOCK) } else { String::new() };
 
     // Build display text with icon and name
     let text_color = if is_locked {

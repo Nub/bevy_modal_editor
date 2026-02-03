@@ -7,6 +7,7 @@ use crate::commands::SnapshotHistory;
 use crate::editor::{AxisConstraint, EditorCamera, EditorMode, EditorState, FlyCamera, SnapSubMode, TransformOperation};
 use crate::scene::SceneFile;
 use crate::selection::Selected;
+use crate::ui::hierarchy::icons;
 use crate::ui::theme::{colors, popup_frame};
 use crate::ui::Settings;
 
@@ -55,9 +56,9 @@ fn draw_status_bar(
 
             // Create text for centering calculation
             let file_text = if scene_file.modified {
-                format!("📄 {} ●", file_name)
+                format!("{} {} {}", icons::FILE, file_name, icons::DOT)
             } else {
-                format!("📄 {}", file_name)
+                format!("{} {}", icons::FILE, file_name)
             };
 
             // Draw centered file name using painter
@@ -74,7 +75,7 @@ fn draw_status_bar(
             // Draw modified indicator if needed (colored)
             if scene_file.modified {
                 let mod_galley = painter.layout_no_wrap(
-                    "●".to_string(),
+                    icons::DOT.to_string(),
                     egui::FontId::proportional(12.0),
                     colors::STATUS_WARNING,
                 );
@@ -171,7 +172,7 @@ fn draw_status_bar(
                             .map(|w| w[0].distance(w[1]))
                             .sum();
                         ui.label(
-                            egui::RichText::new(format!("📏 {:.2}", total_distance))
+                            egui::RichText::new(format!("{} {:.2}", icons::RULER, total_distance))
                                 .color(colors::ACCENT_CYAN),
                         );
                     }
@@ -306,10 +307,10 @@ fn get_hints_for_mode(
                 ],
                 TransformOperation::SnapToObject => {
                     let submode_hint = match snap_submode {
-                        SnapSubMode::Surface => ("●", "Surface"),
-                        SnapSubMode::Center => ("●", "Center"),
-                        SnapSubMode::Aligned => ("●", "Aligned"),
-                        SnapSubMode::Vertex => ("●", "Vertex"),
+                        SnapSubMode::Surface => (icons::DOT, "Surface"),
+                        SnapSubMode::Center => (icons::DOT, "Center"),
+                        SnapSubMode::Aligned => (icons::DOT, "Aligned"),
+                        SnapSubMode::Vertex => (icons::DOT, "Vertex"),
                     };
                     vec![
                         submode_hint,
@@ -322,10 +323,10 @@ fn get_hints_for_mode(
         }
         EditorMode::Insert => {
             let submode_hint = match snap_submode {
-                SnapSubMode::Surface => ("●", "Surface"),
-                SnapSubMode::Center => ("●", "Center"),
-                SnapSubMode::Aligned => ("●", "Aligned"),
-                SnapSubMode::Vertex => ("●", "Vertex"),
+                SnapSubMode::Surface => (icons::DOT, "Surface"),
+                SnapSubMode::Center => (icons::DOT, "Center"),
+                SnapSubMode::Aligned => (icons::DOT, "Aligned"),
+                SnapSubMode::Vertex => (icons::DOT, "Vertex"),
             };
             vec![
                 submode_hint,
