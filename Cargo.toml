@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d"]
+members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader"]
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
@@ -13,8 +13,10 @@ bevy_egui = { git = "https://github.com/vladbat00/bevy_egui", branch = "main" }
 serde = { version = "1.0", features = ["derive"] }
 ron = "0.8"
 bytemuck = { version = "1.0", features = ["derive"] }
+bitflags = "2.6"
 bevy_outliner = { path = "crates/bevy_outliner" }
 bevy_spline_3d = { path = "crates/bevy_spline_3d" }
+bevy_grid_shader = { path = "crates/bevy_grid_shader" }
 
 [package]
 name = "bevy_modal_editor"
