@@ -49,6 +49,7 @@ fn handle_click_selection(
     mode: Res<State<EditorMode>>,
     mut commands: Commands,
     mut contexts: EguiContexts,
+    distribution_sources: Query<Entity, With<DistributionSource>>,
 ) {
     // Only select on left click
     if !mouse_button.just_pressed(MouseButton::Left) {
@@ -102,8 +103,10 @@ fn handle_click_selection(
         }
     }
 
-    // Cast ray against physics colliders
-    let filter = SpatialQueryFilter::default();
+    // Cast ray against physics colliders, excluding distribution sources
+    // (they're hidden but their colliders still exist)
+    let excluded: Vec<Entity> = distribution_sources.iter().collect();
+    let filter = SpatialQueryFilter::default().with_excluded_entities(excluded);
     let physics_hit = spatial_query.cast_ray(
         ray.origin,
         ray.direction,
