@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
+use bevy_spline_3d::prelude::SplineType;
 
 use super::TakeSnapshotCommand;
 use crate::editor::{EditorMode, EditorState};
@@ -25,21 +26,47 @@ pub struct NudgeSelectedEvent {
     pub direction: Vec3,
 }
 
+/// Event to copy selected entities to clipboard
+#[derive(Message)]
+pub struct CopySelectedEvent;
+
+/// Event to paste copied entities
+#[derive(Message)]
+pub struct PasteEntitiesEvent;
+
+/// Data for a copied entity
+#[derive(Clone)]
+pub struct CopiedEntityData {
+    pub kind: SpawnEntityKind,
+    pub position: Vec3,
+    pub rotation: Quat,
+}
+
+/// Resource storing copied entities for paste operations
+#[derive(Resource, Default)]
+pub struct CopiedEntities(pub Vec<CopiedEntityData>);
+
 pub struct OperationsPlugin;
 
 impl Plugin for OperationsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<DeleteSelectedEvent>()
+        app.init_resource::<CopiedEntities>()
+            .add_message::<DeleteSelectedEvent>()
             .add_message::<DuplicateSelectedEvent>()
             .add_message::<NudgeSelectedEvent>()
+            .add_message::<CopySelectedEvent>()
+            .add_message::<PasteEntitiesEvent>()
             .add_systems(
                 Update,
                 (
                     handle_delete_input,
                     handle_nudge_input,
+                    handle_copy_paste_input,
                     handle_delete_selected,
                     handle_duplicate_selected,
                     handle_nudge_selected,
+                    handle_copy_selected,
+                    handle_paste_entities,
                 ),
             );
     }
@@ -164,8 +191,6 @@ fn handle_duplicate_selected(
     mut spawn_events: MessageWriter<SpawnEntityEvent>,
     mut commands: Commands,
 ) {
-    use bevy_spline_3d::prelude::SplineType;
-
     for _ in events.read() {
         let selected: Vec<_> = selected_query.iter().collect();
         let count = selected.len();
@@ -254,5 +279,151 @@ fn handle_nudge_selected(
         for mut transform in selected_query.iter_mut() {
             transform.translation += event.direction;
         }
+    }
+}
+
+/// Handle Y to copy and P to paste in Edit mode
+fn handle_copy_paste_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
+    editor_mode: Res<State<EditorMode>>,
+    mut copy_events: MessageWriter<CopySelectedEvent>,
+    mut paste_events: MessageWriter<PasteEntitiesEvent>,
+    mut contexts: EguiContexts,
+) {
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+
+    // Only handle Y/P in Edit mode
+    if *editor_mode.get() != EditorMode::Edit {
+        return;
+    }
+
+    // Y to copy selected entities
+    if keyboard.just_pressed(KeyCode::KeyY) {
+        copy_events.write(CopySelectedEvent);
+    }
+
+    // P to paste copied entities
+    if keyboard.just_pressed(KeyCode::KeyP) {
+        paste_events.write(PasteEntitiesEvent);
+    }
+}
+
+/// Handle copying selected entities to clipboard
+#[allow(clippy::type_complexity)]
+fn handle_copy_selected(
+    mut events: MessageReader<CopySelectedEvent>,
+    selected_query: Query<
+        (
+            &Transform,
+            Option<&PrimitiveMarker>,
+            Option<&GroupMarker>,
+            Option<&SceneLightMarker>,
+            Option<&DirectionalLightMarker>,
+            Option<&SplineMarker>,
+            Option<&FogVolumeMarker>,
+            Option<&StairsMarker>,
+            Option<&RampMarker>,
+            Option<&ArchMarker>,
+            Option<&LShapeMarker>,
+        ),
+        With<Selected>,
+    >,
+    mut copied_entities: ResMut<CopiedEntities>,
+) {
+    for _ in events.read() {
+        let mut copied = Vec::new();
+
+        for (
+            transform,
+            primitive,
+            group,
+            point_light,
+            dir_light,
+            spline,
+            fog,
+            stairs,
+            ramp,
+            arch,
+            lshape,
+        ) in selected_query.iter()
+        {
+            // Determine what kind of entity this is
+            let kind = if let Some(prim) = primitive {
+                Some(SpawnEntityKind::Primitive(prim.shape))
+            } else if group.is_some() {
+                Some(SpawnEntityKind::Group)
+            } else if point_light.is_some() {
+                Some(SpawnEntityKind::PointLight)
+            } else if dir_light.is_some() {
+                Some(SpawnEntityKind::DirectionalLight)
+            } else if spline.is_some() {
+                Some(SpawnEntityKind::Spline(SplineType::CatmullRom))
+            } else if fog.is_some() {
+                Some(SpawnEntityKind::FogVolume)
+            } else if stairs.is_some() {
+                Some(SpawnEntityKind::Stairs)
+            } else if ramp.is_some() {
+                Some(SpawnEntityKind::Ramp)
+            } else if arch.is_some() {
+                Some(SpawnEntityKind::Arch)
+            } else if lshape.is_some() {
+                Some(SpawnEntityKind::LShape)
+            } else {
+                None
+            };
+
+            if let Some(kind) = kind {
+                copied.push(CopiedEntityData {
+                    kind,
+                    position: transform.translation,
+                    rotation: transform.rotation,
+                });
+            }
+        }
+
+        if !copied.is_empty() {
+            info!("Copied {} entities", copied.len());
+            copied_entities.0 = copied;
+        }
+    }
+}
+
+/// Handle pasting copied entities
+fn handle_paste_entities(
+    mut events: MessageReader<PasteEntitiesEvent>,
+    copied_entities: Res<CopiedEntities>,
+    selected: Query<Entity, With<Selected>>,
+    mut spawn_events: MessageWriter<SpawnEntityEvent>,
+    mut commands: Commands,
+) {
+    for _ in events.read() {
+        if copied_entities.0.is_empty() {
+            info!("No entities copied");
+            continue;
+        }
+
+        // Deselect current selection
+        for entity in selected.iter() {
+            commands.entity(entity).remove::<Selected>();
+        }
+
+        // Queue snapshot command before spawning
+        commands.queue(TakeSnapshotCommand {
+            description: format!("Paste {} entities", copied_entities.0.len()),
+        });
+
+        // Spawn copied entities (they will be auto-selected by SpawnEntityEvent handler)
+        for data in &copied_entities.0 {
+            spawn_events.write(SpawnEntityEvent {
+                kind: data.kind.clone(),
+                position: data.position,
+                rotation: data.rotation,
+            });
+        }
+
+        info!("Pasted {} entities", copied_entities.0.len());
     }
 }
