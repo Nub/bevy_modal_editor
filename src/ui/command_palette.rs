@@ -5,6 +5,8 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::any::TypeId;
 
+use bevy_spline_3d::prelude::SplineType;
+
 use crate::commands::{RedoEvent, UndoEvent};
 use crate::editor::{
     CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
@@ -83,6 +85,8 @@ pub enum CommandAction {
     InsertGltf,
     /// Open file dialog to insert a RON scene file
     InsertScene,
+    /// Spawn a spline of the specified type
+    SpawnSpline(SplineType),
 }
 
 /// The mode the command palette is operating in
@@ -255,6 +259,29 @@ impl CommandRegistry {
             keywords: vec!["import".into(), "ron".into(), "nested".into(), "sub".into()],
             category: "Models",
             action: CommandAction::InsertScene,
+            insertable: true,
+        });
+
+        // Splines (insertable)
+        self.commands.push(Command {
+            name: "Add Bezier Spline".to_string(),
+            keywords: vec!["curve".into(), "path".into(), "cubic".into(), "bezier".into()],
+            category: "Splines",
+            action: CommandAction::SpawnSpline(SplineType::CubicBezier),
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add Catmull-Rom Spline".to_string(),
+            keywords: vec!["curve".into(), "path".into(), "catmull".into(), "rom".into()],
+            category: "Splines",
+            action: CommandAction::SpawnSpline(SplineType::CatmullRom),
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add B-Spline".to_string(),
+            keywords: vec!["curve".into(), "path".into(), "bspline".into()],
+            category: "Splines",
+            action: CommandAction::SpawnSpline(SplineType::BSpline),
             insertable: true,
         });
 
@@ -821,6 +848,11 @@ fn draw_command_palette(
                     // Exit insert mode so the state transition triggers properly when file is picked
                     next_mode.set(EditorMode::View);
                 }
+                CommandAction::SpawnSpline(spline_type) => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::Spline(*spline_type),
+                    });
+                }
                 _ => {}
             }
         } else {
@@ -844,6 +876,13 @@ fn draw_command_palette(
                     events.spawn_entity.write(SpawnEntityEvent {
                         kind: SpawnEntityKind::DirectionalLight,
                         position: Vec3::new(4.0, 8.0, 4.0),
+                        rotation: Quat::IDENTITY,
+                    });
+                }
+                CommandAction::SpawnSpline(spline_type) => {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::Spline(spline_type),
+                        position: Vec3::ZERO,
                         rotation: Quat::IDENTITY,
                     });
                 }

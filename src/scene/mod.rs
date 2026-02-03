@@ -12,6 +12,7 @@ pub use serialization::*;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy_spline_3d::prelude::{Spline, SplineType};
 
 /// Marker component for entities that are part of the editable scene
 #[derive(Component, Default, Reflect)]
@@ -43,7 +44,11 @@ impl Plugin for ScenePlugin {
             .register_type::<DirectionalLightMarker>()
             .register_type::<RecursiveColliderConstructor>()
             .register_type::<ColliderType>()
-            .register_type::<SceneSource>();
+            .register_type::<SceneSource>()
+            // Spline types
+            .register_type::<SplineMarker>()
+            .register_type::<Spline>()
+            .register_type::<SplineType>();
     }
 }
 

@@ -9,7 +9,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, SceneSource, LIGHT_COLLIDER_RADIUS};
+use bevy_spline_3d::prelude::Spline;
+
+use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, SceneSource, SplineMarker, LIGHT_COLLIDER_RADIUS};
 use crate::editor::{CameraMark, CameraMarks};
 use crate::ui::draw_error_dialog as draw_themed_error_dialog;
 
@@ -240,6 +242,9 @@ impl Command for SaveSceneCommand {
             .allow_component::<RigidBody>()
             .allow_component::<ChildOf>()
             .allow_component::<Children>()
+            // Spline components
+            .allow_component::<Spline>()
+            .allow_component::<SplineMarker>()
             .extract_entities(scene_entity_ids.into_iter())
             .build();
 
@@ -496,6 +501,26 @@ pub fn regenerate_meshes(world: &mut World) {
             ));
         }
     }
+
+    // Regenerate colliders for splines
+    let mut splines_to_update: Vec<Entity> = Vec::new();
+    {
+        let mut query = world.query_filtered::<Entity, (With<SplineMarker>, Without<Collider>)>();
+        for entity in query.iter(world) {
+            splines_to_update.push(entity);
+        }
+    }
+
+    for entity in splines_to_update {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            // Add a simple capsule collider for selection
+            // This could be improved to follow the spline curve more closely
+            entity_mut.insert((
+                Visibility::default(),
+                Collider::capsule(0.2, 2.0),
+            ));
+        }
+    }
 }
 
 /// Draw the error dialog if it's open
@@ -524,6 +549,7 @@ fn detect_scene_changes(
     changed_primitives: Query<(), (With<SceneEntity>, Changed<PrimitiveMarker>)>,
     changed_lights: Query<(), (With<SceneEntity>, Changed<SceneLightMarker>)>,
     changed_bodies: Query<(), (With<SceneEntity>, Changed<RigidBody>)>,
+    changed_splines: Query<(), (With<SceneEntity>, Changed<Spline>)>,
     added_entities: Query<(), Added<SceneEntity>>,
     mut removed_entities: RemovedComponents<SceneEntity>,
 ) {
@@ -538,6 +564,7 @@ fn detect_scene_changes(
         || !changed_primitives.is_empty()
         || !changed_lights.is_empty()
         || !changed_bodies.is_empty()
+        || !changed_splines.is_empty()
         || !added_entities.is_empty()
         || removed_entities.read().next().is_some();
 

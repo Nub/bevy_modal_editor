@@ -8,6 +8,7 @@ use super::camera::EditorCameraPlugin;
 use super::input::EditorInputPlugin;
 use super::insert::InsertModePlugin;
 use super::marks::CameraMarksPlugin;
+use super::spline_edit::SplineEditPlugin;
 use super::state::EditorStatePlugin;
 use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
@@ -141,6 +142,7 @@ impl Plugin for EditorPlugin {
             .add_plugins(EditorCameraPlugin)
             .add_plugins(CameraMarksPlugin)
             .add_plugins(InsertModePlugin)
+            .add_plugins(SplineEditPlugin)
             // Editor systems
             .add_plugins(SelectionPlugin)
             .add_plugins(EditorGizmosPlugin)

@@ -5,6 +5,8 @@ use bevy::gizmos::config::GizmoConfigStore;
 use bevy::prelude::*;
 use bevy_infinite_grid::InfiniteGridSettings;
 
+use bevy_spline_3d::prelude::SplineType;
+
 use crate::scene::PrimitiveShape;
 
 /// The current editor mode (vim-like modal editing)
@@ -120,6 +122,10 @@ impl Default for EditStepAmount {
     }
 }
 
+/// Tracks the selected control point index within the currently selected spline
+#[derive(Debug, Clone, Copy, Default, Resource)]
+pub struct SelectedControlPointIndex(pub Option<usize>);
+
 /// Type of object being inserted in Insert mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertObjectType {
@@ -131,6 +137,8 @@ pub enum InsertObjectType {
     Gltf,
     /// RON scene file (path stored in InsertState.scene_path)
     Scene,
+    /// Spline with the specified type
+    Spline(SplineType),
 }
 
 /// Marker component for preview entities in Insert mode
@@ -201,6 +209,7 @@ impl Plugin for EditorStatePlugin {
             .init_resource::<SnapSubMode>()
             .init_resource::<EditorState>()
             .init_resource::<EditStepAmount>()
+            .init_resource::<SelectedControlPointIndex>()
             .insert_resource(InsertState::new())
             .add_message::<TogglePhysicsDebugEvent>()
             .add_message::<TogglePhysicsEvent>()

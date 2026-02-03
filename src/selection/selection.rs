@@ -3,7 +3,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 
-use crate::editor::EditorCamera;
+use crate::editor::{EditorCamera, EditorMode};
 use crate::scene::SceneEntity;
 
 /// Marker component for selected entities
@@ -40,6 +40,7 @@ fn handle_click_selection(
     parent_query: Query<&ChildOf>,
     selected: Query<Entity, With<Selected>>,
     selection_state: Res<SelectionState>,
+    mode: Res<State<EditorMode>>,
     mut commands: Commands,
     mut contexts: EguiContexts,
 ) {
@@ -99,8 +100,8 @@ fn handle_click_selection(
                 commands.entity(entity_to_select).insert(Selected);
             }
         }
-    } else if !selection_state.multi_select {
-        // Clicked on nothing - clear selection
+    } else if !selection_state.multi_select && *mode.get() != EditorMode::Edit {
+        // Clicked on nothing - clear selection (but not in Edit mode where we're editing control points)
         for entity in selected.iter() {
             commands.entity(entity).remove::<Selected>();
         }

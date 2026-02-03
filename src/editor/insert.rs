@@ -7,6 +7,8 @@ use bevy_egui::EguiContexts;
 use super::camera::EditorCamera;
 use super::state::{EditorMode, EditorState, InsertObjectType, InsertPreview, InsertState, SnapSubMode, StartInsertEvent};
 use crate::commands::TakeSnapshotCommand;
+use bevy_spline_3d::prelude::SplineType;
+
 use crate::scene::{
     GroupMarker, GltfSource, PrimitiveMarker, PrimitiveShape, SceneSource, SpawnEntityEvent,
     SpawnEntityKind, SpawnGltfEvent, SpawnSceneSourceEvent,
@@ -257,6 +259,22 @@ pub fn spawn_preview_entity(
                     .id()
             }
         }
+        InsertObjectType::Spline(_spline_type) => {
+            // For splines, show a simple line indicator as preview
+            // The actual spline gizmos will be handled by the library
+            commands
+                .spawn((
+                    InsertPreview,
+                    Mesh3d(meshes.add(Capsule3d::new(0.1, 2.0))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(0.2, 0.6, 1.0, 0.5),
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
     }
 }
 
@@ -479,6 +497,11 @@ fn handle_insert_click(
                 .map(|p| p.rsplit('/').next().unwrap_or(p).to_string())
                 .unwrap_or_else(|| "Scene".to_string())
         }
+        InsertObjectType::Spline(spline_type) => match spline_type {
+            SplineType::CubicBezier => "Bezier Spline".to_string(),
+            SplineType::CatmullRom => "Catmull-Rom Spline".to_string(),
+            SplineType::BSpline => "B-Spline".to_string(),
+        },
     };
     commands.queue(TakeSnapshotCommand {
         description: format!("Insert {}", object_name),
@@ -531,6 +554,13 @@ fn handle_insert_click(
                     rotation,
                 });
             }
+        }
+        InsertObjectType::Spline(spline_type) => {
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Spline(spline_type),
+                position,
+                rotation,
+            });
         }
     }
 
