@@ -4,6 +4,7 @@ use bevy::light::VolumetricFog;
 use bevy::prelude::*;
 use bevy::render::view::Hdr;
 use bevy_egui::EguiContexts;
+use bevy_outliner::prelude::*;
 
 use super::{EditorMode, EditorState, TransformOperation};
 use crate::selection::Selected;
@@ -132,6 +133,8 @@ fn spawn_editor_camera(mut commands: Commands) {
             ambient_intensity: 0.0,
             ..default()
         },
+        // Enable outline rendering for selection indication
+        OutlineSettings::default(),
     ));
 }
 

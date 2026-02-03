@@ -2,10 +2,12 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
+use bevy_outliner::prelude::*;
 use bevy_spline_3d::prelude::Spline;
 
-use crate::editor::{EditorCamera, EditorMode};
+use crate::editor::{EditorCamera, EditorMode, EditorState};
 use crate::scene::{SceneEntity, SplineMarker};
+use crate::ui::Settings;
 
 /// Marker component for selected entities
 #[derive(Component, Default)]
@@ -22,7 +24,7 @@ pub struct SelectionSystemPlugin;
 impl Plugin for SelectionSystemPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SelectionState>()
-            .add_systems(Update, (update_multi_select_state, handle_click_selection));
+            .add_systems(Update, (update_multi_select_state, handle_click_selection, sync_selection_outlines));
     }
 }
 
@@ -235,4 +237,84 @@ fn find_selectable_parent(
 
     // No selectable parent found
     None
+}
+
+/// Selection outline color - orange to match the previous AABB selection color
+const SELECTION_OUTLINE_COLOR: Color = Color::srgb(1.0, 0.8, 0.0);
+
+/// Sync MeshOutline components with Selected state
+/// Adds outlines to selected mesh entities, removes them when deselected
+fn sync_selection_outlines(
+    mut commands: Commands,
+    editor_state: Res<EditorState>,
+    settings: Res<Settings>,
+    // Entities that are selected and have a mesh but no outline yet
+    needs_outline: Query<Entity, (With<Selected>, With<Mesh3d>, Without<MeshOutline>)>,
+    // Entities that have an outline but are no longer selected
+    has_outline_not_selected: Query<Entity, (With<MeshOutline>, Without<Selected>)>,
+    // All entities with outlines (for preview mode cleanup and width updates)
+    mut all_with_outline: Query<(Entity, &mut MeshOutline)>,
+    // Also check children of selected entities (for GLTF models with nested meshes)
+    selected_entities: Query<Entity, With<Selected>>,
+    children_query: Query<&Children>,
+    child_meshes: Query<Entity, (With<Mesh3d>, Without<MeshOutline>, Without<Selected>)>,
+) {
+    let outline_width = settings.gizmos.outline_width;
+
+    // Don't show outlines when gizmos are hidden (preview mode)
+    if !editor_state.gizmos_visible {
+        // Remove ALL outlines when in preview mode (including selected entities)
+        for (entity, _) in all_with_outline.iter() {
+            commands.entity(entity).remove::<MeshOutline>();
+        }
+        return;
+    }
+
+    // Update outline width on existing outlines if it changed
+    for (_, mut outline) in all_with_outline.iter_mut() {
+        if outline.width != outline_width {
+            outline.width = outline_width;
+        }
+    }
+
+    // Add outlines to selected entities with meshes
+    for entity in needs_outline.iter() {
+        commands.entity(entity).insert(MeshOutline::new(SELECTION_OUTLINE_COLOR, outline_width));
+    }
+
+    // Add outlines to children of selected entities (for GLTF models)
+    for selected_entity in selected_entities.iter() {
+        add_outline_to_descendants(
+            &mut commands,
+            selected_entity,
+            &children_query,
+            &child_meshes,
+            outline_width,
+        );
+    }
+
+    // Remove outlines from entities that are no longer selected
+    for entity in has_outline_not_selected.iter() {
+        commands.entity(entity).remove::<MeshOutline>();
+    }
+}
+
+/// Recursively add outlines to all mesh descendants of an entity
+fn add_outline_to_descendants(
+    commands: &mut Commands,
+    entity: Entity,
+    children_query: &Query<&Children>,
+    child_meshes: &Query<Entity, (With<Mesh3d>, Without<MeshOutline>, Without<Selected>)>,
+    outline_width: f32,
+) {
+    if let Ok(children) = children_query.get(entity) {
+        for child in children.iter() {
+            // If this child has a mesh and no outline, add one
+            if child_meshes.get(child).is_ok() {
+                commands.entity(child).insert(MeshOutline::new(SELECTION_OUTLINE_COLOR, outline_width));
+            }
+            // Recurse into grandchildren
+            add_outline_to_descendants(commands, child, children_query, child_meshes, outline_width);
+        }
+    }
 }

@@ -21,6 +21,13 @@ pub struct GizmoSettings {
     pub line_width: f32,
     /// Scale multiplier for transform gizmos
     pub transform_scale: f32,
+    /// Selection outline width in pixels
+    #[serde(default = "default_outline_width")]
+    pub outline_width: f32,
+}
+
+fn default_outline_width() -> f32 {
+    3.0
 }
 
 impl Default for GizmoSettings {
@@ -28,6 +35,7 @@ impl Default for GizmoSettings {
         Self {
             line_width: 9.0,
             transform_scale: 1.5,
+            outline_width: 3.0,
         }
     }
 }
@@ -271,6 +279,17 @@ fn draw_settings_window(
                         egui::Slider::new(&mut settings.gizmos.transform_scale, 0.5..=3.0)
                             .step_by(0.25)
                             .suffix("x"),
+                    );
+                    if response.changed() {
+                        settings.save();
+                    }
+                    ui.end_row();
+
+                    ui.label("Outline Width:");
+                    let response = ui.add(
+                        egui::Slider::new(&mut settings.gizmos.outline_width, 1.0..=10.0)
+                            .step_by(0.5)
+                            .suffix("px"),
                     );
                     if response.changed() {
                         settings.save();

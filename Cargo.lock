@@ -1166,12 +1166,22 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "bevy_infinite_grid",
+ "bevy_outliner",
  "bevy_spline_3d",
  "dirs",
  "egui-file-dialog",
  "fuzzy-matcher",
  "ron 0.8.1",
  "serde",
+]
+
+[[package]]
+name = "bevy_outliner"
+version = "0.1.0"
+source = "git+https://github.com/Nub/bevy_outliner#e24b5ac2d8b5f01b63a699f91ce41f8166cc2c15"
+dependencies = [
+ "bevy",
+ "bytemuck",
 ]
 
 [[package]]

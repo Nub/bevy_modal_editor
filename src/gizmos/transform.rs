@@ -76,9 +76,7 @@ fn draw_selection_gizmos(
     mut gizmos: Gizmos,
     mut xray_gizmos: Gizmos<XRayGizmoConfig>,
     mut dimmed_gizmos: Gizmos<XRayGizmoDimmed>,
-    selected: Query<(Entity, &GlobalTransform, &Transform, Option<&Collider>, Option<&SplineMarker>, Option<&Spline>), With<Selected>>,
-    children_query: Query<&Children>,
-    collider_query: Query<(&GlobalTransform, &Collider)>,
+    selected: Query<(&GlobalTransform, Option<&SplineMarker>, Option<&Spline>), With<Selected>>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
     axis_constraint: Res<AxisConstraint>,
@@ -89,21 +87,17 @@ fn draw_selection_gizmos(
         return;
     }
 
-    for (entity, global_transform, transform, collider, spline_marker, spline) in selected.iter() {
+    for (global_transform, spline_marker, spline) in selected.iter() {
         let pos = global_transform.translation();
 
-        // For splines, draw a selection highlight along the curve instead of AABB
+        // For splines, draw a selection highlight along the curve (splines don't have mesh outlines)
         if spline_marker.is_some() {
             if let Some(spline) = spline {
                 draw_spline_selection_highlight(&mut gizmos, spline, global_transform);
             }
-        } else {
-            // Calculate AABB for selection box (non-spline entities)
-            let aabb = compute_hierarchy_aabb(entity, global_transform, transform, collider, &children_query, &collider_query);
-
-            // Draw selection outline using AABB
-            draw_selection_box_aabb(&mut gizmos, &aabb);
         }
+        // Note: Mesh-based entities use MeshOutline component for selection indication
+        // (managed by sync_selection_outlines in selection.rs)
 
         // Draw transform gizmo in Edit mode using x-ray gizmos (always visible)
         let gizmo_scale = settings.gizmos.transform_scale;
@@ -146,71 +140,6 @@ fn draw_spline_selection_highlight(gizmos: &mut Gizmos, spline: &Spline, transfo
         let p1 = transform.transform_point(points[0]);
         gizmos.line(p0, p1, highlight_color);
     }
-}
-
-/// Compute the world-space AABB for an entity and all its descendants
-fn compute_hierarchy_aabb(
-    entity: Entity,
-    global_transform: &GlobalTransform,
-    transform: &Transform,
-    collider: Option<&Collider>,
-    children_query: &Query<&Children>,
-    collider_query: &Query<(&GlobalTransform, &Collider)>,
-) -> Aabb {
-    let mut min = Vec3::splat(f32::MAX);
-    let mut max = Vec3::splat(f32::MIN);
-
-    // Start with the entity's own collider if it has one
-    if let Some(coll) = collider {
-        let aabb = coll.aabb(global_transform.translation(), global_transform.to_scale_rotation_translation().1);
-        min = min.min(aabb.min.into());
-        max = max.max(aabb.max.into());
-    }
-
-    // Recursively gather AABBs from all descendants with colliders
-    gather_descendant_aabbs(entity, children_query, collider_query, &mut min, &mut max);
-
-    // If no colliders found anywhere, use a default box based on transform scale
-    if min.x == f32::MAX {
-        let half_size = transform.scale * 0.5;
-        let pos = global_transform.translation();
-        min = pos - half_size;
-        max = pos + half_size;
-    }
-
-    Aabb { min, max }
-}
-
-/// Recursively gather AABBs from descendants
-fn gather_descendant_aabbs(
-    entity: Entity,
-    children_query: &Query<&Children>,
-    collider_query: &Query<(&GlobalTransform, &Collider)>,
-    min: &mut Vec3,
-    max: &mut Vec3,
-) {
-    if let Ok(children) = children_query.get(entity) {
-        for child in children.iter() {
-            // Check if this child has a collider
-            if let Ok((child_global_transform, child_collider)) = collider_query.get(child) {
-                let aabb = child_collider.aabb(
-                    child_global_transform.translation(),
-                    child_global_transform.to_scale_rotation_translation().1,
-                );
-                *min = min.min(aabb.min.into());
-                *max = max.max(aabb.max.into());
-            }
-
-            // Recurse into grandchildren
-            gather_descendant_aabbs(child, children_query, collider_query, min, max);
-        }
-    }
-}
-
-/// Simple AABB struct for selection box
-struct Aabb {
-    min: Vec3,
-    max: Vec3,
 }
 
 /// Draw distance measurements between selected objects (View mode only)
@@ -653,30 +582,6 @@ fn handle_step_keys(
             TransformOperation::Place | TransformOperation::SnapToObject | TransformOperation::None => {}
         }
     }
-}
-
-fn draw_selection_box_aabb(gizmos: &mut Gizmos, aabb: &Aabb) {
-    let min = aabb.min;
-    let max = aabb.max;
-    let color = Color::srgb(1.0, 0.8, 0.0);
-
-    // Bottom face (y = min.y)
-    gizmos.line(Vec3::new(min.x, min.y, min.z), Vec3::new(max.x, min.y, min.z), color);
-    gizmos.line(Vec3::new(max.x, min.y, min.z), Vec3::new(max.x, min.y, max.z), color);
-    gizmos.line(Vec3::new(max.x, min.y, max.z), Vec3::new(min.x, min.y, max.z), color);
-    gizmos.line(Vec3::new(min.x, min.y, max.z), Vec3::new(min.x, min.y, min.z), color);
-
-    // Top face (y = max.y)
-    gizmos.line(Vec3::new(min.x, max.y, min.z), Vec3::new(max.x, max.y, min.z), color);
-    gizmos.line(Vec3::new(max.x, max.y, min.z), Vec3::new(max.x, max.y, max.z), color);
-    gizmos.line(Vec3::new(max.x, max.y, max.z), Vec3::new(min.x, max.y, max.z), color);
-    gizmos.line(Vec3::new(min.x, max.y, max.z), Vec3::new(min.x, max.y, min.z), color);
-
-    // Vertical edges
-    gizmos.line(Vec3::new(min.x, min.y, min.z), Vec3::new(min.x, max.y, min.z), color);
-    gizmos.line(Vec3::new(max.x, min.y, min.z), Vec3::new(max.x, max.y, min.z), color);
-    gizmos.line(Vec3::new(max.x, min.y, max.z), Vec3::new(max.x, max.y, max.z), color);
-    gizmos.line(Vec3::new(min.x, min.y, max.z), Vec3::new(min.x, max.y, max.z), color);
 }
 
 fn draw_translate_gizmo(

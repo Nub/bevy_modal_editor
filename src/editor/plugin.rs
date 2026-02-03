@@ -3,6 +3,7 @@ use avian3d::prelude::{Physics, PhysicsPlugins};
 use avian3d::schedule::PhysicsTime;
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
+use bevy_outliner::prelude::*;
 use bevy_spline_3d::path_follow::SplineFollowPlugin;
 
 use super::camera::EditorCameraPlugin;
@@ -137,6 +138,8 @@ impl Plugin for EditorPlugin {
         }
 
         app
+            // Third-party rendering plugins
+            .add_plugins(OutlinePlugin)
             // Editor core
             .add_plugins(EditorStatePlugin)
             .add_plugins(EditorInputPlugin)
