@@ -296,9 +296,12 @@ pub fn sync_outline_meshes(
     }
 }
 
-/// Syncs silhouette camera transform with main camera
+/// Syncs silhouette camera transform and projection with main camera
 pub fn sync_silhouette_cameras(
-    main_cameras: Query<(&Transform, &Projection, &OutlineCameraLink), Changed<Transform>>,
+    main_cameras: Query<
+        (&Transform, &Projection, &OutlineCameraLink),
+        Or<(Changed<Transform>, Changed<Projection>)>,
+    >,
     mut silhouette_cameras: Query<
         (&mut Transform, &mut Projection),
         (With<SilhouetteCamera>, Without<OutlineCameraLink>),

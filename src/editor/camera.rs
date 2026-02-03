@@ -22,7 +22,7 @@ const ORTHO_SCALE: f32 = 0.05;
 /// Minimum orthographic scale (most zoomed in)
 const MIN_ORTHO_SCALE: f32 = 0.001;
 /// Maximum orthographic scale (most zoomed out)
-const MAX_ORTHO_SCALE: f32 = 0.1;
+const MAX_ORTHO_SCALE: f32 = 0.03;
 /// Orthographic scale change multiplier per scroll unit
 const ORTHO_ZOOM_SPEED: f32 = 0.1;
 
