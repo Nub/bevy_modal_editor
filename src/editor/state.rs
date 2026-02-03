@@ -149,6 +149,13 @@ pub struct ActiveEdgeSnaps {
     pub snap_lines: Vec<(Vec3, Vec3)>,
 }
 
+/// Tracks whether axis constraint was set via gizmo click (should clear on release)
+#[derive(Debug, Default, Resource)]
+pub struct GizmoAxisConstraint {
+    /// True if current axis constraint was set by clicking the gizmo
+    pub from_gizmo: bool,
+}
+
 /// Tracks the selected control point index within the currently selected spline
 #[derive(Debug, Clone, Copy, Default, Resource)]
 pub struct SelectedControlPointIndex(pub Option<usize>);
@@ -249,6 +256,7 @@ impl Plugin for EditorStatePlugin {
             .init_resource::<SelectedControlPointIndex>()
             .init_resource::<DimensionSnapSettings>()
             .init_resource::<ActiveEdgeSnaps>()
+            .init_resource::<GizmoAxisConstraint>()
             .insert_resource(InsertState::new())
             .add_message::<TogglePhysicsDebugEvent>()
             .add_message::<TogglePhysicsEvent>()

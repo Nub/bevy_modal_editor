@@ -7,7 +7,7 @@ use bevy_egui::EguiContexts;
 use bevy_spline_3d::prelude::Spline;
 
 use crate::commands::TakeSnapshotCommand;
-use crate::editor::{ActiveEdgeSnaps, AxisConstraint, DimensionSnapSettings, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
+use crate::editor::{ActiveEdgeSnaps, AxisConstraint, DimensionSnapSettings, EditStepAmount, EditorCamera, EditorMode, EditorState, GizmoAxisConstraint, SnapSubMode, TransformOperation};
 use crate::gizmos::{XRayGizmoConfig, XRayGizmoDimmed};
 use crate::scene::{Locked, SplineMarker};
 use crate::selection::Selected;
@@ -57,6 +57,7 @@ impl Plugin for TransformGizmoPlugin {
                 draw_distance_measurements,
                 draw_edge_snap_guides,
                 handle_gizmo_axis_click,
+                handle_gizmo_axis_release,
                 handle_axis_keys,
                 handle_snap_submode_keys,
                 handle_step_keys,
@@ -210,7 +211,7 @@ fn draw_distance_measurements(
     }
 }
 
-/// Handle clicking on gizmo axes to set axis constraint
+/// Handle clicking on gizmo axes to set axis constraint (only while held)
 fn handle_gizmo_axis_click(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mode: Res<State<EditorMode>>,
@@ -218,6 +219,7 @@ fn handle_gizmo_axis_click(
     editor_state: Res<EditorState>,
     settings: Res<Settings>,
     mut axis_constraint: ResMut<AxisConstraint>,
+    mut gizmo_constraint: ResMut<GizmoAxisConstraint>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     selected: Query<&GlobalTransform, With<Selected>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
@@ -233,7 +235,7 @@ fn handle_gizmo_axis_click(
         _ => return,
     }
 
-    // Only on left click
+    // Only on left click press
     if !mouse_button.just_pressed(MouseButton::Left) {
         return;
     }
@@ -294,9 +296,9 @@ fn handle_gizmo_axis_click(
                 axis_end,
             );
 
-            // Scale click radius based on distance from camera for consistent feel
+            // Tighter click radius to reduce accidental clicks
             let camera_distance = (gizmo_pos - camera_transform.translation()).length();
-            let click_radius = GIZMO_CLICK_RADIUS * gizmo_scale * (camera_distance / 5.0).max(1.0);
+            let click_radius = GIZMO_CLICK_RADIUS * gizmo_scale * 0.5 * (camera_distance / 5.0).max(1.0);
 
             if distance < click_radius && distance < closest_distance {
                 closest_distance = distance;
@@ -304,16 +306,25 @@ fn handle_gizmo_axis_click(
             }
         }
 
-        // If we found an axis, set the constraint
+        // If we found an axis, set the constraint (will clear on release)
         if let Some(constraint) = closest_axis {
-            // Toggle: if already on this axis, clear it; otherwise set it
-            if *axis_constraint == constraint {
-                *axis_constraint = AxisConstraint::None;
-            } else {
-                *axis_constraint = constraint;
-            }
+            *axis_constraint = constraint;
+            gizmo_constraint.from_gizmo = true;
             return; // Only handle one gizmo click
         }
+    }
+}
+
+/// Clear gizmo-based axis constraint when mouse is released
+fn handle_gizmo_axis_release(
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mut axis_constraint: ResMut<AxisConstraint>,
+    mut gizmo_constraint: ResMut<GizmoAxisConstraint>,
+) {
+    // Clear constraint when mouse released, if it was set via gizmo
+    if mouse_button.just_released(MouseButton::Left) && gizmo_constraint.from_gizmo {
+        *axis_constraint = AxisConstraint::None;
+        gizmo_constraint.from_gizmo = false;
     }
 }
 
@@ -823,6 +834,7 @@ fn draw_small_cube_dimmed(gizmos: &mut Gizmos<XRayGizmoDimmed>, pos: Vec3, size:
 fn handle_transform_manipulation(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
     axis_constraint: Res<AxisConstraint>,
@@ -869,8 +881,11 @@ fn handle_transform_manipulation(
 
     let sensitivity = 0.01;
 
-    // Collect nearby objects for edge snapping (only when translating with edge snap enabled)
-    let nearby_objects: Vec<(Vec3, Vec3)> = if dimension_snap.enabled && *transform_op == TransformOperation::Translate {
+    // Edge snapping is enabled by holding Alt while dragging
+    let alt_held = keyboard.pressed(KeyCode::AltLeft) || keyboard.pressed(KeyCode::AltRight);
+
+    // Collect nearby objects for edge snapping (only when translating with Alt held)
+    let nearby_objects: Vec<(Vec3, Vec3)> = if alt_held && *transform_op == TransformOperation::Translate {
         other_objects
             .iter()
             .map(|(_, t, c)| {
@@ -914,8 +929,8 @@ fn handle_transform_manipulation(
                     }
                 }
 
-                // Apply edge snapping if enabled (before grid snap)
-                if dimension_snap.enabled && !nearby_objects.is_empty() {
+                // Apply edge snapping if Alt is held (before grid snap)
+                if alt_held && !nearby_objects.is_empty() {
                     let (snapped_pos, snap_lines) = calculate_edge_snaps(
                         transform.translation,
                         collider,
@@ -1615,16 +1630,19 @@ fn draw_edge_snap_guides(
     }
 }
 
-/// Clear edge snaps when not actively translating
+/// Clear edge snaps when not actively translating with Alt held
 fn clear_edge_snaps_when_idle(
     mouse_button: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
     mut active_snaps: ResMut<ActiveEdgeSnaps>,
 ) {
+    let alt_held = keyboard.pressed(KeyCode::AltLeft) || keyboard.pressed(KeyCode::AltRight);
     let should_clear = *mode.get() != EditorMode::Edit
         || *transform_op != TransformOperation::Translate
-        || !mouse_button.pressed(MouseButton::Left);
+        || !mouse_button.pressed(MouseButton::Left)
+        || !alt_held;
 
     if should_clear && !active_snaps.snap_lines.is_empty() {
         active_snaps.snap_lines.clear();
