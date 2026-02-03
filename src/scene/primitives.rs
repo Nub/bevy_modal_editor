@@ -1,4 +1,3 @@
-use avian3d::debug_render::DebugRender;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_spline_3d::prelude::{Spline, SplineType};
@@ -206,18 +205,8 @@ impl Plugin for PrimitivesPlugin {
                     handle_unparent,
                     handle_unparent_selected,
                     handle_group_selected,
-                    update_spline_colliders,
                 ),
             );
-    }
-}
-
-/// Update spline colliders when their control points change
-fn update_spline_colliders(
-    mut splines: Query<(&Spline, &mut Collider), (With<SplineMarker>, Changed<Spline>)>,
-) {
-    for (spline, mut collider) in &mut splines {
-        *collider = create_spline_collider(spline);
     }
 }
 
@@ -365,9 +354,8 @@ pub fn spawn_spline(commands: &mut Commands, spline_type: SplineType, position: 
 
     let spline = Spline::new(spline_type, default_points);
 
-    // Create a collider that matches the spline curve's bounding box (not control points)
-    let collider = create_spline_collider(&spline);
-
+    // Splines don't use physics colliders for selection - they use proximity-based
+    // picking in the selection system to avoid blocking clicks on objects inside/behind them
     commands
         .spawn((
             SceneEntity,
@@ -376,52 +364,8 @@ pub fn spawn_spline(commands: &mut Commands, spline_type: SplineType, position: 
             spline,
             Transform::from_translation(position).with_rotation(rotation),
             Visibility::default(),
-            collider,
-            // Disable debug rendering for the collider - we show the spline curve via gizmos instead
-            DebugRender::default().without_collider(),
         ))
         .id()
-}
-
-/// Create a collider that encompasses the actual spline curve (not control points)
-pub fn create_spline_collider(spline: &Spline) -> Collider {
-    // Sample the curve to get points along the actual spline path
-    let curve_points = spline.sample(16); // 16 samples per segment for good accuracy
-
-    if curve_points.is_empty() {
-        return Collider::sphere(0.5);
-    }
-
-    // Calculate the AABB from sampled curve points
-    let mut min = curve_points[0];
-    let mut max = curve_points[0];
-
-    for point in &curve_points {
-        min = min.min(*point);
-        max = max.max(*point);
-    }
-
-    // Add some padding so the spline is easier to click
-    let padding = 0.3;
-    min -= Vec3::splat(padding);
-    max += Vec3::splat(padding);
-
-    // Calculate the center offset and half-extents
-    let center = (min + max) / 2.0;
-    let half_extents = (max - min) / 2.0;
-
-    // Use a compound collider with the cuboid offset to the center
-    // Since the spline entity is at the origin of its local space,
-    // we need to offset the collider to match the actual bounding box
-    Collider::compound(vec![(
-        center,
-        Quat::IDENTITY,
-        Collider::cuboid(
-            half_extents.x.max(0.1) * 2.0,
-            half_extents.y.max(0.1) * 2.0,
-            half_extents.z.max(0.1) * 2.0,
-        ),
-    )])
 }
 
 fn handle_parent_to_group(
