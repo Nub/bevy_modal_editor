@@ -14,15 +14,20 @@ use crate::ui::Settings;
 #[derive(Default, Reflect, GizmoConfigGroup)]
 pub struct XRayGizmoConfig;
 
+/// Dimmed x-ray gizmo config for inactive axes (half thickness)
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct XRayGizmoDimmed;
+
 pub struct EditorGizmosPlugin;
 
 impl Plugin for EditorGizmosPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<XRayGizmoConfig>()
+            .init_gizmo_group::<XRayGizmoDimmed>()
             .add_plugins(TransformGizmoPlugin)
             .add_plugins(InfiniteGridPlugin)
             .add_systems(Startup, (configure_gizmos, spawn_grid))
-            .add_systems(Update, (update_gizmo_settings, draw_origin_axes, draw_directional_light_gizmos, draw_point_light_gizmos));
+            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos));
     }
 }
 
@@ -32,10 +37,15 @@ fn configure_gizmos(mut config_store: ResMut<GizmoConfigStore>, settings: Res<Se
     let (config, _) = config_store.config_mut::<DefaultGizmoConfigGroup>();
     config.line.width = settings.gizmos.line_width;
 
-    // Configure x-ray gizmos (for transform handles)
+    // Configure x-ray gizmos (for active transform handles)
     let (xray_config, _) = config_store.config_mut::<XRayGizmoConfig>();
     xray_config.line.width = settings.gizmos.line_width;
     xray_config.depth_bias = -1.0; // Render on top of everything
+
+    // Configure dimmed x-ray gizmos (for inactive axes - half thickness)
+    let (dimmed_config, _) = config_store.config_mut::<XRayGizmoDimmed>();
+    dimmed_config.line.width = settings.gizmos.line_width * 0.5;
+    dimmed_config.depth_bias = -1.0;
 }
 
 /// Update gizmo settings when they change
@@ -51,6 +61,11 @@ fn update_gizmo_settings(settings: Res<Settings>, mut config_store: ResMut<Gizmo
     let (xray_config, _) = config_store.config_mut::<XRayGizmoConfig>();
     xray_config.line.width = settings.gizmos.line_width;
     xray_config.depth_bias = -1.0;
+
+    // Update dimmed x-ray gizmos
+    let (dimmed_config, _) = config_store.config_mut::<XRayGizmoDimmed>();
+    dimmed_config.line.width = settings.gizmos.line_width * 0.5;
+    dimmed_config.depth_bias = -1.0;
 }
 
 /// Spawn the infinite grid
@@ -67,18 +82,6 @@ fn spawn_grid(mut commands: Commands) {
         },
         ..default()
     });
-}
-
-/// Draw origin axis indicators
-fn draw_origin_axes(mut gizmos: Gizmos, editor_state: Res<EditorState>) {
-    if !editor_state.gizmos_visible {
-        return;
-    }
-
-    // Axis indicators at origin
-    gizmos.line(Vec3::ZERO, Vec3::X * 2.0, Color::srgb(1.0, 0.0, 0.0));
-    gizmos.line(Vec3::ZERO, Vec3::Y * 2.0, Color::srgb(0.0, 1.0, 0.0));
-    gizmos.line(Vec3::ZERO, Vec3::Z * 2.0, Color::srgb(0.0, 0.0, 1.0));
 }
 
 /// Draw gizmos for directional lights showing their direction

@@ -6,7 +6,7 @@ use bevy_egui::EguiContexts;
 
 use crate::commands::TakeSnapshotCommand;
 use crate::editor::{AxisConstraint, EditStepAmount, EditorCamera, EditorMode, EditorState, SnapSubMode, TransformOperation};
-use crate::gizmos::XRayGizmoConfig;
+use crate::gizmos::{XRayGizmoConfig, XRayGizmoDimmed};
 use crate::scene::Locked;
 use crate::selection::Selected;
 use crate::ui::Settings;
@@ -72,6 +72,7 @@ impl Plugin for TransformGizmoPlugin {
 fn draw_selection_gizmos(
     mut gizmos: Gizmos,
     mut xray_gizmos: Gizmos<XRayGizmoConfig>,
+    mut dimmed_gizmos: Gizmos<XRayGizmoDimmed>,
     selected: Query<(Entity, &GlobalTransform, &Transform, Option<&Collider>), With<Selected>>,
     children_query: Query<&Children>,
     collider_query: Query<(&GlobalTransform, &Collider)>,
@@ -98,9 +99,9 @@ fn draw_selection_gizmos(
         let gizmo_scale = settings.gizmos.transform_scale;
         if *mode.get() == EditorMode::Edit {
             match *transform_op {
-                TransformOperation::Translate => draw_translate_gizmo(&mut xray_gizmos, pos, gizmo_scale, &axis_constraint),
-                TransformOperation::Rotate => draw_rotate_gizmo(&mut xray_gizmos, pos, gizmo_scale, &axis_constraint),
-                TransformOperation::Scale => draw_scale_gizmo(&mut xray_gizmos, pos, gizmo_scale, &axis_constraint),
+                TransformOperation::Translate => draw_translate_gizmo(&mut xray_gizmos, &mut dimmed_gizmos, pos, gizmo_scale, &axis_constraint),
+                TransformOperation::Rotate => draw_rotate_gizmo(&mut xray_gizmos, &mut dimmed_gizmos, pos, gizmo_scale, &axis_constraint),
+                TransformOperation::Scale => draw_scale_gizmo(&mut xray_gizmos, &mut dimmed_gizmos, pos, gizmo_scale, &axis_constraint),
                 TransformOperation::Place | TransformOperation::SnapToObject | TransformOperation::None => {}
             }
         }
@@ -638,160 +639,210 @@ fn draw_selection_box_aabb(gizmos: &mut Gizmos, aabb: &Aabb) {
     gizmos.line(Vec3::new(min.x, min.y, max.z), Vec3::new(min.x, max.y, max.z), color);
 }
 
-fn draw_translate_gizmo(gizmos: &mut Gizmos<XRayGizmoConfig>, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
+fn draw_translate_gizmo(
+    gizmos: &mut Gizmos<XRayGizmoConfig>,
+    dimmed: &mut Gizmos<XRayGizmoDimmed>,
+    pos: Vec3,
+    scale: f32,
+    axis_constraint: &AxisConstraint,
+) {
     let length = scale * GIZMO_LENGTH;
     let arrow_size = scale * 0.15;
 
-    // Determine colors based on axis constraint (active axis is brighter)
-    let x_color = if *axis_constraint == AxisConstraint::X || *axis_constraint == AxisConstraint::None {
-        Color::srgb(1.0, 0.2, 0.2)
-    } else {
-        Color::srgba(1.0, 0.2, 0.2, 0.3)
-    };
-    let y_color = if *axis_constraint == AxisConstraint::Y || *axis_constraint == AxisConstraint::None {
-        Color::srgb(0.2, 1.0, 0.2)
-    } else {
-        Color::srgba(0.2, 1.0, 0.2, 0.3)
-    };
-    let z_color = if *axis_constraint == AxisConstraint::Z || *axis_constraint == AxisConstraint::None {
-        Color::srgb(0.2, 0.2, 1.0)
-    } else {
-        Color::srgba(0.2, 0.2, 1.0, 0.3)
-    };
+    // Check which axes are active
+    let x_active = *axis_constraint == AxisConstraint::X || *axis_constraint == AxisConstraint::None;
+    let y_active = *axis_constraint == AxisConstraint::Y || *axis_constraint == AxisConstraint::None;
+    let z_active = *axis_constraint == AxisConstraint::Z || *axis_constraint == AxisConstraint::None;
+
+    // Full opacity colors for active axes
+    let x_color = Color::srgb(1.0, 0.2, 0.2);
+    let y_color = Color::srgb(0.2, 1.0, 0.2);
+    let z_color = Color::srgb(0.2, 0.2, 1.0);
+
+    // Half opacity colors for inactive axes
+    let x_color_dim = Color::srgba(1.0, 0.2, 0.2, 0.5);
+    let y_color_dim = Color::srgba(0.2, 1.0, 0.2, 0.5);
+    let z_color_dim = Color::srgba(0.2, 0.2, 1.0, 0.5);
 
     // X axis (red)
-    gizmos.line(pos, pos + Vec3::X * length, x_color);
-    gizmos.line(
-        pos + Vec3::X * length,
-        pos + Vec3::X * (length - arrow_size) + Vec3::Y * arrow_size,
-        x_color,
-    );
-    gizmos.line(
-        pos + Vec3::X * length,
-        pos + Vec3::X * (length - arrow_size) - Vec3::Y * arrow_size,
-        x_color,
-    );
+    if x_active {
+        gizmos.line(pos, pos + Vec3::X * length, x_color);
+        gizmos.line(pos + Vec3::X * length, pos + Vec3::X * (length - arrow_size) + Vec3::Y * arrow_size, x_color);
+        gizmos.line(pos + Vec3::X * length, pos + Vec3::X * (length - arrow_size) - Vec3::Y * arrow_size, x_color);
+    } else {
+        dimmed.line(pos, pos + Vec3::X * length, x_color_dim);
+        dimmed.line(pos + Vec3::X * length, pos + Vec3::X * (length - arrow_size) + Vec3::Y * arrow_size, x_color_dim);
+        dimmed.line(pos + Vec3::X * length, pos + Vec3::X * (length - arrow_size) - Vec3::Y * arrow_size, x_color_dim);
+    }
 
     // Y axis (green)
-    gizmos.line(pos, pos + Vec3::Y * length, y_color);
-    gizmos.line(
-        pos + Vec3::Y * length,
-        pos + Vec3::Y * (length - arrow_size) + Vec3::X * arrow_size,
-        y_color,
-    );
-    gizmos.line(
-        pos + Vec3::Y * length,
-        pos + Vec3::Y * (length - arrow_size) - Vec3::X * arrow_size,
-        y_color,
-    );
+    if y_active {
+        gizmos.line(pos, pos + Vec3::Y * length, y_color);
+        gizmos.line(pos + Vec3::Y * length, pos + Vec3::Y * (length - arrow_size) + Vec3::X * arrow_size, y_color);
+        gizmos.line(pos + Vec3::Y * length, pos + Vec3::Y * (length - arrow_size) - Vec3::X * arrow_size, y_color);
+    } else {
+        dimmed.line(pos, pos + Vec3::Y * length, y_color_dim);
+        dimmed.line(pos + Vec3::Y * length, pos + Vec3::Y * (length - arrow_size) + Vec3::X * arrow_size, y_color_dim);
+        dimmed.line(pos + Vec3::Y * length, pos + Vec3::Y * (length - arrow_size) - Vec3::X * arrow_size, y_color_dim);
+    }
 
     // Z axis (blue)
-    gizmos.line(pos, pos + Vec3::Z * length, z_color);
-    gizmos.line(
-        pos + Vec3::Z * length,
-        pos + Vec3::Z * (length - arrow_size) + Vec3::Y * arrow_size,
-        z_color,
-    );
-    gizmos.line(
-        pos + Vec3::Z * length,
-        pos + Vec3::Z * (length - arrow_size) - Vec3::Y * arrow_size,
-        z_color,
-    );
+    if z_active {
+        gizmos.line(pos, pos + Vec3::Z * length, z_color);
+        gizmos.line(pos + Vec3::Z * length, pos + Vec3::Z * (length - arrow_size) + Vec3::Y * arrow_size, z_color);
+        gizmos.line(pos + Vec3::Z * length, pos + Vec3::Z * (length - arrow_size) - Vec3::Y * arrow_size, z_color);
+    } else {
+        dimmed.line(pos, pos + Vec3::Z * length, z_color_dim);
+        dimmed.line(pos + Vec3::Z * length, pos + Vec3::Z * (length - arrow_size) + Vec3::Y * arrow_size, z_color_dim);
+        dimmed.line(pos + Vec3::Z * length, pos + Vec3::Z * (length - arrow_size) - Vec3::Y * arrow_size, z_color_dim);
+    }
 }
 
-fn draw_rotate_gizmo(gizmos: &mut Gizmos<XRayGizmoConfig>, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
+fn draw_rotate_gizmo(
+    gizmos: &mut Gizmos<XRayGizmoConfig>,
+    dimmed: &mut Gizmos<XRayGizmoDimmed>,
+    pos: Vec3,
+    scale: f32,
+    axis_constraint: &AxisConstraint,
+) {
     let radius = scale * 1.2;
     let segments = 32;
 
-    // Determine colors based on axis constraint
-    let x_color = if *axis_constraint == AxisConstraint::X || *axis_constraint == AxisConstraint::None {
-        Color::srgb(1.0, 0.2, 0.2)
-    } else {
-        Color::srgba(1.0, 0.2, 0.2, 0.3)
-    };
-    let y_color = if *axis_constraint == AxisConstraint::Y || *axis_constraint == AxisConstraint::None {
-        Color::srgb(0.2, 1.0, 0.2)
-    } else {
-        Color::srgba(0.2, 1.0, 0.2, 0.3)
-    };
-    let z_color = if *axis_constraint == AxisConstraint::Z || *axis_constraint == AxisConstraint::None {
-        Color::srgb(0.2, 0.2, 1.0)
-    } else {
-        Color::srgba(0.2, 0.2, 1.0, 0.3)
-    };
+    let x_active = *axis_constraint == AxisConstraint::X || *axis_constraint == AxisConstraint::None;
+    let y_active = *axis_constraint == AxisConstraint::Y || *axis_constraint == AxisConstraint::None;
+    let z_active = *axis_constraint == AxisConstraint::Z || *axis_constraint == AxisConstraint::None;
+
+    // Full opacity colors for active axes
+    let x_color = Color::srgb(1.0, 0.2, 0.2);
+    let y_color = Color::srgb(0.2, 1.0, 0.2);
+    let z_color = Color::srgb(0.2, 0.2, 1.0);
+
+    // Half opacity colors for inactive axes
+    let x_color_dim = Color::srgba(1.0, 0.2, 0.2, 0.5);
+    let y_color_dim = Color::srgba(0.2, 1.0, 0.2, 0.5);
+    let z_color_dim = Color::srgba(0.2, 0.2, 1.0, 0.5);
 
     // X rotation (red circle in YZ plane)
     for i in 0..segments {
         let a1 = (i as f32 / segments as f32) * std::f32::consts::TAU;
         let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::TAU;
-        gizmos.line(
-            pos + Vec3::new(0.0, a1.cos() * radius, a1.sin() * radius),
-            pos + Vec3::new(0.0, a2.cos() * radius, a2.sin() * radius),
-            x_color,
-        );
+        let p1 = pos + Vec3::new(0.0, a1.cos() * radius, a1.sin() * radius);
+        let p2 = pos + Vec3::new(0.0, a2.cos() * radius, a2.sin() * radius);
+        if x_active {
+            gizmos.line(p1, p2, x_color);
+        } else {
+            dimmed.line(p1, p2, x_color_dim);
+        }
     }
 
     // Y rotation (green circle in XZ plane)
     for i in 0..segments {
         let a1 = (i as f32 / segments as f32) * std::f32::consts::TAU;
         let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::TAU;
-        gizmos.line(
-            pos + Vec3::new(a1.cos() * radius, 0.0, a1.sin() * radius),
-            pos + Vec3::new(a2.cos() * radius, 0.0, a2.sin() * radius),
-            y_color,
-        );
+        let p1 = pos + Vec3::new(a1.cos() * radius, 0.0, a1.sin() * radius);
+        let p2 = pos + Vec3::new(a2.cos() * radius, 0.0, a2.sin() * radius);
+        if y_active {
+            gizmos.line(p1, p2, y_color);
+        } else {
+            dimmed.line(p1, p2, y_color_dim);
+        }
     }
 
     // Z rotation (blue circle in XY plane)
     for i in 0..segments {
         let a1 = (i as f32 / segments as f32) * std::f32::consts::TAU;
         let a2 = ((i + 1) as f32 / segments as f32) * std::f32::consts::TAU;
-        gizmos.line(
-            pos + Vec3::new(a1.cos() * radius, a1.sin() * radius, 0.0),
-            pos + Vec3::new(a2.cos() * radius, a2.sin() * radius, 0.0),
-            z_color,
-        );
+        let p1 = pos + Vec3::new(a1.cos() * radius, a1.sin() * radius, 0.0);
+        let p2 = pos + Vec3::new(a2.cos() * radius, a2.sin() * radius, 0.0);
+        if z_active {
+            gizmos.line(p1, p2, z_color);
+        } else {
+            dimmed.line(p1, p2, z_color_dim);
+        }
     }
 }
 
-fn draw_scale_gizmo(gizmos: &mut Gizmos<XRayGizmoConfig>, pos: Vec3, scale: f32, axis_constraint: &AxisConstraint) {
+fn draw_scale_gizmo(
+    gizmos: &mut Gizmos<XRayGizmoConfig>,
+    dimmed: &mut Gizmos<XRayGizmoDimmed>,
+    pos: Vec3,
+    scale: f32,
+    axis_constraint: &AxisConstraint,
+) {
     let length = scale * 1.5;
     let box_size = scale * 0.1;
 
-    // Determine colors based on axis constraint
-    let x_color = if *axis_constraint == AxisConstraint::X || *axis_constraint == AxisConstraint::None {
-        Color::srgb(1.0, 0.2, 0.2)
-    } else {
-        Color::srgba(1.0, 0.2, 0.2, 0.3)
-    };
-    let y_color = if *axis_constraint == AxisConstraint::Y || *axis_constraint == AxisConstraint::None {
-        Color::srgb(0.2, 1.0, 0.2)
-    } else {
-        Color::srgba(0.2, 1.0, 0.2, 0.3)
-    };
-    let z_color = if *axis_constraint == AxisConstraint::Z || *axis_constraint == AxisConstraint::None {
-        Color::srgb(0.2, 0.2, 1.0)
-    } else {
-        Color::srgba(0.2, 0.2, 1.0, 0.3)
-    };
+    let x_active = *axis_constraint == AxisConstraint::X || *axis_constraint == AxisConstraint::None;
+    let y_active = *axis_constraint == AxisConstraint::Y || *axis_constraint == AxisConstraint::None;
+    let z_active = *axis_constraint == AxisConstraint::Z || *axis_constraint == AxisConstraint::None;
+
+    // Full opacity colors for active axes
+    let x_color = Color::srgb(1.0, 0.2, 0.2);
+    let y_color = Color::srgb(0.2, 1.0, 0.2);
+    let z_color = Color::srgb(0.2, 0.2, 1.0);
+
+    // Half opacity colors for inactive axes
+    let x_color_dim = Color::srgba(1.0, 0.2, 0.2, 0.5);
+    let y_color_dim = Color::srgba(0.2, 1.0, 0.2, 0.5);
+    let z_color_dim = Color::srgba(0.2, 0.2, 1.0, 0.5);
 
     // X axis with box (red)
-    gizmos.line(pos, pos + Vec3::X * length, x_color);
-    draw_small_cube(gizmos, pos + Vec3::X * length, box_size, x_color);
+    if x_active {
+        gizmos.line(pos, pos + Vec3::X * length, x_color);
+        draw_small_cube(gizmos, pos + Vec3::X * length, box_size, x_color);
+    } else {
+        dimmed.line(pos, pos + Vec3::X * length, x_color_dim);
+        draw_small_cube_dimmed(dimmed, pos + Vec3::X * length, box_size, x_color_dim);
+    }
 
     // Y axis with box (green)
-    gizmos.line(pos, pos + Vec3::Y * length, y_color);
-    draw_small_cube(gizmos, pos + Vec3::Y * length, box_size, y_color);
+    if y_active {
+        gizmos.line(pos, pos + Vec3::Y * length, y_color);
+        draw_small_cube(gizmos, pos + Vec3::Y * length, box_size, y_color);
+    } else {
+        dimmed.line(pos, pos + Vec3::Y * length, y_color_dim);
+        draw_small_cube_dimmed(dimmed, pos + Vec3::Y * length, box_size, y_color_dim);
+    }
 
     // Z axis with box (blue)
-    gizmos.line(pos, pos + Vec3::Z * length, z_color);
-    draw_small_cube(gizmos, pos + Vec3::Z * length, box_size, z_color);
+    if z_active {
+        gizmos.line(pos, pos + Vec3::Z * length, z_color);
+        draw_small_cube(gizmos, pos + Vec3::Z * length, box_size, z_color);
+    } else {
+        dimmed.line(pos, pos + Vec3::Z * length, z_color_dim);
+        draw_small_cube_dimmed(dimmed, pos + Vec3::Z * length, box_size, z_color_dim);
+    }
 }
 
 fn draw_small_cube(gizmos: &mut Gizmos<XRayGizmoConfig>, pos: Vec3, size: f32, color: Color) {
     let half = size * 0.5;
 
     // Just draw the edges of a small cube
+    let corners = [
+        Vec3::new(-half, -half, -half),
+        Vec3::new(half, -half, -half),
+        Vec3::new(half, -half, half),
+        Vec3::new(-half, -half, half),
+        Vec3::new(-half, half, -half),
+        Vec3::new(half, half, -half),
+        Vec3::new(half, half, half),
+        Vec3::new(-half, half, half),
+    ];
+
+    let edges = [
+        (0, 1), (1, 2), (2, 3), (3, 0),
+        (4, 5), (5, 6), (6, 7), (7, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7),
+    ];
+
+    for (a, b) in edges {
+        gizmos.line(pos + corners[a], pos + corners[b], color);
+    }
+}
+
+fn draw_small_cube_dimmed(gizmos: &mut Gizmos<XRayGizmoDimmed>, pos: Vec3, size: f32, color: Color) {
+    let half = size * 0.5;
+
     let corners = [
         Vec3::new(-half, -half, -half),
         Vec3::new(half, -half, -half),
