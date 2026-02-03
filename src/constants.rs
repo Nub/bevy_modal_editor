@@ -67,6 +67,8 @@ pub mod preview_colors {
 pub mod physics {
     /// Radius of the invisible collider used for selecting lights via raycasting
     pub const LIGHT_COLLIDER_RADIUS: f32 = 0.5;
+    /// Maximum ray cast distance for selection, placement, and snapping
+    pub const RAYCAST_MAX_DISTANCE: f32 = 10000.0;
 }
 
 /// Default sizes for various operations

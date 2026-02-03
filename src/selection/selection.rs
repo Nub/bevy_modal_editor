@@ -6,6 +6,7 @@ use bevy_outliner::prelude::*;
 use bevy_spline_3d::distribution::{DistributionSource, SplineDistribution};
 use bevy_spline_3d::prelude::Spline;
 
+use crate::constants::physics;
 use crate::editor::{EditorCamera, EditorMode, EditorState};
 use crate::scene::{SceneEntity, SplineMarker};
 use crate::ui::Settings;
@@ -117,7 +118,7 @@ fn handle_click_selection(
     let physics_hit = spatial_query.cast_ray(
         ray.origin,
         ray.direction,
-        100.0,
+        physics::RAYCAST_MAX_DISTANCE,
         true,
         &filter,
     );

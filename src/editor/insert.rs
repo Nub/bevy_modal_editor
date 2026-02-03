@@ -9,6 +9,7 @@ use super::state::{EditorMode, EditorState, InsertObjectType, InsertPreview, Ins
 use crate::commands::TakeSnapshotCommand;
 use bevy_spline_3d::prelude::SplineType;
 
+use crate::constants::physics;
 use crate::scene::{
     blockout::{generate_stairs_mesh, generate_ramp_mesh, generate_arch_mesh, generate_lshape_mesh,
                StairsMarker, RampMarker, ArchMarker, LShapeMarker, blockout_colors},
@@ -406,7 +407,7 @@ fn update_preview_position(
     let Some(hit) = spatial_query.cast_ray(
         ray.origin,
         ray.direction,
-        100.0,
+        physics::RAYCAST_MAX_DISTANCE,
         true,
         &filter,
     ) else {

@@ -12,7 +12,7 @@ use crate::ui::Settings;
 use crate::utils::should_process_input;
 
 /// Minimum FOV before switching to orthographic (in degrees)
-const MIN_FOV_DEGREES: f32 = 5.0;
+const MIN_FOV_DEGREES: f32 = 30.0;
 /// Maximum FOV (in degrees)
 const MAX_FOV_DEGREES: f32 = 120.0;
 /// FOV change per scroll unit
@@ -109,8 +109,10 @@ pub enum CameraPreset {
     Right,
 }
 
-/// Default distance from origin for preset views
-const PRESET_DISTANCE: f32 = 10.0;
+/// Default distance from origin for perspective preset views
+const PRESET_DISTANCE: f32 = 200.0;
+/// Default distance from origin for orthographic preset views
+const ORTHO_PRESET_DISTANCE: f32 = 10.0;
 
 impl CameraPreset {
     /// Get yaw and pitch for this preset
@@ -127,14 +129,14 @@ impl CameraPreset {
     }
 
     /// Get the camera position for this preset (looking at origin)
-    pub fn position(&self) -> Vec3 {
+    pub fn position(&self, distance: f32) -> Vec3 {
         match self {
-            CameraPreset::Front => Vec3::new(0.0, 0.0, PRESET_DISTANCE),
-            CameraPreset::Back => Vec3::new(0.0, 0.0, -PRESET_DISTANCE),
-            CameraPreset::Left => Vec3::new(-PRESET_DISTANCE, 0.0, 0.0),
-            CameraPreset::Right => Vec3::new(PRESET_DISTANCE, 0.0, 0.0),
-            CameraPreset::Top => Vec3::new(0.0, PRESET_DISTANCE, 0.0),
-            CameraPreset::Bottom => Vec3::new(0.0, -PRESET_DISTANCE, 0.0),
+            CameraPreset::Front => Vec3::new(0.0, 0.0, distance),
+            CameraPreset::Back => Vec3::new(0.0, 0.0, -distance),
+            CameraPreset::Left => Vec3::new(-distance, 0.0, 0.0),
+            CameraPreset::Right => Vec3::new(distance, 0.0, 0.0),
+            CameraPreset::Top => Vec3::new(0.0, distance, 0.0),
+            CameraPreset::Bottom => Vec3::new(0.0, -distance, 0.0),
         }
     }
 
@@ -341,8 +343,8 @@ fn camera_zoom(
             // Scroll up = zoom in (decrease FOV), scroll down = zoom out (increase FOV)
             let new_fov = fly_cam.fov_degrees - scroll_y * FOV_SCROLL_SPEED;
 
-            if new_fov <= 0.0 {
-                // Switch to orthographic
+            if new_fov <= MIN_FOV_DEGREES && scroll_y > 0.0 {
+                // Zooming in past min FOV - switch to orthographic
                 fly_cam.fov_degrees = 0.0;
                 *projection = Projection::Orthographic(OrthographicProjection {
                     scale: fly_cam.ortho_scale,
@@ -368,7 +370,8 @@ fn handle_camera_preset(
     for event in events.read() {
         let preset = &event.preset;
         let (yaw, pitch) = preset.angles();
-        let position = preset.position();
+        let distance = if event.orthographic { ORTHO_PRESET_DISTANCE } else { PRESET_DISTANCE };
+        let position = preset.position(distance);
         for (mut fly_cam, mut transform, mut projection) in &mut query {
             fly_cam.yaw = yaw;
             fly_cam.pitch = pitch;

@@ -7,6 +7,7 @@ use bevy_egui::EguiContexts;
 use bevy_spline_3d::prelude::Spline;
 
 use crate::commands::TakeSnapshotCommand;
+use crate::constants::physics;
 use crate::editor::{ActiveEdgeSnaps, AxisConstraint, DimensionSnapSettings, EditStepAmount, EditorCamera, EditorMode, EditorState, GizmoAxisConstraint, SnapSubMode, TransformOperation};
 use crate::gizmos::{XRayGizmoConfig, XRayGizmoDimmed};
 use crate::scene::{Locked, SplineMarker};
@@ -1170,7 +1171,7 @@ fn handle_place_mode(
     let position = if let Some(hit) = spatial_query.cast_ray(
         ray.origin,
         ray.direction,
-        100.0,
+        physics::RAYCAST_MAX_DISTANCE,
         true,
         &filter,
     ) {
@@ -1298,7 +1299,7 @@ fn handle_snap_to_object_mode(
     let Some(hit) = spatial_query.cast_ray(
         ray.origin,
         ray.direction,
-        100.0,
+        physics::RAYCAST_MAX_DISTANCE,
         true,
         &filter,
     ) else {
