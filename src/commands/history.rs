@@ -7,6 +7,8 @@ use bevy_egui::EguiContexts;
 use serde::de::DeserializeSeed;
 use std::collections::VecDeque;
 
+use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
+
 use crate::editor::EditorState;
 use crate::scene::{build_editor_scene, regenerate_runtime_components, SceneEntity};
 use crate::ui::Settings;
@@ -321,6 +323,33 @@ fn take_current_snapshot(world: &mut World, description: &str) -> Option<SceneSn
 /// Restore the scene from a snapshot
 fn restore_snapshot(world: &mut World, snapshot: &SceneSnapshot) {
     info!("Restoring snapshot: {}", snapshot.description);
+
+    // Clean up silhouette entities BEFORE despawning scene entities.
+    // The outliner creates separate SilhouetteMesh entities (on render layer 31) that are
+    // NOT children of the source entity. If we despawn the source first, the outliner's
+    // RemovedComponents<MeshOutline> cleanup fails because the source entity is already gone,
+    // leaving orphaned silhouettes that continue rendering.
+    let silhouettes_to_remove: Vec<Entity> = {
+        let mut query = world.query_filtered::<&HasSilhouetteMesh, With<SceneEntity>>();
+        query.iter(world).map(|h| h.silhouette).collect()
+    };
+    // Also collect silhouettes from children of scene entities (e.g. GLTF mesh children)
+    let child_silhouettes: Vec<Entity> = {
+        let mut query = world.query_filtered::<&HasSilhouetteMesh, Without<SceneEntity>>();
+        query.iter(world).map(|h| h.silhouette).collect()
+    };
+    for entity in silhouettes_to_remove.into_iter().chain(child_silhouettes) {
+        world.despawn(entity);
+    }
+
+    // Also despawn any orphaned SilhouetteMesh entities that may have lost their source
+    let orphaned_silhouettes: Vec<Entity> = {
+        let mut query = world.query_filtered::<Entity, With<SilhouetteMesh>>();
+        query.iter(world).collect()
+    };
+    for entity in orphaned_silhouettes {
+        world.despawn(entity);
+    }
 
     // Clear existing scene entities
     let entities_to_remove: Vec<Entity> = {

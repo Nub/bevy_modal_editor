@@ -44,6 +44,7 @@ mod silhouette_material;
 
 pub mod prelude {
     pub use crate::components::{MeshOutline, OutlineSettings};
+    pub use crate::jfa_material::{HasSilhouetteMesh, SilhouetteMesh};
     pub use crate::OutlinePlugin;
 }
 
