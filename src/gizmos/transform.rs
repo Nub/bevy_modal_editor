@@ -13,7 +13,7 @@ use crate::gizmos::{XRayGizmoConfig, XRayGizmoDimmed};
 use crate::scene::{Locked, SplineMarker};
 use crate::selection::Selected;
 use crate::ui::Settings;
-use crate::utils::{get_half_height_along_normal_from_collider, should_process_input};
+use crate::utils::{get_half_height_along_normal_from_collider, should_process_input, snap_to_grid};
 
 /// Default distance from camera when placing objects without hitting a surface
 const PLACE_DEFAULT_DISTANCE: f32 = 10.0;
@@ -21,15 +21,6 @@ const PLACE_DEFAULT_DISTANCE: f32 = 10.0;
 /// Marker component for entities currently being edited (to track sleep state)
 #[derive(Component)]
 pub struct BeingEdited;
-
-/// Snap a value to the nearest grid increment
-fn snap_to_grid(value: f32, grid_size: f32) -> f32 {
-    if grid_size <= 0.0 {
-        value
-    } else {
-        (value / grid_size).round() * grid_size
-    }
-}
 
 /// Calculate world-space movement along an axis based on mouse delta in screen space.
 /// Projects the axis to screen space and determines how much mouse movement should
@@ -1565,25 +1556,9 @@ fn calculate_edge_snaps(
         let other_max = *other_pos + *other_half;
 
         // Check X axis edges
-        // Selected min X vs Other max X (left edge to right edge)
-        let x_snap_left = other_max.x - sel_min.x + position.x;
-        if (sel_min.x - other_max.x).abs() < threshold {
-            snapped_pos.x = x_snap_left;
-            // Draw vertical guide line at the snap point
-            let snap_x = other_max.x;
-            let y_min = sel_min.y.min(other_min.y);
-            let y_max = sel_max.y.max(other_max.y);
-            snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
-        }
-        // Selected max X vs Other min X (right edge to left edge)
-        let x_snap_right = other_min.x - sel_max.x + position.x;
-        if (sel_max.x - other_min.x).abs() < threshold {
-            snapped_pos.x = x_snap_right;
-            let snap_x = other_min.x;
-            let y_min = sel_min.y.min(other_min.y);
-            let y_max = sel_max.y.max(other_max.y);
-            snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
-        }
+        // Alignment snaps first (lower priority), then adjacency snaps (higher priority).
+        // When both trigger simultaneously, adjacency wins since it overwrites.
+
         // Selected min X vs Other min X (left to left alignment)
         if (sel_min.x - other_min.x).abs() < threshold {
             snapped_pos.x = other_min.x + selected_half.x;
@@ -1600,24 +1575,26 @@ fn calculate_edge_snaps(
             let y_max = sel_max.y.max(other_max.y);
             snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
         }
+        // Selected min X vs Other max X (left edge to right edge — adjacency)
+        if (sel_min.x - other_max.x).abs() < threshold {
+            snapped_pos.x = other_max.x + selected_half.x;
+            let snap_x = other_max.x;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
+        }
+        // Selected max X vs Other min X (right edge to left edge — adjacency)
+        if (sel_max.x - other_min.x).abs() < threshold {
+            snapped_pos.x = other_min.x - selected_half.x;
+            let snap_x = other_min.x;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(snap_x, y_min, position.z), Vec3::new(snap_x, y_max, position.z)));
+        }
 
         // Check Z axis edges
-        // Selected min Z vs Other max Z
-        if (sel_min.z - other_max.z).abs() < threshold {
-            snapped_pos.z = other_max.z + selected_half.z;
-            let snap_z = other_max.z;
-            let y_min = sel_min.y.min(other_min.y);
-            let y_max = sel_max.y.max(other_max.y);
-            snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
-        }
-        // Selected max Z vs Other min Z
-        if (sel_max.z - other_min.z).abs() < threshold {
-            snapped_pos.z = other_min.z - selected_half.z;
-            let snap_z = other_min.z;
-            let y_min = sel_min.y.min(other_min.y);
-            let y_max = sel_max.y.max(other_max.y);
-            snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
-        }
+        // Alignment first, then adjacency
+
         // Selected min Z vs Other min Z (alignment)
         if (sel_min.z - other_min.z).abs() < threshold {
             snapped_pos.z = other_min.z + selected_half.z;
@@ -1634,20 +1611,26 @@ fn calculate_edge_snaps(
             let y_max = sel_max.y.max(other_max.y);
             snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
         }
+        // Selected min Z vs Other max Z (adjacency)
+        if (sel_min.z - other_max.z).abs() < threshold {
+            snapped_pos.z = other_max.z + selected_half.z;
+            let snap_z = other_max.z;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
+        }
+        // Selected max Z vs Other min Z (adjacency)
+        if (sel_max.z - other_min.z).abs() < threshold {
+            snapped_pos.z = other_min.z - selected_half.z;
+            let snap_z = other_min.z;
+            let y_min = sel_min.y.min(other_min.y);
+            let y_max = sel_max.y.max(other_max.y);
+            snap_lines.push((Vec3::new(position.x, y_min, snap_z), Vec3::new(position.x, y_max, snap_z)));
+        }
 
-        // Check Y axis edges (vertical alignment)
-        // Selected min Y vs Other max Y (bottom to top)
-        if (sel_min.y - other_max.y).abs() < threshold {
-            snapped_pos.y = other_max.y + selected_half.y;
-            let snap_y = other_max.y;
-            snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
-        }
-        // Selected max Y vs Other min Y (top to bottom)
-        if (sel_max.y - other_min.y).abs() < threshold {
-            snapped_pos.y = other_min.y - selected_half.y;
-            let snap_y = other_min.y;
-            snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
-        }
+        // Check Y axis edges
+        // Alignment first, then adjacency
+
         // Selected min Y vs Other min Y (bottom alignment)
         if (sel_min.y - other_min.y).abs() < threshold {
             snapped_pos.y = other_min.y + selected_half.y;
@@ -1658,6 +1641,18 @@ fn calculate_edge_snaps(
         if (sel_max.y - other_max.y).abs() < threshold {
             snapped_pos.y = other_max.y - selected_half.y;
             let snap_y = other_max.y;
+            snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
+        }
+        // Selected min Y vs Other max Y (bottom to top — adjacency)
+        if (sel_min.y - other_max.y).abs() < threshold {
+            snapped_pos.y = other_max.y + selected_half.y;
+            let snap_y = other_max.y;
+            snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
+        }
+        // Selected max Y vs Other min Y (top to bottom — adjacency)
+        if (sel_max.y - other_min.y).abs() < threshold {
+            snapped_pos.y = other_min.y - selected_half.y;
+            let snap_y = other_min.y;
             snap_lines.push((Vec3::new(position.x - 1.0, snap_y, position.z), Vec3::new(position.x + 1.0, snap_y, position.z)));
         }
     }

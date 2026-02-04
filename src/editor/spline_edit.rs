@@ -4,14 +4,19 @@
 //! providing spline control point editing when in Edit mode with a spline selected.
 
 use bevy::prelude::*;
+use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 use bevy_spline_3d::prelude::*;
 
-use super::state::{EditorMode, EditorState, SelectedControlPointIndex};
+use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
+
+use super::state::{ControlPointSnapState, EditorMode, EditorState, SelectedControlPointIndex};
 use crate::commands::TakeSnapshotCommand;
+use crate::constants::physics;
+use crate::editor::EditorCamera;
 use crate::scene::SplineMarker;
 use crate::selection::Selected;
-use crate::utils::should_process_input;
+use crate::utils::{should_process_input, snap_to_grid};
 
 pub struct SplineEditPlugin;
 
@@ -34,6 +39,12 @@ impl Plugin for SplineEditPlugin {
                 handle_spline_hotkeys.run_if(in_state(EditorMode::Edit)),
                 // Handle control point dragging in Edit mode
                 handle_control_point_drag.run_if(in_state(EditorMode::Edit)),
+                // Apply grid snap to control points after library drag
+                apply_control_point_grid_snap.run_if(in_state(EditorMode::Edit)),
+                // Handle snap-to-object raycast for control points
+                handle_control_point_snap_mode.run_if(in_state(EditorMode::Edit)),
+                // Handle confirm/cancel for control point snap
+                handle_control_point_snap_confirm.run_if(in_state(EditorMode::Edit)),
             )
                 .chain(),
         );
@@ -50,6 +61,7 @@ fn sync_spline_editor_settings(
     editor_state: Res<EditorState>,
     mode: Res<State<EditorMode>>,
     selected_splines: Query<(), (With<Selected>, With<SplineMarker>)>,
+    snap_state: Res<ControlPointSnapState>,
     mut spline_settings: ResMut<EditorSettings>,
 ) {
     // Only show control points for the selected spline
@@ -68,8 +80,9 @@ fn sync_spline_editor_settings(
     let should_show_curves = editor_state.editor_active && editor_state.gizmos_visible;
 
     // Enable control point picking/dragging only in Edit mode with a spline selected
+    // Disable during snap-to-object so the library doesn't interfere
     let in_edit_with_spline = *mode.get() == EditorMode::Edit && !selected_splines.is_empty();
-    spline_settings.enabled = in_edit_with_spline;
+    spline_settings.enabled = in_edit_with_spline && !snap_state.active;
 
     // Only enable x-ray when editing splines (so occluded control points are visible)
     spline_settings.xray_enabled = in_edit_with_spline;
@@ -99,6 +112,7 @@ fn sync_spline_selection(
     // All control point markers with selection
     selected_control_points: Query<(Entity, &ControlPointMarker), With<SelectedControlPoint>>,
     mut control_point_selection: ResMut<SelectedControlPointIndex>,
+    mut snap_state: ResMut<ControlPointSnapState>,
 ) {
     let in_edit_mode = *mode.get() == EditorMode::Edit;
 
@@ -117,6 +131,8 @@ fn sync_spline_selection(
             commands.entity(entity).remove::<SelectedControlPoint>();
         }
         control_point_selection.0 = None;
+        // Clear snap state when leaving edit mode
+        snap_state.reset();
     }
 
     // Remove SelectedSpline from deselected splines and clear their control point selections
@@ -129,6 +145,8 @@ fn sync_spline_selection(
             }
         }
         control_point_selection.0 = None;
+        // Clear snap state when spline is deselected
+        snap_state.reset();
     }
 }
 
@@ -143,6 +161,7 @@ fn handle_spline_hotkeys(
     selected_points: Query<(Entity, &ControlPointMarker), With<SelectedControlPoint>>,
     all_markers: Query<(Entity, &ControlPointMarker)>,
     mut control_point_selection: ResMut<SelectedControlPointIndex>,
+    mut snap_state: ResMut<ControlPointSnapState>,
 ) {
     if !should_process_input(&editor_state, &mut contexts) {
         return;
@@ -260,6 +279,29 @@ fn handle_spline_hotkeys(
             );
         }
     }
+
+    // T - Snap control point to object surface
+    if keyboard.just_pressed(KeyCode::KeyT) && !snap_state.active {
+        // Need a selected control point
+        let selected_index = control_point_selection.0.or_else(|| {
+            selected_points.iter().next().map(|(_, m)| m.index)
+        });
+
+        if let Some(point_index) = selected_index {
+            if let Some((entity, spline)) = splines.iter().next() {
+                if point_index < spline.control_points.len() {
+                    commands.queue(TakeSnapshotCommand {
+                        description: "Snap control point to object".to_string(),
+                    });
+                    snap_state.active = true;
+                    snap_state.spline_entity = Some(entity);
+                    snap_state.point_index = Some(point_index);
+                    snap_state.original_local_pos = Some(spline.control_points[point_index]);
+                    info!("Control point snap mode: move cursor over surface and click to confirm");
+                }
+            }
+        }
+    }
 }
 
 /// Calculate the position for a new control point.
@@ -329,5 +371,162 @@ fn handle_control_point_drag(
                 control_point_selection.0 = Some(marker.index);
             }
         }
+    }
+}
+
+/// Apply grid snapping to control points being dragged by the library's drag system.
+///
+/// Runs after the library drag so we can post-process positions.
+/// Converts local → world, snaps each axis, then world → local.
+fn apply_control_point_grid_snap(
+    editor_state: Res<EditorState>,
+    selection_state: Res<SelectionState>,
+    mut splines: Query<(&mut Spline, &GlobalTransform), With<SplineMarker>>,
+) {
+    if editor_state.grid_snap <= 0.0 || !selection_state.dragging {
+        return;
+    }
+
+    let grid = editor_state.grid_snap;
+
+    for (spline_entity, point_index) in &selection_state.dragged_points {
+        let Ok((mut spline, global_transform)) = splines.get_mut(*spline_entity) else {
+            continue;
+        };
+        let Some(local_pos) = spline.control_points.get(*point_index).copied() else {
+            continue;
+        };
+
+        // Convert local position to world space
+        let world_pos = global_transform.transform_point(local_pos);
+
+        // Snap each axis
+        let snapped_world = Vec3::new(
+            snap_to_grid(world_pos.x, grid),
+            snap_to_grid(world_pos.y, grid),
+            snap_to_grid(world_pos.z, grid),
+        );
+
+        // Convert back to local space
+        let inverse = global_transform.affine().inverse();
+        let snapped_local = inverse.transform_point3(snapped_world);
+
+        spline.control_points[*point_index] = snapped_local;
+    }
+}
+
+/// Handle snap-to-object raycast for a control point (T key snap mode).
+///
+/// When snap state is active, raycasts from cursor and moves the control point
+/// to the hit position on surfaces.
+fn handle_control_point_snap_mode(
+    snap_state: Res<ControlPointSnapState>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
+    spatial_query: SpatialQuery,
+    mut splines: Query<(Entity, &mut Spline, &GlobalTransform), With<SplineMarker>>,
+    window_query: Query<&Window, With<PrimaryWindow>>,
+    mut contexts: EguiContexts,
+) {
+    if !snap_state.active {
+        return;
+    }
+
+    let Some(spline_entity) = snap_state.spline_entity else {
+        return;
+    };
+    let Some(point_index) = snap_state.point_index else {
+        return;
+    };
+
+    // Don't update when UI wants pointer input
+    if let Ok(ctx) = contexts.ctx_mut() {
+        if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+            return;
+        }
+    }
+
+    let Ok((camera, camera_transform)) = camera_query.single() else {
+        return;
+    };
+
+    let Ok(window) = window_query.single() else {
+        return;
+    };
+
+    let Some(cursor_position) = window.cursor_position() else {
+        return;
+    };
+
+    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_position) else {
+        return;
+    };
+
+    // Exclude the spline entity from raycast
+    let excluded: Vec<Entity> = vec![spline_entity];
+    let filter = SpatialQueryFilter::default().with_excluded_entities(excluded);
+
+    let Some(hit) = spatial_query.cast_ray(
+        ray.origin,
+        ray.direction,
+        physics::RAYCAST_MAX_DISTANCE,
+        true,
+        &filter,
+    ) else {
+        return;
+    };
+
+    let hit_point = ray.origin + ray.direction * hit.distance;
+
+    // Set the control point to the hit position (world → local)
+    let Ok((_, mut spline, global_transform)) = splines.get_mut(spline_entity) else {
+        return;
+    };
+
+    if point_index < spline.control_points.len() {
+        let inverse = global_transform.affine().inverse();
+        let local_pos = inverse.transform_point3(hit_point);
+        spline.control_points[point_index] = local_pos;
+    }
+}
+
+/// Handle confirm (left click) and cancel (Escape) for control point snap-to-object mode.
+fn handle_control_point_snap_confirm(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    mut snap_state: ResMut<ControlPointSnapState>,
+    mut splines: Query<&mut Spline, With<SplineMarker>>,
+    mut contexts: EguiContexts,
+) {
+    if !snap_state.active {
+        return;
+    }
+
+    // Escape: cancel and restore original position
+    if keyboard.just_pressed(KeyCode::Escape) {
+        if let (Some(spline_entity), Some(point_index), Some(original_pos)) =
+            (snap_state.spline_entity, snap_state.point_index, snap_state.original_local_pos)
+        {
+            if let Ok(mut spline) = splines.get_mut(spline_entity) {
+                if point_index < spline.control_points.len() {
+                    spline.control_points[point_index] = original_pos;
+                }
+            }
+        }
+        snap_state.reset();
+        info!("Control point snap cancelled");
+        return;
+    }
+
+    // Left click: confirm
+    if mouse_button.just_pressed(MouseButton::Left) {
+        // Don't confirm if clicking on UI
+        if let Ok(ctx) = contexts.ctx_mut() {
+            if ctx.wants_pointer_input() || ctx.is_pointer_over_area() {
+                return;
+            }
+        }
+
+        snap_state.reset();
+        info!("Control point snap confirmed");
     }
 }

@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
-use super::state::{AxisConstraint, EditorMode, EditorState, ToggleEditorEvent, TogglePreviewModeEvent, TransformOperation};
+use super::state::{AxisConstraint, ControlPointSnapState, EditorMode, EditorState, ToggleEditorEvent, TogglePreviewModeEvent, TransformOperation};
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
 use crate::selection::Selected;
@@ -43,6 +43,9 @@ fn handle_mode_input(
     mut palette_state: ResMut<CommandPaletteState>,
     component_editor_state: Res<ComponentEditorState>,
     editor_state: Res<EditorState>,
+    snap_state: Res<ControlPointSnapState>,
+    control_point_selection: Res<crate::editor::SelectedControlPointIndex>,
+    selected_splines: Query<(), (With<Selected>, With<crate::scene::SplineMarker>)>,
     mut contexts: EguiContexts,
     mut commands: Commands,
     selected: Query<Entity, With<Selected>>,
@@ -148,6 +151,11 @@ fn handle_mode_input(
             return;
         }
 
+        // Don't change mode if control point snap is active - let the snap confirm handle it
+        if snap_state.active {
+            return;
+        }
+
         if *current_mode.get() != EditorMode::View {
             next_mode.set(EditorMode::View);
             *transform_op = TransformOperation::None;
@@ -194,14 +202,20 @@ fn handle_mode_input(
             *transform_op = TransformOperation::Place;
             *axis_constraint = AxisConstraint::None;
         } else if keyboard.just_pressed(KeyCode::KeyT) {
-            // Take snapshot before entering snap to object mode
-            if !selected.is_empty() {
-                commands.queue(TakeSnapshotCommand {
-                    description: "Snap to object".to_string(),
-                });
+            // If a spline with a selected control point is active, let the
+            // spline hotkey handler deal with T (control point snap) instead
+            let spline_has_selected_point = !selected_splines.is_empty()
+                && control_point_selection.0.is_some();
+            if !spline_has_selected_point {
+                // Take snapshot before entering snap to object mode
+                if !selected.is_empty() {
+                    commands.queue(TakeSnapshotCommand {
+                        description: "Snap to object".to_string(),
+                    });
+                }
+                *transform_op = TransformOperation::SnapToObject;
+                *axis_constraint = AxisConstraint::None;
             }
-            *transform_op = TransformOperation::SnapToObject;
-            *axis_constraint = AxisConstraint::None;
         }
         // Axis selection (A, S, D) is handled in gizmos/transform.rs
     }

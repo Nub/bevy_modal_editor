@@ -162,6 +162,28 @@ pub struct GizmoAxisConstraint {
 #[derive(Debug, Clone, Copy, Default, Resource)]
 pub struct SelectedControlPointIndex(pub Option<usize>);
 
+/// State for spline control point snap-to-object mode (T key while editing spline)
+#[derive(Debug, Default, Resource)]
+pub struct ControlPointSnapState {
+    /// Whether snap mode is currently active
+    pub active: bool,
+    /// The spline entity being edited
+    pub spline_entity: Option<Entity>,
+    /// The control point index being snapped
+    pub point_index: Option<usize>,
+    /// The original local-space position of the control point (for cancel/undo)
+    pub original_local_pos: Option<Vec3>,
+}
+
+impl ControlPointSnapState {
+    pub fn reset(&mut self) {
+        self.active = false;
+        self.spline_entity = None;
+        self.point_index = None;
+        self.original_local_pos = None;
+    }
+}
+
 /// Type of object being inserted in Insert mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InsertObjectType {
@@ -259,6 +281,7 @@ impl Plugin for EditorStatePlugin {
             .init_resource::<DimensionSnapSettings>()
             .init_resource::<ActiveEdgeSnaps>()
             .init_resource::<GizmoAxisConstraint>()
+            .init_resource::<ControlPointSnapState>()
             .insert_resource(InsertState::new())
             .add_message::<TogglePhysicsDebugEvent>()
             .add_message::<TogglePhysicsEvent>()

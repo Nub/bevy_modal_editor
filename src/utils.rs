@@ -76,6 +76,15 @@ pub fn get_half_height_along_normal_from_collider(collider: &Collider, surface_n
     }
 }
 
+/// Snap a value to the nearest grid increment
+pub fn snap_to_grid(value: f32, grid_size: f32) -> f32 {
+    if grid_size <= 0.0 {
+        value
+    } else {
+        (value / grid_size).round() * grid_size
+    }
+}
+
 /// Calculate a rotation quaternion that aligns the local Y axis with the given normal
 pub fn rotation_from_normal(normal: Vec3) -> Quat {
     let up = Vec3::Y;
