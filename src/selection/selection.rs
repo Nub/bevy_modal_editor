@@ -251,7 +251,7 @@ fn find_selectable_parent(
     None
 }
 
-/// Selection outline color - orange to match the previous AABB selection color
+/// Selection outline color
 const SELECTION_OUTLINE_COLOR: Color = Color::srgb(1.0, 0.8, 0.0);
 
 /// Sync MeshOutline components with Selected state
@@ -264,8 +264,8 @@ fn sync_selection_outlines(
     needs_outline: Query<Entity, (With<Selected>, With<Mesh3d>, Without<MeshOutline>)>,
     // Entities that have an outline but are no longer selected
     has_outline_not_selected: Query<Entity, (With<MeshOutline>, Without<Selected>)>,
-    // All entities with outlines (for preview mode cleanup and width updates)
-    mut all_with_outline: Query<(Entity, &mut MeshOutline)>,
+    // All selected entities with outlines (for width updates)
+    mut all_with_outline: Query<(Entity, &mut MeshOutline), With<Selected>>,
     // Also check children of selected entities (for GLTF models with nested meshes)
     selected_entities: Query<Entity, With<Selected>>,
     children_query: Query<&Children>,
@@ -282,11 +282,9 @@ fn sync_selection_outlines(
         return;
     }
 
-    // Update outline width on existing outlines if it changed
-    for (_, mut outline) in all_with_outline.iter_mut() {
-        if outline.width != outline_width {
-            outline.width = outline_width;
-        }
+    // Update outline width on existing outlines for selected entities
+    for (_entity, mut outline) in all_with_outline.iter_mut() {
+        outline.width = outline_width;
     }
 
     // Add outlines to selected entities with meshes
@@ -302,6 +300,7 @@ fn sync_selection_outlines(
             &children_query,
             &child_meshes,
             outline_width,
+            SELECTION_OUTLINE_COLOR,
         );
     }
 
@@ -318,15 +317,16 @@ fn add_outline_to_descendants(
     children_query: &Query<&Children>,
     child_meshes: &Query<Entity, (With<Mesh3d>, Without<MeshOutline>, Without<Selected>)>,
     outline_width: f32,
+    color: Color,
 ) {
     if let Ok(children) = children_query.get(entity) {
         for child in children.iter() {
             // If this child has a mesh and no outline, add one
             if child_meshes.get(child).is_ok() {
-                commands.entity(child).insert(MeshOutline::new(SELECTION_OUTLINE_COLOR, outline_width));
+                commands.entity(child).insert(MeshOutline::new(color, outline_width));
             }
             // Recurse into grandchildren
-            add_outline_to_descendants(commands, child, children_query, child_meshes, outline_width);
+            add_outline_to_descendants(commands, child, children_query, child_meshes, outline_width, color);
         }
     }
 }
