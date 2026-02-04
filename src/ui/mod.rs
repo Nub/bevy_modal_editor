@@ -39,9 +39,22 @@ pub use view_gizmo::*;
 use bevy::prelude::*;
 
 /// Resource tracking the current width of the right inspector panel
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct InspectorPanelState {
     pub width: f32,
+    /// Whether we need to take a snapshot before the next inspector edit.
+    /// Resets to true when no changes are detected, so continuous drags
+    /// only produce one undo snapshot.
+    pub needs_snapshot: bool,
+}
+
+impl Default for InspectorPanelState {
+    fn default() -> Self {
+        Self {
+            width: 0.0,
+            needs_snapshot: true,
+        }
+    }
 }
 
 pub struct UiPlugin;

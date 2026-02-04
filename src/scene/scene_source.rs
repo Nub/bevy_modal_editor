@@ -4,7 +4,7 @@ use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
 use std::fs;
 
-use super::{regenerate_meshes, GroupMarker, SceneEntity};
+use super::{regenerate_runtime_components, GroupMarker, SceneEntity};
 
 /// Component that specifies a RON scene file to load as children of this entity.
 /// The scene entities will be loaded as children inside a group.
@@ -205,8 +205,8 @@ impl Command for LoadSceneSourceCommand {
             });
         }
 
-        // Regenerate meshes and materials for loaded primitives and lights
-        regenerate_meshes(world);
+        // Regenerate runtime components for loaded primitives, lights, etc.
+        regenerate_runtime_components(world);
 
         info!("Loaded scene source: {} ({} entities)", self.path, loaded_entities.len());
     }

@@ -1,4 +1,4 @@
-use avian3d::prelude::{Collider, Physics, RigidBody};
+use avian3d::prelude::Physics;
 use avian3d::schedule::PhysicsTime;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::*;
@@ -7,39 +7,10 @@ use bevy_egui::EguiContexts;
 use serde::de::DeserializeSeed;
 use std::collections::VecDeque;
 
-use bevy::pbr::ExtendedMaterial;
-use bevy_grid_shader::GridMaterial;
-
 use crate::editor::EditorState;
-use crate::scene::{
-    DirectionalLightMarker, GroupMarker, Locked, MaterialType, PrimitiveMarker, PrimitiveShape,
-    SceneEntity, SceneLightMarker, LIGHT_COLLIDER_RADIUS,
-};
+use crate::scene::{build_editor_scene, regenerate_runtime_components, SceneEntity};
 use crate::ui::Settings;
 use crate::utils::should_process_input;
-
-type GridMat = ExtendedMaterial<StandardMaterial, GridMaterial>;
-
-/// Build a DynamicScene from the world with editor-relevant components.
-/// This is the single source of truth for which components are included in snapshots/saves.
-fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>) -> DynamicScene {
-    DynamicSceneBuilder::from_world(world)
-        .deny_all()
-        .allow_component::<SceneEntity>()
-        .allow_component::<Name>()
-        .allow_component::<Transform>()
-        .allow_component::<PrimitiveMarker>()
-        .allow_component::<GroupMarker>()
-        .allow_component::<Locked>()
-        .allow_component::<SceneLightMarker>()
-        .allow_component::<DirectionalLightMarker>()
-        .allow_component::<RigidBody>()
-        .allow_component::<ChildOf>()
-        .allow_component::<Children>()
-        .allow_component::<MaterialType>()
-        .extract_entities(entities)
-        .build()
-}
 
 /// A snapshot of the scene state for undo/redo
 #[derive(Clone)]
@@ -392,101 +363,12 @@ fn restore_snapshot(world: &mut World, snapshot: &SceneSnapshot) {
     info!("Wrote {} entities to world from snapshot", entity_map.len());
 
     // Regenerate meshes, materials, and colliders
-    regenerate_scene_components(world);
+    regenerate_runtime_components(world);
 
     info!("Snapshot restoration complete");
 
     // Keep physics paused
     if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
         physics_time.set_relative_speed(0.0);
-    }
-}
-
-/// Regenerate meshes and materials for entities loaded from snapshot
-fn regenerate_scene_components(world: &mut World) {
-    // Handle primitives - collect entity, shape, and material type
-    let mut primitives_to_update: Vec<(Entity, PrimitiveShape, MaterialType)> = Vec::new();
-    {
-        let mut query = world.query_filtered::<(Entity, &PrimitiveMarker, Option<&MaterialType>), Without<Mesh3d>>();
-        for (entity, marker, mat_type) in query.iter(world) {
-            primitives_to_update.push((entity, marker.shape, mat_type.copied().unwrap_or_default()));
-        }
-    }
-
-    for (entity, shape, mat_type) in primitives_to_update {
-        let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
-        let collider = shape.create_collider();
-
-        // Create material handles before getting entity_mut to avoid borrow conflicts
-        match mat_type {
-            MaterialType::Standard => {
-                let material_handle = world
-                    .resource_mut::<Assets<StandardMaterial>>()
-                    .add(shape.create_material());
-                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                    entity_mut.insert((Mesh3d(mesh_handle), collider, MeshMaterial3d(material_handle)));
-                }
-            }
-            MaterialType::Grid => {
-                let grid_mat = ExtendedMaterial {
-                    base: shape.create_material(),
-                    extension: GridMaterial::default(),
-                };
-                let material_handle = world.resource_mut::<Assets<GridMat>>().add(grid_mat);
-                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                    entity_mut.insert((Mesh3d(mesh_handle), collider, MeshMaterial3d(material_handle)));
-                }
-            }
-        }
-    }
-
-    // Handle point lights
-    let mut lights_to_update: Vec<(Entity, SceneLightMarker)> = Vec::new();
-    {
-        let mut query = world.query_filtered::<(Entity, &SceneLightMarker), Without<PointLight>>();
-        for (entity, marker) in query.iter(world) {
-            lights_to_update.push((entity, marker.clone()));
-        }
-    }
-
-    for (entity, marker) in lights_to_update {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert((
-                PointLight {
-                    color: marker.color,
-                    intensity: marker.intensity,
-                    range: marker.range,
-                    shadows_enabled: marker.shadows_enabled,
-                    ..default()
-                },
-                Visibility::default(),
-                Collider::sphere(LIGHT_COLLIDER_RADIUS),
-            ));
-        }
-    }
-
-    // Handle directional lights
-    let mut dir_lights_to_update: Vec<(Entity, DirectionalLightMarker)> = Vec::new();
-    {
-        let mut query =
-            world.query_filtered::<(Entity, &DirectionalLightMarker), Without<DirectionalLight>>();
-        for (entity, marker) in query.iter(world) {
-            dir_lights_to_update.push((entity, marker.clone()));
-        }
-    }
-
-    for (entity, marker) in dir_lights_to_update {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert((
-                DirectionalLight {
-                    color: marker.color,
-                    illuminance: marker.illuminance,
-                    shadows_enabled: marker.shadows_enabled,
-                    ..default()
-                },
-                Visibility::default(),
-                Collider::sphere(LIGHT_COLLIDER_RADIUS),
-            ));
-        }
     }
 }

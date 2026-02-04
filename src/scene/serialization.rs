@@ -1,23 +1,19 @@
-use avian3d::prelude::*;
-use bevy::pbr::ExtendedMaterial;
+use avian3d::prelude::RigidBody;
 use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
 use bevy::window::PrimaryWindow;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
-use bevy_grid_shader::GridMaterial;
+use bevy_spline_3d::prelude::Spline;
 use serde::de::DeserializeSeed;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use bevy_spline_3d::prelude::Spline;
-
-/// Type alias for the extended grid material
-type GridMat = ExtendedMaterial<StandardMaterial, GridMaterial>;
-
-use super::blockout::{ArchMarker, LShapeMarker, RampMarker, StairsMarker};
-use super::{DirectionalLightMarker, GltfSource, GroupMarker, Locked, MaterialType, PrimitiveMarker, PrimitiveShape, RecursiveColliderConstructor, SceneEntity, SceneLightMarker, SceneSource, SplineMarker, LIGHT_COLLIDER_RADIUS};
+use super::{
+    build_editor_scene, regenerate_runtime_components, PrimitiveMarker, SceneEntity,
+    SceneLightMarker,
+};
 use crate::editor::{CameraMark, CameraMarks};
 use crate::ui::draw_error_dialog as draw_themed_error_dialog;
 
@@ -231,35 +227,8 @@ impl Command for SaveSceneCommand {
 
         info!("Found {} scene entities to save", scene_entity_ids.len());
 
-        // Build the scene, only allowing components we know can serialize
-        let scene = DynamicSceneBuilder::from_world(world)
-            .deny_all()
-            .allow_component::<SceneEntity>()
-            .allow_component::<Name>()
-            .allow_component::<Transform>()
-            .allow_component::<PrimitiveMarker>()
-            .allow_component::<GroupMarker>()
-            .allow_component::<Locked>()
-            .allow_component::<SceneLightMarker>()
-            .allow_component::<DirectionalLightMarker>()
-            .allow_component::<GltfSource>()
-            .allow_component::<SceneSource>()
-            .allow_component::<RecursiveColliderConstructor>()
-            .allow_component::<RigidBody>()
-            .allow_component::<ChildOf>()
-            .allow_component::<Children>()
-            // Spline components
-            .allow_component::<Spline>()
-            .allow_component::<SplineMarker>()
-            // Blockout shape components
-            .allow_component::<StairsMarker>()
-            .allow_component::<RampMarker>()
-            .allow_component::<ArchMarker>()
-            .allow_component::<LShapeMarker>()
-            // Material types
-            .allow_component::<MaterialType>()
-            .extract_entities(scene_entity_ids.into_iter())
-            .build();
+        // Build the scene using shared allow-list
+        let scene = build_editor_scene(world, scene_entity_ids.into_iter());
 
         // Serialize the scene
         let type_registry = world.resource::<AppTypeRegistry>().clone();
@@ -413,8 +382,8 @@ impl Command for LoadSceneCommand {
             return;
         }
 
-        // Regenerate meshes and materials from PrimitiveMarker
-        regenerate_meshes(world);
+        // Regenerate runtime components from markers
+        regenerate_runtime_components(world);
 
         // Note: Physics state is preserved - not changed on load
 
@@ -429,122 +398,6 @@ impl Command for LoadSceneCommand {
             .and_then(|s| s.to_str())
             .unwrap_or("Untitled");
         info!("Scene loaded: {}", scene_name);
-    }
-}
-
-/// Regenerate meshes and materials for entities loaded from scene
-/// This is called after loading a scene to create the actual Mesh3d, MeshMaterial3d,
-/// PointLight, DirectionalLight, and Collider components from the marker components.
-pub fn regenerate_meshes(world: &mut World) {
-    // Get all entities with PrimitiveMarker but no Mesh3d
-    let mut entities_to_update: Vec<(Entity, PrimitiveShape, MaterialType)> = Vec::new();
-
-    {
-        let mut query = world.query_filtered::<(Entity, &PrimitiveMarker, Option<&MaterialType>), Without<Mesh3d>>();
-        for (entity, marker, mat_type) in query.iter(world) {
-            entities_to_update.push((entity, marker.shape, mat_type.copied().unwrap_or(MaterialType::Standard)));
-        }
-    }
-
-    // Add meshes and materials using PrimitiveShape helper methods
-    for (entity, shape, mat_type) in entities_to_update {
-        let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
-        let collider = shape.create_collider();
-
-        // Create material handles before getting entity_mut to avoid borrow conflicts
-        match mat_type {
-            MaterialType::Standard => {
-                let material_handle = world
-                    .resource_mut::<Assets<StandardMaterial>>()
-                    .add(shape.create_material());
-                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                    entity_mut.insert((Mesh3d(mesh_handle), collider, MeshMaterial3d(material_handle)));
-                }
-            }
-            MaterialType::Grid => {
-                let grid_mat = ExtendedMaterial {
-                    base: shape.create_material(),
-                    extension: GridMaterial::default(),
-                };
-                let material_handle = world
-                    .resource_mut::<Assets<GridMat>>()
-                    .add(grid_mat);
-                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                    entity_mut.insert((Mesh3d(mesh_handle), collider, MeshMaterial3d(material_handle)));
-                }
-            }
-        }
-    }
-
-    // Also sync PointLight from SceneLightMarker for lights
-    let mut lights_to_update: Vec<(Entity, SceneLightMarker)> = Vec::new();
-    {
-        let mut query = world.query_filtered::<(Entity, &SceneLightMarker), Without<PointLight>>();
-        for (entity, marker) in query.iter(world) {
-            lights_to_update.push((entity, marker.clone()));
-        }
-    }
-
-    for (entity, marker) in lights_to_update {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert((
-                PointLight {
-                    color: marker.color,
-                    intensity: marker.intensity,
-                    range: marker.range,
-                    shadows_enabled: marker.shadows_enabled,
-                    ..default()
-                },
-                Visibility::default(),
-                // Collider for selection via raycasting
-                Collider::sphere(LIGHT_COLLIDER_RADIUS),
-            ));
-        }
-    }
-
-    // Also sync DirectionalLight from DirectionalLightMarker
-    let mut dir_lights_to_update: Vec<(Entity, DirectionalLightMarker)> = Vec::new();
-    {
-        let mut query = world.query_filtered::<(Entity, &DirectionalLightMarker), Without<DirectionalLight>>();
-        for (entity, marker) in query.iter(world) {
-            dir_lights_to_update.push((entity, marker.clone()));
-        }
-    }
-
-    for (entity, marker) in dir_lights_to_update {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert((
-                DirectionalLight {
-                    color: marker.color,
-                    illuminance: marker.illuminance,
-                    shadows_enabled: marker.shadows_enabled,
-                    ..default()
-                },
-                Visibility::default(),
-                // Collider for selection via raycasting
-                Collider::sphere(LIGHT_COLLIDER_RADIUS),
-            ));
-        }
-    }
-
-    // Regenerate colliders for splines
-    let mut splines_to_update: Vec<Entity> = Vec::new();
-    {
-        let mut query = world.query_filtered::<Entity, (With<SplineMarker>, Without<Collider>)>();
-        for entity in query.iter(world) {
-            splines_to_update.push(entity);
-        }
-    }
-
-    for entity in splines_to_update {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            // Add a simple capsule collider for selection
-            // This could be improved to follow the spline curve more closely
-            entity_mut.insert((
-                Visibility::default(),
-                Collider::capsule(0.2, 2.0),
-            ));
-        }
     }
 }
 

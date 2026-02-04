@@ -11,6 +11,7 @@ use super::component_browser::{add_component_by_type_id, draw_component_browser}
 use super::entity_picker::{draw_entity_field, make_callback_id, EntityPickerState, PendingEntitySelection};
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
+use crate::commands::TakeSnapshotCommand;
 use crate::editor::{EditorMode, EditorState};
 use crate::scene::{
     blockout::{ArchMarker, LShapeMarker, RampMarker, StairsMarker},
@@ -1324,6 +1325,41 @@ fn draw_inspector_panel(world: &mut World) {
                 }
             }
         });
+
+    // Determine if any property was changed this frame
+    let any_change = transform_changed
+        || entity_name != original_name
+        || is_locked != original_locked
+        || !matches!(rigidbody_action, ComponentAction::None)
+        || point_light_changed
+        || directional_light_changed
+        || fog_volume_changed
+        || stairs_changed
+        || ramp_changed
+        || arch_changed
+        || lshape_changed
+        || spline_follower_changed
+        || spline_distribution_changed;
+
+    // Take a snapshot before the first change in an editing session
+    if any_change {
+        let needs = world
+            .get_resource::<InspectorPanelState>()
+            .map(|s| s.needs_snapshot)
+            .unwrap_or(true);
+        if needs {
+            TakeSnapshotCommand {
+                description: "Inspector edit".to_string(),
+            }
+            .apply(world);
+            if let Some(mut state) = world.get_resource_mut::<InspectorPanelState>() {
+                state.needs_snapshot = false;
+            }
+        }
+    } else if let Some(mut state) = world.get_resource_mut::<InspectorPanelState>() {
+        // No changes this frame — reset so the next edit gets a fresh snapshot
+        state.needs_snapshot = true;
+    }
 
     // Apply transform changes back to the entity (single selection only)
     if transform_changed {

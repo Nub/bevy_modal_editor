@@ -1202,7 +1202,10 @@ fn draw_command_palette(
                     file_dialog_state.open_insert_scene();
                 }
                 CommandAction::CreateDistribution => {
-                    // Queue a deferred command to create the distribution
+                    // Queue snapshot then deferred command to create the distribution
+                    commands.queue(TakeSnapshotCommand {
+                        description: "Create spline distribution".to_string(),
+                    });
                     let selected_entities: Vec<Entity> = selected.iter().collect();
                     commands.queue(CreateDistributionCommand { selected_entities });
                 }

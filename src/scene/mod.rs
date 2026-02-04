@@ -13,7 +13,10 @@ pub use scene_source::*;
 pub use serialization::*;
 
 use avian3d::prelude::*;
+use bevy::light::FogVolume;
+use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
+use bevy_grid_shader::GridMaterial;
 use bevy_spline_3d::distribution::{
     DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
     SplineDistribution,
@@ -24,6 +27,194 @@ use bevy_spline_3d::prelude::{Spline, SplineType};
 #[derive(Component, Default, Reflect)]
 #[reflect(Component)]
 pub struct SceneEntity;
+
+/// Build a DynamicScene from the world with editor-relevant components.
+/// This is the single source of truth for which components are included in snapshots and saves.
+pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>) -> DynamicScene {
+    DynamicSceneBuilder::from_world(world)
+        .deny_all()
+        // Core
+        .allow_component::<SceneEntity>()
+        .allow_component::<Name>()
+        .allow_component::<Transform>()
+        .allow_component::<RigidBody>()
+        .allow_component::<ChildOf>()
+        .allow_component::<Children>()
+        // Primitives
+        .allow_component::<PrimitiveMarker>()
+        .allow_component::<MaterialType>()
+        // Groups
+        .allow_component::<GroupMarker>()
+        .allow_component::<Locked>()
+        // Lights
+        .allow_component::<SceneLightMarker>()
+        .allow_component::<DirectionalLightMarker>()
+        // Splines
+        .allow_component::<SplineMarker>()
+        .allow_component::<Spline>()
+        .allow_component::<SplineDistribution>()
+        .allow_component::<DistributionSource>()
+        .allow_component::<DistributedInstance>()
+        // Fog
+        .allow_component::<FogVolumeMarker>()
+        // Blockout shapes
+        .allow_component::<StairsMarker>()
+        .allow_component::<RampMarker>()
+        .allow_component::<ArchMarker>()
+        .allow_component::<LShapeMarker>()
+        // External sources
+        .allow_component::<GltfSource>()
+        .allow_component::<SceneSource>()
+        .allow_component::<RecursiveColliderConstructor>()
+        .extract_entities(entities)
+        .build()
+}
+
+/// Regenerate runtime components (meshes, materials, colliders, lights, fog volumes)
+/// for entities loaded from a scene snapshot or file.
+pub fn regenerate_runtime_components(world: &mut World) {
+    // Handle primitives - collect entity, shape, and material type
+    let mut primitives_to_update: Vec<(Entity, PrimitiveShape, MaterialType)> = Vec::new();
+    {
+        let mut query = world
+            .query_filtered::<(Entity, &PrimitiveMarker, Option<&MaterialType>), Without<Mesh3d>>();
+        for (entity, marker, mat_type) in query.iter(world) {
+            primitives_to_update.push((
+                entity,
+                marker.shape,
+                mat_type.copied().unwrap_or_default(),
+            ));
+        }
+    }
+
+    for (entity, shape, mat_type) in primitives_to_update {
+        let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
+        let collider = shape.create_collider();
+
+        match mat_type {
+            MaterialType::Standard => {
+                let material_handle = world
+                    .resource_mut::<Assets<StandardMaterial>>()
+                    .add(shape.create_material());
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    entity_mut.insert((
+                        Mesh3d(mesh_handle),
+                        collider,
+                        MeshMaterial3d(material_handle),
+                    ));
+                }
+            }
+            MaterialType::Grid => {
+                let grid_mat = ExtendedMaterial {
+                    base: shape.create_material(),
+                    extension: GridMaterial::default(),
+                };
+                let material_handle = world.resource_mut::<Assets<GridMat>>().add(grid_mat);
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    entity_mut.insert((
+                        Mesh3d(mesh_handle),
+                        collider,
+                        MeshMaterial3d(material_handle),
+                    ));
+                }
+            }
+        }
+    }
+
+    // Handle point lights
+    let mut lights_to_update: Vec<(Entity, SceneLightMarker)> = Vec::new();
+    {
+        let mut query = world.query_filtered::<(Entity, &SceneLightMarker), Without<PointLight>>();
+        for (entity, marker) in query.iter(world) {
+            lights_to_update.push((entity, marker.clone()));
+        }
+    }
+
+    for (entity, marker) in lights_to_update {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert((
+                PointLight {
+                    color: marker.color,
+                    intensity: marker.intensity,
+                    range: marker.range,
+                    shadows_enabled: marker.shadows_enabled,
+                    ..default()
+                },
+                Visibility::default(),
+                Collider::sphere(LIGHT_COLLIDER_RADIUS),
+            ));
+        }
+    }
+
+    // Handle directional lights
+    let mut dir_lights_to_update: Vec<(Entity, DirectionalLightMarker)> = Vec::new();
+    {
+        let mut query = world
+            .query_filtered::<(Entity, &DirectionalLightMarker), Without<DirectionalLight>>();
+        for (entity, marker) in query.iter(world) {
+            dir_lights_to_update.push((entity, marker.clone()));
+        }
+    }
+
+    for (entity, marker) in dir_lights_to_update {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert((
+                DirectionalLight {
+                    color: marker.color,
+                    illuminance: marker.illuminance,
+                    shadows_enabled: marker.shadows_enabled,
+                    ..default()
+                },
+                Visibility::default(),
+                Collider::sphere(LIGHT_COLLIDER_RADIUS),
+            ));
+        }
+    }
+
+    // Handle spline visibility (splines use proximity-based picking, not colliders)
+    let mut splines_to_update: Vec<Entity> = Vec::new();
+    {
+        let mut query = world.query_filtered::<Entity, (With<SplineMarker>, Without<Visibility>)>();
+        for entity in query.iter(world) {
+            splines_to_update.push(entity);
+        }
+    }
+
+    for entity in splines_to_update {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert(Visibility::default());
+        }
+    }
+
+    // Handle fog volumes
+    let mut fog_to_update: Vec<(Entity, FogVolumeMarker)> = Vec::new();
+    {
+        let mut query =
+            world.query_filtered::<(Entity, &FogVolumeMarker), Without<FogVolume>>();
+        for (entity, marker) in query.iter(world) {
+            fog_to_update.push((entity, marker.clone()));
+        }
+    }
+
+    for (entity, marker) in fog_to_update {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert((
+                FogVolume {
+                    fog_color: marker.fog_color,
+                    density_factor: marker.density_factor,
+                    absorption: marker.absorption,
+                    scattering: marker.scattering,
+                    scattering_asymmetry: marker.scattering_asymmetry,
+                    light_tint: marker.light_tint,
+                    light_intensity: marker.light_intensity,
+                    ..default()
+                },
+                Visibility::default(),
+                Collider::sphere(LIGHT_COLLIDER_RADIUS),
+            ));
+        }
+    }
+}
 
 /// Event to spawn the demo scene
 #[derive(Message)]

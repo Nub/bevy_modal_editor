@@ -5,6 +5,7 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::collections::HashSet;
 
+use crate::commands::TakeSnapshotCommand;
 use crate::editor::{EditorMode, EditorState};
 use crate::scene::{GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::selection::Selected;
@@ -276,6 +277,9 @@ fn draw_hierarchy_panel(
 
     // Apply reparenting after UI is done
     if let Some((child, new_parent)) = reparent_op {
+        commands.queue(TakeSnapshotCommand {
+            description: "Reparent entity".to_string(),
+        });
         if let Some(parent) = new_parent {
             commands.entity(child).set_parent_in_place(parent);
         } else {

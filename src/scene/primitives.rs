@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs, GridMat};
 use super::SceneEntity;
+use crate::commands::TakeSnapshotCommand;
 use crate::constants::{light_colors, physics, primitive_colors};
 use crate::selection::Selected;
 
@@ -463,6 +464,9 @@ fn handle_parent_to_group(
     for event in events.read() {
         // Verify the parent is a valid group
         if groups.get(event.parent).is_ok() {
+            commands.queue(TakeSnapshotCommand {
+                description: "Parent to group".to_string(),
+            });
             commands.entity(event.child).set_parent_in_place(event.parent);
             info!("Parented entity to group");
         } else {
@@ -473,6 +477,9 @@ fn handle_parent_to_group(
 
 fn handle_unparent(mut events: MessageReader<UnparentEvent>, mut commands: Commands) {
     for event in events.read() {
+        commands.queue(TakeSnapshotCommand {
+            description: "Unparent entity".to_string(),
+        });
         commands.entity(event.entity).remove_parent_in_place();
         info!("Unparented entity");
     }
@@ -484,10 +491,13 @@ fn handle_unparent_selected(
     selected: Query<Entity, With<Selected>>,
 ) {
     for _ in events.read() {
-        for entity in selected.iter() {
-            commands.entity(entity).remove_parent_in_place();
-        }
         if !selected.is_empty() {
+            commands.queue(TakeSnapshotCommand {
+                description: "Unparent selected entities".to_string(),
+            });
+            for entity in selected.iter() {
+                commands.entity(entity).remove_parent_in_place();
+            }
             info!("Unparented selected entities");
         }
     }
@@ -507,6 +517,10 @@ fn handle_group_selected(
             info!("Select at least 2 entities to create a group");
             return;
         }
+
+        commands.queue(TakeSnapshotCommand {
+            description: "Group selected entities".to_string(),
+        });
 
         // Create the group with identity transform
         let name = generate_unique_name("Group", &existing_entities);
