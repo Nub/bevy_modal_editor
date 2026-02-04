@@ -53,7 +53,8 @@ fn grid_line_2d(pos: vec2<f32>) -> GridResult {
     let derivative = fwidth(scaled);
 
     // Distance to nearest grid line in world-space grid units
-    let grid_pos = abs(fract(scaled - 0.5) - 0.5);
+    // The 0.4999 is to fudge square numbers from causing a zfighting like problem; It should be exceedingly rare to magically align with this number to see it manifest
+    let grid_pos = abs(fract(scaled - 0.49999) - 0.5);
 
     // Convert distance to screen pixels
     let dist_pixels = grid_pos / derivative;
