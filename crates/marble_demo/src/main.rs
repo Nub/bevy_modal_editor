@@ -1,0 +1,200 @@
+//! Marble Demo - A marble rolling game using bevy_modal_editor
+//!
+//! Demonstrates the editor's play/pause/reset lifecycle:
+//! 1. Design a level in the editor (ground, ramps, obstacles, spawn point, goal zone)
+//! 2. Press F5 to play — marble spawns at SpawnPoint, camera follows
+//! 3. WASD to roll the marble, Space to jump
+//! 4. Reach the GoalZone to complete the level
+//! 5. F6 to pause, F5 to resume, F7 to reset
+
+mod game_camera;
+mod marble;
+mod timer;
+
+use avian3d::prelude::*;
+use bevy::prelude::*;
+use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, PlayPlugin, SpawnPoint};
+
+/// Marker component for goal zone entities.
+/// Reaching this zone triggers level completion.
+#[derive(Component, Clone, Default)]
+pub struct GoalZone;
+
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_plugins(EditorPlugin::new(EditorPluginConfig {
+            pause_physics_on_startup: true,
+            ..default()
+        }))
+        .add_plugins(PlayPlugin)
+        .add_plugins(marble::MarblePlugin)
+        .add_plugins(game_camera::GameCameraPlugin)
+        .add_plugins(timer::GameTimerPlugin)
+        .add_systems(Startup, setup_default_level)
+        .run();
+}
+
+/// Setup a default marble demo level if the scene is empty
+fn setup_default_level(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    existing: Query<Entity, With<bevy_modal_editor::SceneEntity>>,
+) {
+    // Don't spawn if scene already has entities (e.g. loaded from file)
+    if existing.iter().count() > 0 {
+        return;
+    }
+
+    // Ground plane
+    commands.spawn((
+        bevy_modal_editor::SceneEntity,
+        Name::new("Ground"),
+        bevy_modal_editor::PrimitiveMarker {
+            shape: bevy_modal_editor::PrimitiveShape::Cube,
+        },
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.5, 0.5, 0.55),
+            ..default()
+        })),
+        Transform::from_translation(Vec3::new(0.0, -0.5, 0.0))
+            .with_scale(Vec3::new(30.0, 1.0, 30.0)),
+        RigidBody::Static,
+        Collider::cuboid(1.0, 1.0, 1.0),
+    ));
+
+    // Ramp
+    commands.spawn((
+        bevy_modal_editor::SceneEntity,
+        Name::new("Ramp"),
+        bevy_modal_editor::PrimitiveMarker {
+            shape: bevy_modal_editor::PrimitiveShape::Cube,
+        },
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgb(0.6, 0.4, 0.3),
+            ..default()
+        })),
+        Transform::from_translation(Vec3::new(0.0, 0.5, -5.0))
+            .with_rotation(Quat::from_rotation_x(-0.2))
+            .with_scale(Vec3::new(4.0, 0.3, 8.0)),
+        RigidBody::Static,
+        Collider::cuboid(1.0, 1.0, 1.0),
+    ));
+
+    // Walls
+    for (pos, scale, name) in [
+        (
+            Vec3::new(-15.0, 1.0, 0.0),
+            Vec3::new(0.5, 2.0, 30.0),
+            "Wall Left",
+        ),
+        (
+            Vec3::new(15.0, 1.0, 0.0),
+            Vec3::new(0.5, 2.0, 30.0),
+            "Wall Right",
+        ),
+        (
+            Vec3::new(0.0, 1.0, -15.0),
+            Vec3::new(30.0, 2.0, 0.5),
+            "Wall Back",
+        ),
+        (
+            Vec3::new(0.0, 1.0, 15.0),
+            Vec3::new(30.0, 2.0, 0.5),
+            "Wall Front",
+        ),
+    ] {
+        commands.spawn((
+            bevy_modal_editor::SceneEntity,
+            Name::new(name),
+            bevy_modal_editor::PrimitiveMarker {
+                shape: bevy_modal_editor::PrimitiveShape::Cube,
+            },
+            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.3, 0.3, 0.35),
+                ..default()
+            })),
+            Transform::from_translation(pos).with_scale(scale),
+            RigidBody::Static,
+            Collider::cuboid(1.0, 1.0, 1.0),
+        ));
+    }
+
+    // Spawn Point
+    commands.spawn((
+        bevy_modal_editor::SceneEntity,
+        SpawnPoint,
+        Name::new("Spawn Point"),
+        Transform::from_translation(Vec3::new(0.0, 2.0, 10.0)),
+        Visibility::default(),
+        Collider::sphere(0.3),
+    ));
+
+    // Goal Zone
+    commands.spawn((
+        bevy_modal_editor::SceneEntity,
+        GoalZone,
+        Name::new("Goal Zone"),
+        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: Color::srgba(0.2, 1.0, 0.3, 0.3),
+            alpha_mode: AlphaMode::Blend,
+            ..default()
+        })),
+        Transform::from_translation(Vec3::new(0.0, 1.0, -12.0)).with_scale(Vec3::splat(3.0)),
+        RigidBody::Static,
+        Collider::cuboid(1.0, 1.0, 1.0),
+        Sensor,
+    ));
+
+    // Obstacles
+    for (i, (pos, scale)) in [
+        (Vec3::new(5.0, 0.5, 0.0), Vec3::new(2.0, 1.0, 2.0)),
+        (Vec3::new(-5.0, 0.5, -3.0), Vec3::new(1.5, 1.0, 3.0)),
+        (Vec3::new(3.0, 0.5, -8.0), Vec3::new(1.0, 1.0, 1.0)),
+    ]
+    .iter()
+    .enumerate()
+    {
+        commands.spawn((
+            bevy_modal_editor::SceneEntity,
+            Name::new(format!("Obstacle {}", i + 1)),
+            bevy_modal_editor::PrimitiveMarker {
+                shape: bevy_modal_editor::PrimitiveShape::Cube,
+            },
+            Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.7, 0.3, 0.3),
+                ..default()
+            })),
+            Transform::from_translation(*pos).with_scale(*scale),
+            RigidBody::Static,
+            Collider::cuboid(1.0, 1.0, 1.0),
+        ));
+    }
+
+    // Light
+    commands.spawn((
+        bevy_modal_editor::SceneEntity,
+        Name::new("Sun"),
+        bevy_modal_editor::DirectionalLightMarker {
+            color: Color::WHITE,
+            illuminance: 15000.0,
+            shadows_enabled: true,
+        },
+        DirectionalLight {
+            color: Color::WHITE,
+            illuminance: 15000.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_translation(Vec3::new(10.0, 20.0, 10.0)).looking_at(Vec3::ZERO, Vec3::Y),
+        Visibility::default(),
+    ));
+
+    info!("Default marble demo level created");
+}

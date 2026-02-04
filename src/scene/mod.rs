@@ -13,15 +13,19 @@ pub use scene_source::*;
 pub use serialization::*;
 
 use avian3d::prelude::*;
+use bevy::ecs::entity::EntityHashMap;
 use bevy::light::FogVolume;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
+use bevy::scene::serde::SceneDeserializer;
 use bevy_grid_shader::GridMaterial;
+use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
 use bevy_spline_3d::distribution::{
     DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
     SplineDistribution,
 };
 use bevy_spline_3d::prelude::{Spline, SplineType};
+use serde::de::DeserializeSeed;
 
 /// Marker component for entities that are part of the editable scene
 #[derive(Component, Default, Reflect)]
@@ -69,6 +73,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<RampMarker>()
         .allow_component::<ArchMarker>()
         .allow_component::<LShapeMarker>()
+        // Game markers
+        .allow_component::<SpawnPoint>()
         // External sources
         .allow_component::<GltfSource>()
         .allow_component::<SceneSource>()
@@ -221,6 +227,105 @@ pub fn regenerate_runtime_components(world: &mut World) {
             ));
         }
     }
+
+    // Handle spawn points (need visibility and collider for selection)
+    let mut spawn_points_to_update: Vec<Entity> = Vec::new();
+    {
+        let mut query =
+            world.query_filtered::<Entity, (With<SpawnPoint>, Without<Visibility>)>();
+        for entity in query.iter(world) {
+            spawn_points_to_update.push(entity);
+        }
+    }
+
+    for entity in spawn_points_to_update {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert((
+                Visibility::default(),
+                Collider::sphere(LIGHT_COLLIDER_RADIUS),
+            ));
+        }
+    }
+
+}
+
+/// Restore the scene from serialized RON data.
+///
+/// This is the shared implementation used by both undo/redo and play/reset.
+/// It handles: silhouette cleanup, despawning SceneEntity entities,
+/// RON deserialization, writing to world, and regenerating runtime components.
+pub fn restore_scene_from_data(world: &mut World, data: &str) {
+    // Clean up silhouette entities BEFORE despawning scene entities.
+    // The outliner creates separate SilhouetteMesh entities (on render layer 31) that are
+    // NOT children of the source entity. If we despawn the source first, the outliner's
+    // RemovedComponents<MeshOutline> cleanup fails because the source entity is already gone,
+    // leaving orphaned silhouettes that continue rendering.
+    let silhouettes_to_remove: Vec<Entity> = {
+        let mut query = world.query_filtered::<&HasSilhouetteMesh, With<SceneEntity>>();
+        query.iter(world).map(|h| h.silhouette).collect()
+    };
+    // Also collect silhouettes from children of scene entities (e.g. GLTF mesh children)
+    let child_silhouettes: Vec<Entity> = {
+        let mut query = world.query_filtered::<&HasSilhouetteMesh, Without<SceneEntity>>();
+        query.iter(world).map(|h| h.silhouette).collect()
+    };
+    for entity in silhouettes_to_remove.into_iter().chain(child_silhouettes) {
+        world.despawn(entity);
+    }
+
+    // Also despawn any orphaned SilhouetteMesh entities that may have lost their source
+    let orphaned_silhouettes: Vec<Entity> = {
+        let mut query = world.query_filtered::<Entity, With<SilhouetteMesh>>();
+        query.iter(world).collect()
+    };
+    for entity in orphaned_silhouettes {
+        world.despawn(entity);
+    }
+
+    // Clear existing scene entities
+    let entities_to_remove: Vec<Entity> = {
+        let mut query = world.query_filtered::<Entity, With<SceneEntity>>();
+        query.iter(world).collect()
+    };
+
+    info!("Removing {} existing scene entities", entities_to_remove.len());
+    for entity in entities_to_remove {
+        world.despawn(entity);
+    }
+
+    // Deserialize the snapshot
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry = type_registry.read();
+
+    let scene_deserializer = SceneDeserializer {
+        type_registry: &type_registry,
+    };
+
+    let Ok(mut ron_deserializer) = ron::de::Deserializer::from_str(data) else {
+        warn!("Failed to parse scene data");
+        return;
+    };
+
+    let Ok(scene) = scene_deserializer.deserialize(&mut ron_deserializer) else {
+        warn!("Failed to deserialize scene data");
+        return;
+    };
+
+    drop(type_registry);
+
+    // Write scene to world
+    let mut entity_map = EntityHashMap::default();
+    if let Err(e) = scene.write_to_world(world, &mut entity_map) {
+        warn!("Failed to restore scene: {:?}", e);
+        return;
+    }
+
+    info!("Wrote {} entities to world from scene data", entity_map.len());
+
+    // Regenerate meshes, materials, and colliders
+    regenerate_runtime_components(world);
+
+    info!("Scene restoration complete");
 }
 
 /// Event to spawn the demo scene
@@ -264,7 +369,9 @@ impl Plugin for ScenePlugin {
             // Fog volume types
             .register_type::<FogVolumeMarker>()
             // Material types
-            .register_type::<MaterialType>();
+            .register_type::<MaterialType>()
+            // Game markers
+            .register_type::<SpawnPoint>();
     }
 }
 

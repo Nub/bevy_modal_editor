@@ -1,0 +1,10 @@
+[package]
+name = "marble_demo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bevy.workspace = true
+avian3d.workspace = true
+bevy_modal_editor = { path = "../.." }

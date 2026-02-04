@@ -13,6 +13,7 @@ use super::camera::EditorCameraPlugin;
 use super::input::EditorInputPlugin;
 use super::insert::InsertModePlugin;
 use super::marks::CameraMarksPlugin;
+use super::scene_loading::SceneLoadingPlugin;
 use super::spline_edit::SplineEditPlugin;
 use super::state::EditorStatePlugin;
 use crate::commands::CommandsPlugin;
@@ -152,6 +153,7 @@ impl Plugin for EditorPlugin {
             .add_plugins(InsertModePlugin)
             .add_plugins(BlockoutPlugin)
             .add_plugins(SplineEditPlugin)
+            .add_plugins(SceneLoadingPlugin)
             .add_plugins(SplineFollowPlugin)
             .add_plugins(SplineDistributionPlugin)
             // Editor systems
@@ -163,12 +165,12 @@ impl Plugin for EditorPlugin {
             // UI
             .add_plugins(UiPlugin);
 
-        // Startup systems
+        // Pre-startup systems (run before game Startup systems)
         if self.config.add_ambient_light {
-            app.add_systems(Startup, setup_editor_scene);
+            app.add_systems(PreStartup, setup_editor_scene);
         }
         if self.config.pause_physics_on_startup {
-            app.add_systems(Startup, pause_physics_on_startup);
+            app.add_systems(PreStartup, pause_physics_on_startup);
         }
     }
 }

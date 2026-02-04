@@ -36,7 +36,7 @@ const FRAME_PADDING: f32 = 1.5;
 impl Plugin for EditorCameraPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SetCameraPresetEvent>()
-            .add_systems(Startup, spawn_editor_camera)
+            .add_systems(PreStartup, spawn_editor_camera)
             .add_systems(
                 Update,
                 (

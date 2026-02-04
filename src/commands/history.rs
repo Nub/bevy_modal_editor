@@ -1,16 +1,11 @@
 use avian3d::prelude::Physics;
 use avian3d::schedule::PhysicsTime;
-use bevy::ecs::entity::EntityHashMap;
 use bevy::prelude::*;
-use bevy::scene::serde::SceneDeserializer;
 use bevy_egui::EguiContexts;
-use serde::de::DeserializeSeed;
 use std::collections::VecDeque;
 
-use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
-
-use crate::editor::EditorState;
-use crate::scene::{build_editor_scene, regenerate_runtime_components, SceneEntity};
+use crate::editor::{EditorState, SimulationState};
+use crate::scene::{build_editor_scene, restore_scene_from_data, SceneEntity};
 use crate::ui::Settings;
 use crate::utils::should_process_input;
 
@@ -129,6 +124,15 @@ impl Command for TakeSnapshotCommand {
         if restoring {
             info!("Skipping snapshot (restoring): {}", self.description);
             return;
+        }
+
+        // Don't take snapshots while playing - physics changes shouldn't pollute undo history
+        let sim_state = world.get_resource::<State<SimulationState>>();
+        if let Some(state) = sim_state {
+            if *state.get() == SimulationState::Playing {
+                info!("Skipping snapshot (playing): {}", self.description);
+                return;
+            }
         }
 
         // Collect scene entity IDs
@@ -324,79 +328,9 @@ fn take_current_snapshot(world: &mut World, description: &str) -> Option<SceneSn
 fn restore_snapshot(world: &mut World, snapshot: &SceneSnapshot) {
     info!("Restoring snapshot: {}", snapshot.description);
 
-    // Clean up silhouette entities BEFORE despawning scene entities.
-    // The outliner creates separate SilhouetteMesh entities (on render layer 31) that are
-    // NOT children of the source entity. If we despawn the source first, the outliner's
-    // RemovedComponents<MeshOutline> cleanup fails because the source entity is already gone,
-    // leaving orphaned silhouettes that continue rendering.
-    let silhouettes_to_remove: Vec<Entity> = {
-        let mut query = world.query_filtered::<&HasSilhouetteMesh, With<SceneEntity>>();
-        query.iter(world).map(|h| h.silhouette).collect()
-    };
-    // Also collect silhouettes from children of scene entities (e.g. GLTF mesh children)
-    let child_silhouettes: Vec<Entity> = {
-        let mut query = world.query_filtered::<&HasSilhouetteMesh, Without<SceneEntity>>();
-        query.iter(world).map(|h| h.silhouette).collect()
-    };
-    for entity in silhouettes_to_remove.into_iter().chain(child_silhouettes) {
-        world.despawn(entity);
-    }
+    restore_scene_from_data(world, &snapshot.data);
 
-    // Also despawn any orphaned SilhouetteMesh entities that may have lost their source
-    let orphaned_silhouettes: Vec<Entity> = {
-        let mut query = world.query_filtered::<Entity, With<SilhouetteMesh>>();
-        query.iter(world).collect()
-    };
-    for entity in orphaned_silhouettes {
-        world.despawn(entity);
-    }
-
-    // Clear existing scene entities
-    let entities_to_remove: Vec<Entity> = {
-        let mut query = world.query_filtered::<Entity, With<SceneEntity>>();
-        query.iter(world).collect()
-    };
-
-    info!("Removing {} existing scene entities", entities_to_remove.len());
-    for entity in entities_to_remove {
-        world.despawn(entity);
-    }
-
-    // Deserialize the snapshot
-    let type_registry = world.resource::<AppTypeRegistry>().clone();
-    let type_registry = type_registry.read();
-
-    let scene_deserializer = SceneDeserializer {
-        type_registry: &type_registry,
-    };
-
-    let Ok(mut ron_deserializer) = ron::de::Deserializer::from_str(&snapshot.data) else {
-        warn!("Failed to parse snapshot");
-        return;
-    };
-
-    let Ok(scene) = scene_deserializer.deserialize(&mut ron_deserializer) else {
-        warn!("Failed to deserialize snapshot");
-        return;
-    };
-
-    drop(type_registry);
-
-    // Write scene to world
-    let mut entity_map = EntityHashMap::default();
-    if let Err(e) = scene.write_to_world(world, &mut entity_map) {
-        warn!("Failed to restore snapshot: {:?}", e);
-        return;
-    }
-
-    info!("Wrote {} entities to world from snapshot", entity_map.len());
-
-    // Regenerate meshes, materials, and colliders
-    regenerate_runtime_components(world);
-
-    info!("Snapshot restoration complete");
-
-    // Keep physics paused
+    // Keep physics paused after undo/redo
     if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
         physics_time.set_relative_speed(0.0);
     }

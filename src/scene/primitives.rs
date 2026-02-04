@@ -23,6 +23,12 @@ pub struct GroupMarker;
 #[reflect(Component)]
 pub struct Locked;
 
+/// Marker component for spawn point entities.
+/// The marble (or player) spawns at this entity's position when play mode starts.
+#[derive(Component, Serialize, Deserialize, Clone, Default, Reflect)]
+#[reflect(Component)]
+pub struct SpawnPoint;
+
 /// Marker component for point lights
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
 #[reflect(Component)]
@@ -185,6 +191,8 @@ pub enum SpawnEntityKind {
     Arch,
     /// Parametric L-shape corner
     LShape,
+    /// Spawn point marker
+    SpawnPoint,
 }
 
 impl SpawnEntityKind {
@@ -205,6 +213,7 @@ impl SpawnEntityKind {
             SpawnEntityKind::Ramp => "Ramp",
             SpawnEntityKind::Arch => "Arch",
             SpawnEntityKind::LShape => "L-Shape",
+            SpawnEntityKind::SpawnPoint => "Spawn Point",
         }
     }
 }
@@ -303,6 +312,7 @@ fn handle_spawn_entity(
             SpawnEntityKind::Ramp => spawn_ramp(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::Arch => spawn_arch(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::LShape => spawn_lshape(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
+            SpawnEntityKind::SpawnPoint => spawn_spawn_point(&mut commands, event.position, event.rotation, &name),
         };
 
         // Select the newly spawned entity
@@ -546,6 +556,25 @@ fn handle_group_selected(
 
         info!("Created group '{}' with {} entities", name, selected.iter().count());
     }
+}
+
+/// Spawn a spawn point marker entity (small collider for selection in editor)
+fn spawn_spawn_point(
+    commands: &mut Commands,
+    position: Vec3,
+    rotation: Quat,
+    name: &str,
+) -> Entity {
+    commands
+        .spawn((
+            SceneEntity,
+            SpawnPoint,
+            Name::new(name.to_string()),
+            Transform::from_translation(position).with_rotation(rotation),
+            Visibility::default(),
+            Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
+        ))
+        .id()
 }
 
 /// Collider radius for light selection (small sphere for clicking)

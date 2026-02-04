@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::commands::SnapshotHistory;
-use crate::editor::{AxisConstraint, EditorCamera, EditorMode, EditorState, FlyCamera, SnapSubMode, TransformOperation};
+use crate::editor::{AxisConstraint, EditorCamera, EditorMode, EditorState, FlyCamera, SimulationState, SnapSubMode, TransformOperation};
 use crate::scene::SceneFile;
 use crate::selection::Selected;
 use crate::ui::hierarchy::icons;
@@ -29,6 +29,7 @@ fn draw_status_bar(
     scene_file: Res<SceneFile>,
     physics_time: Res<Time<Physics>>,
     snapshot_history: Res<SnapshotHistory>,
+    sim_state: Res<State<SimulationState>>,
     selected_query: Query<&GlobalTransform, With<Selected>>,
     camera_query: Query<&FlyCamera, With<EditorCamera>>,
 ) -> Result {
@@ -176,6 +177,27 @@ fn draw_status_bar(
                                 .color(colors::ACCENT_CYAN),
                         );
                     }
+                }
+
+                // Simulation state indicator (when not Editing)
+                match sim_state.get() {
+                    SimulationState::Playing => {
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new("PLAYING")
+                                .strong()
+                                .color(colors::STATUS_SUCCESS),
+                        );
+                    }
+                    SimulationState::Paused => {
+                        ui.separator();
+                        ui.label(
+                            egui::RichText::new("PAUSED")
+                                .strong()
+                                .color(colors::STATUS_WARNING),
+                        );
+                    }
+                    SimulationState::Editing => {}
                 }
 
                 // RIGHT: Physics + Undo/Redo (right-aligned)

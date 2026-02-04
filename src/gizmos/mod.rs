@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin, InfiniteGridSettings};
 
 use crate::editor::EditorState;
-use crate::scene::{DirectionalLightMarker, SceneLightMarker};
+use crate::scene::{DirectionalLightMarker, SceneLightMarker, SpawnPoint};
 use crate::ui::Settings;
 
 /// Custom gizmo config group for x-ray transform gizmos (always visible through objects)
@@ -26,8 +26,8 @@ impl Plugin for EditorGizmosPlugin {
             .init_gizmo_group::<XRayGizmoDimmed>()
             .add_plugins(TransformGizmoPlugin)
             .add_plugins(InfiniteGridPlugin)
-            .add_systems(Startup, (configure_gizmos, spawn_grid))
-            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos));
+            .add_systems(PreStartup, (configure_gizmos, spawn_grid))
+            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos, draw_spawn_point_gizmos));
     }
 }
 
@@ -174,3 +174,32 @@ fn draw_point_light_gizmos(
         );
     }
 }
+
+/// Draw gizmos for spawn points (upward arrow marker)
+fn draw_spawn_point_gizmos(
+    mut gizmos: Gizmos,
+    spawn_points: Query<&GlobalTransform, With<SpawnPoint>>,
+    editor_state: Res<EditorState>,
+) {
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
+    let color = Color::srgb(0.2, 0.8, 1.0);
+    for transform in spawn_points.iter() {
+        let pos = transform.translation();
+        // Draw a diamond/marker shape
+        let size = 0.4;
+        gizmos.circle(Isometry3d::new(pos, Quat::IDENTITY), size, color);
+        gizmos.circle(
+            Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+            size,
+            color,
+        );
+        // Upward arrow
+        gizmos.line(pos, pos + Vec3::Y * 1.0, color);
+        gizmos.line(pos + Vec3::Y * 1.0, pos + Vec3::new(0.15, 0.7, 0.0), color);
+        gizmos.line(pos + Vec3::Y * 1.0, pos + Vec3::new(-0.15, 0.7, 0.0), color);
+    }
+}
+

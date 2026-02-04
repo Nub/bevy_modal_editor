@@ -53,19 +53,25 @@ pub mod ui;
 pub mod utils;
 
 // Re-export the main plugin and configuration
-pub use editor::{EditorPlugin, EditorPluginConfig};
+pub use editor::{EditorPlugin, EditorPluginConfig, PlayPlugin};
 
 // Re-export commonly used types
 pub use scene::{
     DirectionalLightMarker, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity,
-    SceneLightMarker,
+    SceneLightMarker, SpawnPoint,
 };
 
 // Re-export selection types
 pub use selection::Selected;
 
 // Re-export editor state types
-pub use editor::{AxisConstraint, EditorMode, TransformOperation};
+pub use editor::{AxisConstraint, EditorMode, SimulationState, TransformOperation};
+
+// Re-export simulation events
+pub use editor::{PauseEvent, PlayEvent, ResetEvent};
+
+// Re-export scene loading
+pub use editor::{SceneLoadingProgress, SceneLoadingState};
 
 // Re-export camera types
 pub use editor::{EditorCamera, GameCamera};

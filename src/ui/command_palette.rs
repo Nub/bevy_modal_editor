@@ -11,8 +11,8 @@ use bevy_spline_3d::prelude::{Spline, SplineType};
 use crate::commands::{RedoEvent, TakeSnapshotCommand, UndoEvent};
 use crate::editor::{
     CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
-    JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent, ToggleGridEvent, TogglePhysicsDebugEvent,
-    TogglePhysicsEvent,
+    JumpToMarkEvent, PauseEvent, PlayEvent, ResetEvent, SetCameraMarkEvent, StartInsertEvent,
+    ToggleGridEvent, TogglePhysicsDebugEvent, TogglePhysicsEvent,
 };
 use crate::scene::{
     PrimitiveShape, SceneFile, SpawnDemoSceneEvent, SpawnEntityEvent, SpawnEntityKind,
@@ -40,6 +40,9 @@ struct CommandEvents<'w> {
     spawn_demo: MessageWriter<'w, SpawnDemoSceneEvent>,
     undo: MessageWriter<'w, UndoEvent>,
     redo: MessageWriter<'w, RedoEvent>,
+    play: MessageWriter<'w, PlayEvent>,
+    pause: MessageWriter<'w, PauseEvent>,
+    reset: MessageWriter<'w, ResetEvent>,
 }
 
 /// System parameter grouping palette UI state resources
@@ -111,6 +114,14 @@ pub enum CommandAction {
     SpawnArch,
     /// Spawn parametric L-shape
     SpawnLShape,
+    /// Spawn a spawn point marker
+    SpawnSpawnPoint,
+    /// Start simulation (play or resume)
+    Play,
+    /// Pause simulation
+    Pause,
+    /// Reset simulation to pre-play state
+    Reset,
 }
 
 /// The mode the command palette is operating in
@@ -393,6 +404,14 @@ impl CommandRegistry {
             insertable: false,
         });
 
+        // Game markers
+        self.commands.push(Command {
+            name: "Add Spawn Point".to_string(),
+            keywords: vec!["start".into(), "player".into(), "origin".into(), "marble".into()],
+            category: "Game",
+            action: CommandAction::SpawnSpawnPoint,
+            insertable: false,
+        });
         // Groups (insertable)
         self.commands.push(Command {
             name: "Add Group".to_string(),
@@ -523,6 +542,29 @@ impl CommandRegistry {
             keywords: vec!["two".into()],
             category: "Snapping",
             action: CommandAction::SetGridSnap(2.0),
+            insertable: false,
+        });
+
+        // Simulation
+        self.commands.push(Command {
+            name: "Play".to_string(),
+            keywords: vec!["start".into(), "run".into(), "simulate".into(), "f5".into()],
+            category: "Simulation",
+            action: CommandAction::Play,
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Pause".to_string(),
+            keywords: vec!["stop".into(), "freeze".into(), "f6".into()],
+            category: "Simulation",
+            action: CommandAction::Pause,
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Reset".to_string(),
+            keywords: vec!["restore".into(), "revert".into(), "f7".into()],
+            category: "Simulation",
+            action: CommandAction::Reset,
             insertable: false,
         });
 
@@ -1123,6 +1165,13 @@ fn draw_command_palette(
                         rotation: Quat::IDENTITY,
                     });
                 }
+                CommandAction::SpawnSpawnPoint => {
+                    events.spawn_entity.write(SpawnEntityEvent {
+                        kind: SpawnEntityKind::SpawnPoint,
+                        position: Vec3::new(0.0, 1.0, 0.0),
+                        rotation: Quat::IDENTITY,
+                    });
+                }
                 CommandAction::SetCameraMark(name) => {
                     events.set_mark.write(SetCameraMarkEvent { name });
                 }
@@ -1208,6 +1257,15 @@ fn draw_command_palette(
                     });
                     let selected_entities: Vec<Entity> = selected.iter().collect();
                     commands.queue(CreateDistributionCommand { selected_entities });
+                }
+                CommandAction::Play => {
+                    events.play.write(PlayEvent);
+                }
+                CommandAction::Pause => {
+                    events.pause.write(PauseEvent);
+                }
+                CommandAction::Reset => {
+                    events.reset.write(ResetEvent);
                 }
             }
         }

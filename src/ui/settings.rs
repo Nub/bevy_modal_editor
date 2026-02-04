@@ -188,7 +188,7 @@ impl Plugin for SettingsPlugin {
             .init_resource::<SettingsWindowState>()
             .init_resource::<FontsLoaded>()
             .init_resource::<FontSizesApplied>()
-            .add_systems(Startup, apply_settings_to_editor_state)
+            .add_systems(PreStartup, apply_settings_to_editor_state)
             .add_systems(Update, (apply_ui_scale, sync_snap_settings, load_custom_fonts, apply_font_sizes))
             .add_systems(EguiPrimaryContextPass, draw_settings_window);
     }

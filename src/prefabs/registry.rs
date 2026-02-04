@@ -87,7 +87,7 @@ pub struct PrefabRegistryPlugin;
 impl Plugin for PrefabRegistryPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PrefabRegistry>()
-            .add_systems(Startup, setup_prefab_registry);
+            .add_systems(PreStartup, setup_prefab_registry);
     }
 }
 
