@@ -33,8 +33,10 @@ The `SplineEditPlugin` bridges `bevy_spline_3d` with the modal editor:
 
 ## Build Commands
 
+**Important:** All commands must be run inside the Nix development shell. Run `nix develop` first, or ensure you are already in the shell before building or running anything.
+
 ```bash
-# Enter development environment (required for dependencies)
+# Enter development environment (REQUIRED before any build/run commands)
 nix develop
 
 # Build and run the editor

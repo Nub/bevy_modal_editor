@@ -8,6 +8,7 @@ use bevy_egui::EguiContexts;
 use bevy_spline_3d::prelude::*;
 
 use super::state::{EditorMode, EditorState, SelectedControlPointIndex};
+use crate::commands::TakeSnapshotCommand;
 use crate::scene::SplineMarker;
 use crate::selection::Selected;
 use crate::utils::should_process_input;
@@ -153,6 +154,9 @@ fn handle_spline_hotkeys(
 
     // A - Add control point after selection
     if keyboard.just_pressed(KeyCode::KeyA) {
+        commands.queue(TakeSnapshotCommand {
+            description: "Add spline control point".to_string(),
+        });
         for (entity, mut spline) in &mut splines {
             let insert_index = control_point_selection.0.unwrap_or(
                 spline.control_points.len().saturating_sub(1),
@@ -180,6 +184,9 @@ fn handle_spline_hotkeys(
 
     // X - Delete selected control point
     if keyboard.just_pressed(KeyCode::KeyX) {
+        commands.queue(TakeSnapshotCommand {
+            description: "Delete spline control point".to_string(),
+        });
         if let Some(selected_index) = control_point_selection.0 {
             for (entity, mut spline) in &mut splines {
                 // Don't delete if it would leave too few points
@@ -224,6 +231,9 @@ fn handle_spline_hotkeys(
     // Tab - Cycle spline type (note: this conflicts with mode switching in View mode,
     // but we're in Edit mode here so it's safe)
     if keyboard.just_pressed(KeyCode::Tab) {
+        commands.queue(TakeSnapshotCommand {
+            description: "Cycle spline type".to_string(),
+        });
         for (entity, mut spline) in &mut splines {
             spline.cycle_type();
             info!("Changed spline {:?} type to {:?}", entity, spline.spline_type);
@@ -232,6 +242,9 @@ fn handle_spline_hotkeys(
 
     // C - Toggle closed/open
     if keyboard.just_pressed(KeyCode::KeyC) {
+        commands.queue(TakeSnapshotCommand {
+            description: "Toggle spline closed".to_string(),
+        });
         for (entity, mut spline) in &mut splines {
             spline.toggle_closed();
             info!(
@@ -265,14 +278,26 @@ fn calculate_new_point_position(spline: &Spline, insert_index: usize) -> Vec3 {
 /// Handle control point dragging in Edit mode.
 ///
 /// This allows dragging control points when in Edit mode with a spline selected.
+/// Also detects when a drag ends and takes an undo snapshot.
 fn handle_control_point_drag(
+    mut commands: Commands,
     mouse_button: Res<ButtonInput<MouseButton>>,
     editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
     selected_splines: Query<(), (With<Selected>, With<SplineMarker>)>,
     mut control_point_selection: ResMut<SelectedControlPointIndex>,
     selected_points: Query<&ControlPointMarker, With<SelectedControlPoint>>,
+    selection_state: Res<SelectionState>,
+    mut was_dragging: Local<bool>,
 ) {
+    // Detect drag start: take snapshot of the pre-drag state for undo
+    if !*was_dragging && selection_state.dragging {
+        commands.queue(TakeSnapshotCommand {
+            description: "Move spline control point".to_string(),
+        });
+    }
+    *was_dragging = selection_state.dragging;
+
     if !should_process_input(&editor_state, &mut contexts) {
         return;
     }
