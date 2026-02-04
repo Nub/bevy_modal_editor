@@ -136,6 +136,7 @@ fn sync_spline_selection(
 fn handle_spline_hotkeys(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
     editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
     mut splines: Query<(Entity, &mut Spline), (With<Selected>, With<SplineMarker>)>,
@@ -144,6 +145,11 @@ fn handle_spline_hotkeys(
     mut control_point_selection: ResMut<SelectedControlPointIndex>,
 ) {
     if !should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+
+    // Don't process spline hotkeys while right mouse is held (camera flight mode)
+    if mouse_button.pressed(MouseButton::Right) {
         return;
     }
 
@@ -240,8 +246,8 @@ fn handle_spline_hotkeys(
         }
     }
 
-    // C - Toggle closed/open
-    if keyboard.just_pressed(KeyCode::KeyC) {
+    // S - Toggle closed/open
+    if keyboard.just_pressed(KeyCode::KeyS) {
         commands.queue(TakeSnapshotCommand {
             description: "Toggle spline closed".to_string(),
         });
