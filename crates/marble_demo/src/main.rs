@@ -13,11 +13,13 @@ mod timer;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, PlayPlugin, SpawnPoint};
+use bevy_editor_game::{RegisterSceneComponentExt, SpawnPoint};
+use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, GamePlugin};
 
 /// Marker component for goal zone entities.
 /// Reaching this zone triggers level completion.
-#[derive(Component, Clone, Default)]
+#[derive(Component, Clone, Default, Reflect, serde::Serialize, serde::Deserialize)]
+#[reflect(Component)]
 pub struct GoalZone;
 
 fn main() {
@@ -27,10 +29,11 @@ fn main() {
             pause_physics_on_startup: true,
             ..default()
         }))
-        .add_plugins(PlayPlugin)
+        .add_plugins(GamePlugin)
         .add_plugins(marble::MarblePlugin)
         .add_plugins(game_camera::GameCameraPlugin)
         .add_plugins(timer::GameTimerPlugin)
+        .register_scene_component::<GoalZone>()
         .add_systems(Startup, setup_default_level)
         .run();
 }

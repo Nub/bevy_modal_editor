@@ -4,7 +4,9 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 use std::collections::VecDeque;
 
-use crate::editor::{EditorState, SimulationState};
+use bevy_editor_game::GameState;
+
+use crate::editor::EditorState;
 use crate::scene::{build_editor_scene, restore_scene_from_data, SceneEntity};
 use crate::ui::Settings;
 use crate::utils::should_process_input;
@@ -126,11 +128,11 @@ impl Command for TakeSnapshotCommand {
             return;
         }
 
-        // Don't take snapshots while playing - physics changes shouldn't pollute undo history
-        let sim_state = world.get_resource::<State<SimulationState>>();
-        if let Some(state) = sim_state {
-            if *state.get() == SimulationState::Playing {
-                info!("Skipping snapshot (playing): {}", self.description);
+        // Don't take snapshots unless in Editing state — physics/pause changes shouldn't pollute undo history
+        let game_state = world.get_resource::<State<GameState>>();
+        if let Some(state) = game_state {
+            if *state.get() != GameState::Editing {
+                info!("Skipping snapshot (not editing): {}", self.description);
                 return;
             }
         }

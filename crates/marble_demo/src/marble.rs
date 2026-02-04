@@ -1,6 +1,6 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_modal_editor::{SimulationState, SpawnPoint};
+use bevy_editor_game::{GameCamera, GameEntity, GameStartedEvent, GameState, SpawnPoint};
 
 /// Marker component for the marble entity
 #[derive(Component)]
@@ -32,72 +32,51 @@ pub struct MarblePlugin;
 impl Plugin for MarblePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MarbleConfig>()
-            .add_systems(OnEnter(SimulationState::Playing), spawn_marble)
-            .add_systems(OnExit(SimulationState::Playing), despawn_marble)
+            .add_systems(Update, spawn_marble_on_game_start)
             .add_systems(
                 Update,
-                marble_input.run_if(in_state(SimulationState::Playing)),
+                marble_input.run_if(in_state(GameState::Playing)),
             );
     }
 }
 
-/// Spawn the marble at the SpawnPoint position when entering Play mode
-fn spawn_marble(
+/// Spawn the marble at the SpawnPoint position when the game starts
+fn spawn_marble_on_game_start(
+    mut events: MessageReader<GameStartedEvent>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     spawn_points: Query<&Transform, With<SpawnPoint>>,
-    existing_marbles: Query<Entity, With<Marble>>,
 ) {
-    // Don't spawn if marble already exists (resuming from pause)
-    if !existing_marbles.is_empty() {
-        return;
-    }
+    for _ in events.read() {
+        // Find spawn point position
+        let spawn_pos = spawn_points
+            .iter()
+            .next()
+            .map(|t| t.translation)
+            .unwrap_or(Vec3::new(0.0, 2.0, 0.0));
 
-    // Find spawn point position
-    let spawn_pos = spawn_points
-        .iter()
-        .next()
-        .map(|t| t.translation)
-        .unwrap_or(Vec3::new(0.0, 2.0, 0.0));
+        info!("Spawning marble at {:?}", spawn_pos);
 
-    info!("Spawning marble at {:?}", spawn_pos);
-
-    commands.spawn((
-        Marble,
-        Name::new("Marble"),
-        Mesh3d(meshes.add(Sphere::new(0.5))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.2, 0.2),
-            metallic: 0.8,
-            perceptual_roughness: 0.3,
-            ..default()
-        })),
-        Transform::from_translation(spawn_pos),
-        RigidBody::Dynamic,
-        Collider::sphere(0.5),
-        Restitution::new(0.3),
-        Friction::new(0.8),
-        LinearDamping(0.5),
-        AngularDamping(0.3),
-    ));
-}
-
-/// Despawn the marble when leaving Play mode (reset or back to editing)
-fn despawn_marble(
-    mut commands: Commands,
-    marbles: Query<Entity, With<Marble>>,
-    sim_state: Res<State<SimulationState>>,
-) {
-    // Only despawn if we're going back to Editing (reset), not Paused
-    // When paused, we keep the marble so it can be resumed
-    if *sim_state.get() == SimulationState::Paused {
-        return;
-    }
-
-    for entity in marbles.iter() {
-        commands.entity(entity).despawn();
-        info!("Marble despawned");
+        commands.spawn((
+            Marble,
+            GameEntity,
+            Name::new("Marble"),
+            Mesh3d(meshes.add(Sphere::new(0.5))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.8, 0.2, 0.2),
+                metallic: 0.8,
+                perceptual_roughness: 0.3,
+                ..default()
+            })),
+            Transform::from_translation(spawn_pos),
+            RigidBody::Dynamic,
+            Collider::sphere(0.5),
+            Restitution::new(0.3),
+            Friction::new(0.8),
+            LinearDamping(0.5),
+            AngularDamping(0.3),
+        ));
     }
 }
 
@@ -106,7 +85,7 @@ fn marble_input(
     keyboard: Res<ButtonInput<KeyCode>>,
     config: Res<MarbleConfig>,
     mut marbles: Query<Forces, With<Marble>>,
-    camera_query: Query<&GlobalTransform, With<bevy_modal_editor::GameCamera>>,
+    camera_query: Query<&GlobalTransform, With<GameCamera>>,
 ) {
     let Ok(mut forces) = marbles.single_mut() else {
         return;

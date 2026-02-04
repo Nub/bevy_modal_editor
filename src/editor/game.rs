@@ -3,48 +3,26 @@ use avian3d::prelude::Physics;
 use avian3d::schedule::PhysicsTime;
 use bevy::gizmos::config::GizmoConfigStore;
 use bevy::prelude::*;
+use bevy_editor_game::{
+    GameEntity, GamePausedEvent, GameResetEvent, GameResumedEvent, GameStartedEvent, GameState,
+    PauseEvent, PlayEvent, ResetEvent,
+};
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use bevy_infinite_grid::InfiniteGridSettings;
 
-use crate::editor::{EditorCamera, EditorState, GameCamera};
+use crate::editor::{EditorMode, EditorState, TransformOperation};
 use crate::scene::{build_editor_scene, restore_scene_from_data, SceneEntity};
 use crate::ui::colors;
 
-/// Simulation state orthogonal to EditorMode.
-///
-/// Controls whether physics is running and the editor is active.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, States)]
-pub enum SimulationState {
-    /// Physics paused, editor active (default state)
-    #[default]
-    Editing,
-    /// Physics running, editor hidden, game logic runs
-    Playing,
-    /// Physics paused, editor overlays shown
-    Paused,
-}
-
-/// Event to start playing (or resume from paused)
-#[derive(Message)]
-pub struct PlayEvent;
-
-/// Event to pause while playing
-#[derive(Message)]
-pub struct PauseEvent;
-
-/// Event to reset scene to pre-play state
-#[derive(Message)]
-pub struct ResetEvent;
-
 /// Holds the pre-play scene snapshot for reset
 #[derive(Resource, Default)]
-pub struct PlaySnapshot {
+pub struct GameSnapshot {
     pub data: Option<String>,
 }
 
-pub struct PlayPlugin;
+pub struct GamePlugin;
 
-impl Plugin for PlayPlugin {
+impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         // State, resources, and events are registered in EditorStatePlugin
         // so the editor always has the types available. This plugin adds the
@@ -61,40 +39,40 @@ impl Plugin for PlayPlugin {
 /// Handle play/pause/reset hotkeys
 fn handle_play_input(
     keyboard: Res<ButtonInput<KeyCode>>,
-    sim_state: Res<State<SimulationState>>,
+    game_state: Res<State<GameState>>,
     mut play_events: MessageWriter<PlayEvent>,
     mut pause_events: MessageWriter<PauseEvent>,
     mut reset_events: MessageWriter<ResetEvent>,
 ) {
     // F5: Play or Resume
     if keyboard.just_pressed(KeyCode::F5) {
-        match sim_state.get() {
-            SimulationState::Editing | SimulationState::Paused => {
+        match game_state.get() {
+            GameState::Editing | GameState::Paused => {
                 play_events.write(PlayEvent);
             }
-            SimulationState::Playing => {} // Already playing
+            GameState::Playing => {} // Already playing
         }
     }
 
     // F6: Pause
     if keyboard.just_pressed(KeyCode::F6) {
-        if *sim_state.get() == SimulationState::Playing {
+        if *game_state.get() == GameState::Playing {
             pause_events.write(PauseEvent);
         }
     }
 
     // F7: Reset
     if keyboard.just_pressed(KeyCode::F7) {
-        match sim_state.get() {
-            SimulationState::Playing | SimulationState::Paused => {
+        match game_state.get() {
+            GameState::Playing | GameState::Paused => {
                 reset_events.write(ResetEvent);
             }
-            SimulationState::Editing => {} // Nothing to reset
+            GameState::Editing => {} // Nothing to reset
         }
     }
 
-    // Escape while playing → pause
-    if keyboard.just_pressed(KeyCode::Escape) && *sim_state.get() == SimulationState::Playing {
+    // Escape while playing -> pause
+    if keyboard.just_pressed(KeyCode::Escape) && *game_state.get() == GameState::Playing {
         pause_events.write(PauseEvent);
     }
 }
@@ -103,17 +81,17 @@ fn handle_play_input(
 fn handle_play(
     mut events: MessageReader<PlayEvent>,
     mut commands: Commands,
-    sim_state: Res<State<SimulationState>>,
+    game_state: Res<State<GameState>>,
 ) {
     for _ in events.read() {
-        match sim_state.get() {
-            SimulationState::Editing => {
+        match game_state.get() {
+            GameState::Editing => {
                 commands.queue(PlayCommand { from_editing: true });
             }
-            SimulationState::Paused => {
+            GameState::Paused => {
                 commands.queue(PlayCommand { from_editing: false });
             }
-            SimulationState::Playing => {}
+            GameState::Playing => {}
         }
     }
 }
@@ -121,11 +99,11 @@ fn handle_play(
 /// Handle pause events — queue a command for exclusive world access
 fn handle_pause(
     mut events: MessageReader<PauseEvent>,
-    sim_state: Res<State<SimulationState>>,
+    game_state: Res<State<GameState>>,
     mut commands: Commands,
 ) {
     for _ in events.read() {
-        if *sim_state.get() == SimulationState::Playing {
+        if *game_state.get() == GameState::Playing {
             commands.queue(PauseCommand);
         }
     }
@@ -134,11 +112,11 @@ fn handle_pause(
 /// Handle reset events — queue a command for exclusive world access
 fn handle_reset(
     mut events: MessageReader<ResetEvent>,
-    sim_state: Res<State<SimulationState>>,
+    game_state: Res<State<GameState>>,
     mut commands: Commands,
 ) {
     for _ in events.read() {
-        if *sim_state.get() == SimulationState::Editing {
+        if *game_state.get() == GameState::Editing {
             continue;
         }
         commands.queue(ResetCommand);
@@ -165,34 +143,6 @@ fn set_grid_visibility(world: &mut World, visible: bool) {
     }
 }
 
-/// Sync camera active states based on editor_active.
-/// Called from exclusive Commands since ToggleEditorEvent would conflict.
-///
-/// The editor camera is kept always active so that `PrimaryEguiContext`
-/// (which lives on it) keeps working. During play mode the game camera
-/// renders at a higher order and overwrites the editor camera output.
-fn sync_cameras(world: &mut World) {
-    let editor_active = world
-        .get_resource::<EditorState>()
-        .map(|s| s.editor_active)
-        .unwrap_or(true);
-
-    // Editor camera stays active at all times for egui rendering.
-    // No need to toggle it.
-
-    let game_cam_entities: Vec<Entity> = {
-        let mut q = world.query_filtered::<Entity, (With<GameCamera>, Without<EditorCamera>)>();
-        q.iter(world).collect()
-    };
-    for entity in game_cam_entities {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            if let Some(mut camera) = entity_mut.get_mut::<Camera>() {
-                camera.is_active = !editor_active;
-            }
-        }
-    }
-}
-
 /// Command to start playing with exclusive world access
 struct PlayCommand {
     from_editing: bool,
@@ -214,13 +164,13 @@ impl Command for PlayCommand {
 
             if let Ok(serialized) = scene.serialize(&type_registry) {
                 drop(type_registry);
-                if let Some(mut snapshot) = world.get_resource_mut::<PlaySnapshot>() {
+                if let Some(mut snapshot) = world.get_resource_mut::<GameSnapshot>() {
                     snapshot.data = Some(serialized);
                 }
-                info!("Play snapshot taken");
+                info!("Game snapshot taken");
             } else {
                 drop(type_registry);
-                warn!("Failed to serialize play snapshot");
+                warn!("Failed to serialize game snapshot");
             }
         }
 
@@ -242,19 +192,24 @@ impl Command for PlayCommand {
         }
         set_grid_visibility(world, false);
 
-        // Sync cameras
-        sync_cameras(world);
 
         // Transition state
-        if let Some(mut next_state) = world.get_resource_mut::<NextState<SimulationState>>() {
-            next_state.set(SimulationState::Playing);
+        if let Some(mut next_state) = world.get_resource_mut::<NextState<GameState>>() {
+            next_state.set(GameState::Playing);
         }
 
-        info!("Simulation: PLAYING");
+        // Fire lifecycle event
+        if self.from_editing {
+            world.write_message(GameStartedEvent);
+        } else {
+            world.write_message(GameResumedEvent);
+        }
+
+        info!("Game: PLAYING");
     }
 }
 
-/// Command to pause simulation with exclusive world access
+/// Command to pause with exclusive world access
 struct PauseCommand;
 
 impl Command for PauseCommand {
@@ -277,23 +232,32 @@ impl Command for PauseCommand {
         }
         set_grid_visibility(world, true);
 
-        // Sync cameras
-        sync_cameras(world);
 
-        // Transition state
-        if let Some(mut next_state) = world.get_resource_mut::<NextState<SimulationState>>() {
-            next_state.set(SimulationState::Paused);
+        // Force View mode and clear transform operations
+        if let Some(mut next_mode) = world.get_resource_mut::<NextState<EditorMode>>() {
+            next_mode.set(EditorMode::View);
+        }
+        if let Some(mut op) = world.get_resource_mut::<TransformOperation>() {
+            *op = TransformOperation::None;
         }
 
-        info!("Simulation: PAUSED");
+        // Transition state
+        if let Some(mut next_state) = world.get_resource_mut::<NextState<GameState>>() {
+            next_state.set(GameState::Paused);
+        }
+
+        // Fire lifecycle event
+        world.write_message(GamePausedEvent);
+
+        info!("Game: PAUSED");
     }
 }
 
 /// Draw play/pause/reset control buttons.
-/// Visible in all simulation states (not gated by ui_enabled).
+/// Visible in all game states (not gated by ui_enabled).
 fn draw_play_controls(
     mut contexts: EguiContexts,
-    sim_state: Res<State<SimulationState>>,
+    game_state: Res<State<GameState>>,
     mut play_events: MessageWriter<PlayEvent>,
     mut pause_events: MessageWriter<PauseEvent>,
     mut reset_events: MessageWriter<ResetEvent>,
@@ -310,8 +274,8 @@ fn draw_play_controls(
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
-                        match sim_state.get() {
-                            SimulationState::Editing => {
+                        match game_state.get() {
+                            GameState::Editing => {
                                 if ui
                                     .button(egui::RichText::new("\u{25B6} Play").color(colors::STATUS_SUCCESS))
                                     .clicked()
@@ -319,7 +283,7 @@ fn draw_play_controls(
                                     play_events.write(PlayEvent);
                                 }
                             }
-                            SimulationState::Playing => {
+                            GameState::Playing => {
                                 if ui
                                     .button(egui::RichText::new("\u{23F8} Pause").color(colors::STATUS_WARNING))
                                     .clicked()
@@ -333,7 +297,7 @@ fn draw_play_controls(
                                     reset_events.write(ResetEvent);
                                 }
                             }
-                            SimulationState::Paused => {
+                            GameState::Paused => {
                                 if ui
                                     .button(egui::RichText::new("\u{25B6} Resume").color(colors::STATUS_SUCCESS))
                                     .clicked()
@@ -360,16 +324,25 @@ struct ResetCommand;
 
 impl Command for ResetCommand {
     fn apply(self, world: &mut World) {
+        // Despawn all GameEntity-marked entities before restoring scene
+        let game_entities: Vec<Entity> = {
+            let mut q = world.query_filtered::<Entity, With<GameEntity>>();
+            q.iter(world).collect()
+        };
+        for entity in game_entities {
+            world.despawn(entity);
+        }
+
         // Get snapshot data
         let data = world
-            .get_resource::<PlaySnapshot>()
+            .get_resource::<GameSnapshot>()
             .and_then(|s| s.data.clone());
 
         if let Some(data) = data {
             restore_scene_from_data(world, &data);
-            info!("Scene restored from play snapshot");
+            info!("Scene restored from game snapshot");
         } else {
-            warn!("No play snapshot to restore");
+            warn!("No game snapshot to restore");
         }
 
         // Pause physics
@@ -390,19 +363,20 @@ impl Command for ResetCommand {
         }
         set_grid_visibility(world, true);
 
-        // Sync cameras
-        sync_cameras(world);
 
         // Clear snapshot
-        if let Some(mut snapshot) = world.get_resource_mut::<PlaySnapshot>() {
+        if let Some(mut snapshot) = world.get_resource_mut::<GameSnapshot>() {
             snapshot.data = None;
         }
 
         // Transition state
-        if let Some(mut next_state) = world.get_resource_mut::<NextState<SimulationState>>() {
-            next_state.set(SimulationState::Editing);
+        if let Some(mut next_state) = world.get_resource_mut::<NextState<GameState>>() {
+            next_state.set(GameState::Editing);
         }
 
-        info!("Simulation: RESET to Editing");
+        // Fire lifecycle event
+        world.write_message(GameResetEvent);
+
+        info!("Game: RESET to Editing");
     }
 }

@@ -9,9 +9,11 @@ use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSource, 
 use bevy_spline_3d::prelude::{Spline, SplineType};
 
 use crate::commands::{RedoEvent, TakeSnapshotCommand, UndoEvent};
+use bevy_editor_game::{PauseEvent, PlayEvent, ResetEvent};
+
 use crate::editor::{
     CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
-    JumpToMarkEvent, PauseEvent, PlayEvent, ResetEvent, SetCameraMarkEvent, StartInsertEvent,
+    JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent,
     ToggleGridEvent, TogglePhysicsDebugEvent, TogglePhysicsEvent,
 };
 use crate::scene::{
@@ -545,25 +547,25 @@ impl CommandRegistry {
             insertable: false,
         });
 
-        // Simulation
+        // Game
         self.commands.push(Command {
             name: "Play".to_string(),
             keywords: vec!["start".into(), "run".into(), "simulate".into(), "f5".into()],
-            category: "Simulation",
+            category: "Game",
             action: CommandAction::Play,
             insertable: false,
         });
         self.commands.push(Command {
             name: "Pause".to_string(),
             keywords: vec!["stop".into(), "freeze".into(), "f6".into()],
-            category: "Simulation",
+            category: "Game",
             action: CommandAction::Pause,
             insertable: false,
         });
         self.commands.push(Command {
             name: "Reset".to_string(),
             keywords: vec!["restore".into(), "revert".into(), "f7".into()],
-            category: "Simulation",
+            category: "Game",
             action: CommandAction::Reset,
             insertable: false,
         });

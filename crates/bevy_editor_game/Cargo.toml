@@ -1,0 +1,9 @@
+[package]
+name = "bevy_editor_game"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+bevy.workspace = true
+serde.workspace = true

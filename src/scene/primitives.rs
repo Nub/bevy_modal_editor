@@ -5,6 +5,7 @@ use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
 
 use bevy::pbr::ExtendedMaterial;
+use bevy_editor_game::SpawnPoint;
 use bevy_grid_shader::GridMaterial;
 
 use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs, GridMat};
@@ -22,12 +23,6 @@ pub struct GroupMarker;
 #[derive(Component, Serialize, Deserialize, Clone, Default, Reflect)]
 #[reflect(Component)]
 pub struct Locked;
-
-/// Marker component for spawn point entities.
-/// The marble (or player) spawns at this entity's position when play mode starts.
-#[derive(Component, Serialize, Deserialize, Clone, Default, Reflect)]
-#[reflect(Component)]
-pub struct SpawnPoint;
 
 /// Marker component for point lights
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]

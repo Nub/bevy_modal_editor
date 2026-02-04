@@ -7,4 +7,6 @@ publish = false
 [dependencies]
 bevy.workspace = true
 avian3d.workspace = true
+serde.workspace = true
 bevy_modal_editor = { path = "../.." }
+bevy_editor_game.workspace = true

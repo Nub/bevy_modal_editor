@@ -1,6 +1,6 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_modal_editor::SimulationState;
+use bevy_editor_game::{GameStartedEvent, GameState};
 
 use crate::GoalZone;
 
@@ -22,25 +22,23 @@ pub struct GameTimerPlugin;
 impl Plugin for GameTimerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<GameTimer>()
-            .add_systems(OnEnter(SimulationState::Playing), reset_timer)
+            .add_systems(Update, reset_timer_on_game_start)
             .add_systems(
                 Update,
                 (update_timer, check_goal_reached, draw_timer_ui)
-                    .run_if(in_state(SimulationState::Playing)),
+                    .run_if(in_state(GameState::Playing)),
             );
     }
 }
 
-/// Reset timer when entering play mode
-fn reset_timer(mut timer: ResMut<GameTimer>) {
-    // Only reset if we're starting fresh (not resuming from pause)
-    // The OnEnter trigger fires for both Editing->Playing and Paused->Playing
-    // We want to keep the timer running when resuming from pause
-    if timer.completed {
-        // If completed, always reset for a new run
+/// Reset timer when the game starts fresh (from Editing)
+fn reset_timer_on_game_start(
+    mut events: MessageReader<GameStartedEvent>,
+    mut timer: ResMut<GameTimer>,
+) {
+    for _ in events.read() {
         *timer = GameTimer::default();
     }
-    // If not completed, the timer continues from where it was
 }
 
 /// Update the elapsed timer

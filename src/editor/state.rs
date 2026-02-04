@@ -9,7 +9,12 @@ use bevy_spline_3d::prelude::SplineType;
 
 use crate::scene::PrimitiveShape;
 
-use super::play::{PauseEvent, PlayEvent, PlaySnapshot, ResetEvent, SimulationState};
+use bevy_editor_game::{
+    GamePausedEvent, GameResetEvent, GameResumedEvent, GameStartedEvent, GameState, PauseEvent,
+    PlayEvent, ResetEvent,
+};
+
+use super::game::GameSnapshot;
 
 /// The current editor mode (vim-like modal editing)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, States)]
@@ -275,12 +280,17 @@ impl Plugin for EditorStatePlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<EditorMode>()
             // Simulation state and events (always registered so the editor
-            // has the types; PlayPlugin adds the actual systems)
-            .init_state::<SimulationState>()
-            .init_resource::<PlaySnapshot>()
+            // has the types; GamePlugin adds the actual systems)
+            .init_state::<GameState>()
+            .init_resource::<GameSnapshot>()
             .add_message::<PlayEvent>()
             .add_message::<PauseEvent>()
             .add_message::<ResetEvent>()
+            // Lifecycle events (editor fires, games react)
+            .add_message::<GameStartedEvent>()
+            .add_message::<GameResumedEvent>()
+            .add_message::<GamePausedEvent>()
+            .add_message::<GameResetEvent>()
             .init_resource::<TransformOperation>()
             .init_resource::<AxisConstraint>()
             .init_resource::<SnapSubMode>()
@@ -324,15 +334,15 @@ fn handle_toggle_physics_debug(
 }
 
 /// Handle toggling physics simulation.
-/// Ignored when SimulationState is not Editing to prevent conflicts with play/pause.
+/// Ignored when GameState is not Editing to prevent conflicts with play/pause.
 fn handle_toggle_physics(
     mut events: MessageReader<TogglePhysicsEvent>,
     mut physics_time: ResMut<Time<Physics>>,
-    sim_state: Res<State<super::play::SimulationState>>,
+    game_state: Res<State<GameState>>,
 ) {
     for _ in events.read() {
-        if *sim_state.get() != super::play::SimulationState::Editing {
-            info!("Physics toggle ignored (simulation is not in Editing state)");
+        if *game_state.get() != GameState::Editing {
+            info!("Physics toggle ignored (game is not in Editing state)");
             continue;
         }
         if physics_time.relative_speed() == 0.0 {

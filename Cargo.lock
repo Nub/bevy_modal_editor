@@ -778,6 +778,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_editor_game"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "serde",
+]
+
+[[package]]
 name = "bevy_egui"
 version = "0.39.0"
 source = "git+https://github.com/vladbat00/bevy_egui?branch=main#81904dac9a09d49563e39962bf3039afc47016dc"
@@ -1196,6 +1204,7 @@ version = "0.1.0"
 dependencies = [
  "avian3d",
  "bevy",
+ "bevy_editor_game",
  "bevy_egui",
  "bevy_grid_shader",
  "bevy_infinite_grid",
@@ -3746,7 +3755,9 @@ version = "0.1.0"
 dependencies = [
  "avian3d",
  "bevy",
+ "bevy_editor_game",
  "bevy_modal_editor",
+ "serde",
 ]
 
 [[package]]

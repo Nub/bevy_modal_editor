@@ -6,7 +6,9 @@ use bevy::render::view::Hdr;
 use bevy_egui::EguiContexts;
 use bevy_outliner::prelude::*;
 
-use super::{EditorMode, EditorState, ToggleEditorEvent, TransformOperation};
+use bevy_editor_game::{GameCamera, GameState};
+
+use super::{EditorMode, EditorState, TransformOperation};
 use crate::selection::Selected;
 use crate::ui::Settings;
 use crate::utils::should_process_input;
@@ -54,23 +56,6 @@ impl Plugin for EditorCameraPlugin {
 /// Marker component for the editor camera
 #[derive(Component)]
 pub struct EditorCamera;
-
-/// Marker component for game cameras that should be disabled when the editor is active.
-///
-/// Add this component to your game's camera to automatically disable it when the editor
-/// is enabled (F10), and re-enable it when the editor is disabled.
-///
-/// # Example
-///
-/// ```ignore
-/// commands.spawn((
-///     Camera3d::default(),
-///     GameCamera,
-///     Transform::from_xyz(0.0, 5.0, 10.0),
-/// ));
-/// ```
-#[derive(Component)]
-pub struct GameCamera;
 
 /// Fly camera state
 #[derive(Component)]
@@ -469,43 +454,21 @@ fn look_at_selected(
     }
 }
 
-/// Sync camera enabled states when the editor is toggled.
+/// Sync camera enabled states reactively when editor state or game state changes.
 ///
-/// - When editor is active: EditorCamera enabled, GameCamera disabled
-/// - When editor is inactive: EditorCamera disabled (only if GameCamera exists), GameCamera enabled
+/// Game cameras are only active when the editor is inactive AND game is Playing.
+/// This replaces both the old event-based sync and the exclusive-world sync in game commands.
 fn sync_camera_states(
-    mut events: MessageReader<ToggleEditorEvent>,
     editor_state: Res<EditorState>,
-    mut editor_cameras: Query<&mut Camera, (With<EditorCamera>, Without<GameCamera>)>,
+    game_state: Res<State<GameState>>,
     mut game_cameras: Query<&mut Camera, (With<GameCamera>, Without<EditorCamera>)>,
 ) {
-    // Only process when ToggleEditorEvent is fired
-    if events.read().next().is_none() {
+    if !editor_state.is_changed() && !game_state.is_changed() {
         return;
     }
 
-    // Drain remaining events
-    for _ in events.read() {}
-
-    let editor_active = editor_state.editor_active;
-    let has_game_camera = !game_cameras.is_empty();
-
-    // Enable/disable editor cameras
-    // Only disable if there's a game camera to take over, otherwise keep editor camera active
-    for mut camera in &mut editor_cameras {
-        camera.is_active = editor_active || !has_game_camera;
-    }
-
-    // Enable/disable game cameras (inverse of editor)
+    let active = !editor_state.editor_active && *game_state.get() == GameState::Playing;
     for mut camera in &mut game_cameras {
-        camera.is_active = !editor_active;
-    }
-
-    if has_game_camera {
-        info!(
-            "Camera sync: EditorCamera={}, GameCamera={}",
-            if editor_active { "active" } else { "inactive" },
-            if !editor_active { "active" } else { "inactive" }
-        );
+        camera.is_active = active;
     }
 }

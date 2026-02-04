@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_modal_editor::{GameCamera, SimulationState};
+use bevy_editor_game::{GameCamera, GameEntity, GameStartedEvent, GameState};
 
 use crate::marble::Marble;
 
@@ -29,47 +29,34 @@ pub struct GameCameraPlugin;
 impl Plugin for GameCameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FollowCameraConfig>()
-            .add_systems(OnEnter(SimulationState::Playing), spawn_game_camera)
-            .add_systems(OnEnter(SimulationState::Editing), despawn_game_camera)
+            .add_systems(Update, spawn_game_camera_on_start)
             .add_systems(
                 Update,
-                follow_marble.run_if(in_state(SimulationState::Playing)),
+                follow_marble.run_if(in_state(GameState::Playing)),
             );
     }
 }
 
-/// Spawn the game camera when entering play mode and activate it.
+/// Spawn the game camera when the game starts and activate it.
 /// The editor camera stays active (for egui rendering) — this camera
 /// renders at a higher order so its output is what the player sees.
-fn spawn_game_camera(
+fn spawn_game_camera_on_start(
+    mut events: MessageReader<GameStartedEvent>,
     mut commands: Commands,
-    existing: Query<Entity, With<GameCamera>>,
 ) {
-    // Don't spawn if already exists (resuming from pause)
-    if !existing.is_empty() {
-        return;
-    }
-
-    commands.spawn((
-        GameCamera,
-        Camera3d::default(),
-        Camera {
-            is_active: true,
-            order: 1,
-            ..default()
-        },
-        Transform::from_translation(Vec3::new(0.0, 10.0, 15.0))
-            .looking_at(Vec3::ZERO, Vec3::Y),
-    ));
-}
-
-/// Despawn the game camera when resetting to editing
-fn despawn_game_camera(
-    mut commands: Commands,
-    cameras: Query<Entity, With<GameCamera>>,
-) {
-    for entity in cameras.iter() {
-        commands.entity(entity).despawn();
+    for _ in events.read() {
+        commands.spawn((
+            GameCamera,
+            GameEntity,
+            Camera3d::default(),
+            Camera {
+                is_active: true,
+                order: 1,
+                ..default()
+            },
+            Transform::from_translation(Vec3::new(0.0, 10.0, 15.0))
+                .looking_at(Vec3::ZERO, Vec3::Y),
+        ));
     }
 }
 

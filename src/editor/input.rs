@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 
+use bevy_editor_game::GameState;
+
 use super::state::{AxisConstraint, ControlPointSnapState, EditorMode, EditorState, ToggleEditorEvent, TogglePreviewModeEvent, TransformOperation};
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
@@ -43,6 +45,7 @@ fn handle_mode_input(
     mut palette_state: ResMut<CommandPaletteState>,
     component_editor_state: Res<ComponentEditorState>,
     editor_state: Res<EditorState>,
+    game_state: Res<State<GameState>>,
     snap_state: Res<ControlPointSnapState>,
     control_point_selection: Res<crate::editor::SelectedControlPointIndex>,
     selected_splines: Query<(), (With<Selected>, With<crate::scene::SplineMarker>)>,
@@ -51,6 +54,11 @@ fn handle_mode_input(
     selected: Query<Entity, With<Selected>>,
 ) {
     if !should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+
+    // Block mode switching when not in Editing state (e.g. during Paused)
+    if *game_state.get() != GameState::Editing {
         return;
     }
 

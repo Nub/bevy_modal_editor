@@ -18,6 +18,7 @@ use bevy::light::FogVolume;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
+use bevy_editor_game::{SceneComponentRegistry, SpawnPoint};
 use bevy_grid_shader::GridMaterial;
 use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
 use bevy_spline_3d::distribution::{
@@ -42,7 +43,7 @@ pub struct SceneProceduralObject;
 /// Build a DynamicScene from the world with editor-relevant components.
 /// This is the single source of truth for which components are included in snapshots and saves.
 pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>) -> DynamicScene {
-    DynamicSceneBuilder::from_world(world)
+    let mut builder = DynamicSceneBuilder::from_world(world)
         .deny_all()
         // Core
         .allow_component::<SceneEntity>()
@@ -78,9 +79,14 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         // External sources
         .allow_component::<GltfSource>()
         .allow_component::<SceneSource>()
-        .allow_component::<RecursiveColliderConstructor>()
-        .extract_entities(entities)
-        .build()
+        .allow_component::<RecursiveColliderConstructor>();
+
+    // Apply game-registered components
+    if let Some(registry) = world.get_resource::<SceneComponentRegistry>() {
+        builder = registry.apply(builder);
+    }
+
+    builder.extract_entities(entities).build()
 }
 
 /// Regenerate runtime components (meshes, materials, colliders, lights, fog volumes)
@@ -336,7 +342,8 @@ pub struct ScenePlugin;
 
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(PrimitivesPlugin)
+        app.init_resource::<SceneComponentRegistry>()
+            .add_plugins(PrimitivesPlugin)
             .add_plugins(SerializationPlugin)
             .add_plugins(GltfSourcePlugin)
             .add_plugins(SceneSourcePlugin)

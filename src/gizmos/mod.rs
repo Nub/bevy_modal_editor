@@ -7,7 +7,9 @@ use bevy::prelude::*;
 use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin, InfiniteGridSettings};
 
 use crate::editor::EditorState;
-use crate::scene::{DirectionalLightMarker, SceneLightMarker, SpawnPoint};
+use bevy_editor_game::SpawnPoint;
+
+use crate::scene::{DirectionalLightMarker, SceneLightMarker};
 use crate::ui::Settings;
 
 /// Custom gizmo config group for x-ray transform gizmos (always visible through objects)

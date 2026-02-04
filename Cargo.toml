@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader", "crates/marble_demo"]
+members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader", "crates/bevy_editor_game", "crates/marble_demo"]
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
@@ -17,6 +17,7 @@ bitflags = "2.6"
 bevy_outliner = { path = "crates/bevy_outliner" }
 bevy_spline_3d = { path = "crates/bevy_spline_3d" }
 bevy_grid_shader = { path = "crates/bevy_grid_shader" }
+bevy_editor_game = { path = "crates/bevy_editor_game" }
 
 [package]
 name = "bevy_modal_editor"
@@ -44,6 +45,7 @@ bevy_infinite_grid = { git = "https://github.com/ForesightMiningSoftwareCorporat
 bevy_spline_3d.workspace = true
 bevy_outliner.workspace = true
 bevy_grid_shader.workspace = true
+bevy_editor_game.workspace = true
 serde.workspace = true
 ron.workspace = true
 dirs = "6"
