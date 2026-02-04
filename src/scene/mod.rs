@@ -28,6 +28,13 @@ use bevy_spline_3d::prelude::{Spline, SplineType};
 #[reflect(Component)]
 pub struct SceneEntity;
 
+/// Marker component for entities that are procedurally generated from scene objects
+/// (e.g. road meshes, intersection meshes, distributed instances) but not tracked as
+/// `SceneEntity`. Enables a future baking process.
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+pub struct SceneProceduralObject;
+
 /// Build a DynamicScene from the world with editor-relevant components.
 /// This is the single source of truth for which components are included in snapshots and saves.
 pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>) -> DynamicScene {
@@ -234,6 +241,7 @@ impl Plugin for ScenePlugin {
             .add_systems(Update, handle_spawn_demo_scene)
             // Register types for scene serialization
             .register_type::<SceneEntity>()
+            .register_type::<SceneProceduralObject>()
             .register_type::<PrimitiveMarker>()
             .register_type::<PrimitiveShape>()
             .register_type::<GroupMarker>()

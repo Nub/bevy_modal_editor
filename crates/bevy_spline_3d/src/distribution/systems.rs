@@ -1,4 +1,3 @@
-use avian3d::prelude::Collider;
 use bevy::prelude::*;
 
 use crate::geometry::CoordinateFrame;
@@ -29,12 +28,6 @@ pub fn update_distributions(
     mut commands: Commands,
     distributions: Query<(Entity, &SplineDistribution, Option<&DistributionState>)>,
     splines: Query<(&Spline, &GlobalTransform)>,
-    sources: Query<(
-        Option<&Mesh3d>,
-        Option<&MeshMaterial3d<StandardMaterial>>,
-        Option<&Collider>,
-        Option<&Children>,
-    )>,
     mut instances: Query<(&mut Transform, &DistributedInstance)>,
     changed_splines: Query<Entity, Or<(Changed<Spline>, Changed<GlobalTransform>)>>,
     changed_distributions: Query<Entity, Changed<SplineDistribution>>,
@@ -86,16 +79,30 @@ pub fn update_distributions(
                 }
             }
 
-            // Spawn new instances
+            // Spawn new instances by cloning all components from the source entity,
+            // excluding components that are managed per-instance or shouldn't propagate.
             let mut new_instances = Vec::with_capacity(distribution.count);
-
-            // Get source components to clone
-            let source_data = sources.get(distribution.source).ok();
+            let needs_projection = projection_query.get(dist_entity).is_ok();
 
             for (i, &t) in t_values.iter().enumerate() {
                 let transform = calculate_transform(spline, spline_transform, t, distribution);
 
-                let mut entity_commands = commands.spawn((
+                let mut source_commands = commands.entity(distribution.source);
+                let mut clone = source_commands
+                    .clone_and_spawn_with_opt_out(|builder| {
+                        builder
+                            .deny::<Transform>()
+                            .deny::<GlobalTransform>()
+                            .deny::<Visibility>()
+                            .deny::<InheritedVisibility>()
+                            .deny::<ViewVisibility>()
+                            .deny::<DistributionSource>()
+                            .deny::<ChildOf>()
+                            .deny::<Children>()
+                            .deny::<Name>();
+                    });
+
+                clone.insert((
                     transform,
                     DistributedInstance {
                         distribution: dist_entity,
@@ -104,25 +111,11 @@ pub fn update_distributions(
                     Visibility::default(),
                 ));
 
-                // Clone visual and physics components from source
-                if let Some((mesh, material, collider, _children)) = source_data {
-                    if let Some(mesh) = mesh {
-                        entity_commands.insert(mesh.clone());
-                    }
-                    if let Some(material) = material {
-                        entity_commands.insert(material.clone());
-                    }
-                    if let Some(collider) = collider {
-                        entity_commands.insert(collider.clone());
-                    }
+                if needs_projection {
+                    clone.insert(NeedsInstanceProjection);
                 }
 
-                // Mark for surface projection if enabled
-                if projection_query.get(dist_entity).is_ok() {
-                    entity_commands.insert(NeedsInstanceProjection);
-                }
-
-                new_instances.push(entity_commands.id());
+                new_instances.push(clone.id());
             }
 
             // Update state

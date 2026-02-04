@@ -4,7 +4,7 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 use bevy_outliner::prelude::*;
 use bevy_spline_3d::distribution::{DistributionSource, SplineDistribution};
-use bevy_spline_3d::prelude::Spline;
+use bevy_spline_3d::prelude::{SelectionState as SplineSelectionState, Spline};
 
 use crate::constants::physics;
 use crate::editor::{EditorCamera, EditorMode, EditorState};
@@ -48,6 +48,7 @@ fn handle_click_selection(
     selected: Query<Entity, With<Selected>>,
     selected_splines: Query<(), (With<Selected>, With<SplineMarker>)>,
     selection_state: Res<SelectionState>,
+    spline_selection: Res<SplineSelectionState>,
     mode: Res<State<EditorMode>>,
     mut commands: Commands,
     mut contexts: EguiContexts,
@@ -58,9 +59,11 @@ fn handle_click_selection(
         return;
     }
 
-    // In Edit mode with a spline selected, don't process entity selection
-    // The spline library handles control point selection/dragging
-    if *mode.get() == EditorMode::Edit && !selected_splines.is_empty() {
+    // In Edit mode with a spline selected, only block entity selection when
+    // the spline library has a control point hovered or is actively dragging
+    if *mode.get() == EditorMode::Edit && !selected_splines.is_empty()
+        && (spline_selection.hovered_point.is_some() || spline_selection.dragging)
+    {
         return;
     }
 

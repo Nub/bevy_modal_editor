@@ -7,6 +7,8 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 use bevy_spline_3d::prelude::*;
+use bevy_spline_3d::distribution::DistributedInstance;
+use bevy_spline_3d::road::{GeneratedRoadMesh, GeneratedIntersectionMesh};
 
 use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
 
@@ -14,7 +16,7 @@ use super::state::{ControlPointSnapState, EditorMode, EditorState, SelectedContr
 use crate::commands::TakeSnapshotCommand;
 use crate::constants::physics;
 use crate::editor::EditorCamera;
-use crate::scene::SplineMarker;
+use crate::scene::{SceneEntity, SceneProceduralObject, SplineMarker};
 use crate::selection::Selected;
 use crate::utils::{should_process_input, snap_to_grid};
 
@@ -45,6 +47,8 @@ impl Plugin for SplineEditPlugin {
                 handle_control_point_snap_mode.run_if(in_state(EditorMode::Edit)),
                 // Handle confirm/cancel for control point snap
                 handle_control_point_snap_confirm.run_if(in_state(EditorMode::Edit)),
+                // Tag procedural objects spawned by bevy_spline_3d
+                tag_procedural_objects,
             )
                 .chain(),
         );
@@ -528,5 +532,36 @@ fn handle_control_point_snap_confirm(
 
         snap_state.reset();
         info!("Control point snap confirmed");
+    }
+}
+
+/// Tag procedurally generated spline entities with `SceneProceduralObject`.
+///
+/// Reactively inserts the marker on entities spawned by bevy_spline_3d
+/// (road meshes, intersection meshes, distributed instances) so the editor
+/// can identify them for a future baking process.
+fn tag_procedural_objects(
+    mut commands: Commands,
+    untagged: Query<
+        (Entity, Has<SceneEntity>),
+        (
+            Or<(
+                With<GeneratedRoadMesh>,
+                With<GeneratedIntersectionMesh>,
+                With<DistributedInstance>,
+            )>,
+            Without<SceneProceduralObject>,
+        ),
+    >,
+) {
+    for (entity, has_scene_entity) in &untagged {
+        let mut cmds = commands.entity(entity);
+        cmds.insert(SceneProceduralObject);
+        // Procedural objects shouldn't be tracked as scene entities (they're
+        // generated, not authored). SceneEntity can leak via clone_and_spawn
+        // from the distribution source.
+        if has_scene_entity {
+            cmds.remove::<SceneEntity>();
+        }
     }
 }
