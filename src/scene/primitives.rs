@@ -105,6 +105,23 @@ pub enum MaterialType {
     Grid,
 }
 
+/// Serializable material properties for primitive entities.
+///
+/// Stores the base_color so it survives scene snapshot/restore cycles.
+/// Without this, `regenerate_runtime_components` would always use the shape's
+/// default color, losing any custom colors set by the game or user.
+#[derive(Component, Serialize, Deserialize, Clone, Reflect)]
+#[reflect(Component)]
+pub struct PrimitiveMaterial {
+    pub base_color: Color,
+}
+
+impl PrimitiveMaterial {
+    pub fn new(base_color: Color) -> Self {
+        Self { base_color }
+    }
+}
+
 /// Available primitive shapes
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Reflect, Default)]
 pub enum PrimitiveShape {
@@ -350,15 +367,20 @@ pub fn spawn_primitive(
     rotation: Quat,
     name: &str,
 ) -> Entity {
+    let color = shape.default_color();
     commands
         .spawn((
             SceneEntity,
             Name::new(name.to_string()),
             PrimitiveMarker { shape },
+            PrimitiveMaterial::new(color),
             MaterialType::Grid,
             Mesh3d(meshes.add(shape.create_mesh())),
             MeshMaterial3d(materials.add(ExtendedMaterial {
-                base: shape.create_material(),
+                base: StandardMaterial {
+                    base_color: color,
+                    ..default()
+                },
                 extension: GridMaterial::default(),
             })),
             Transform::from_translation(position).with_rotation(rotation),

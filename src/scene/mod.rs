@@ -54,6 +54,7 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<Children>()
         // Primitives
         .allow_component::<PrimitiveMarker>()
+        .allow_component::<PrimitiveMaterial>()
         .allow_component::<MaterialType>()
         // Groups
         .allow_component::<GroupMarker>()
@@ -90,29 +91,40 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
 /// Regenerate runtime components (meshes, materials, colliders, lights, fog volumes)
 /// for entities loaded from a scene snapshot or file.
 pub fn regenerate_runtime_components(world: &mut World) {
-    // Handle primitives - collect entity, shape, and material type
-    let mut primitives_to_update: Vec<(Entity, PrimitiveShape, MaterialType)> = Vec::new();
+    // Handle primitives - collect entity, shape, material type, and optional custom color
+    let mut primitives_to_update: Vec<(Entity, PrimitiveShape, MaterialType, Option<Color>)> =
+        Vec::new();
     {
-        let mut query = world
-            .query_filtered::<(Entity, &PrimitiveMarker, Option<&MaterialType>), Without<Mesh3d>>();
-        for (entity, marker, mat_type) in query.iter(world) {
+        let mut query = world.query_filtered::<(
+            Entity,
+            &PrimitiveMarker,
+            Option<&MaterialType>,
+            Option<&PrimitiveMaterial>,
+        ), Without<Mesh3d>>();
+        for (entity, marker, mat_type, prim_mat) in query.iter(world) {
             primitives_to_update.push((
                 entity,
                 marker.shape,
                 mat_type.copied().unwrap_or_default(),
+                prim_mat.map(|m| m.base_color),
             ));
         }
     }
 
-    for (entity, shape, mat_type) in primitives_to_update {
+    for (entity, shape, mat_type, custom_color) in primitives_to_update {
         let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
         let collider = shape.create_collider();
+        let base_color = custom_color.unwrap_or_else(|| shape.default_color());
+        let base_material = StandardMaterial {
+            base_color,
+            ..default()
+        };
 
         match mat_type {
             MaterialType::Standard => {
                 let material_handle = world
                     .resource_mut::<Assets<StandardMaterial>>()
-                    .add(shape.create_material());
+                    .add(base_material);
                 if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
                     entity_mut.insert((
                         Mesh3d(mesh_handle),
@@ -123,7 +135,7 @@ pub fn regenerate_runtime_components(world: &mut World) {
             }
             MaterialType::Grid => {
                 let grid_mat = ExtendedMaterial {
-                    base: shape.create_material(),
+                    base: base_material,
                     extension: GridMaterial::default(),
                 };
                 let material_handle = world.resource_mut::<Assets<GridMat>>().add(grid_mat);
@@ -356,7 +368,8 @@ impl Plugin for ScenePlugin {
             // Fog volume types
             .register_type::<FogVolumeMarker>()
             // Material types
-            .register_type::<MaterialType>();
+            .register_type::<MaterialType>()
+            .register_type::<PrimitiveMaterial>();
     }
 }
 
@@ -375,15 +388,17 @@ fn handle_spawn_demo_scene(
         }
 
         // Ground plane
+        let ground_color = Color::srgb(0.4, 0.4, 0.5);
         let ground_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
         let ground_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.4, 0.4, 0.5),
+            base_color: ground_color,
             ..default()
         });
         commands.spawn((
             SceneEntity,
             Name::new("Ground"),
             PrimitiveMarker { shape: PrimitiveShape::Cube },
+            PrimitiveMaterial::new(ground_color),
             Mesh3d(ground_mesh),
             MeshMaterial3d(ground_material),
             Transform::from_translation(Vec3::new(0.0, -0.5, 0.0))
@@ -393,15 +408,17 @@ fn handle_spawn_demo_scene(
         ));
 
         // Central pillar
+        let pillar_color = Color::srgb(0.6, 0.5, 0.4);
         let pillar_mesh = meshes.add(Cylinder::new(0.5, 1.0));
         let pillar_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.6, 0.5, 0.4),
+            base_color: pillar_color,
             ..default()
         });
         commands.spawn((
             SceneEntity,
             Name::new("Central Pillar"),
             PrimitiveMarker { shape: PrimitiveShape::Cylinder },
+            PrimitiveMaterial::new(pillar_color),
             Mesh3d(pillar_mesh.clone()),
             MeshMaterial3d(pillar_material.clone()),
             Transform::from_translation(Vec3::new(0.0, 2.0, 0.0))
@@ -416,6 +433,7 @@ fn handle_spawn_demo_scene(
                 SceneEntity,
                 Name::new("Corner Pillar"),
                 PrimitiveMarker { shape: PrimitiveShape::Cylinder },
+                PrimitiveMaterial::new(pillar_color),
                 Mesh3d(pillar_mesh.clone()),
                 MeshMaterial3d(pillar_material.clone()),
                 Transform::from_translation(Vec3::new(x, 1.5, z))
@@ -426,9 +444,10 @@ fn handle_spawn_demo_scene(
         }
 
         // Dynamic spheres
+        let sphere_color = Color::srgb(0.8, 0.3, 0.3);
         let sphere_mesh = meshes.add(Sphere::new(0.5));
         let sphere_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.8, 0.3, 0.3),
+            base_color: sphere_color,
             ..default()
         });
         for (i, (x, y, z)) in [(2.0, 5.0, 2.0), (-2.0, 7.0, -2.0), (0.0, 9.0, 3.0)].iter().enumerate() {
@@ -436,6 +455,7 @@ fn handle_spawn_demo_scene(
                 SceneEntity,
                 Name::new(format!("Bouncy Sphere {}", i + 1)),
                 PrimitiveMarker { shape: PrimitiveShape::Sphere },
+                PrimitiveMaterial::new(sphere_color),
                 Mesh3d(sphere_mesh.clone()),
                 MeshMaterial3d(sphere_material.clone()),
                 Transform::from_translation(Vec3::new(*x, *y, *z)),
@@ -445,15 +465,17 @@ fn handle_spawn_demo_scene(
         }
 
         // Dynamic cube
+        let cube_color = Color::srgb(0.3, 0.6, 0.8);
         let cube_mesh = meshes.add(Cuboid::new(1.0, 1.0, 1.0));
         let cube_material = materials.add(StandardMaterial {
-            base_color: Color::srgb(0.3, 0.6, 0.8),
+            base_color: cube_color,
             ..default()
         });
         commands.spawn((
             SceneEntity,
             Name::new("Falling Cube"),
             PrimitiveMarker { shape: PrimitiveShape::Cube },
+            PrimitiveMaterial::new(cube_color),
             Mesh3d(cube_mesh),
             MeshMaterial3d(cube_material),
             Transform::from_translation(Vec3::new(-3.0, 8.0, 1.0))

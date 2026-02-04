@@ -14,7 +14,7 @@ mod timer;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_editor_game::{CustomEntityType, RegisterCustomEntityExt};
-use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, EditorState, GamePlugin};
+use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, EditorState, GamePlugin, PrimitiveMaterial};
 
 /// Marker component for spawn point entities.
 /// The marble spawns at this entity's position when play mode starts.
@@ -98,15 +98,17 @@ fn setup_default_level(
     }
 
     // Ground plane
+    let ground_color = Color::srgb(0.5, 0.5, 0.55);
     commands.spawn((
         bevy_modal_editor::SceneEntity,
         Name::new("Ground"),
         bevy_modal_editor::PrimitiveMarker {
             shape: bevy_modal_editor::PrimitiveShape::Cube,
         },
+        PrimitiveMaterial::new(ground_color),
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.5, 0.5, 0.55),
+            base_color: ground_color,
             ..default()
         })),
         Transform::from_translation(Vec3::new(0.0, -0.5, 0.0))
@@ -116,15 +118,17 @@ fn setup_default_level(
     ));
 
     // Ramp
+    let ramp_color = Color::srgb(0.6, 0.4, 0.3);
     commands.spawn((
         bevy_modal_editor::SceneEntity,
         Name::new("Ramp"),
         bevy_modal_editor::PrimitiveMarker {
             shape: bevy_modal_editor::PrimitiveShape::Cube,
         },
+        PrimitiveMaterial::new(ramp_color),
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.6, 0.4, 0.3),
+            base_color: ramp_color,
             ..default()
         })),
         Transform::from_translation(Vec3::new(0.0, 0.5, -5.0))
@@ -157,15 +161,17 @@ fn setup_default_level(
             "Wall Front",
         ),
     ] {
+        let wall_color = Color::srgb(0.3, 0.3, 0.35);
         commands.spawn((
             bevy_modal_editor::SceneEntity,
             Name::new(name),
             bevy_modal_editor::PrimitiveMarker {
                 shape: bevy_modal_editor::PrimitiveShape::Cube,
             },
+            PrimitiveMaterial::new(wall_color),
             Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
             MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.3, 0.3, 0.35),
+                base_color: wall_color,
                 ..default()
             })),
             Transform::from_translation(pos).with_scale(scale),
@@ -210,15 +216,17 @@ fn setup_default_level(
     .iter()
     .enumerate()
     {
+        let obstacle_color = Color::srgb(0.7, 0.3, 0.3);
         commands.spawn((
             bevy_modal_editor::SceneEntity,
             Name::new(format!("Obstacle {}", i + 1)),
             bevy_modal_editor::PrimitiveMarker {
                 shape: bevy_modal_editor::PrimitiveShape::Cube,
             },
+            PrimitiveMaterial::new(obstacle_color),
             Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
             MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.7, 0.3, 0.3),
+                base_color: obstacle_color,
                 ..default()
             })),
             Transform::from_translation(*pos).with_scale(*scale),

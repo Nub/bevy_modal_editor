@@ -60,8 +60,8 @@ pub use editor::{EditorPlugin, EditorPluginConfig, GamePlugin};
 
 // Re-export commonly used types
 pub use scene::{
-    DirectionalLightMarker, GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity,
-    SceneLightMarker,
+    DirectionalLightMarker, GroupMarker, Locked, PrimitiveMaterial, PrimitiveMarker,
+    PrimitiveShape, SceneEntity, SceneLightMarker,
 };
 
 // Re-export selection types
