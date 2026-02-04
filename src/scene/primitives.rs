@@ -4,6 +4,9 @@ use bevy::prelude::*;
 use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
 
+use bevy::pbr::ExtendedMaterial;
+use bevy_grid_shader::GridMaterial;
+
 use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs, GridMat};
 use super::SceneEntity;
 use crate::commands::TakeSnapshotCommand;
@@ -269,7 +272,6 @@ fn handle_spawn_entity(
     mut events: MessageReader<SpawnEntityEvent>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
     mut grid_materials: ResMut<Assets<GridMat>>,
     existing_entities: Query<&Name, With<SceneEntity>>,
     selected_entities: Query<Entity, With<Selected>>,
@@ -286,7 +288,7 @@ fn handle_spawn_entity(
             SpawnEntityKind::Primitive(shape) => spawn_primitive(
                 &mut commands,
                 &mut meshes,
-                &mut materials,
+                &mut grid_materials,
                 *shape,
                 event.position,
                 event.rotation,
@@ -325,7 +327,7 @@ pub fn generate_unique_name(base: &str, existing: &Query<&Name, With<SceneEntity
 pub fn spawn_primitive(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
+    materials: &mut ResMut<Assets<GridMat>>,
     shape: PrimitiveShape,
     position: Vec3,
     rotation: Quat,
@@ -336,9 +338,12 @@ pub fn spawn_primitive(
             SceneEntity,
             Name::new(name.to_string()),
             PrimitiveMarker { shape },
-            MaterialType::Standard,
+            MaterialType::Grid,
             Mesh3d(meshes.add(shape.create_mesh())),
-            MeshMaterial3d(materials.add(shape.create_material())),
+            MeshMaterial3d(materials.add(ExtendedMaterial {
+                base: shape.create_material(),
+                extension: GridMaterial::default(),
+            })),
             Transform::from_translation(position).with_rotation(rotation),
             RigidBody::Static,
             shape.create_collider(),
