@@ -64,6 +64,47 @@ fn calculate_axis_movement(
     projected_delta / screen_axis_len
 }
 
+/// Calculate rotation amount based on mouse delta, accounting for camera orientation.
+/// Projects mouse movement onto the screen-space tangent of the rotation circle
+/// so that rotation direction and rate match what you see on screen.
+fn calculate_rotation_amount(
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    object_pos: Vec3,
+    rotation_axis: Vec3,
+    mouse_delta: Vec2,
+) -> f32 {
+    let Ok(screen_pos) = camera.world_to_viewport(camera_transform, object_pos) else {
+        return (mouse_delta.x - mouse_delta.y) * 0.01;
+    };
+
+    let axis_point = object_pos + rotation_axis;
+    let Ok(screen_axis_pos) = camera.world_to_viewport(camera_transform, axis_point) else {
+        return (mouse_delta.x - mouse_delta.y) * 0.01;
+    };
+
+    let screen_axis_dir = screen_axis_pos - screen_pos;
+    let screen_axis_len = screen_axis_dir.length();
+
+    if screen_axis_len < 0.001 {
+        // Axis points directly at/away from camera — rotation circle is fully visible
+        // on screen. Fall back to horizontal mouse motion = rotation.
+        return -mouse_delta.x * 0.01;
+    }
+
+    let screen_axis_normalized = screen_axis_dir / screen_axis_len;
+
+    // The tangent to the rotation circle in screen space is perpendicular to the axis projection
+    let screen_tangent = Vec2::new(-screen_axis_normalized.y, screen_axis_normalized.x);
+
+    // Project mouse delta onto the tangent direction
+    let projected_delta = mouse_delta.dot(screen_tangent);
+
+    // Convert projected pixels to radians using the same scale as translation:
+    // screen_axis_len = pixels per world unit, so this gives ~1 radian per world unit of movement
+    projected_delta / screen_axis_len
+}
+
 /// Snap rotation (in radians) to nearest angle increment
 fn snap_rotation(radians: f32, snap_degrees: f32) -> f32 {
     if snap_degrees <= 0.0 {
@@ -994,19 +1035,33 @@ fn handle_transform_manipulation(
             TransformOperation::Rotate => {
                 match *axis_constraint {
                     AxisConstraint::None => {
-                        let rotation = Quat::from_rotation_y(-delta.x * sensitivity);
+                        // Default to Y rotation (turntable) for unconstrained
+                        let amount = calculate_rotation_amount(
+                            camera,
+                            camera_transform,
+                            transform.translation,
+                            Vec3::Y,
+                            delta,
+                        );
+                        let rotation = Quat::from_rotation_y(amount);
                         transform.rotation = rotation * transform.rotation;
                     }
-                    AxisConstraint::X => {
-                        let rotation = Quat::from_rotation_x(-delta.y * sensitivity);
-                        transform.rotation = rotation * transform.rotation;
-                    }
-                    AxisConstraint::Y => {
-                        let rotation = Quat::from_rotation_y(-delta.x * sensitivity);
-                        transform.rotation = rotation * transform.rotation;
-                    }
-                    AxisConstraint::Z => {
-                        let rotation = Quat::from_rotation_z(-delta.x * sensitivity);
+                    AxisConstraint::X | AxisConstraint::Y | AxisConstraint::Z => {
+                        let axis = match *axis_constraint {
+                            AxisConstraint::X => Vec3::X,
+                            AxisConstraint::Y => Vec3::Y,
+                            AxisConstraint::Z => Vec3::Z,
+                            AxisConstraint::None => unreachable!(),
+                        };
+
+                        let amount = calculate_rotation_amount(
+                            camera,
+                            camera_transform,
+                            transform.translation,
+                            axis,
+                            delta,
+                        );
+                        let rotation = Quat::from_axis_angle(axis, amount);
                         transform.rotation = rotation * transform.rotation;
                     }
                 }
@@ -1020,20 +1075,38 @@ fn handle_transform_manipulation(
                 }
             }
             TransformOperation::Scale => {
-                let scale_delta = (delta.x - delta.y) * sensitivity * 0.1;
                 match *axis_constraint {
                     AxisConstraint::None => {
-                        let scale_factor = 1.0 + scale_delta;
+                        // Uniform scale: rightward mouse motion increases scale
+                        let scale_factor = 1.0 + delta.x * sensitivity;
                         transform.scale *= scale_factor;
                     }
-                    AxisConstraint::X => {
-                        transform.scale.x *= 1.0 + scale_delta;
-                    }
-                    AxisConstraint::Y => {
-                        transform.scale.y *= 1.0 + scale_delta;
-                    }
-                    AxisConstraint::Z => {
-                        transform.scale.z *= 1.0 + scale_delta;
+                    AxisConstraint::X | AxisConstraint::Y | AxisConstraint::Z => {
+                        let axis_dir = match *axis_constraint {
+                            AxisConstraint::X => Vec3::X,
+                            AxisConstraint::Y => Vec3::Y,
+                            AxisConstraint::Z => Vec3::Z,
+                            AxisConstraint::None => unreachable!(),
+                        };
+
+                        // Project mouse delta onto screen-space axis direction.
+                        // This ensures scale direction matches what you see on screen
+                        // and the rate tracks the mouse 1:1.
+                        let movement = calculate_axis_movement(
+                            camera,
+                            camera_transform,
+                            &window_query,
+                            transform.translation,
+                            axis_dir,
+                            delta,
+                        );
+
+                        match *axis_constraint {
+                            AxisConstraint::X => transform.scale.x += movement,
+                            AxisConstraint::Y => transform.scale.y += movement,
+                            AxisConstraint::Z => transform.scale.z += movement,
+                            AxisConstraint::None => unreachable!(),
+                        }
                     }
                 }
                 transform.scale = transform.scale.clamp(Vec3::splat(0.1), Vec3::splat(100.0));
