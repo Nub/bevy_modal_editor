@@ -294,6 +294,17 @@ pub fn sync_outline_meshes(
             commands.entity(entity).remove::<HasSilhouetteMesh>();
         }
     }
+
+    // Clean up orphaned silhouette meshes whose source entity was despawned
+    let referenced: std::collections::HashSet<Entity> = sources_with_silhouettes
+        .iter()
+        .map(|(_, h)| h.silhouette)
+        .collect();
+    for (sil_entity, _) in silhouettes.iter() {
+        if !referenced.contains(&sil_entity) {
+            commands.entity(sil_entity).despawn();
+        }
+    }
 }
 
 /// Syncs silhouette camera transform and projection with main camera
