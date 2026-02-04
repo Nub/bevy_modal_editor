@@ -1,6 +1,8 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_editor_game::{GameCamera, GameEntity, GameStartedEvent, GameState, SpawnPoint};
+use bevy_editor_game::{GameCamera, GameEntity, GameStartedEvent, GameState};
+
+use crate::SpawnPoint;
 
 /// Marker component for the marble entity
 #[derive(Component)]

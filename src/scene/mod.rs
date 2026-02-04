@@ -18,7 +18,7 @@ use bevy::light::FogVolume;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
-use bevy_editor_game::{SceneComponentRegistry, SpawnPoint};
+use bevy_editor_game::{CustomEntityRegistry, SceneComponentRegistry};
 use bevy_grid_shader::GridMaterial;
 use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
 use bevy_spline_3d::distribution::{
@@ -74,8 +74,6 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<RampMarker>()
         .allow_component::<ArchMarker>()
         .allow_component::<LShapeMarker>()
-        // Game markers
-        .allow_component::<SpawnPoint>()
         // External sources
         .allow_component::<GltfSource>()
         .allow_component::<SceneSource>()
@@ -234,25 +232,6 @@ pub fn regenerate_runtime_components(world: &mut World) {
         }
     }
 
-    // Handle spawn points (need visibility and collider for selection)
-    let mut spawn_points_to_update: Vec<Entity> = Vec::new();
-    {
-        let mut query =
-            world.query_filtered::<Entity, (With<SpawnPoint>, Without<Visibility>)>();
-        for entity in query.iter(world) {
-            spawn_points_to_update.push(entity);
-        }
-    }
-
-    for entity in spawn_points_to_update {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert((
-                Visibility::default(),
-                Collider::sphere(LIGHT_COLLIDER_RADIUS),
-            ));
-        }
-    }
-
 }
 
 /// Restore the scene from serialized RON data.
@@ -343,6 +322,7 @@ pub struct ScenePlugin;
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SceneComponentRegistry>()
+            .init_resource::<CustomEntityRegistry>()
             .add_plugins(PrimitivesPlugin)
             .add_plugins(SerializationPlugin)
             .add_plugins(GltfSourcePlugin)
@@ -376,9 +356,7 @@ impl Plugin for ScenePlugin {
             // Fog volume types
             .register_type::<FogVolumeMarker>()
             // Material types
-            .register_type::<MaterialType>()
-            // Game markers
-            .register_type::<SpawnPoint>();
+            .register_type::<MaterialType>();
     }
 }
 

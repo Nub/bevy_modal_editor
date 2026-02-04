@@ -3,7 +3,7 @@ use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::light::VolumetricFog;
 use bevy::prelude::*;
 use bevy::render::view::Hdr;
-use bevy_egui::EguiContexts;
+use bevy_egui::{EguiContexts, EguiGlobalSettings, PrimaryEguiContext};
 use bevy_outliner::prelude::*;
 
 use bevy_editor_game::{GameCamera, GameState};
@@ -37,6 +37,13 @@ const FRAME_PADDING: f32 = 1.5;
 
 impl Plugin for EditorCameraPlugin {
     fn build(&self, app: &mut App) {
+        // Disable bevy_egui's auto context creation — we explicitly assign
+        // PrimaryEguiContext to the editor camera to avoid it landing on
+        // an outliner/cascade shadow camera instead.
+        if let Some(mut settings) = app.world_mut().get_resource_mut::<EguiGlobalSettings>() {
+            settings.auto_create_primary_context = false;
+        }
+
         app.add_message::<SetCameraPresetEvent>()
             .add_systems(PreStartup, spawn_editor_camera)
             .add_systems(
@@ -153,6 +160,7 @@ fn spawn_editor_camera(mut commands: Commands) {
         EditorCamera,
         fly_cam,
         Camera3d::default(),
+        PrimaryEguiContext,
         Hdr,
         Transform::from_translation(Vec3::new(0.0, 5.0, 10.0)).with_rotation(rotation),
         // Enable volumetric fog system (requires FogVolume entities to be visible)

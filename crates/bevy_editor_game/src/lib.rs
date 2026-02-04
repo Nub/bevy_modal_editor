@@ -5,14 +5,14 @@
 //!
 //! Games depend on this crate to:
 //! - Read/react to `GameState` (Editing, Playing, Paused)
-//! - Tag entities with `GameCamera`, `GameEntity`, `SpawnPoint`
+//! - Tag entities with `GameCamera`, `GameEntity`
+//! - Register custom entity types via `register_custom_entity::<T>()`
 //! - Send `PlayEvent`, `PauseEvent`, `ResetEvent` messages
 //! - Listen for lifecycle events (`GameStartedEvent`, etc.)
 //! - Register custom components for scene serialization
 
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
-use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // State
@@ -70,13 +70,6 @@ pub struct GameCamera;
 /// ```
 #[derive(Component, Default)]
 pub struct GameEntity;
-
-/// Marker component for spawn point entities.
-///
-/// The marble (or player) spawns at this entity's position when play mode starts.
-#[derive(Component, Serialize, Deserialize, Clone, Default, Reflect)]
-#[reflect(Component)]
-pub struct SpawnPoint;
 
 // ---------------------------------------------------------------------------
 // Input messages (games send these to trigger transitions)
@@ -173,6 +166,90 @@ impl RegisterSceneComponentExt for App {
             .world_mut()
             .get_resource_or_insert_with(SceneComponentRegistry::default);
         registry.register::<T>();
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Custom entity registration
+// ---------------------------------------------------------------------------
+
+/// Describes a custom entity type that can be placed in the editor scene.
+///
+/// Games register these via [`RegisterCustomEntityExt::register_custom_entity`].
+/// The editor integrates them into the command palette and spawn pipeline.
+pub struct CustomEntityType {
+    /// Display name in the command palette (e.g. "Spawn Point")
+    pub name: &'static str,
+    /// Category for grouping in the command palette (e.g. "Game")
+    pub category: &'static str,
+    /// Additional keywords for fuzzy search
+    pub keywords: &'static [&'static str],
+    /// Default spawn position offset from origin
+    pub default_position: Vec3,
+    /// Function that spawns the entity's game-specific components.
+    /// The editor automatically adds: `SceneEntity`, `Name`, `Selected`.
+    /// The function should add: marker component(s), `Transform`, `Visibility`,
+    /// and any physics components (`Collider`, etc.).
+    pub spawn: fn(&mut Commands, Vec3, Quat) -> Entity,
+}
+
+/// Registry of game-defined custom entity types that can be spawned from the editor.
+#[derive(Resource, Default)]
+pub struct CustomEntityRegistry {
+    pub types: Vec<CustomEntityType>,
+}
+
+/// Extension trait for registering custom entity types with the editor.
+///
+/// # Example
+///
+/// ```ignore
+/// use bevy::prelude::*;
+/// use bevy_editor_game::{CustomEntityType, RegisterCustomEntityExt};
+///
+/// #[derive(Component, Reflect, Default, serde::Serialize, serde::Deserialize)]
+/// #[reflect(Component)]
+/// struct SpawnPoint;
+///
+/// fn main() {
+///     App::new()
+///         .register_custom_entity::<SpawnPoint>(CustomEntityType {
+///             name: "Spawn Point",
+///             category: "Game",
+///             keywords: &["start", "player"],
+///             default_position: Vec3::new(0.0, 1.0, 0.0),
+///             spawn: |commands, position, rotation| {
+///                 commands.spawn((
+///                     SpawnPoint,
+///                     Transform::from_translation(position).with_rotation(rotation),
+///                     Visibility::default(),
+///                 )).id()
+///             },
+///         })
+///         .run();
+/// }
+/// ```
+pub trait RegisterCustomEntityExt {
+    fn register_custom_entity<T: Component + GetTypeRegistration>(
+        &mut self,
+        entity_type: CustomEntityType,
+    ) -> &mut Self;
+}
+
+impl RegisterCustomEntityExt for App {
+    fn register_custom_entity<T: Component + GetTypeRegistration>(
+        &mut self,
+        entity_type: CustomEntityType,
+    ) -> &mut Self {
+        // Register component for scene serialization
+        self.register_scene_component::<T>();
+
+        // Add to custom entity registry
+        let mut registry = self
+            .world_mut()
+            .get_resource_or_insert_with(CustomEntityRegistry::default);
+        registry.types.push(entity_type);
         self
     }
 }

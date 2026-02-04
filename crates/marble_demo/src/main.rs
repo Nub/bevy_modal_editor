@@ -13,8 +13,14 @@ mod timer;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
-use bevy_editor_game::{RegisterSceneComponentExt, SpawnPoint};
-use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, GamePlugin};
+use bevy_editor_game::{CustomEntityType, RegisterCustomEntityExt};
+use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, EditorState, GamePlugin};
+
+/// Marker component for spawn point entities.
+/// The marble spawns at this entity's position when play mode starts.
+#[derive(Component, Clone, Default, Reflect, serde::Serialize, serde::Deserialize)]
+#[reflect(Component)]
+pub struct SpawnPoint;
 
 /// Marker component for goal zone entities.
 /// Reaching this zone triggers level completion.
@@ -33,7 +39,48 @@ fn main() {
         .add_plugins(marble::MarblePlugin)
         .add_plugins(game_camera::GameCameraPlugin)
         .add_plugins(timer::GameTimerPlugin)
-        .register_scene_component::<GoalZone>()
+        .register_custom_entity::<SpawnPoint>(CustomEntityType {
+            name: "Spawn Point",
+            category: "Game",
+            keywords: &["start", "player", "origin", "marble"],
+            default_position: Vec3::new(0.0, 1.0, 0.0),
+            spawn: |commands, position, rotation| {
+                commands
+                    .spawn((
+                        SpawnPoint,
+                        Transform::from_translation(position).with_rotation(rotation),
+                        Visibility::default(),
+                        Collider::sphere(0.3),
+                    ))
+                    .id()
+            },
+        })
+        .register_custom_entity::<GoalZone>(CustomEntityType {
+            name: "Goal Zone",
+            category: "Game",
+            keywords: &["finish", "end", "target", "win"],
+            default_position: Vec3::new(0.0, 1.0, 0.0),
+            spawn: |commands, position, rotation| {
+                commands
+                    .spawn((
+                        GoalZone,
+                        Transform::from_translation(position).with_rotation(rotation),
+                        Visibility::default(),
+                        Collider::cuboid(1.0, 1.0, 1.0),
+                        Sensor,
+                    ))
+                    .id()
+            },
+        })
+        .add_systems(
+            Update,
+            (
+                draw_spawn_point_gizmos,
+                draw_goal_zone_gizmos,
+                regenerate_spawn_points,
+                regenerate_goal_zones,
+            ),
+        )
         .add_systems(Startup, setup_default_level)
         .run();
 }
@@ -200,4 +247,95 @@ fn setup_default_level(
     ));
 
     info!("Default marble demo level created");
+}
+
+/// Draw gizmos for spawn points (upward arrow marker)
+fn draw_spawn_point_gizmos(
+    mut gizmos: Gizmos,
+    spawn_points: Query<&GlobalTransform, With<SpawnPoint>>,
+    editor_state: Res<EditorState>,
+) {
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
+    let color = Color::srgb(0.2, 0.8, 1.0);
+    for transform in spawn_points.iter() {
+        let pos = transform.translation();
+        let size = 0.4;
+        gizmos.circle(Isometry3d::new(pos, Quat::IDENTITY), size, color);
+        gizmos.circle(
+            Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+            size,
+            color,
+        );
+        // Upward arrow
+        gizmos.line(pos, pos + Vec3::Y * 1.0, color);
+        gizmos.line(
+            pos + Vec3::Y * 1.0,
+            pos + Vec3::new(0.15, 0.7, 0.0),
+            color,
+        );
+        gizmos.line(
+            pos + Vec3::Y * 1.0,
+            pos + Vec3::new(-0.15, 0.7, 0.0),
+            color,
+        );
+    }
+}
+
+/// Draw gizmos for goal zones (green wireframe cube)
+fn draw_goal_zone_gizmos(
+    mut gizmos: Gizmos,
+    goal_zones: Query<&GlobalTransform, With<GoalZone>>,
+    editor_state: Res<EditorState>,
+) {
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
+    let color = Color::srgb(0.2, 1.0, 0.3);
+    for transform in goal_zones.iter() {
+        let pos = transform.translation();
+        let size = 0.5;
+        // Wireframe cube via 3 circles
+        gizmos.circle(Isometry3d::new(pos, Quat::IDENTITY), size, color);
+        gizmos.circle(
+            Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+            size,
+            color,
+        );
+        gizmos.circle(
+            Isometry3d::new(pos, Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+            size,
+            color,
+        );
+    }
+}
+
+/// Regenerate runtime components for spawn points after scene restore
+fn regenerate_spawn_points(
+    mut commands: Commands,
+    query: Query<Entity, (With<SpawnPoint>, Without<Visibility>)>,
+) {
+    for entity in &query {
+        commands.entity(entity).insert((
+            Visibility::default(),
+            Collider::sphere(0.3),
+        ));
+    }
+}
+
+/// Regenerate runtime components for goal zones after scene restore
+fn regenerate_goal_zones(
+    mut commands: Commands,
+    query: Query<Entity, (With<GoalZone>, Without<Visibility>)>,
+) {
+    for entity in &query {
+        commands.entity(entity).insert((
+            Visibility::default(),
+            Collider::cuboid(1.0, 1.0, 1.0),
+            Sensor,
+        ));
+    }
 }

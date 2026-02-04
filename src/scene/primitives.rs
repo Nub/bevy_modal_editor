@@ -5,7 +5,7 @@ use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
 
 use bevy::pbr::ExtendedMaterial;
-use bevy_editor_game::SpawnPoint;
+use bevy_editor_game::CustomEntityRegistry;
 use bevy_grid_shader::GridMaterial;
 
 use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs, GridMat};
@@ -186,29 +186,30 @@ pub enum SpawnEntityKind {
     Arch,
     /// Parametric L-shape corner
     LShape,
-    /// Spawn point marker
-    SpawnPoint,
+    /// A custom entity type registered by the game
+    Custom(String),
 }
 
 impl SpawnEntityKind {
     /// Get the display name for this entity kind
-    pub fn display_name(&self) -> &'static str {
+    pub fn display_name(&self) -> String {
         match self {
-            SpawnEntityKind::Primitive(shape) => shape.display_name(),
-            SpawnEntityKind::Group => "Group",
-            SpawnEntityKind::PointLight => "Point Light",
-            SpawnEntityKind::DirectionalLight => "Sun",
+            SpawnEntityKind::Primitive(shape) => shape.display_name().to_string(),
+            SpawnEntityKind::Group => "Group".to_string(),
+            SpawnEntityKind::PointLight => "Point Light".to_string(),
+            SpawnEntityKind::DirectionalLight => "Sun".to_string(),
             SpawnEntityKind::Spline(spline_type) => match spline_type {
                 SplineType::CubicBezier => "Bezier Spline",
                 SplineType::CatmullRom => "Catmull-Rom Spline",
                 SplineType::BSpline => "B-Spline",
-            },
-            SpawnEntityKind::FogVolume => "Fog Volume",
-            SpawnEntityKind::Stairs => "Stairs",
-            SpawnEntityKind::Ramp => "Ramp",
-            SpawnEntityKind::Arch => "Arch",
-            SpawnEntityKind::LShape => "L-Shape",
-            SpawnEntityKind::SpawnPoint => "Spawn Point",
+            }
+            .to_string(),
+            SpawnEntityKind::FogVolume => "Fog Volume".to_string(),
+            SpawnEntityKind::Stairs => "Stairs".to_string(),
+            SpawnEntityKind::Ramp => "Ramp".to_string(),
+            SpawnEntityKind::Arch => "Arch".to_string(),
+            SpawnEntityKind::LShape => "L-Shape".to_string(),
+            SpawnEntityKind::Custom(name) => name.clone(),
         }
     }
 }
@@ -279,6 +280,7 @@ fn handle_spawn_entity(
     mut grid_materials: ResMut<Assets<GridMat>>,
     existing_entities: Query<&Name, With<SceneEntity>>,
     selected_entities: Query<Entity, With<Selected>>,
+    custom_registry: Res<CustomEntityRegistry>,
 ) {
     for event in events.read() {
         // Deselect all currently selected entities
@@ -286,7 +288,8 @@ fn handle_spawn_entity(
             commands.entity(entity).remove::<Selected>();
         }
 
-        let name = generate_unique_name(event.kind.display_name(), &existing_entities);
+        let display = event.kind.display_name();
+        let name = generate_unique_name(&display, &existing_entities);
 
         let new_entity = match &event.kind {
             SpawnEntityKind::Primitive(shape) => spawn_primitive(
@@ -307,7 +310,16 @@ fn handle_spawn_entity(
             SpawnEntityKind::Ramp => spawn_ramp(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::Arch => spawn_arch(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::LShape => spawn_lshape(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
-            SpawnEntityKind::SpawnPoint => spawn_spawn_point(&mut commands, event.position, event.rotation, &name),
+            SpawnEntityKind::Custom(type_name) => {
+                let entity_type = custom_registry
+                    .types
+                    .iter()
+                    .find(|t| t.name == type_name)
+                    .unwrap_or_else(|| panic!("Unknown custom entity type: {}", type_name));
+                let entity = (entity_type.spawn)(&mut commands, event.position, event.rotation);
+                commands.entity(entity).insert((SceneEntity, Name::new(name.clone())));
+                entity
+            }
         };
 
         // Select the newly spawned entity
@@ -551,25 +563,6 @@ fn handle_group_selected(
 
         info!("Created group '{}' with {} entities", name, selected.iter().count());
     }
-}
-
-/// Spawn a spawn point marker entity (small collider for selection in editor)
-fn spawn_spawn_point(
-    commands: &mut Commands,
-    position: Vec3,
-    rotation: Quat,
-    name: &str,
-) -> Entity {
-    commands
-        .spawn((
-            SceneEntity,
-            SpawnPoint,
-            Name::new(name.to_string()),
-            Transform::from_translation(position).with_rotation(rotation),
-            Visibility::default(),
-            Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
-        ))
-        .id()
 }
 
 /// Collider radius for light selection (small sphere for clicking)

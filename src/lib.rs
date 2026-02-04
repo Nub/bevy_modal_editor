@@ -68,13 +68,14 @@ pub use scene::{
 pub use selection::Selected;
 
 // Re-export editor state types
-pub use editor::{AxisConstraint, EditorMode, TransformOperation};
+pub use editor::{AxisConstraint, EditorMode, EditorState, TransformOperation};
 
 // Re-export from bevy_editor_game
 pub use bevy_editor_game::{
+    CustomEntityRegistry, CustomEntityType, RegisterCustomEntityExt,
     GameCamera, GameEntity, GameState, PauseEvent, PlayEvent, ResetEvent,
     GameStartedEvent, GameResumedEvent, GamePausedEvent, GameResetEvent,
-    SceneComponentRegistry, RegisterSceneComponentExt, SpawnPoint,
+    SceneComponentRegistry, RegisterSceneComponentExt,
 };
 
 // Re-export scene loading

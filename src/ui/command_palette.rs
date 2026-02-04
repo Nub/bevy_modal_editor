@@ -9,7 +9,7 @@ use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSource, 
 use bevy_spline_3d::prelude::{Spline, SplineType};
 
 use crate::commands::{RedoEvent, TakeSnapshotCommand, UndoEvent};
-use bevy_editor_game::{PauseEvent, PlayEvent, ResetEvent};
+use bevy_editor_game::{CustomEntityRegistry, PauseEvent, PlayEvent, ResetEvent};
 
 use crate::editor::{
     CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
@@ -116,8 +116,8 @@ pub enum CommandAction {
     SpawnArch,
     /// Spawn parametric L-shape
     SpawnLShape,
-    /// Spawn a spawn point marker
-    SpawnSpawnPoint,
+    /// Spawn a custom entity type registered by the game
+    SpawnCustomEntity(String),
     /// Start simulation (play or resume)
     Play,
     /// Pause simulation
@@ -406,14 +406,6 @@ impl CommandRegistry {
             insertable: false,
         });
 
-        // Game markers
-        self.commands.push(Command {
-            name: "Add Spawn Point".to_string(),
-            keywords: vec!["start".into(), "player".into(), "origin".into(), "marble".into()],
-            category: "Game",
-            action: CommandAction::SpawnSpawnPoint,
-            insertable: false,
-        });
         // Groups (insertable)
         self.commands.push(Command {
             name: "Add Group".to_string(),
@@ -696,8 +688,29 @@ impl Plugin for CommandPalettePlugin {
             .init_resource::<CustomMarkDialogState>()
             .init_resource::<RemovableComponentsCache>()
             .insert_resource(registry)
+            .add_systems(PreStartup, register_custom_entity_commands)
             .add_systems(Update, (handle_palette_toggle, populate_removable_components))
             .add_systems(EguiPrimaryContextPass, (draw_command_palette, draw_help_window, draw_custom_mark_dialog));
+    }
+}
+
+/// Register custom entity types from the game into the command palette
+fn register_custom_entity_commands(
+    custom_entities: Res<CustomEntityRegistry>,
+    mut registry: ResMut<CommandRegistry>,
+) {
+    for entity_type in &custom_entities.types {
+        registry.commands.push(Command {
+            name: format!("Add {}", entity_type.name),
+            keywords: entity_type
+                .keywords
+                .iter()
+                .map(|k| k.to_string())
+                .collect(),
+            category: entity_type.category,
+            action: CommandAction::SpawnCustomEntity(entity_type.name.to_string()),
+            insertable: false,
+        });
     }
 }
 
@@ -835,6 +848,7 @@ fn draw_command_palette(
     mut file_dialog_state: ResMut<FileDialogState>,
     scene_file: Res<SceneFile>,
     registry: Res<CommandRegistry>,
+    custom_registry: Res<CustomEntityRegistry>,
     type_registry: Res<AppTypeRegistry>,
     selected: Query<Entity, With<Selected>>,
     mut events: CommandEvents,
@@ -1167,10 +1181,16 @@ fn draw_command_palette(
                         rotation: Quat::IDENTITY,
                     });
                 }
-                CommandAction::SpawnSpawnPoint => {
+                CommandAction::SpawnCustomEntity(ref type_name) => {
+                    let position = custom_registry
+                        .types
+                        .iter()
+                        .find(|t| t.name == type_name)
+                        .map(|t| t.default_position)
+                        .unwrap_or(Vec3::ZERO);
                     events.spawn_entity.write(SpawnEntityEvent {
-                        kind: SpawnEntityKind::SpawnPoint,
-                        position: Vec3::new(0.0, 1.0, 0.0),
+                        kind: SpawnEntityKind::Custom(type_name.clone()),
+                        position,
                         rotation: Quat::IDENTITY,
                     });
                 }
