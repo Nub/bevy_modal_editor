@@ -1,6 +1,7 @@
 use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
+use bevy::pbr::{DistanceFog, FogFalloff};
 use bevy::render::view::Hdr;
 use bevy_editor_game::{GameCamera, GameEntity, GameStartedEvent, GameState};
 
@@ -73,6 +74,9 @@ fn spawn_game_camera_on_start(
     mut commands: Commands,
 ) {
     for _ in events.read() {
+        // Set sky-blue clear color during gameplay
+        commands.insert_resource(ClearColor(Color::srgb(0.53, 0.81, 0.92)));
+
         commands.spawn((
             GameCamera,
             GameEntity,
@@ -88,6 +92,11 @@ fn spawn_game_camera_on_start(
                 ..default()
             },
             Hdr,
+            DistanceFog {
+                color: Color::srgba(0.53, 0.81, 0.92, 1.0),
+                falloff: FogFalloff::Exponential { density: 0.005 },
+                ..default()
+            },
             Transform::from_translation(Vec3::new(0.0, 10.0, 15.0))
                 .looking_at(Vec3::ZERO, Vec3::Y),
         ));

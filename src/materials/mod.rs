@@ -18,7 +18,7 @@ fn load_texture_repeat(asset_server: &AssetServer, path: String) -> Handle<Image
             address_mode_u: ImageAddressMode::Repeat,
             address_mode_v: ImageAddressMode::Repeat,
             address_mode_w: ImageAddressMode::Repeat,
-            ..default()
+            ..ImageSamplerDescriptor::linear()
         });
     })
 }

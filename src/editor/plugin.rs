@@ -1,6 +1,7 @@
 use avian3d::debug_render::PhysicsDebugPlugin;
 use avian3d::prelude::{Physics, PhysicsPlugins};
 use avian3d::schedule::PhysicsTime;
+use bevy::image::{ImageFilterMode, ImagePlugin, ImageSamplerDescriptor};
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use bevy_grid_shader::GridMaterialPlugin;
@@ -121,6 +122,32 @@ impl EditorPlugin {
                 ..default()
             },
         }
+    }
+}
+
+/// Returns the recommended `ImagePlugin` for use with the editor.
+///
+/// Configures linear filtering with 16x anisotropic filtering for all textures.
+///
+/// # Example
+/// ```no_run
+/// use bevy::prelude::*;
+/// use bevy_modal_editor::{EditorPlugin, editor::recommended_image_plugin};
+///
+/// App::new()
+///     .add_plugins(DefaultPlugins.set(recommended_image_plugin()))
+///     .add_plugins(EditorPlugin::default())
+///     .run();
+/// ```
+pub fn recommended_image_plugin() -> ImagePlugin {
+    ImagePlugin {
+        default_sampler: ImageSamplerDescriptor {
+            mag_filter: ImageFilterMode::Linear,
+            min_filter: ImageFilterMode::Linear,
+            mipmap_filter: ImageFilterMode::Linear,
+            anisotropy_clamp: 16,
+            ..default()
+        },
     }
 }
 

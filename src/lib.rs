@@ -57,7 +57,7 @@ pub mod utils;
 pub use bevy_editor_game;
 
 // Re-export the main plugin and configuration
-pub use editor::{EditorPlugin, EditorPluginConfig, GamePlugin};
+pub use editor::{EditorPlugin, EditorPluginConfig, GamePlugin, recommended_image_plugin};
 
 // Re-export commonly used types
 pub use scene::{

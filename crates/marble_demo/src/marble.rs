@@ -9,6 +9,10 @@ use crate::SpawnPoint;
 #[derive(Component)]
 pub struct Marble;
 
+/// Fired when the marble successfully jumps (grounded + Space pressed)
+#[derive(Message)]
+pub struct MarbleJumpedEvent;
+
 /// Configuration for marble physics
 #[derive(Resource)]
 pub struct MarbleConfig {
@@ -24,7 +28,7 @@ impl Default for MarbleConfig {
     fn default() -> Self {
         Self {
             move_force: 1.0,
-            jump_impulse: 1.0,
+            jump_impulse: 3.0,
             max_speed: 10.0,
         }
     }
@@ -35,6 +39,7 @@ pub struct MarblePlugin;
 impl Plugin for MarblePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MarbleConfig>()
+            .add_message::<MarbleJumpedEvent>()
             .add_systems(Update, spawn_marble_on_game_start)
             .add_systems(Update, marble_input.run_if(in_state(GameState::Playing)));
     }
@@ -66,7 +71,7 @@ fn spawn_marble_on_game_start(
                     bevy::image::ImageSamplerDescriptor {
                         address_mode_u: bevy::image::ImageAddressMode::Repeat,
                         address_mode_v: bevy::image::ImageAddressMode::Repeat,
-                        ..default()
+                        ..bevy::image::ImageSamplerDescriptor::linear()
                     },
                 );
             },
@@ -111,6 +116,7 @@ fn marble_input(
     config: Res<MarbleConfig>,
     mut marbles: Query<Forces, With<Marble>>,
     camera_query: Query<&GlobalTransform, With<GameCamera>>,
+    mut jump_events: MessageWriter<MarbleJumpedEvent>,
 ) {
     let Ok(mut forces) = marbles.single_mut() else {
         return;
@@ -156,6 +162,7 @@ fn marble_input(
         // Simple ground check: only jump if vertical velocity is near zero
         if forces.linear_velocity().y.abs() < 0.5 {
             forces.apply_linear_impulse(Vec3::Y * config.jump_impulse);
+            jump_events.write(MarbleJumpedEvent);
         }
     }
 }

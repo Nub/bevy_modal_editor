@@ -11,6 +11,7 @@ mod checkerboard;
 mod game_camera;
 pub mod levels;
 mod marble;
+mod sounds;
 pub mod timer;
 
 use avian3d::prelude::*;
@@ -21,7 +22,7 @@ use bevy_editor_game::{
     ValidationSeverity,
 };
 use bevy_modal_editor::materials::RegisterMaterialTypeExt;
-use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, GamePlugin};
+use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, GamePlugin, recommended_image_plugin};
 
 use checkerboard::{CheckerboardMaterialDef, CheckerboardMaterialPlugin};
 
@@ -39,7 +40,7 @@ pub struct GoalZone;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(recommended_image_plugin()))
         .add_plugins(EditorPlugin::new(EditorPluginConfig {
             pause_physics_on_startup: true,
             ..default()
@@ -51,6 +52,7 @@ fn main() {
         .add_plugins(game_camera::GameCameraPlugin)
         .add_plugins(timer::GameTimerPlugin)
         .add_plugins(levels::LevelsPlugin)
+        .add_plugins(sounds::SoundEffectsPlugin)
         .register_custom_entity::<SpawnPoint>(CustomEntityType {
             name: "Spawn Point",
             category: "Game",
