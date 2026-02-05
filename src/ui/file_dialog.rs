@@ -50,7 +50,7 @@ pub enum FileDialogOperation {
     /// Pick a RON scene file to insert
     InsertScene,
     /// Pick a texture image for a material slot
-    PickTexture { slot: TextureSlot, entity: Entity },
+    PickTexture { slot: TextureSlot, entity: Option<Entity> },
 }
 
 /// Result of a texture pick operation, consumed by the material editor
@@ -60,7 +60,7 @@ pub struct TexturePickResult(pub Option<TexturePickData>);
 /// Data for a completed texture pick
 pub struct TexturePickData {
     pub slot: TextureSlot,
-    pub entity: Entity,
+    pub entity: Option<Entity>,
     pub path: String,
 }
 
@@ -146,7 +146,7 @@ impl FileDialogState {
     }
 
     /// Open the file dialog for picking a texture image
-    pub fn open_pick_texture(&mut self, slot: TextureSlot, entity: Entity) {
+    pub fn open_pick_texture(&mut self, slot: TextureSlot, entity: Option<Entity>) {
         self.dialog = create_centered_dialog()
             .add_file_filter_extensions("Image files", image_extensions())
             .default_file_filter("Image files");

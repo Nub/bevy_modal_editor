@@ -318,7 +318,7 @@ struct TextureSlotResult {
     browse_requested: Option<TextureSlot>,
 }
 
-/// Draw a single texture slot row
+/// Draw a single texture slot row inside a grid (label + value columns).
 fn draw_texture_row(
     ui: &mut egui::Ui,
     label: &str,
@@ -326,7 +326,7 @@ fn draw_texture_row(
     path: &mut Option<String>,
     result: &mut TextureSlotResult,
 ) {
-    ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
+    grid_label(ui, label);
     ui.horizontal(|ui| {
         // Display current path or "None"
         let display = path
@@ -361,7 +361,7 @@ fn draw_texture_row(
             result.changed = true;
         }
     });
-    ui.add_space(2.0);
+    ui.end_row();
 }
 
 /// Draw texture slot UI for all 5 PBR texture maps
@@ -371,21 +371,18 @@ fn draw_texture_slots(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> Textur
         browse_requested: None,
     };
 
-    ui.add_space(4.0);
-    ui.separator();
-    ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new("Textures")
-            .strong()
-            .color(colors::TEXT_PRIMARY),
-    );
-    ui.add_space(4.0);
-
-    draw_texture_row(ui, "Base Color", TextureSlot::BaseColor, &mut base.base_color_texture, &mut result);
-    draw_texture_row(ui, "Normal Map", TextureSlot::NormalMap, &mut base.normal_map_texture, &mut result);
-    draw_texture_row(ui, "Metallic/Roughness", TextureSlot::MetallicRoughness, &mut base.metallic_roughness_texture, &mut result);
-    draw_texture_row(ui, "Emissive", TextureSlot::Emissive, &mut base.emissive_texture, &mut result);
-    draw_texture_row(ui, "Occlusion", TextureSlot::Occlusion, &mut base.occlusion_texture, &mut result);
+    section_header(ui, "Textures", true, |ui| {
+        egui::Grid::new("textures_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                draw_texture_row(ui, "Base Color", TextureSlot::BaseColor, &mut base.base_color_texture, &mut result);
+                draw_texture_row(ui, "Normal Map", TextureSlot::NormalMap, &mut base.normal_map_texture, &mut result);
+                draw_texture_row(ui, "Metallic/Rough", TextureSlot::MetallicRoughness, &mut base.metallic_roughness_texture, &mut result);
+                draw_texture_row(ui, "Emissive", TextureSlot::Emissive, &mut base.emissive_texture, &mut result);
+                draw_texture_row(ui, "Occlusion", TextureSlot::Occlusion, &mut base.occlusion_texture, &mut result);
+            });
+    });
 
     result
 }
@@ -453,21 +450,36 @@ fn draw_material_panel(world: &mut World) {
         .cloned();
 
     // Check for texture pick result and apply it
-    if let Some(entity) = first_entity {
-        let pick_data = world.resource_mut::<TexturePickResult>().0.take();
-        if let Some(pick) = pick_data {
-            if pick.entity == entity {
-                if let Some(def) = &mut working_def {
-                    match pick.slot {
-                        TextureSlot::BaseColor => def.base.base_color_texture = Some(pick.path),
-                        TextureSlot::NormalMap => def.base.normal_map_texture = Some(pick.path),
-                        TextureSlot::MetallicRoughness => def.base.metallic_roughness_texture = Some(pick.path),
-                        TextureSlot::Emissive => def.base.emissive_texture = Some(pick.path),
-                        TextureSlot::Occlusion => def.base.occlusion_texture = Some(pick.path),
+    let pick_data = world.resource_mut::<TexturePickResult>().0.take();
+    if let Some(pick) = pick_data {
+        // Verify the pick matches our context (entity or preset)
+        let matches = match (pick.entity, first_entity) {
+            (Some(pick_e), Some(our_e)) => pick_e == our_e,
+            (None, None) => editing_preset_name.is_some(),
+            _ => false,
+        };
+        if matches {
+            if let Some(def) = &mut working_def {
+                match pick.slot {
+                    TextureSlot::BaseColor => def.base.base_color_texture = Some(pick.path),
+                    TextureSlot::NormalMap => def.base.normal_map_texture = Some(pick.path),
+                    TextureSlot::MetallicRoughness => {
+                        def.base.metallic_roughness_texture = Some(pick.path)
                     }
-                    // Apply immediately
+                    TextureSlot::Emissive => def.base.emissive_texture = Some(pick.path),
+                    TextureSlot::Occlusion => def.base.occlusion_texture = Some(pick.path),
+                }
+                if let Some(entity) = first_entity {
+                    // Apply immediately to entity
                     let def_clone = def.clone();
                     apply_and_update_entity(world, entity, def_clone);
+                } else if let Some(ref preset_name) = editing_preset_name {
+                    // Apply to library preset
+                    let def_clone = def.clone();
+                    world
+                        .resource_mut::<MaterialLibrary>()
+                        .materials
+                        .insert(preset_name.clone(), def_clone);
                 }
             }
         }
@@ -837,6 +849,14 @@ fn draw_material_panel(world: &mut World) {
     // --- Editing a library preset directly (no entity) ---
     if let Some(ref preset_name) = editing_preset_name {
         if first_entity.is_none() {
+            // Open file dialog for texture browsing (preset path)
+            if let Some(slot) = browse_texture_slot {
+                world
+                    .resource_mut::<FileDialogState>()
+                    .open_pick_texture(slot, None);
+                return;
+            }
+
             // Handle preset deletion
             if let Some(del_name) = delete_preset {
                 world
@@ -944,7 +964,7 @@ fn draw_material_panel(world: &mut World) {
     if let Some(slot) = browse_texture_slot {
         world
             .resource_mut::<FileDialogState>()
-            .open_pick_texture(slot, entity);
+            .open_pick_texture(slot, Some(entity));
         return;
     }
 

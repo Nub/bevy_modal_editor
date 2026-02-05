@@ -3,7 +3,7 @@ use bevy_grid_shader::{GridAxes, GridMaterial, GridMaterialUniform};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::ui::theme::colors;
+use crate::ui::theme::{grid_label, section_header, value_slider, DRAG_VALUE_WIDTH};
 
 use super::EditorMaterialDef;
 
@@ -129,111 +129,66 @@ impl EditorMaterialDef for GridMaterialDef {
     fn draw_ui(ui: &mut egui::Ui, props: &mut GridMaterialProps) -> bool {
         let mut changed = false;
 
-        ui.add_space(8.0);
-        ui.label(
-            egui::RichText::new("Grid Properties")
-                .color(colors::ACCENT_CYAN)
-                .strong(),
-        );
-        ui.add_space(4.0);
+        section_header(ui, "Grid Properties", true, |ui| {
+            egui::Grid::new("grid_props_grid")
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Line Color");
+                    changed |= ui
+                        .color_edit_button_rgba_unmultiplied(&mut props.line_color)
+                        .changed();
+                    ui.end_row();
 
-        // Line Color
-        ui.label(egui::RichText::new("Line Color").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui
-                .color_edit_button_rgba_unmultiplied(&mut props.line_color)
-                .changed();
-        });
-        ui.add_space(4.0);
+                    grid_label(ui, "Major Color");
+                    changed |= ui
+                        .color_edit_button_rgba_unmultiplied(&mut props.major_line_color)
+                        .changed();
+                    ui.end_row();
 
-        // Major Line Color
-        ui.label(egui::RichText::new("Major Line Color").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui
-                .color_edit_button_rgba_unmultiplied(&mut props.major_line_color)
-                .changed();
-        });
-        ui.add_space(4.0);
+                    grid_label(ui, "Line Width");
+                    changed |= value_slider(ui, &mut props.line_width, 0.1..=10.0);
+                    ui.end_row();
 
-        // Line Width
-        ui.label(egui::RichText::new("Line Width").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui
-                .add(egui::DragValue::new(&mut props.line_width).speed(0.1).range(0.1..=10.0))
-                .changed();
-        });
-        ui.add_space(4.0);
+                    grid_label(ui, "Major Width");
+                    changed |= value_slider(ui, &mut props.major_line_width, 0.1..=10.0);
+                    ui.end_row();
 
-        // Major Line Width
-        ui.label(egui::RichText::new("Major Line Width").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui
-                .add(
-                    egui::DragValue::new(&mut props.major_line_width)
-                        .speed(0.1)
-                        .range(0.1..=10.0),
-                )
-                .changed();
-        });
-        ui.add_space(4.0);
+                    grid_label(ui, "Scale");
+                    changed |= value_slider(ui, &mut props.grid_scale, 0.1..=100.0);
+                    ui.end_row();
 
-        // Grid Scale
-        ui.label(egui::RichText::new("Grid Scale").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui
-                .add(egui::DragValue::new(&mut props.grid_scale).speed(0.1).range(0.1..=100.0))
-                .changed();
-        });
-        ui.add_space(4.0);
+                    grid_label(ui, "Major Every");
+                    let mut major = props.major_line_every as i32;
+                    if ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut major).range(1..=100),
+                        )
+                        .changed()
+                    {
+                        props.major_line_every = major.max(1) as u32;
+                        changed = true;
+                    }
+                    ui.end_row();
 
-        // Major Line Every
-        ui.label(egui::RichText::new("Major Line Every").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            let mut major = props.major_line_every as i32;
-            if ui
-                .add(egui::DragValue::new(&mut major).range(1..=100))
-                .changed()
-            {
-                props.major_line_every = major.max(1) as u32;
-                changed = true;
-            }
-        });
-        ui.add_space(4.0);
+                    grid_label(ui, "Axes");
+                    ui.horizontal(|ui| {
+                        changed |= ui.checkbox(&mut props.axes_xz, "XZ").changed();
+                        changed |= ui.checkbox(&mut props.axes_xy, "XY").changed();
+                        changed |= ui.checkbox(&mut props.axes_yz, "YZ").changed();
+                    });
+                    ui.end_row();
 
-        // Axes
-        ui.label(egui::RichText::new("Axes").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui.checkbox(&mut props.axes_xz, "XZ").changed();
-            changed |= ui.checkbox(&mut props.axes_xy, "XY").changed();
-            changed |= ui.checkbox(&mut props.axes_yz, "YZ").changed();
-        });
-        ui.add_space(4.0);
+                    grid_label(ui, "Fade Dist");
+                    changed |= value_slider(ui, &mut props.fade_distance, 0.0..=1000.0);
+                    ui.end_row();
 
-        // Fade Distance
-        ui.label(egui::RichText::new("Fade Distance").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui
-                .add(
-                    egui::DragValue::new(&mut props.fade_distance)
-                        .speed(1.0)
-                        .range(0.0..=1000.0),
-                )
-                .changed();
+                    grid_label(ui, "Fade Strength");
+                    changed |= value_slider(ui, &mut props.fade_strength, 0.0..=10.0);
+                    ui.end_row();
+                });
         });
-        ui.add_space(4.0);
-
-        // Fade Strength
-        ui.label(egui::RichText::new("Fade Strength").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui
-                .add(
-                    egui::DragValue::new(&mut props.fade_strength)
-                        .speed(0.1)
-                        .range(0.0..=10.0),
-                )
-                .changed();
-        });
-        ui.add_space(4.0);
 
         changed
     }
