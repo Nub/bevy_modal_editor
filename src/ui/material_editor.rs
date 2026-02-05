@@ -26,6 +26,11 @@ use crate::utils::should_process_input;
 #[derive(Resource, Default)]
 pub struct CopiedMaterial(pub Option<MaterialDefinition>);
 
+/// When set, the material editor edits this library preset directly
+/// (used when the preset palette selects a preset with no entity selected).
+#[derive(Resource, Default)]
+pub struct EditingPreset(pub Option<String>);
+
 /// State for the "Save as Preset" dialog
 #[derive(Resource, Default)]
 struct PresetDialogState {
@@ -38,6 +43,7 @@ pub struct MaterialEditorPlugin;
 impl Plugin for MaterialEditorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CopiedMaterial>()
+            .init_resource::<EditingPreset>()
             .init_resource::<PresetDialogState>()
             .add_systems(Update, handle_material_copy_paste)
             .add_systems(EguiPrimaryContextPass, draw_material_panel);
@@ -406,11 +412,26 @@ fn draw_material_panel(world: &mut World) {
     let total_selected = selected_entities.len();
     let first_entity = selected_entities.first().copied();
 
-    // Get MaterialRef + Name for first selected entity
+    // Check if editing a library preset directly (no entity needed)
+    let editing_preset_name = world
+        .get_resource::<EditingPreset>()
+        .and_then(|ep| ep.0.clone());
+
+    // Clear editing preset if an entity gets selected
+    if total_selected > 0 && editing_preset_name.is_some() {
+        world.resource_mut::<EditingPreset>().0 = None;
+    }
+
+    // Get MaterialRef + Name for first selected entity, or from editing preset
     let (entity_name, current_mat_ref) = if let Some(entity) = first_entity {
         let name = world.get::<Name>(entity).map(|n| n.as_str().to_string());
         let mat_ref = world.get::<MaterialRef>(entity).cloned();
         (name, mat_ref)
+    } else if let Some(ref preset_name) = editing_preset_name {
+        (
+            Some(preset_name.clone()),
+            Some(MaterialRef::Library(preset_name.clone())),
+        )
     } else {
         (None, None)
     };
@@ -503,6 +524,14 @@ fn draw_material_panel(world: &mut World) {
     // Has material at all?
     let has_material = current_mat_ref.is_some();
 
+    // Editable preset name buffer (for library presets)
+    let library_preset_name = match &current_mat_ref {
+        Some(MaterialRef::Library(n)) => Some(n.clone()),
+        _ => None,
+    };
+    let mut preset_name_buf = library_preset_name.clone().unwrap_or_default();
+    let mut rename_preset: Option<(String, String)> = None;
+
     // Get egui context
     let ctx = {
         let Some(mut egui_ctx) = world
@@ -538,7 +567,7 @@ fn draw_material_panel(world: &mut World) {
                 available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING,
             );
 
-            if total_selected == 0 {
+            if total_selected == 0 && editing_preset_name.is_none() {
                 ui.add_space(20.0);
                 ui.vertical_centered(|ui| {
                     ui.label(
@@ -570,16 +599,52 @@ fn draw_material_panel(world: &mut World) {
                             .color(colors::TEXT_MUTED),
                     );
                 });
-            } else if total_selected == 1 {
+            } else if total_selected == 1 || editing_preset_name.is_some() {
                 ui.add_space(4.0);
 
-                // Entity name
-                if let Some(name) = &entity_name {
+                // Name area: editable preset name for library materials, static for others
+                if library_preset_name.is_some() {
+                    // Editable preset name (matching inspector name field style)
+                    ui.add(
+                        egui::TextEdit::singleline(&mut preset_name_buf)
+                            .font(egui::FontId::proportional(16.0))
+                            .text_color(colors::TEXT_PRIMARY)
+                            .margin(egui::vec2(8.0, 6.0)),
+                    );
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Library preset")
+                                .small()
+                                .color(colors::ACCENT_BLUE),
+                        );
+                        if first_entity.is_some() {
+                            if let Some(name) = &entity_name {
+                                ui.label(
+                                    egui::RichText::new(format!("on {}", name))
+                                        .small()
+                                        .color(colors::TEXT_MUTED),
+                                );
+                            }
+                        }
+                        if ui
+                            .small_button("Detach")
+                            .on_hover_text("Convert to inline material")
+                            .clicked()
+                        {
+                            detach_preset = true;
+                        }
+                    });
+                } else if let Some(name) = &entity_name {
                     ui.label(
                         egui::RichText::new(name)
                             .strong()
                             .size(14.0)
                             .color(colors::TEXT_PRIMARY),
+                    );
+                    ui.label(
+                        egui::RichText::new("Inline material")
+                            .small()
+                            .color(colors::TEXT_MUTED),
                     );
                 } else if let Some(entity) = first_entity {
                     ui.label(
@@ -588,35 +653,11 @@ fn draw_material_panel(world: &mut World) {
                             .size(14.0)
                             .color(colors::TEXT_PRIMARY),
                     );
-                }
-
-                // Library/Inline indicator
-                if let Some(ref mat_ref) = current_mat_ref {
-                    match mat_ref {
-                        MaterialRef::Library(name) => {
-                            ui.horizontal(|ui| {
-                                ui.label(
-                                    egui::RichText::new(format!("Library: {}", name))
-                                        .small()
-                                        .color(colors::ACCENT_BLUE),
-                                );
-                                if ui
-                                    .small_button("Detach")
-                                    .on_hover_text("Convert to inline material")
-                                    .clicked()
-                                {
-                                    detach_preset = true;
-                                }
-                            });
-                        }
-                        MaterialRef::Inline(_) => {
-                            ui.label(
-                                egui::RichText::new("Inline material")
-                                    .small()
-                                    .color(colors::TEXT_MUTED),
-                            );
-                        }
-                    }
+                    ui.label(
+                        egui::RichText::new("Inline material")
+                            .small()
+                            .color(colors::TEXT_MUTED),
+                    );
                 }
 
                 ui.add_space(4.0);
@@ -785,6 +826,80 @@ fn draw_material_panel(world: &mut World) {
             }
         });
 
+    // Detect preset rename from TextEdit
+    if let Some(ref lib_name) = library_preset_name {
+        let new_name = preset_name_buf.trim().to_string();
+        if !new_name.is_empty() && new_name != *lib_name {
+            rename_preset = Some((lib_name.clone(), new_name));
+        }
+    }
+
+    // --- Editing a library preset directly (no entity) ---
+    if let Some(ref preset_name) = editing_preset_name {
+        if first_entity.is_none() {
+            // Handle preset deletion
+            if let Some(del_name) = delete_preset {
+                world
+                    .resource_mut::<MaterialLibrary>()
+                    .materials
+                    .remove(&del_name);
+                world.resource_mut::<EditingPreset>().0 = None;
+                return;
+            }
+
+            // Resolve final definition with any changes applied
+            let mut final_def = working_def;
+
+            // Handle material type change
+            if let Some(new_type) = new_type_name {
+                if let Some(def) = &mut final_def {
+                    if new_type == "standard" {
+                        def.extension = None;
+                    } else {
+                        let default_data = world
+                            .get_resource::<MaterialTypeRegistry>()
+                            .and_then(|r| r.find(&new_type))
+                            .and_then(|e| e.default_extension_data.clone())
+                            .unwrap_or_default();
+                        def.extension = Some(MaterialExtensionData {
+                            type_name: new_type,
+                            data: default_data,
+                        });
+                    }
+                }
+            }
+
+            // Apply extension data changes
+            if ext_changed {
+                if let Some(def) = &mut final_def {
+                    if let Some(new_data) = new_ext_data {
+                        if let Some(ext) = &mut def.extension {
+                            ext.data = new_data;
+                        }
+                    }
+                }
+            }
+
+            // Write changes back to the library (compare via RON since no PartialEq)
+            let any_change = ron::to_string(&final_def).ok() != ron::to_string(&original_def).ok()
+                || texture_changed;
+            if any_change {
+                if let Some(def) = final_def {
+                    world
+                        .resource_mut::<MaterialLibrary>()
+                        .materials
+                        .insert(preset_name.clone(), def);
+                }
+            }
+
+            // Handle preset rename (after property changes so they write to the old key first)
+            if let Some((old_name, new_name)) = rename_preset {
+                apply_preset_rename(world, &old_name, &new_name);
+            }
+            return;
+        }
+    }
+
     let Some(entity) = first_entity else { return };
     if total_selected != 1 { return; }
 
@@ -915,6 +1030,11 @@ fn draw_material_panel(world: &mut World) {
 
     // Draw save-as-preset dialog (if open)
     draw_save_preset_dialog(world, &ctx, entity);
+
+    // Handle preset rename (entity path)
+    if let Some((old_name, new_name)) = rename_preset {
+        apply_preset_rename(world, &old_name, &new_name);
+    }
 }
 
 /// Draw the "Save as Preset" dialog and handle confirm/cancel.
@@ -1002,5 +1122,46 @@ fn apply_and_update_entity(world: &mut World, entity: Entity, def: MaterialDefin
 
     // Apply material (registry lookup + world mutation in one step)
     apply_material_def_standalone(world, entity, &def);
+}
+
+/// Rename a library preset: move its definition under the new key, update EditingPreset,
+/// and update all entities referencing the old name.
+fn apply_preset_rename(world: &mut World, old_name: &str, new_name: &str) {
+    // Move definition in library
+    let def = world
+        .resource::<MaterialLibrary>()
+        .materials
+        .get(old_name)
+        .cloned();
+    if let Some(def) = def {
+        let mut lib = world.resource_mut::<MaterialLibrary>();
+        lib.materials.remove(old_name);
+        lib.materials.insert(new_name.to_string(), def);
+    }
+
+    // Update EditingPreset
+    {
+        let mut ep = world.resource_mut::<EditingPreset>();
+        if ep.0.as_deref() == Some(old_name) {
+            ep.0 = Some(new_name.to_string());
+        }
+    }
+
+    // Update all entities with MaterialRef::Library(old_name)
+    let entities_to_update: Vec<Entity> = {
+        let mut query = world.query::<(Entity, &MaterialRef)>();
+        query
+            .iter(world)
+            .filter_map(|(e, mr)| match mr {
+                MaterialRef::Library(n) if n == old_name => Some(e),
+                _ => None,
+            })
+            .collect()
+    };
+    for e_id in entities_to_update {
+        if let Ok(mut e) = world.get_entity_mut(e_id) {
+            e.insert(MaterialRef::Library(new_name.to_string()));
+        }
+    }
 }
 

@@ -14,6 +14,7 @@ use crate::materials::{
     apply_material_def_standalone, remove_all_material_components, resolve_material_ref,
 };
 use crate::selection::Selected;
+use crate::ui::material_editor::EditingPreset;
 
 /// Render layer for the material editor preview scene (outliner uses layer 31).
 const PREVIEW_RENDER_LAYER: usize = 30;
@@ -214,6 +215,7 @@ fn sync_preview_material(
     mode: Res<State<EditorMode>>,
     selected: Query<&MaterialRef, With<Selected>>,
     library: Res<MaterialLibrary>,
+    editing_preset: Res<EditingPreset>,
     sphere: Query<Entity, With<PreviewSphere>>,
     mut world_commands: Commands,
 ) {
@@ -226,12 +228,19 @@ fn sync_preview_material(
         return;
     };
 
-    // Resolve the current material definition from the first selected entity
+    // Resolve from selected entity, or from EditingPreset if no entity selected
     let current_def = selected
         .iter()
         .next()
         .and_then(|mat_ref| resolve_material_ref(mat_ref, &library))
-        .cloned();
+        .cloned()
+        .or_else(|| {
+            editing_preset
+                .0
+                .as_ref()
+                .and_then(|name| library.materials.get(name))
+                .cloned()
+        });
 
     // Hash via RON serialization for change detection
     let current_hash = current_def
