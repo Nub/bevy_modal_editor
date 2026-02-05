@@ -52,10 +52,12 @@ fn handle_find_toggle(
     }
 
     let in_hierarchy = *editor_mode.get() == EditorMode::Hierarchy;
+    let in_material = *editor_mode.get() == EditorMode::Material;
 
-    // F key opens find palette (not in Hierarchy mode where F is used for inline filtering)
+    // F key opens find palette (not in Hierarchy mode where F is used for inline filtering,
+    // and not in Material mode where F opens the preset palette)
     // "/" key opens find palette only in Hierarchy mode
-    let f_pressed = keyboard.just_pressed(KeyCode::KeyF) && !in_hierarchy;
+    let f_pressed = keyboard.just_pressed(KeyCode::KeyF) && !in_hierarchy && !in_material;
     let slash_pressed = keyboard.just_pressed(KeyCode::Slash) && in_hierarchy;
 
     if f_pressed || slash_pressed {

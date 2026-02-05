@@ -9,6 +9,8 @@ mod hierarchy;
 mod inspector;
 mod marks;
 mod material_editor;
+pub mod material_preview;
+mod material_preset_palette;
 mod panels;
 mod reflect_editor;
 mod settings;
@@ -72,6 +74,7 @@ impl Plugin for UiPlugin {
                 HierarchyPlugin,
                 InspectorPlugin,
                 material_editor::MaterialEditorPlugin,
+                material_preview::MaterialPreviewPlugin,
                 ToolbarPlugin,
                 ViewGizmoPlugin,
                 EditInfoPlugin,
@@ -84,6 +87,7 @@ impl Plugin for UiPlugin {
                 FileDialogPlugin,
                 MarksPlugin,
                 EntityPickerPlugin,
+                material_preset_palette::MaterialPresetPalettePlugin,
             ))
             // Validation
             .add_plugins(validation::ValidationPlugin);

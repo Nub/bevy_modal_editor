@@ -375,6 +375,18 @@ pub fn populate_default_library(library: &mut MaterialLibrary) {
 }
 
 // ---------------------------------------------------------------------------
+// Helper: remove all possible material components from an entity
+// ---------------------------------------------------------------------------
+
+/// Remove all possible material components from an entity.
+pub fn remove_all_material_components(world: &mut World, entity: Entity) {
+    if let Ok(mut e) = world.get_entity_mut(entity) {
+        e.remove::<MeshMaterial3d<StandardMaterial>>();
+        e.remove::<MeshMaterial3d<GridMat>>();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
 

@@ -380,6 +380,7 @@ fn get_hints_for_mode(
             ("Esc", "View"),
         ],
         EditorMode::Material => vec![
+            ("F", "Find preset"),
             ("Drag", "Adjust values"),
             ("Esc", "View"),
         ],

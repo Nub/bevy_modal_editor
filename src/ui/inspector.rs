@@ -21,7 +21,7 @@ use crate::scene::{
     DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker,
 };
 use crate::selection::Selected;
-use crate::ui::theme::{colors, panel, panel_frame};
+use crate::ui::theme::{colors, grid_label, panel, panel_frame, section_header, value_slider, DRAG_VALUE_WIDTH};
 
 /// Represents the RigidBody type for UI selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,33 +313,30 @@ struct SplineDistributionResult {
     open_source_picker: bool,
 }
 
-/// Draw a labeled color picker row
-fn draw_color_row(ui: &mut egui::Ui, color: &mut [f32; 3]) -> bool {
+/// Helper: draw an X/Y/Z inline row of DragValues.
+fn xyz_row(ui: &mut egui::Ui, values: &mut [f32; 3], speed: f32) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Color").color(colors::TEXT_SECONDARY));
-        changed = ui.color_edit_button_rgb(color).changed();
-    });
-    changed
-}
-
-/// Draw a labeled checkbox row
-fn draw_checkbox_row(ui: &mut egui::Ui, label: &str, value: &mut bool) -> bool {
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
-        changed = ui.checkbox(value, "").changed();
-    });
-    changed
-}
-
-/// Draw a labeled drag value row
-fn draw_drag_row(ui: &mut egui::Ui, label: &str, value: &mut f32, speed: f32, range: std::ops::RangeInclusive<f32>) -> bool {
-    let mut changed = false;
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
-        changed = ui
-            .add(egui::DragValue::new(value).speed(speed).range(range))
+        ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
+        changed |= ui
+            .add_sized(
+                [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                egui::DragValue::new(&mut values[0]).speed(speed).min_decimals(2),
+            )
+            .changed();
+        ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
+        changed |= ui
+            .add_sized(
+                [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                egui::DragValue::new(&mut values[1]).speed(speed).min_decimals(2),
+            )
+            .changed();
+        ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
+        changed |= ui
+            .add_sized(
+                [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                egui::DragValue::new(&mut values[2]).speed(speed).min_decimals(2),
+            )
             .changed();
     });
     changed
@@ -349,90 +346,71 @@ fn draw_drag_row(ui: &mut egui::Ui, label: &str, value: &mut f32, speed: f32, ra
 fn draw_transform_section(ui: &mut egui::Ui, transform: &mut Transform) -> bool {
     let mut changed = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Transform").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
+    section_header(ui, "Transform", true, |ui| {
+        egui::Grid::new("transform_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                // Translation
+                grid_label(ui, "Translation");
+                let mut pos = transform.translation.to_array();
+                if xyz_row(ui, &mut pos, 0.1) {
+                    transform.translation = Vec3::from(pos);
+                    changed = true;
+                }
+                ui.end_row();
 
-        // Translation
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Translation").color(colors::TEXT_SECONDARY));
-        });
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-            changed |= ui
-                .add(egui::DragValue::new(&mut transform.translation.x).speed(0.1))
-                .changed();
-            ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-            changed |= ui
-                .add(egui::DragValue::new(&mut transform.translation.y).speed(0.1))
-                .changed();
-            ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-            changed |= ui
-                .add(egui::DragValue::new(&mut transform.translation.z).speed(0.1))
-                .changed();
-        });
+                // Rotation (as euler angles in degrees)
+                let (mut yaw, mut pitch, mut roll) = transform.rotation.to_euler(EulerRot::YXZ);
+                yaw = yaw.to_degrees();
+                pitch = pitch.to_degrees();
+                roll = roll.to_degrees();
 
-        ui.add_space(4.0);
+                grid_label(ui, "Rotation");
+                let mut rot_changed = false;
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
+                    rot_changed |= ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut pitch).speed(1.0).suffix("°").min_decimals(1),
+                        )
+                        .changed();
+                    ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
+                    rot_changed |= ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut yaw).speed(1.0).suffix("°").min_decimals(1),
+                        )
+                        .changed();
+                    ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
+                    rot_changed |= ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut roll).speed(1.0).suffix("°").min_decimals(1),
+                        )
+                        .changed();
+                });
+                if rot_changed {
+                    transform.rotation = Quat::from_euler(
+                        EulerRot::YXZ,
+                        yaw.to_radians(),
+                        pitch.to_radians(),
+                        roll.to_radians(),
+                    );
+                    changed = true;
+                }
+                ui.end_row();
 
-        // Rotation (as euler angles in degrees)
-        let (mut yaw, mut pitch, mut roll) = transform.rotation.to_euler(EulerRot::YXZ);
-        yaw = yaw.to_degrees();
-        pitch = pitch.to_degrees();
-        roll = roll.to_degrees();
-
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Rotation").color(colors::TEXT_SECONDARY));
-        });
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-            let x_changed = ui
-                .add(egui::DragValue::new(&mut pitch).speed(1.0).suffix("°"))
-                .changed();
-            ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-            let y_changed = ui
-                .add(egui::DragValue::new(&mut yaw).speed(1.0).suffix("°"))
-                .changed();
-            ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-            let z_changed = ui
-                .add(egui::DragValue::new(&mut roll).speed(1.0).suffix("°"))
-                .changed();
-
-            if x_changed || y_changed || z_changed {
-                transform.rotation = Quat::from_euler(
-                    EulerRot::YXZ,
-                    yaw.to_radians(),
-                    pitch.to_radians(),
-                    roll.to_radians(),
-                );
-                changed = true;
-            }
-        });
-
-        ui.add_space(4.0);
-
-        // Scale
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Scale").color(colors::TEXT_SECONDARY));
-        });
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-            changed |= ui
-                .add(egui::DragValue::new(&mut transform.scale.x).speed(0.01))
-                .changed();
-            ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-            changed |= ui
-                .add(egui::DragValue::new(&mut transform.scale.y).speed(0.01))
-                .changed();
-            ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-            changed |= ui
-                .add(egui::DragValue::new(&mut transform.scale.z).speed(0.01))
-                .changed();
-        });
-
-        ui.add_space(4.0);
+                // Scale
+                grid_label(ui, "Scale");
+                let mut scl = transform.scale.to_array();
+                if xyz_row(ui, &mut scl, 0.01) {
+                    transform.scale = Vec3::from(scl);
+                    changed = true;
+                }
+                ui.end_row();
+            });
     });
 
     changed
@@ -442,22 +420,31 @@ fn draw_transform_section(ui: &mut egui::Ui, transform: &mut Transform) -> bool 
 fn draw_point_light_section(ui: &mut egui::Ui, data: &mut PointLightData) -> bool {
     let mut changed = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Point Light").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
-        changed |= draw_color_row(ui, &mut data.color);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Intensity", &mut data.intensity, 100.0, 0.0..=1000000.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Range", &mut data.range, 0.1, 0.0..=1000.0);
-        ui.add_space(4.0);
-        changed |= draw_checkbox_row(ui, "Shadows", &mut data.shadows_enabled);
-        ui.add_space(4.0);
-        changed |= draw_checkbox_row(ui, "Volumetric", &mut data.volumetric);
-        ui.add_space(4.0);
+    section_header(ui, "Point Light", true, |ui| {
+        egui::Grid::new("point_light_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Color");
+                changed |= ui.color_edit_button_rgb(&mut data.color).changed();
+                ui.end_row();
+
+                grid_label(ui, "Intensity");
+                changed |= value_slider(ui, &mut data.intensity, 0.0..=1000000.0);
+                ui.end_row();
+
+                grid_label(ui, "Range");
+                changed |= value_slider(ui, &mut data.range, 0.0..=1000.0);
+                ui.end_row();
+
+                grid_label(ui, "Shadows");
+                changed |= ui.checkbox(&mut data.shadows_enabled, "").changed();
+                ui.end_row();
+
+                grid_label(ui, "Volumetric");
+                changed |= ui.checkbox(&mut data.volumetric, "").changed();
+                ui.end_row();
+            });
     });
 
     changed
@@ -467,20 +454,27 @@ fn draw_point_light_section(ui: &mut egui::Ui, data: &mut PointLightData) -> boo
 fn draw_directional_light_section(ui: &mut egui::Ui, data: &mut DirectionalLightData) -> bool {
     let mut changed = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Directional Light").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
-        changed |= draw_color_row(ui, &mut data.color);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Illuminance", &mut data.illuminance, 100.0, 0.0..=200000.0);
-        ui.add_space(4.0);
-        changed |= draw_checkbox_row(ui, "Shadows", &mut data.shadows_enabled);
-        ui.add_space(4.0);
-        changed |= draw_checkbox_row(ui, "Volumetric", &mut data.volumetric);
-        ui.add_space(4.0);
+    section_header(ui, "Directional Light", true, |ui| {
+        egui::Grid::new("directional_light_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Color");
+                changed |= ui.color_edit_button_rgb(&mut data.color).changed();
+                ui.end_row();
+
+                grid_label(ui, "Illuminance");
+                changed |= value_slider(ui, &mut data.illuminance, 0.0..=200000.0);
+                ui.end_row();
+
+                grid_label(ui, "Shadows");
+                changed |= ui.checkbox(&mut data.shadows_enabled, "").changed();
+                ui.end_row();
+
+                grid_label(ui, "Volumetric");
+                changed |= ui.checkbox(&mut data.volumetric, "").changed();
+                ui.end_row();
+            });
     });
 
     changed
@@ -490,32 +484,39 @@ fn draw_directional_light_section(ui: &mut egui::Ui, data: &mut DirectionalLight
 fn draw_fog_volume_section(ui: &mut egui::Ui, data: &mut FogVolumeData) -> bool {
     let mut changed = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Fog Volume").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Fog Color").color(colors::TEXT_SECONDARY));
-            changed |= ui.color_edit_button_rgb(&mut data.fog_color).changed();
-        });
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Density", &mut data.density_factor, 0.01, 0.0..=1.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Absorption", &mut data.absorption, 0.01, 0.0..=1.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Scattering", &mut data.scattering, 0.01, 0.0..=1.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Scattering Asymmetry", &mut data.scattering_asymmetry, 0.01, -1.0..=1.0);
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Light Tint").color(colors::TEXT_SECONDARY));
-            changed |= ui.color_edit_button_rgb(&mut data.light_tint).changed();
-        });
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Light Intensity", &mut data.light_intensity, 0.1, 0.0..=10.0);
-        ui.add_space(4.0);
+    section_header(ui, "Fog Volume", true, |ui| {
+        egui::Grid::new("fog_volume_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Fog Color");
+                changed |= ui.color_edit_button_rgb(&mut data.fog_color).changed();
+                ui.end_row();
+
+                grid_label(ui, "Density");
+                changed |= value_slider(ui, &mut data.density_factor, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Absorption");
+                changed |= value_slider(ui, &mut data.absorption, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Scattering");
+                changed |= value_slider(ui, &mut data.scattering, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Asymmetry");
+                changed |= value_slider(ui, &mut data.scattering_asymmetry, -1.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Light Tint");
+                changed |= ui.color_edit_button_rgb(&mut data.light_tint).changed();
+                ui.end_row();
+
+                grid_label(ui, "Light Intensity");
+                changed |= value_slider(ui, &mut data.light_intensity, 0.0..=10.0);
+                ui.end_row();
+            });
     });
 
     changed
@@ -525,27 +526,37 @@ fn draw_fog_volume_section(ui: &mut egui::Ui, data: &mut FogVolumeData) -> bool 
 fn draw_stairs_section(ui: &mut egui::Ui, data: &mut StairsData) -> bool {
     let mut changed = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Stairs").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Steps").color(colors::TEXT_SECONDARY));
-            let mut steps = data.step_count as i32;
-            if ui.add(egui::DragValue::new(&mut steps).range(1..=50)).changed() {
-                data.step_count = steps.max(1) as u32;
-                changed = true;
-            }
-        });
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Height", &mut data.height, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Depth", &mut data.depth, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Width", &mut data.width, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
+    section_header(ui, "Stairs", true, |ui| {
+        egui::Grid::new("stairs_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Steps");
+                let mut steps = data.step_count as i32;
+                if ui
+                    .add_sized(
+                        [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                        egui::DragValue::new(&mut steps).range(1..=50),
+                    )
+                    .changed()
+                {
+                    data.step_count = steps.max(1) as u32;
+                    changed = true;
+                }
+                ui.end_row();
+
+                grid_label(ui, "Height");
+                changed |= value_slider(ui, &mut data.height, 0.1..=50.0);
+                ui.end_row();
+
+                grid_label(ui, "Depth");
+                changed |= value_slider(ui, &mut data.depth, 0.1..=50.0);
+                ui.end_row();
+
+                grid_label(ui, "Width");
+                changed |= value_slider(ui, &mut data.width, 0.1..=50.0);
+                ui.end_row();
+            });
     });
 
     changed
@@ -555,18 +566,23 @@ fn draw_stairs_section(ui: &mut egui::Ui, data: &mut StairsData) -> bool {
 fn draw_ramp_section(ui: &mut egui::Ui, data: &mut RampData) -> bool {
     let mut changed = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Ramp").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Height", &mut data.height, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Length", &mut data.length, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Width", &mut data.width, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
+    section_header(ui, "Ramp", true, |ui| {
+        egui::Grid::new("ramp_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Height");
+                changed |= value_slider(ui, &mut data.height, 0.1..=50.0);
+                ui.end_row();
+
+                grid_label(ui, "Length");
+                changed |= value_slider(ui, &mut data.length, 0.1..=50.0);
+                ui.end_row();
+
+                grid_label(ui, "Width");
+                changed |= value_slider(ui, &mut data.width, 0.1..=50.0);
+                ui.end_row();
+            });
     });
 
     changed
@@ -576,31 +592,45 @@ fn draw_ramp_section(ui: &mut egui::Ui, data: &mut RampData) -> bool {
 fn draw_arch_section(ui: &mut egui::Ui, data: &mut ArchData) -> bool {
     let mut changed = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Arch").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Opening Width", &mut data.opening_width, 0.1, 0.1..=20.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Opening Height", &mut data.opening_height, 0.1, 0.1..=20.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Thickness", &mut data.thickness, 0.1, 0.1..=10.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Wall Width", &mut data.wall_width, 0.1, 0.1..=20.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Wall Height", &mut data.wall_height, 0.1, 0.1..=20.0);
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Arch Segments").color(colors::TEXT_SECONDARY));
-            let mut segments = data.arch_segments as i32;
-            if ui.add(egui::DragValue::new(&mut segments).range(4..=32)).changed() {
-                data.arch_segments = segments.max(4) as u32;
-                changed = true;
-            }
-        });
-        ui.add_space(4.0);
+    section_header(ui, "Arch", true, |ui| {
+        egui::Grid::new("arch_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Opening W");
+                changed |= value_slider(ui, &mut data.opening_width, 0.1..=20.0);
+                ui.end_row();
+
+                grid_label(ui, "Opening H");
+                changed |= value_slider(ui, &mut data.opening_height, 0.1..=20.0);
+                ui.end_row();
+
+                grid_label(ui, "Thickness");
+                changed |= value_slider(ui, &mut data.thickness, 0.1..=10.0);
+                ui.end_row();
+
+                grid_label(ui, "Wall Width");
+                changed |= value_slider(ui, &mut data.wall_width, 0.1..=20.0);
+                ui.end_row();
+
+                grid_label(ui, "Wall Height");
+                changed |= value_slider(ui, &mut data.wall_height, 0.1..=20.0);
+                ui.end_row();
+
+                grid_label(ui, "Segments");
+                let mut segments = data.arch_segments as i32;
+                if ui
+                    .add_sized(
+                        [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                        egui::DragValue::new(&mut segments).range(4..=32),
+                    )
+                    .changed()
+                {
+                    data.arch_segments = segments.max(4) as u32;
+                    changed = true;
+                }
+                ui.end_row();
+            });
     });
 
     changed
@@ -610,20 +640,27 @@ fn draw_arch_section(ui: &mut egui::Ui, data: &mut ArchData) -> bool {
 fn draw_lshape_section(ui: &mut egui::Ui, data: &mut LShapeData) -> bool {
     let mut changed = false;
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("L-Shape").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Arm 1 Length", &mut data.arm1_length, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Arm 2 Length", &mut data.arm2_length, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Arm Width", &mut data.arm_width, 0.1, 0.1..=20.0);
-        ui.add_space(4.0);
-        changed |= draw_drag_row(ui, "Height", &mut data.height, 0.1, 0.1..=50.0);
-        ui.add_space(4.0);
+    section_header(ui, "L-Shape", true, |ui| {
+        egui::Grid::new("lshape_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Arm 1 Len");
+                changed |= value_slider(ui, &mut data.arm1_length, 0.1..=50.0);
+                ui.end_row();
+
+                grid_label(ui, "Arm 2 Len");
+                changed |= value_slider(ui, &mut data.arm2_length, 0.1..=50.0);
+                ui.end_row();
+
+                grid_label(ui, "Arm Width");
+                changed |= value_slider(ui, &mut data.arm_width, 0.1..=20.0);
+                ui.end_row();
+
+                grid_label(ui, "Height");
+                changed |= value_slider(ui, &mut data.height, 0.1..=50.0);
+                ui.end_row();
+            });
     });
 
     changed
@@ -646,127 +683,104 @@ fn draw_spline_follower_section(
         open_spline_picker: false,
     };
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Spline Follower").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
+    section_header(ui, "Spline Follower", true, |ui| {
+        egui::Grid::new("spline_follower_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                // Spline entity reference
+                grid_label(ui, "Spline");
+                result.open_spline_picker = draw_entity_field(ui, "", data.spline, spline_name);
+                ui.end_row();
 
-        // Spline entity reference - clickable to open picker
-        result.open_spline_picker = draw_entity_field(ui, "Spline", data.spline, spline_name);
-        ui.add_space(4.0);
+                // Speed
+                grid_label(ui, "Speed");
+                result.changed |= value_slider(ui, &mut data.speed, 0.0..=100.0);
+                ui.end_row();
 
-        // Speed
-        result.changed |= draw_drag_row(ui, "Speed", &mut data.speed, 0.1, 0.0..=100.0);
-        ui.add_space(4.0);
+                // Position on spline (t)
+                grid_label(ui, "Position (t)");
+                result.changed |= value_slider(ui, &mut data.t, 0.0..=1.0);
+                ui.end_row();
 
-        // Position on spline (t)
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Position (t)").color(colors::TEXT_SECONDARY));
-            result.changed |= ui
-                .add(egui::Slider::new(&mut data.t, 0.0..=1.0).show_value(true))
-                .changed();
-        });
-        ui.add_space(4.0);
+                // Loop mode
+                grid_label(ui, "Loop Mode");
+                egui::ComboBox::from_id_salt("loop_mode")
+                    .selected_text(match data.loop_mode {
+                        LoopMode::Once => "Once",
+                        LoopMode::Loop => "Loop",
+                        LoopMode::PingPong => "Ping Pong",
+                    })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut data.loop_mode, LoopMode::Once, "Once").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.loop_mode, LoopMode::Loop, "Loop").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.loop_mode, LoopMode::PingPong, "Ping Pong").clicked() {
+                            result.changed = true;
+                        }
+                    });
+                ui.end_row();
 
-        // Loop mode
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Loop Mode").color(colors::TEXT_SECONDARY));
-            egui::ComboBox::from_id_salt("loop_mode")
-                .selected_text(match data.loop_mode {
-                    LoopMode::Once => "Once",
-                    LoopMode::Loop => "Loop",
-                    LoopMode::PingPong => "Ping Pong",
-                })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_value(&mut data.loop_mode, LoopMode::Once, "Once").clicked() {
+                // State
+                grid_label(ui, "State");
+                egui::ComboBox::from_id_salt("follower_state")
+                    .selected_text(match data.state {
+                        FollowerState::Playing => "Playing",
+                        FollowerState::Paused => "Paused",
+                        FollowerState::Finished => "Finished",
+                    })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut data.state, FollowerState::Playing, "Playing").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.state, FollowerState::Paused, "Paused").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.state, FollowerState::Finished, "Finished").clicked() {
+                            result.changed = true;
+                        }
+                    });
+                ui.end_row();
+
+                // Direction
+                grid_label(ui, "Direction");
+                ui.horizontal(|ui| {
+                    if ui.selectable_label(data.direction >= 0.0, "Forward").clicked() {
+                        data.direction = 1.0;
                         result.changed = true;
                     }
-                    if ui.selectable_value(&mut data.loop_mode, LoopMode::Loop, "Loop").clicked() {
-                        result.changed = true;
-                    }
-                    if ui.selectable_value(&mut data.loop_mode, LoopMode::PingPong, "Ping Pong").clicked() {
+                    if ui.selectable_label(data.direction < 0.0, "Backward").clicked() {
+                        data.direction = -1.0;
                         result.changed = true;
                     }
                 });
-        });
-        ui.add_space(4.0);
+                ui.end_row();
 
-        // State
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("State").color(colors::TEXT_SECONDARY));
-            egui::ComboBox::from_id_salt("follower_state")
-                .selected_text(match data.state {
-                    FollowerState::Playing => "Playing",
-                    FollowerState::Paused => "Paused",
-                    FollowerState::Finished => "Finished",
-                })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_value(&mut data.state, FollowerState::Playing, "Playing").clicked() {
-                        result.changed = true;
-                    }
-                    if ui.selectable_value(&mut data.state, FollowerState::Paused, "Paused").clicked() {
-                        result.changed = true;
-                    }
-                    if ui.selectable_value(&mut data.state, FollowerState::Finished, "Finished").clicked() {
-                        result.changed = true;
-                    }
-                });
-        });
-        ui.add_space(4.0);
+                // Align to tangent
+                grid_label(ui, "Align");
+                result.changed |= ui.checkbox(&mut data.align_to_tangent, "To tangent").changed();
+                ui.end_row();
 
-        // Direction
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Direction").color(colors::TEXT_SECONDARY));
-            if ui.selectable_label(data.direction >= 0.0, "Forward").clicked() {
-                data.direction = 1.0;
-                result.changed = true;
-            }
-            if ui.selectable_label(data.direction < 0.0, "Backward").clicked() {
-                data.direction = -1.0;
-                result.changed = true;
-            }
-        });
-        ui.add_space(4.0);
+                // Constant speed
+                grid_label(ui, "Const Speed");
+                result.changed |= ui.checkbox(&mut data.constant_speed, "").changed();
+                ui.end_row();
 
-        // Align to tangent
-        result.changed |= draw_checkbox_row(ui, "Align to Tangent", &mut data.align_to_tangent);
-        ui.add_space(4.0);
+                // Up vector (only show if align_to_tangent is true)
+                if data.align_to_tangent {
+                    grid_label(ui, "Up Vector");
+                    result.changed |= xyz_row(ui, &mut data.up_vector, 0.01);
+                    ui.end_row();
+                }
 
-        // Constant speed
-        result.changed |= draw_checkbox_row(ui, "Constant Speed", &mut data.constant_speed);
-        ui.add_space(4.0);
-
-        // Up vector (only show if align_to_tangent is true)
-        if data.align_to_tangent {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Up Vector").color(colors::TEXT_SECONDARY));
+                // Offset
+                grid_label(ui, "Offset");
+                result.changed |= xyz_row(ui, &mut data.offset, 0.1);
+                ui.end_row();
             });
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[0]).speed(0.01)).changed();
-                ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[1]).speed(0.01)).changed();
-                ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[2]).speed(0.01)).changed();
-            });
-            ui.add_space(4.0);
-        }
-
-        // Offset
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Offset").color(colors::TEXT_SECONDARY));
-        });
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[0]).speed(0.1)).changed();
-            ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[1]).speed(0.1)).changed();
-            ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[2]).speed(0.1)).changed();
-        });
-        ui.add_space(4.0);
     });
 
     result
@@ -785,103 +799,87 @@ fn draw_spline_distribution_section(
         open_source_picker: false,
     };
 
-    egui::CollapsingHeader::new(
-        egui::RichText::new("Spline Distribution").strong().color(colors::TEXT_PRIMARY),
-    )
-    .default_open(true)
-    .show(ui, |ui| {
-        ui.add_space(4.0);
+    section_header(ui, "Spline Distribution", true, |ui| {
+        egui::Grid::new("spline_distribution_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                // Spline entity reference
+                grid_label(ui, "Spline");
+                result.open_spline_picker = draw_entity_field(ui, "", data.spline, spline_name);
+                ui.end_row();
 
-        // Spline entity reference - clickable to open picker
-        result.open_spline_picker = draw_entity_field(ui, "Spline", data.spline, spline_name);
-        ui.add_space(4.0);
+                // Source entity reference
+                grid_label(ui, "Source");
+                result.open_source_picker = draw_entity_field(ui, "", data.source, source_name);
+                ui.end_row();
 
-        // Source entity reference - clickable to open picker
-        result.open_source_picker = draw_entity_field(ui, "Source", data.source, source_name);
-        ui.add_space(4.0);
+                // Count
+                grid_label(ui, "Count");
+                let mut count_i32 = data.count as i32;
+                if ui
+                    .add_sized(
+                        [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                        egui::DragValue::new(&mut count_i32).speed(1).range(1..=1000),
+                    )
+                    .changed()
+                {
+                    data.count = count_i32.max(1) as usize;
+                    result.changed = true;
+                }
+                ui.end_row();
 
-        // Count
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Count").color(colors::TEXT_SECONDARY));
-            let mut count_i32 = data.count as i32;
-            if ui.add(egui::DragValue::new(&mut count_i32).speed(1).range(1..=1000)).changed() {
-                data.count = count_i32.max(1) as usize;
-                result.changed = true;
-            }
-        });
-        ui.add_space(4.0);
+                // Enabled
+                grid_label(ui, "Enabled");
+                result.changed |= ui.checkbox(&mut data.enabled, "").changed();
+                ui.end_row();
 
-        // Enabled checkbox
-        result.changed |= draw_checkbox_row(ui, "Enabled", &mut data.enabled);
-        ui.add_space(4.0);
+                // Orientation mode
+                grid_label(ui, "Orientation");
+                egui::ComboBox::from_id_salt("distribution_orientation")
+                    .selected_text(match data.orientation_mode {
+                        0 => "Position Only",
+                        _ => "Align to Tangent",
+                    })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut data.orientation_mode, 0, "Position Only").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.orientation_mode, 1, "Align to Tangent").clicked() {
+                            result.changed = true;
+                        }
+                    });
+                ui.end_row();
 
-        // Orientation mode
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Orientation").color(colors::TEXT_SECONDARY));
-            egui::ComboBox::from_id_salt("distribution_orientation")
-                .selected_text(match data.orientation_mode {
-                    0 => "Position Only",
-                    _ => "Align to Tangent",
-                })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_value(&mut data.orientation_mode, 0, "Position Only").clicked() {
-                        result.changed = true;
-                    }
-                    if ui.selectable_value(&mut data.orientation_mode, 1, "Align to Tangent").clicked() {
-                        result.changed = true;
-                    }
-                });
-        });
-        ui.add_space(4.0);
+                // Up vector (only show if align_to_tangent)
+                if data.orientation_mode == 1 {
+                    grid_label(ui, "Up Vector");
+                    result.changed |= xyz_row(ui, &mut data.up_vector, 0.01);
+                    ui.end_row();
+                }
 
-        // Up vector (only show if align_to_tangent)
-        if data.orientation_mode == 1 {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Up Vector").color(colors::TEXT_SECONDARY));
+                // Spacing mode
+                grid_label(ui, "Spacing");
+                egui::ComboBox::from_id_salt("distribution_spacing")
+                    .selected_text(match data.spacing_mode {
+                        0 => "Uniform",
+                        _ => "Parametric",
+                    })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut data.spacing_mode, 0, "Uniform").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.spacing_mode, 1, "Parametric").clicked() {
+                            result.changed = true;
+                        }
+                    });
+                ui.end_row();
+
+                // Offset
+                grid_label(ui, "Offset");
+                result.changed |= xyz_row(ui, &mut data.offset, 0.1);
+                ui.end_row();
             });
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[0]).speed(0.01)).changed();
-                ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[1]).speed(0.01)).changed();
-                ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-                result.changed |= ui.add(egui::DragValue::new(&mut data.up_vector[2]).speed(0.01)).changed();
-            });
-            ui.add_space(4.0);
-        }
-
-        // Spacing mode
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Spacing").color(colors::TEXT_SECONDARY));
-            egui::ComboBox::from_id_salt("distribution_spacing")
-                .selected_text(match data.spacing_mode {
-                    0 => "Uniform",
-                    _ => "Parametric",
-                })
-                .show_ui(ui, |ui| {
-                    if ui.selectable_value(&mut data.spacing_mode, 0, "Uniform").clicked() {
-                        result.changed = true;
-                    }
-                    if ui.selectable_value(&mut data.spacing_mode, 1, "Parametric").clicked() {
-                        result.changed = true;
-                    }
-                });
-        });
-        ui.add_space(4.0);
-
-        // Offset
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("Offset").color(colors::TEXT_SECONDARY));
-        });
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("X").color(colors::AXIS_X).strong());
-            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[0]).speed(0.1)).changed();
-            ui.label(egui::RichText::new("Y").color(colors::AXIS_Y).strong());
-            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[1]).speed(0.1)).changed();
-            ui.label(egui::RichText::new("Z").color(colors::AXIS_Z).strong());
-            result.changed |= ui.add(egui::DragValue::new(&mut data.offset[2]).speed(0.1)).changed();
-        });
-        ui.add_space(4.0);
     });
 
     result

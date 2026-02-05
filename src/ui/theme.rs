@@ -155,6 +155,60 @@ pub fn draw_error_dialog(ctx: &egui::Context, title: &str, message: &str) -> boo
     should_close
 }
 
+// ---------------------------------------------------------------------------
+// Shared UI widget helpers
+// ---------------------------------------------------------------------------
+
+/// Minimum width for drag-value number inputs (fits "999.99").
+pub const DRAG_VALUE_WIDTH: f32 = 56.0;
+
+/// Draw a muted label in column 1 of a grid row.
+pub fn grid_label(ui: &mut egui::Ui, label: &str) {
+    ui.label(egui::RichText::new(label).color(colors::TEXT_MUTED));
+}
+
+/// Draw a drag-value input on the left and a slider bar on the right.
+/// Returns true if the value changed.
+pub fn value_slider(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        changed |= ui
+            .add_sized(
+                [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                egui::DragValue::new(value)
+                    .range(range.clone())
+                    .min_decimals(2)
+                    .speed(0.01),
+            )
+            .changed();
+        changed |= ui
+            .add(egui::Slider::new(value, range).show_value(false))
+            .changed();
+    });
+    changed
+}
+
+/// Draw a styled collapsible section header.
+pub fn section_header(
+    ui: &mut egui::Ui,
+    label: &str,
+    default_open: bool,
+    add_body: impl FnOnce(&mut egui::Ui),
+) {
+    egui::CollapsingHeader::new(
+        egui::RichText::new(label)
+            .strong()
+            .color(colors::TEXT_PRIMARY),
+    )
+    .default_open(default_open)
+    .show(ui, add_body);
+    ui.add_space(2.0);
+}
+
 /// Color palette matching Bevy editor style
 pub mod colors {
     use bevy_egui::egui::Color32;

@@ -4,7 +4,6 @@
 //! desync where UI changes were lost on save/load. The `MaterialTypeRegistry`
 //! provides extension-specific UI and apply functions.
 
-use bevy::pbr::StandardMaterial;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use bevy_editor_game::{
@@ -13,21 +12,33 @@ use bevy_editor_game::{
 };
 
 use crate::editor::{EditorMode, EditorState};
-use crate::materials::{apply_material_def_standalone, resolve_material_ref, GridMat, MaterialTypeRegistry};
+use crate::materials::{apply_material_def_standalone, remove_all_material_components, resolve_material_ref, MaterialTypeRegistry};
 use crate::selection::Selected;
 use crate::ui::file_dialog::{FileDialogState, TexturePickResult, TextureSlot};
-use crate::ui::theme::{colors, panel, panel_frame};
+use crate::ui::material_preview::MaterialPreviewState;
+use crate::ui::theme::{
+    colors, draw_centered_dialog, grid_label, panel, panel_frame, section_header, value_slider,
+    DialogResult, DRAG_VALUE_WIDTH,
+};
 use crate::utils::should_process_input;
 
 /// Resource storing copied material data for paste operations
 #[derive(Resource, Default)]
 pub struct CopiedMaterial(pub Option<MaterialDefinition>);
 
+/// State for the "Save as Preset" dialog
+#[derive(Resource, Default)]
+struct PresetDialogState {
+    open: bool,
+    name_input: String,
+}
+
 pub struct MaterialEditorPlugin;
 
 impl Plugin for MaterialEditorPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CopiedMaterial>()
+            .init_resource::<PresetDialogState>()
             .add_systems(Update, handle_material_copy_paste)
             .add_systems(EguiPrimaryContextPass, draw_material_panel);
     }
@@ -83,231 +94,214 @@ fn handle_material_copy_paste(
     }
 }
 
-/// Draw the base PBR material properties
+/// Draw the base PBR material properties grouped under collapsible headers.
 fn draw_base_properties(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> bool {
     let mut changed = false;
 
     ui.add_space(4.0);
 
-    // Base Color with alpha
-    let mut color_arr = {
-        let c = base.base_color.to_srgba();
-        [c.red, c.green, c.blue, c.alpha]
-    };
-    ui.label(egui::RichText::new("Base Color").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        if ui
-            .color_edit_button_rgba_unmultiplied(&mut color_arr)
-            .changed()
-        {
-            base.base_color =
-                Color::srgba(color_arr[0], color_arr[1], color_arr[2], color_arr[3]);
-            changed = true;
-        }
-    });
+    // ── Surface ──────────────────────────────────────────────
+    section_header(ui, "Surface", true, |ui| {
+        let mut color_arr = {
+            let c = base.base_color.to_srgba();
+            [c.red, c.green, c.blue, c.alpha]
+        };
+        let mut emissive_rgb = [base.emissive.red, base.emissive.green, base.emissive.blue];
+        let mut emissive_intensity = base.emissive.alpha;
 
-    ui.add_space(4.0);
+        egui::Grid::new("surface_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Color");
+                if ui
+                    .color_edit_button_rgba_unmultiplied(&mut color_arr)
+                    .changed()
+                {
+                    base.base_color =
+                        Color::srgba(color_arr[0], color_arr[1], color_arr[2], color_arr[3]);
+                    changed = true;
+                }
+                ui.end_row();
 
-    // Emissive color (RGB) + intensity (W)
-    let mut emissive_rgb = [base.emissive.red, base.emissive.green, base.emissive.blue];
-    let mut emissive_intensity = base.emissive.alpha;
-    ui.label(egui::RichText::new("Emissive").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        if ui.color_edit_button_rgb(&mut emissive_rgb).changed() {
-            base.emissive = LinearRgba::new(
-                emissive_rgb[0],
-                emissive_rgb[1],
-                emissive_rgb[2],
-                emissive_intensity,
-            );
-            changed = true;
-        }
-        ui.label(egui::RichText::new("Intensity").color(colors::TEXT_MUTED));
-        if ui
-            .add(
-                egui::DragValue::new(&mut emissive_intensity)
-                    .speed(0.1)
-                    .range(0.0..=100.0),
-            )
-            .changed()
-        {
-            base.emissive = LinearRgba::new(
-                emissive_rgb[0],
-                emissive_rgb[1],
-                emissive_rgb[2],
-                emissive_intensity,
-            );
-            changed = true;
-        }
-    });
-
-    ui.add_space(4.0);
-
-    // Metallic
-    ui.label(egui::RichText::new("Metallic").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(egui::Slider::new(&mut base.metallic, 0.0..=1.0).show_value(true))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Roughness
-    ui.label(egui::RichText::new("Roughness").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(egui::Slider::new(&mut base.perceptual_roughness, 0.0..=1.0).show_value(true))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Reflectance
-    ui.label(egui::RichText::new("Reflectance").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(egui::Slider::new(&mut base.reflectance, 0.0..=1.0).show_value(true))
-            .changed();
-    });
-
-    ui.add_space(8.0);
-
-    // Transmission
-    ui.label(egui::RichText::new("Transmission").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("IOR").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::Slider::new(&mut base.ior, 1.0..=3.0).show_value(true))
-            .changed();
-    });
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Specular").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::Slider::new(&mut base.specular_transmission, 0.0..=1.0).show_value(true))
-            .changed();
-    });
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Diffuse").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::Slider::new(&mut base.diffuse_transmission, 0.0..=1.0).show_value(true))
-            .changed();
-    });
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Thickness").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::Slider::new(&mut base.thickness, 0.0..=10.0).show_value(true))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Specular Tint
-    let mut tint_arr = {
-        let c = base.specular_tint.to_srgba();
-        [c.red, c.green, c.blue, c.alpha]
-    };
-    ui.label(egui::RichText::new("Specular Tint").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        if ui
-            .color_edit_button_rgba_unmultiplied(&mut tint_arr)
-            .changed()
-        {
-            base.specular_tint =
-                Color::srgba(tint_arr[0], tint_arr[1], tint_arr[2], tint_arr[3]);
-            changed = true;
-        }
-    });
-
-    ui.add_space(4.0);
-
-    // Clearcoat
-    ui.label(egui::RichText::new("Clearcoat").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Strength").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::Slider::new(&mut base.clearcoat, 0.0..=1.0).show_value(true))
-            .changed();
-    });
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Roughness").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::Slider::new(&mut base.clearcoat_perceptual_roughness, 0.0..=1.0).show_value(true))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Anisotropy
-    ui.label(egui::RichText::new("Anisotropy").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Strength").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::Slider::new(&mut base.anisotropy_strength, 0.0..=1.0).show_value(true))
-            .changed();
-    });
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Rotation").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::Slider::new(&mut base.anisotropy_rotation, 0.0..=std::f32::consts::TAU).show_value(true))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // UV Scale
-    ui.label(egui::RichText::new("UV Scale").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("U").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::DragValue::new(&mut base.uv_scale[0]).speed(0.1).range(0.01..=100.0))
-            .changed();
-        ui.label(egui::RichText::new("V").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::DragValue::new(&mut base.uv_scale[1]).speed(0.1).range(0.01..=100.0))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Alpha Mode
-    ui.label(egui::RichText::new("Alpha Mode").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        egui::ComboBox::from_id_salt("alpha_mode")
-            .selected_text(base.alpha_mode.label())
-            .show_ui(ui, |ui| {
-                for mode in AlphaModeValue::ALL {
-                    if ui
-                        .selectable_value(&mut base.alpha_mode, mode, mode.label())
-                        .changed()
-                    {
+                grid_label(ui, "Emissive");
+                ui.horizontal(|ui| {
+                    if ui.color_edit_button_rgb(&mut emissive_rgb).changed() {
+                        base.emissive = LinearRgba::new(
+                            emissive_rgb[0],
+                            emissive_rgb[1],
+                            emissive_rgb[2],
+                            emissive_intensity,
+                        );
                         changed = true;
                     }
+                    if ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut emissive_intensity)
+                                .speed(0.1)
+                                .range(0.0..=100.0)
+                                .min_decimals(2)
+                                .prefix("x "),
+                        )
+                        .changed()
+                    {
+                        base.emissive = LinearRgba::new(
+                            emissive_rgb[0],
+                            emissive_rgb[1],
+                            emissive_rgb[2],
+                            emissive_intensity,
+                        );
+                        changed = true;
+                    }
+                });
+                ui.end_row();
+
+                grid_label(ui, "Metallic");
+                changed |= value_slider(ui, &mut base.metallic, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Roughness");
+                changed |= value_slider(ui, &mut base.perceptual_roughness, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Reflectance");
+                changed |= value_slider(ui, &mut base.reflectance, 0.0..=1.0);
+                ui.end_row();
+            });
+    });
+
+    // ── Transmission ─────────────────────────────────────────
+    section_header(ui, "Transmission", false, |ui| {
+        egui::Grid::new("transmission_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "IOR");
+                changed |= value_slider(ui, &mut base.ior, 1.0..=3.0);
+                ui.end_row();
+
+                grid_label(ui, "Specular");
+                changed |= value_slider(ui, &mut base.specular_transmission, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Diffuse");
+                changed |= value_slider(ui, &mut base.diffuse_transmission, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Thickness");
+                changed |= value_slider(ui, &mut base.thickness, 0.0..=10.0);
+                ui.end_row();
+            });
+    });
+
+    // ── Specular & Clearcoat ─────────────────────────────────
+    section_header(ui, "Specular & Clearcoat", false, |ui| {
+        let mut tint_arr = {
+            let c = base.specular_tint.to_srgba();
+            [c.red, c.green, c.blue, c.alpha]
+        };
+
+        egui::Grid::new("specular_clearcoat_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Tint");
+                if ui
+                    .color_edit_button_rgba_unmultiplied(&mut tint_arr)
+                    .changed()
+                {
+                    base.specular_tint =
+                        Color::srgba(tint_arr[0], tint_arr[1], tint_arr[2], tint_arr[3]);
+                    changed = true;
+                }
+                ui.end_row();
+
+                grid_label(ui, "Strength");
+                changed |= value_slider(ui, &mut base.clearcoat, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Roughness");
+                changed |= value_slider(ui, &mut base.clearcoat_perceptual_roughness, 0.0..=1.0);
+                ui.end_row();
+            });
+    });
+
+    // ── Anisotropy ───────────────────────────────────────────
+    section_header(ui, "Anisotropy", false, |ui| {
+        egui::Grid::new("anisotropy_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Strength");
+                changed |= value_slider(ui, &mut base.anisotropy_strength, 0.0..=1.0);
+                ui.end_row();
+
+                grid_label(ui, "Rotation");
+                changed |= value_slider(ui, &mut base.anisotropy_rotation, 0.0..=std::f32::consts::TAU);
+                ui.end_row();
+            });
+    });
+
+    // ── UV & Alpha ───────────────────────────────────────────
+    section_header(ui, "UV & Alpha", false, |ui| {
+        egui::Grid::new("uv_alpha_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "UV Scale");
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("U").color(colors::TEXT_MUTED));
+                    changed |= ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut base.uv_scale[0])
+                                .speed(0.1)
+                                .range(0.01..=100.0)
+                                .min_decimals(2),
+                        )
+                        .changed();
+                    ui.label(egui::RichText::new("V").color(colors::TEXT_MUTED));
+                    changed |= ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut base.uv_scale[1])
+                                .speed(0.1)
+                                .range(0.01..=100.0)
+                                .min_decimals(2),
+                        )
+                        .changed();
+                });
+                ui.end_row();
+
+                grid_label(ui, "Alpha");
+                egui::ComboBox::from_id_salt("alpha_mode")
+                    .selected_text(base.alpha_mode.label())
+                    .show_ui(ui, |ui| {
+                        for mode in AlphaModeValue::ALL {
+                            if ui
+                                .selectable_value(&mut base.alpha_mode, mode, mode.label())
+                                .changed()
+                            {
+                                changed = true;
+                            }
+                        }
+                    });
+                ui.end_row();
+
+                if base.alpha_mode == AlphaModeValue::Mask {
+                    grid_label(ui, "Cutoff");
+                    changed |= value_slider(ui, &mut base.alpha_cutoff, 0.0..=1.0);
+                    ui.end_row();
                 }
             });
     });
 
-    // Alpha Cutoff (only shown for Mask mode)
-    if base.alpha_mode == AlphaModeValue::Mask {
-        ui.add_space(4.0);
-        ui.label(egui::RichText::new("Alpha Cutoff").color(colors::TEXT_SECONDARY));
-        ui.horizontal(|ui| {
-            changed |= ui
-                .add(egui::Slider::new(&mut base.alpha_cutoff, 0.0..=1.0).show_value(true))
-                .changed();
-        });
-    }
-
-    ui.add_space(4.0);
-
-    // Options section
-    ui.label(egui::RichText::new("Options").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
+    // ── Options ──────────────────────────────────────────────
+    section_header(ui, "Options", false, |ui| {
         changed |= ui.checkbox(&mut base.double_sided, "Double Sided").changed();
         changed |= ui.checkbox(&mut base.unlit, "Unlit").changed();
     });
-
-    ui.add_space(4.0);
 
     changed
 }
@@ -421,6 +415,11 @@ fn draw_material_panel(world: &mut World) {
         (None, None)
     };
 
+    // Read preview texture id
+    let preview_texture_id = world
+        .get_resource::<MaterialPreviewState>()
+        .and_then(|s| s.egui_texture_id);
+
     // Resolve the definition (we need a clone because we'll mutate it)
     let library = world
         .get_resource::<MaterialLibrary>()
@@ -494,6 +493,12 @@ fn draw_material_panel(world: &mut World) {
     // Track texture slot UI changes
     let mut browse_texture_slot: Option<TextureSlot> = None;
     let mut texture_changed = false;
+
+    // Track preset actions
+    let mut select_preset: Option<String> = None;
+    let mut delete_preset: Option<String> = None;
+    let mut detach_preset = false;
+    let mut open_save_dialog = false;
 
     // Has material at all?
     let has_material = current_mat_ref.is_some();
@@ -589,11 +594,20 @@ fn draw_material_panel(world: &mut World) {
                 if let Some(ref mat_ref) = current_mat_ref {
                     match mat_ref {
                         MaterialRef::Library(name) => {
-                            ui.label(
-                                egui::RichText::new(format!("Library: {}", name))
-                                    .small()
-                                    .color(colors::ACCENT_BLUE),
-                            );
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("Library: {}", name))
+                                        .small()
+                                        .color(colors::ACCENT_BLUE),
+                                );
+                                if ui
+                                    .small_button("Detach")
+                                    .on_hover_text("Convert to inline material")
+                                    .clicked()
+                                {
+                                    detach_preset = true;
+                                }
+                            });
                         }
                         MaterialRef::Inline(_) => {
                             ui.label(
@@ -606,6 +620,18 @@ fn draw_material_panel(world: &mut World) {
                 }
 
                 ui.add_space(4.0);
+
+                // Material preview image
+                if let Some(tex_id) = preview_texture_id {
+                    let preview_width = ui.available_width().min(panel::DEFAULT_WIDTH - 16.0);
+                    ui.vertical_centered(|ui| {
+                        ui.image(egui::load::SizedTexture::new(
+                            tex_id,
+                            [preview_width, preview_width],
+                        ));
+                    });
+                    ui.add_space(4.0);
+                }
 
                 // Material type selector
                 ui.horizontal(|ui| {
@@ -666,6 +692,77 @@ fn draw_material_panel(world: &mut World) {
                                     }
                                 }
                             }
+
+                            // Presets section
+                            ui.add_space(8.0);
+                            ui.separator();
+                            ui.add_space(4.0);
+
+                            egui::CollapsingHeader::new(
+                                egui::RichText::new("Presets")
+                                    .strong()
+                                    .color(colors::TEXT_PRIMARY),
+                            )
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                let current_library_name = match &current_mat_ref {
+                                    Some(MaterialRef::Library(n)) => Some(n.as_str()),
+                                    _ => None,
+                                };
+
+                                // Sorted preset names
+                                let mut preset_names: Vec<&String> =
+                                    library.materials.keys().collect();
+                                preset_names.sort();
+
+                                egui::ScrollArea::vertical()
+                                    .max_height(150.0)
+                                    .id_salt("presets_scroll")
+                                    .show(ui, |ui| {
+                                        for name in &preset_names {
+                                            let is_current =
+                                                current_library_name == Some(name.as_str());
+
+                                            ui.horizontal(|ui| {
+                                                let label_text = egui::RichText::new(name.as_str())
+                                                    .color(if is_current {
+                                                        colors::ACCENT_BLUE
+                                                    } else {
+                                                        colors::TEXT_PRIMARY
+                                                    });
+
+                                                if ui
+                                                    .selectable_label(is_current, label_text)
+                                                    .clicked()
+                                                    && !is_current
+                                                {
+                                                    select_preset =
+                                                        Some((*name).clone());
+                                                }
+
+                                                // Delete button (not for defaults)
+                                                if !name.ends_with(" Default") {
+                                                    if ui
+                                                        .small_button(
+                                                            egui::RichText::new("X")
+                                                                .color(colors::STATUS_ERROR),
+                                                        )
+                                                        .on_hover_text("Delete preset")
+                                                        .clicked()
+                                                    {
+                                                        delete_preset =
+                                                            Some((*name).clone());
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    });
+
+                                ui.add_space(4.0);
+                                if ui.button("Save as Preset...").clicked() {
+                                    open_save_dialog = true;
+                                }
+                            });
                         });
                     });
                 });
@@ -770,6 +867,126 @@ fn draw_material_panel(world: &mut World) {
             apply_and_update_entity(world, entity, modified.clone());
         }
     }
+
+    // Handle preset selection
+    if let Some(preset_name) = select_preset {
+        let mat_ref = MaterialRef::Library(preset_name);
+        // Resolve and apply
+        let def = {
+            let lib = world.resource::<MaterialLibrary>();
+            resolve_material_ref(&mat_ref, lib).cloned()
+        };
+        if let Some(def) = def {
+            remove_all_material_components(world, entity);
+            if let Ok(mut e) = world.get_entity_mut(entity) {
+                e.insert(mat_ref);
+            }
+            apply_material_def_standalone(world, entity, &def);
+        }
+        return;
+    }
+
+    // Handle preset deletion
+    if let Some(preset_name) = delete_preset {
+        world
+            .resource_mut::<MaterialLibrary>()
+            .materials
+            .remove(&preset_name);
+        return;
+    }
+
+    // Handle detach (Library -> Inline)
+    if detach_preset {
+        if let Some(def) = working_def {
+            if let Ok(mut e) = world.get_entity_mut(entity) {
+                e.insert(MaterialRef::Inline(def));
+            }
+        }
+        return;
+    }
+
+    // Open save-as-preset dialog
+    if open_save_dialog {
+        let mut dialog_state = world.resource_mut::<PresetDialogState>();
+        dialog_state.open = true;
+        dialog_state.name_input.clear();
+        return;
+    }
+
+    // Draw save-as-preset dialog (if open)
+    draw_save_preset_dialog(world, &ctx, entity);
+}
+
+/// Draw the "Save as Preset" dialog and handle confirm/cancel.
+fn draw_save_preset_dialog(world: &mut World, ctx: &egui::Context, entity: Entity) {
+    let is_open = world.resource::<PresetDialogState>().open;
+    if !is_open {
+        return;
+    }
+
+    let mut name_input = world.resource::<PresetDialogState>().name_input.clone();
+    let result = draw_centered_dialog(ctx, "Save as Preset", [300.0, 120.0], |ui| {
+        ui.add_space(8.0);
+        ui.label(egui::RichText::new("Preset name:").color(colors::TEXT_SECONDARY));
+        let response = ui.text_edit_singleline(&mut name_input);
+        // Auto-focus the text field
+        response.request_focus();
+
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            let name_valid = !name_input.trim().is_empty();
+            let enter_pressed = ui.input(|i| i.key_pressed(egui::Key::Enter));
+
+            if ui
+                .add_enabled(name_valid, egui::Button::new("Save"))
+                .clicked()
+                || (enter_pressed && name_valid)
+            {
+                return DialogResult::Confirmed;
+            }
+            if ui.button("Cancel").clicked() {
+                return DialogResult::Close;
+            }
+            DialogResult::None
+        })
+        .inner
+    });
+
+    // Write back the edited name
+    world.resource_mut::<PresetDialogState>().name_input = name_input.clone();
+
+    match result {
+        DialogResult::Confirmed => {
+            let name = name_input.trim().to_string();
+            if !name.is_empty() {
+                // Get current material definition
+                let mat_ref = world.get::<MaterialRef>(entity).cloned();
+                let library = world.resource::<MaterialLibrary>().clone();
+                let def = mat_ref
+                    .as_ref()
+                    .and_then(|r| resolve_material_ref(r, &library))
+                    .cloned();
+
+                if let Some(def) = def {
+                    // Insert into library
+                    world
+                        .resource_mut::<MaterialLibrary>()
+                        .materials
+                        .insert(name.clone(), def);
+
+                    // Set entity to use library reference
+                    if let Ok(mut e) = world.get_entity_mut(entity) {
+                        e.insert(MaterialRef::Library(name));
+                    }
+                }
+            }
+            world.resource_mut::<PresetDialogState>().open = false;
+        }
+        DialogResult::Close => {
+            world.resource_mut::<PresetDialogState>().open = false;
+        }
+        DialogResult::None => {}
+    }
 }
 
 /// Remove old material, insert new MaterialRef, and apply the definition to the entity.
@@ -787,10 +1004,3 @@ fn apply_and_update_entity(world: &mut World, entity: Entity, def: MaterialDefin
     apply_material_def_standalone(world, entity, &def);
 }
 
-/// Remove all possible material components from an entity.
-fn remove_all_material_components(world: &mut World, entity: Entity) {
-    if let Ok(mut e) = world.get_entity_mut(entity) {
-        e.remove::<MeshMaterial3d<StandardMaterial>>();
-        e.remove::<MeshMaterial3d<GridMat>>();
-    }
-}
