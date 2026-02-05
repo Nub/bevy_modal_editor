@@ -683,10 +683,13 @@ fn draw_material_panel(world: &mut World) {
                 if let Some(tex_id) = preview_texture_id {
                     let preview_width = ui.available_width().min(panel::DEFAULT_WIDTH - 16.0);
                     let response = ui.vertical_centered(|ui| {
-                        ui.image(egui::load::SizedTexture::new(
-                            tex_id,
-                            [preview_width, preview_width],
-                        ))
+                        ui.add(
+                            egui::Image::new(egui::load::SizedTexture::new(
+                                tex_id,
+                                [preview_width, preview_width],
+                            ))
+                            .sense(egui::Sense::click()),
+                        )
                     }).inner;
 
                     response.context_menu(|ui| {
