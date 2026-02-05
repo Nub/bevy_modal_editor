@@ -1,6 +1,7 @@
 use avian3d::debug_render::PhysicsGizmos;
-use avian3d::prelude::Physics;
+use avian3d::prelude::*;
 use avian3d::schedule::PhysicsTime;
+use avian3d::spatial_query::SpatialQueryPipeline;
 use bevy::gizmos::config::GizmoConfigStore;
 use bevy::prelude::*;
 use bevy_infinite_grid::InfiniteGridSettings;
@@ -317,7 +318,8 @@ impl Plugin for EditorStatePlugin {
                     handle_toggle_preview_mode,
                     handle_toggle_editor,
                 ),
-            );
+            )
+            .add_systems(PostUpdate, keep_spatial_query_updated);
     }
 }
 
@@ -452,4 +454,43 @@ fn handle_toggle_editor(
             if editor_state.editor_active { "ON" } else { "OFF" }
         );
     }
+}
+
+/// Keep the spatial query BVH in sync with Transform when physics is paused.
+///
+/// When physics is running, Avian3D handles Position/Rotation sync and BVH
+/// rebuilds automatically. When paused, editor transforms still change but
+/// Position/Rotation and the BVH go stale, breaking selection raycasts.
+fn keep_spatial_query_updated(
+    physics_time: Res<Time<Physics>>,
+    mut colliders: Query<
+        (Entity, &Transform, &mut Position, &mut Rotation, &Collider, &CollisionLayers),
+        Without<ColliderDisabled>,
+    >,
+    mut pipeline: ResMut<SpatialQueryPipeline>,
+) {
+    if physics_time.relative_speed() != 0.0 {
+        return;
+    }
+
+    // Sync Position/Rotation from Transform and collect BVH data in one pass
+    let mut collider_data = Vec::new();
+    for (entity, transform, mut position, mut rotation, collider, layers) in &mut colliders {
+        let new_pos = Position::new(transform.translation);
+        let new_rot = Rotation::from(transform.rotation);
+        if *position != new_pos {
+            *position = new_pos;
+        }
+        if *rotation != new_rot {
+            *rotation = new_rot;
+        }
+        collider_data.push((entity, *position, *rotation, collider.clone(), *layers));
+    }
+
+    // Rebuild BVH
+    pipeline.update(
+        collider_data
+            .iter()
+            .map(|(e, p, r, c, l)| (*e, p, r, c, l)),
+    );
 }
