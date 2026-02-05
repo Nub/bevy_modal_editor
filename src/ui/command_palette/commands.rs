@@ -19,6 +19,7 @@ use crate::editor::{
 use crate::scene::{
     PrimitiveShape, SceneFile, SpawnDemoSceneEvent, SpawnEntityEvent, SpawnEntityKind,
     UnparentSelectedEvent,
+    generators::{GenerateSceneEvent, SceneGenerator},
 };
 use crate::selection::Selected;
 use crate::ui::theme::colors;
@@ -94,6 +95,8 @@ pub enum CommandAction {
     Pause,
     /// Reset simulation to pre-play state
     Reset,
+    /// Generate a museum scene showcasing all primitives and assets
+    GenerateMuseum,
 }
 
 /// Resource containing all available commands
@@ -265,6 +268,13 @@ impl CommandRegistry {
             keywords: vec!["example".into(), "sample".into(), "test".into(), "create".into()],
             category: "Scene",
             action: CommandAction::SpawnDemoScene,
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Generate Museum".to_string(),
+            keywords: vec!["museum".into(), "gallery".into(), "showcase".into(), "assets".into(), "browse".into()],
+            category: "Scene",
+            action: CommandAction::GenerateMuseum,
             insertable: false,
         });
 
@@ -589,6 +599,7 @@ pub(super) struct CommandEvents<'w> {
     pub play: MessageWriter<'w, PlayEvent>,
     pub pause: MessageWriter<'w, PauseEvent>,
     pub reset: MessageWriter<'w, ResetEvent>,
+    pub generate_scene: MessageWriter<'w, GenerateSceneEvent>,
 }
 
 /// System parameter grouping palette UI state resources
@@ -933,6 +944,11 @@ fn execute_command(
         }
         CommandAction::Reset => {
             events.reset.write(ResetEvent);
+        }
+        CommandAction::GenerateMuseum => {
+            events.generate_scene.write(GenerateSceneEvent {
+                generator: SceneGenerator::Museum,
+            });
         }
     }
 }

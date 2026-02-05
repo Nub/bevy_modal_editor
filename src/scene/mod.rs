@@ -1,5 +1,6 @@
 pub mod blockout;
 mod collider_constructor;
+pub mod generators;
 mod gltf_source;
 mod primitives;
 mod scene_source;
@@ -505,6 +506,7 @@ impl Plugin for ScenePlugin {
             .add_plugins(SceneSourcePlugin)
             .add_plugins(ColliderConstructorPlugin)
             .add_plugins(BlockoutPlugin)
+            .add_plugins(generators::SceneGeneratorPlugin)
             .add_message::<SpawnDemoSceneEvent>()
             .add_systems(Update, handle_spawn_demo_scene)
             // Register types for scene serialization

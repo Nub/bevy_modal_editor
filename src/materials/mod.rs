@@ -1,5 +1,8 @@
 pub mod grid;
 
+use std::collections::HashMap;
+use std::path::Path;
+
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, StandardMaterial};
 use bevy::prelude::*;
@@ -391,6 +394,107 @@ pub fn remove_all_material_components(world: &mut World, entity: Entity) {
 }
 
 // ---------------------------------------------------------------------------
+// Disk persistence for material presets
+// ---------------------------------------------------------------------------
+
+const MATERIALS_DIR: &str = "assets/materials";
+
+/// Sanitize a preset name for use as a filename (replace filesystem-invalid chars).
+fn sanitize_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect()
+}
+
+/// Save a single material preset to disk as a RON file.
+fn save_preset_to_disk(name: &str, def: &MaterialDefinition) {
+    let dir = Path::new(MATERIALS_DIR);
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        warn!("Failed to create materials directory: {}", e);
+        return;
+    }
+
+    let filename = sanitize_filename(name);
+    let path = dir.join(format!("{}.ron", filename));
+
+    let pretty = ron::ser::PrettyConfig::default();
+    match ron::ser::to_string_pretty(def, pretty) {
+        Ok(ron_str) => {
+            if let Err(e) = std::fs::write(&path, &ron_str) {
+                warn!("Failed to write material preset '{}': {}", name, e);
+            }
+        }
+        Err(e) => {
+            warn!("Failed to serialize material preset '{}': {}", name, e);
+        }
+    }
+}
+
+/// Load all material presets from `assets/materials/*.ron` into the library.
+/// Disk presets override any existing entry with the same name.
+fn load_presets_from_disk(library: &mut MaterialLibrary) {
+    let dir = Path::new(MATERIALS_DIR);
+    if !dir.is_dir() {
+        return;
+    }
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("ron") {
+            continue;
+        }
+
+        let Some(name) = path.file_stem().and_then(|s| s.to_str()).map(String::from) else {
+            continue;
+        };
+
+        let Ok(contents) = std::fs::read_to_string(&path) else {
+            warn!("Failed to read material preset file: {:?}", path);
+            continue;
+        };
+
+        match ron::from_str::<MaterialDefinition>(&contents) {
+            Ok(def) => {
+                library.materials.insert(name.clone(), def);
+                info!("Loaded material preset '{}' from disk", name);
+            }
+            Err(e) => {
+                warn!("Failed to parse material preset '{:?}': {}", path, e);
+            }
+        }
+    }
+}
+
+/// System that auto-saves material presets when the library changes.
+fn auto_save_presets(
+    library: Res<MaterialLibrary>,
+    mut prev_state: Local<HashMap<String, String>>,
+) {
+    if !library.is_changed() {
+        return;
+    }
+
+    for (name, def) in &library.materials {
+        let ron_str = ron::to_string(def).unwrap_or_default();
+        let changed = match prev_state.get(name) {
+            Some(prev) => prev != &ron_str,
+            None => true,
+        };
+        if changed {
+            save_preset_to_disk(name, def);
+            prev_state.insert(name.clone(), ron_str);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Plugin
 // ---------------------------------------------------------------------------
 
@@ -409,11 +513,15 @@ impl Plugin for MaterialsPlugin {
         // Register grid material type (built-in)
         app.register_material_type::<grid::GridMaterialDef>();
 
-        // Populate default library at PreStartup
+        // Populate default library at PreStartup, then load disk overrides
         app.add_systems(PreStartup, init_default_library);
+
+        // Auto-save presets when library changes
+        app.add_systems(Update, auto_save_presets);
     }
 }
 
 fn init_default_library(mut library: ResMut<MaterialLibrary>) {
     populate_default_library(&mut library);
+    load_presets_from_disk(&mut library);
 }
