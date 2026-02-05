@@ -1,6 +1,6 @@
 use avian3d::debug_render::PhysicsGizmos;
-use avian3d::prelude::Physics;
-use avian3d::schedule::PhysicsTime;
+use avian3d::prelude::*;
+use avian3d::spatial_query::SpatialQueryPipeline;
 use bevy::gizmos::config::GizmoConfigStore;
 use bevy::prelude::*;
 use bevy_editor_game::{
@@ -21,14 +21,6 @@ pub struct GameSnapshot {
     pub data: Option<String>,
 }
 
-/// Tracks deferred physics pause after reset.
-/// Avian3D needs a few frames with physics running to sync colliders into the
-/// spatial query pipeline, otherwise `SpatialQuery::cast_ray` returns no hits.
-#[derive(Resource, Default)]
-struct DeferredPhysicsPause {
-    frames_remaining: u32,
-}
-
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
@@ -36,12 +28,8 @@ impl Plugin for GamePlugin {
         // State, resources, and events are registered in EditorStatePlugin
         // so the editor always has the types available. This plugin adds the
         // actual input handling and play/pause/reset command execution.
-        app.init_resource::<DeferredPhysicsPause>()
-            .add_systems(Update, handle_play_input)
-            .add_systems(
-                Update,
-                (handle_play, handle_pause, handle_reset, deferred_physics_pause),
-            )
+        app.add_systems(Update, handle_play_input)
+            .add_systems(Update, (handle_play, handle_pause, handle_reset))
             .add_systems(EguiPrimaryContextPass, draw_play_controls);
     }
 }
@@ -362,20 +350,16 @@ impl Command for ResetCommand {
 
         if let Some(data) = data {
             restore_scene_from_data(world, &data);
+            rebuild_spatial_query_pipeline(world);
             info!("Scene restored from game snapshot");
         } else {
             warn!("No game snapshot to restore");
         }
 
-        // Temporarily enable physics so Avian3D can sync the restored colliders
-        // into the spatial query pipeline (required for mouse selection).
-        // PauseCommand already set speed to 0.0, so we must re-enable it here.
-        // The deferred system will pause again after a few frames.
+        // Re-enable physics so the spatial query pipeline stays updated
+        // (normal editing state has physics running).
         if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
             physics_time.set_relative_speed(1.0);
-        }
-        if let Some(mut deferred) = world.get_resource_mut::<DeferredPhysicsPause>() {
-            deferred.frames_remaining = 3;
         }
 
         // Re-enable editor
@@ -409,16 +393,45 @@ impl Command for ResetCommand {
     }
 }
 
-/// Pause physics after a few frames, giving Avian3D time to sync colliders.
-fn deferred_physics_pause(
-    mut deferred: ResMut<DeferredPhysicsPause>,
-    mut physics_time: ResMut<Time<Physics>>,
-) {
-    if deferred.frames_remaining == 0 {
-        return;
+/// Sync physics Position/Rotation from Transform for all collider entities,
+/// then rebuild the SpatialQueryPipeline BVH so `SpatialQuery::cast_ray`
+/// works immediately without waiting for the physics schedule to tick.
+fn rebuild_spatial_query_pipeline(world: &mut World) {
+    // Sync Position/Rotation from Transform for newly-created colliders
+    // that still have PLACEHOLDER values.
+    let to_sync: Vec<(Entity, Vec3, Quat)> = {
+        let mut q = world.query::<(Entity, &Transform, &Position)>();
+        q.iter(world)
+            .filter(|(_, _, pos)| **pos == Position::PLACEHOLDER)
+            .map(|(e, t, _)| (e, t.translation, t.rotation))
+            .collect()
+    };
+    for (entity, translation, rotation) in to_sync {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            if let Some(mut pos) = entity_mut.get_mut::<Position>() {
+                *pos = Position::new(translation);
+            }
+            if let Some(mut rot) = entity_mut.get_mut::<Rotation>() {
+                *rot = Rotation::from(rotation);
+            }
+        }
     }
-    deferred.frames_remaining -= 1;
-    if deferred.frames_remaining == 0 {
-        physics_time.set_relative_speed(0.0);
+
+    // Collect collider data and rebuild the spatial query BVH.
+    let collider_data: Vec<(Entity, Position, Rotation, Collider, CollisionLayers)> = {
+        let mut q = world.query_filtered::<
+            (Entity, &Position, &Rotation, &Collider, &CollisionLayers),
+            Without<ColliderDisabled>,
+        >();
+        q.iter(world)
+            .map(|(e, p, r, c, l)| (e, *p, *r, c.clone(), *l))
+            .collect()
+    };
+    if let Some(mut pipeline) = world.get_resource_mut::<SpatialQueryPipeline>() {
+        pipeline.update(
+            collider_data
+                .iter()
+                .map(|(e, p, r, c, l)| (*e, p, r, c, l)),
+        );
     }
 }
