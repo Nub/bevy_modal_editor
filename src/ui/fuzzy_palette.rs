@@ -33,6 +33,11 @@ pub trait PaletteItem {
     fn suffix(&self) -> Option<&str> {
         None
     }
+
+    /// Whether this item should always appear at the top, regardless of query
+    fn always_visible(&self) -> bool {
+        false
+    }
 }
 
 /// Result of filtering items with scores
@@ -61,41 +66,50 @@ pub fn fuzzy_filter<'a, T: PaletteItem>(items: &'a [T], query: &str) -> Vec<Filt
             .collect();
     }
 
-    let mut results: Vec<FilteredItem<T>> = items
-        .iter()
-        .enumerate()
-        .filter_map(|(index, item)| {
-            // Match against label first (highest priority)
-            if let Some(score) = matcher.fuzzy_match(item.label(), query) {
-                return Some(FilteredItem {
-                    index,
-                    item,
-                    score,
-                });
-            }
+    let mut pinned: Vec<FilteredItem<T>> = Vec::new();
+    let mut results: Vec<FilteredItem<T>> = Vec::new();
 
-            // Match against keywords (lower priority)
-            let best_keyword_score = item
-                .keywords()
-                .iter()
-                .filter_map(|kw| matcher.fuzzy_match(kw, query))
-                .max();
+    for (index, item) in items.iter().enumerate() {
+        if item.always_visible() {
+            pinned.push(FilteredItem {
+                index,
+                item,
+                score: i64::MAX,
+            });
+            continue;
+        }
 
-            if let Some(score) = best_keyword_score {
-                return Some(FilteredItem {
-                    index,
-                    item,
-                    score: score / 2, // Penalty for keyword-only match
-                });
-            }
+        // Match against label first (highest priority)
+        if let Some(score) = matcher.fuzzy_match(item.label(), query) {
+            results.push(FilteredItem {
+                index,
+                item,
+                score,
+            });
+            continue;
+        }
 
-            None
-        })
-        .collect();
+        // Match against keywords (lower priority)
+        let best_keyword_score = item
+            .keywords()
+            .iter()
+            .filter_map(|kw| matcher.fuzzy_match(kw, query))
+            .max();
+
+        if let Some(score) = best_keyword_score {
+            results.push(FilteredItem {
+                index,
+                item,
+                score: score / 2, // Penalty for keyword-only match
+            });
+        }
+    }
 
     // Sort by score (higher is better)
     results.sort_by(|a, b| b.score.cmp(&a.score));
-    results
+    // Pinned items (original order) at front, then score-sorted matches
+    pinned.extend(results);
+    pinned
 }
 
 /// State for a fuzzy palette
@@ -130,6 +144,9 @@ pub struct PaletteConfig<'a> {
     pub size: [f32; 2],
     /// Whether to show categories
     pub show_categories: bool,
+    /// Optional closure that draws a right-side preview panel.
+    /// When provided, the palette uses a two-column layout (list | preview).
+    pub preview_panel: Option<Box<dyn FnOnce(&mut egui::Ui) + 'a>>,
 }
 
 impl Default for PaletteConfig<'_> {
@@ -142,6 +159,7 @@ impl Default for PaletteConfig<'_> {
             action_label: "select",
             size: [400.0, 300.0],
             show_categories: false,
+            preview_panel: None,
         }
     }
 }
@@ -165,7 +183,7 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
     ctx: &egui::Context,
     state: &mut PaletteState,
     items: &[T],
-    config: &PaletteConfig,
+    mut config: PaletteConfig,
 ) -> PaletteResult<usize> {
     // Filter items
     let filtered = fuzzy_filter(items, &state.query);
@@ -203,6 +221,13 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
         state.selected_index = state.selected_index.saturating_sub(1);
     }
 
+    let has_preview = config.preview_panel.is_some();
+    let effective_size = if has_preview {
+        [config.size[0] + 238.0, config.size[1]]
+    } else {
+        config.size
+    };
+
     let mut result = PaletteResult::Open;
 
     egui::Window::new(config.title)
@@ -211,7 +236,7 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
         .title_bar(false)
         .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-        .fixed_size(config.size)
+        .fixed_size(effective_size)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
             // Mode indicator
@@ -251,71 +276,128 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
 
             ui.separator();
 
-            // Item list
+            // Item list (with optional preview panel)
+            let show_categories = config.show_categories;
             let scroll_height = config.size[1] - 100.0; // Account for header and footer
-            egui::ScrollArea::vertical()
-                .max_height(scroll_height)
-                .show(ui, |ui| {
-                    if filtered.is_empty() {
-                        ui.label(
-                            egui::RichText::new("No matches found")
-                                .color(colors::TEXT_MUTED)
-                                .italics(),
-                        );
-                    } else {
-                        let mut current_category: Option<&str> = None;
 
-                        for (display_idx, filtered_item) in filtered.iter().enumerate() {
-                            let item = filtered_item.item;
+            // Draws the item rows (without scroll area wrapper).
+            let draw_item_list_inner = |ui: &mut egui::Ui,
+                                        filtered: &[FilteredItem<T>],
+                                        show_categories: bool,
+                                        state: &PaletteState,
+                                        result: &mut PaletteResult<usize>| {
+                if filtered.is_empty() {
+                    ui.label(
+                        egui::RichText::new("No matches found")
+                            .color(colors::TEXT_MUTED)
+                            .italics(),
+                    );
+                } else {
+                    let mut current_category: Option<&str> = None;
 
-                            // Category header
-                            if config.show_categories {
-                                if let Some(category) = item.category() {
-                                    if current_category != Some(category) {
-                                        current_category = Some(category);
-                                        ui.add_space(4.0);
-                                        ui.label(
-                                            egui::RichText::new(category)
-                                                .small()
-                                                .color(colors::TEXT_MUTED),
-                                        );
-                                    }
+                    for (display_idx, filtered_item) in filtered.iter().enumerate() {
+                        let item = filtered_item.item;
+
+                        // Category header
+                        if show_categories {
+                            if let Some(category) = item.category() {
+                                if current_category != Some(category) {
+                                    current_category = Some(category);
+                                    ui.add_space(4.0);
+                                    ui.label(
+                                        egui::RichText::new(category)
+                                            .small()
+                                            .color(colors::TEXT_MUTED),
+                                    );
                                 }
                             }
+                        }
 
-                            let is_selected = display_idx == state.selected_index;
-                            let is_enabled = item.is_enabled();
+                        let is_selected = display_idx == state.selected_index;
+                        let is_enabled = item.is_enabled();
 
-                            let text_color = if !is_enabled {
-                                colors::TEXT_MUTED
-                            } else if is_selected {
-                                colors::TEXT_PRIMARY
-                            } else {
-                                colors::TEXT_SECONDARY
-                            };
+                        let text_color = if !is_enabled {
+                            colors::TEXT_MUTED
+                        } else if is_selected {
+                            colors::TEXT_PRIMARY
+                        } else {
+                            colors::TEXT_SECONDARY
+                        };
 
-                            // Build label text
-                            let label_text = if let Some(suffix) = item.suffix() {
-                                format!("{} {}", item.label(), suffix)
-                            } else {
-                                item.label().to_string()
-                            };
+                        // Build label text
+                        let label_text = if let Some(suffix) = item.suffix() {
+                            format!("{} {}", item.label(), suffix)
+                        } else {
+                            item.label().to_string()
+                        };
 
-                            let response = ui.selectable_label(
-                                is_selected,
-                                egui::RichText::new(&label_text).color(text_color),
-                            );
+                        let response = ui.selectable_label(
+                            is_selected,
+                            egui::RichText::new(&label_text).color(text_color),
+                        );
 
-                            if response.clicked() && is_enabled {
-                                result = PaletteResult::Selected(filtered_item.index);
-                            }
+                        if response.clicked() && is_enabled {
+                            *result = PaletteResult::Selected(filtered_item.index);
+                        }
 
-                            if is_selected {
-                                response.scroll_to_me(Some(egui::Align::Center));
-                            }
+                        if is_selected {
+                            response.scroll_to_me(Some(egui::Align::Center));
                         }
                     }
+                }
+            };
+
+            if let Some(preview_fn) = config.preview_panel.take() {
+                // Two-column layout matching material preset palette:
+                // left (scrollable item list) | separator | right (preview)
+                let footer_reserve = 28.0;
+                let middle_height = (ui.available_height() - footer_reserve).max(0.0);
+                let middle_width = ui.available_width();
+                let right_width = 230.0;
+                let sep_width = 8.0;
+                let left_width = (middle_width - right_width - sep_width).max(0.0);
+
+                ui.allocate_ui(egui::vec2(middle_width, middle_height), |ui| {
+                    ui.horizontal_top(|ui| {
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(left_width, middle_height),
+                            egui::Layout::top_down(egui::Align::LEFT),
+                            |ui| {
+                                egui::ScrollArea::vertical()
+                                    .auto_shrink(false)
+                                    .max_height(middle_height)
+                                    .show(ui, |ui| {
+                                        ui.set_min_width(left_width);
+                                        draw_item_list_inner(
+                                            ui,
+                                            &filtered,
+                                            show_categories,
+                                            state,
+                                            &mut result,
+                                        );
+                                    });
+                            },
+                        );
+                        ui.separator();
+                        ui.vertical(|ui| {
+                            preview_fn(ui);
+                        });
+                    });
                 });
+            } else {
+                // Single-column layout
+                egui::ScrollArea::vertical()
+                    .max_height(scroll_height)
+                    .show(ui, |ui| {
+                        draw_item_list_inner(
+                            ui,
+                            &filtered,
+                            show_categories,
+                            state,
+                            &mut result,
+                        );
+                    });
+            }
 
             ui.separator();
 
