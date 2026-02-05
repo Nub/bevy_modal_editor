@@ -412,7 +412,7 @@ fn draw_command_palette(
     scene_file: Res<SceneFile>,
     registry: Res<CommandRegistry>,
     selected: Query<Entity, With<Selected>>,
-    scene_objects: Query<(Entity, &Name), With<SceneEntity>>,
+    scene_objects: Query<(Entity, &Name), Or<(With<SceneEntity>, With<bevy_editor_game::GameEntity>)>>,
     mut ab: AssetBrowserParams,
     mut mp: ModeParams,
     mut events: commands::CommandEvents,

@@ -9,8 +9,11 @@ use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin, InfiniteGridSet
 
 use bevy_editor_game::CustomEntityRegistry;
 
+use avian3d::prelude::{Collider, SimpleCollider};
+
 use crate::editor::EditorState;
 use crate::scene::{DirectionalLightMarker, SceneLightMarker};
+use crate::selection::Selected;
 use crate::ui::Settings;
 
 /// Custom gizmo config group for x-ray transform gizmos (always visible through objects)
@@ -21,16 +24,21 @@ pub struct XRayGizmoConfig;
 #[derive(Default, Reflect, GizmoConfigGroup)]
 pub struct XRayGizmoDimmed;
 
+/// Thick x-ray gizmo config for selection circles on meshless entities
+#[derive(Default, Reflect, GizmoConfigGroup)]
+pub struct SelectionCircleGizmo;
+
 pub struct EditorGizmosPlugin;
 
 impl Plugin for EditorGizmosPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<XRayGizmoConfig>()
             .init_gizmo_group::<XRayGizmoDimmed>()
+            .init_gizmo_group::<SelectionCircleGizmo>()
             .add_plugins(TransformGizmoPlugin)
             .add_plugins(InfiniteGridPlugin)
             .add_systems(PreStartup, (configure_gizmos, spawn_grid))
-            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos, draw_custom_entity_gizmos));
+            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos, draw_custom_entity_gizmos, draw_meshless_selection_gizmos));
     }
 }
 
@@ -49,6 +57,11 @@ fn configure_gizmos(mut config_store: ResMut<GizmoConfigStore>, settings: Res<Se
     let (dimmed_config, _) = config_store.config_mut::<XRayGizmoDimmed>();
     dimmed_config.line.width = settings.gizmos.line_width * 0.5;
     dimmed_config.depth_bias = -1.0;
+
+    // Configure selection circle gizmos (thick, x-ray)
+    let (sel_config, _) = config_store.config_mut::<SelectionCircleGizmo>();
+    sel_config.line.width = settings.gizmos.line_width * 2.0;
+    sel_config.depth_bias = -1.0;
 }
 
 /// Update gizmo settings when they change
@@ -69,6 +82,11 @@ fn update_gizmo_settings(settings: Res<Settings>, mut config_store: ResMut<Gizmo
     let (dimmed_config, _) = config_store.config_mut::<XRayGizmoDimmed>();
     dimmed_config.line.width = settings.gizmos.line_width * 0.5;
     dimmed_config.depth_bias = -1.0;
+
+    // Update selection circle gizmos
+    let (sel_config, _) = config_store.config_mut::<SelectionCircleGizmo>();
+    sel_config.line.width = settings.gizmos.line_width * 2.0;
+    sel_config.depth_bias = -1.0;
 }
 
 /// Spawn the infinite grid
@@ -174,6 +192,43 @@ fn draw_point_light_gizmos(
             position - Vec3::Y * ray_start,
             position - Vec3::Y * (ray_start + ray_length),
             light_color,
+        );
+    }
+}
+
+/// Draw a selection circle around selected entities that have no mesh (and
+/// therefore receive no outline from `sync_selection_outlines`).  The circle
+/// is sized to encompass the entity's collider AABB, or uses a small default
+/// radius when no collider is present.
+fn draw_meshless_selection_gizmos(
+    mut gizmos: Gizmos<SelectionCircleGizmo>,
+    selected: Query<(&GlobalTransform, Option<&Collider>), (With<Selected>, Without<Mesh3d>)>,
+    editor_state: Res<EditorState>,
+) {
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
+    let color = Color::srgb(1.0, 0.8, 0.0);
+
+    for (transform, collider) in &selected {
+        let position = transform.translation();
+
+        // Compute radius from collider AABB, or use a small default
+        let radius = if let Some(collider) = collider {
+            let aabb = collider.aabb(Vec3::ZERO, Quat::IDENTITY);
+            let half = aabb.size() * 0.5;
+            // Use the largest horizontal extent as the circle radius
+            half.x.max(half.z) * 1.2
+        } else {
+            0.5
+        };
+
+        // Draw a horizontal circle at the entity's position
+        gizmos.circle(
+            Isometry3d::new(position, Quat::IDENTITY),
+            radius,
+            color,
         );
     }
 }

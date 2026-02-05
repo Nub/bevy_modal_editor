@@ -7,6 +7,8 @@ use bevy_spline_3d::distribution::{DistributionSource, SplineDistribution};
 use bevy_spline_3d::prelude::{SelectionState as SplineSelectionState, Spline};
 
 use crate::constants::physics;
+use bevy_editor_game::GameEntity;
+
 use crate::editor::{EditorCamera, EditorMode, EditorState};
 use crate::scene::{SceneEntity, SplineMarker};
 use crate::ui::Settings;
@@ -42,7 +44,7 @@ fn handle_click_selection(
     window_query: Query<&Window, With<PrimaryWindow>>,
     camera_query: Query<(&Camera, &GlobalTransform), With<EditorCamera>>,
     spatial_query: SpatialQuery,
-    scene_entities: Query<Entity, With<SceneEntity>>,
+    scene_entities: Query<Entity, Or<(With<SceneEntity>, With<GameEntity>)>>,
     splines: Query<(Entity, &Spline, &GlobalTransform), With<SplineMarker>>,
     parent_query: Query<&ChildOf>,
     selected: Query<Entity, With<Selected>>,
@@ -234,13 +236,13 @@ fn point_to_segment_distance_2d(point: Vec2, seg_start: Vec2, seg_end: Vec2) -> 
     point.distance(closest)
 }
 
-/// Walk up the parent hierarchy to find an entity with SceneEntity component
+/// Walk up the parent hierarchy to find a selectable entity (SceneEntity or GameEntity)
 fn find_selectable_parent(
     entity: Entity,
-    scene_entities: &Query<Entity, With<SceneEntity>>,
+    scene_entities: &Query<Entity, Or<(With<SceneEntity>, With<GameEntity>)>>,
     parent_query: &Query<&ChildOf>,
 ) -> Option<Entity> {
-    // Check if the current entity is a scene entity
+    // Check if the current entity is a scene or game entity
     if scene_entities.get(entity).is_ok() {
         return Some(entity);
     }

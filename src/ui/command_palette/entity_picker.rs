@@ -3,6 +3,8 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 
+use bevy_editor_game::GameEntity;
+
 use crate::scene::SceneEntity;
 use crate::ui::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteItem, PaletteResult, PaletteState};
 use crate::ui::theme::colors;
@@ -65,7 +67,7 @@ pub(super) fn draw_entity_picker(
     ctx: &egui::Context,
     state: &mut ResMut<CommandPaletteState>,
     pending_selection: &mut ResMut<PendingEntitySelection>,
-    scene_entities: &Query<(Entity, &Name), With<SceneEntity>>,
+    scene_entities: &Query<(Entity, &Name), Or<(With<SceneEntity>, With<GameEntity>)>>,
 ) -> Result {
     // Build list of entities
     let entities: Vec<EntityEntry> = scene_entities

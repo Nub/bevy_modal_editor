@@ -3,6 +3,8 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 
+use bevy_editor_game::GameEntity;
+
 use crate::scene::SceneEntity;
 use crate::selection::Selected;
 use crate::ui::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteItem, PaletteResult, PaletteState};
@@ -27,7 +29,7 @@ pub(super) fn draw_find_palette(
     ctx: &egui::Context,
     state: &mut ResMut<CommandPaletteState>,
     commands: &mut Commands,
-    scene_objects: &Query<(Entity, &Name), With<SceneEntity>>,
+    scene_objects: &Query<(Entity, &Name), Or<(With<SceneEntity>, With<GameEntity>)>>,
     selected_entities: &Query<Entity, With<Selected>>,
 ) -> Result {
     // Build list of scene objects
