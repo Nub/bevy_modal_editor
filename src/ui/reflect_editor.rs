@@ -189,7 +189,8 @@ pub fn reflect_editor(
             EditResult::Unchanged
         }
         ReflectMut::TupleStruct(ts) => {
-            // Newtype pattern: single-field tuple struct - show inner value directly
+            // Newtype pattern: single-field tuple struct — always unwrap,
+            // passing the parent name through so there's no "0" header
             if ts.field_len() == 1 {
                 if let Some(field) = ts.field_mut(0) {
                     return reflect_editor(ui, field, name, config);
@@ -519,13 +520,37 @@ fn enum_editor(
     name: &str,
     config: &ReflectEditorConfig,
 ) -> EditResult {
+    // At the top level, wrap in a collapsible header
+    if config.is_top_level {
+        let mut changed = false;
+        egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_SECONDARY))
+            .default_open(config.default_open)
+            .show(ui, |ui| {
+                if enum_editor_inner(ui, e, name, &config.nested()).changed() {
+                    changed = true;
+                }
+            });
+        return if changed {
+            EditResult::Changed
+        } else {
+            EditResult::Unchanged
+        };
+    }
+
+    enum_editor_inner(ui, e, name, config)
+}
+
+/// Inner enum editor content (combo box + fields)
+fn enum_editor_inner(
+    ui: &mut egui::Ui,
+    e: &mut dyn Enum,
+    name: &str,
+    config: &ReflectEditorConfig,
+) -> EditResult {
     let type_info = e.get_represented_type_info();
 
     let Some(TypeInfo::Enum(enum_info)) = type_info else {
         ui.horizontal(|ui| {
-            if config.is_top_level {
-                ui.add_space(COLLAPSE_ICON_WIDTH);
-            }
             ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
             ui.label(egui::RichText::new("(unknown enum)").color(colors::TEXT_MUTED));
         });
@@ -536,11 +561,6 @@ fn enum_editor(
     let mut changed = false;
 
     ui.horizontal(|ui| {
-        if config.is_top_level {
-            ui.add_space(COLLAPSE_ICON_WIDTH);
-        }
-        ui.label(egui::RichText::new(name).color(colors::TEXT_SECONDARY));
-
         // Collect variant names
         let variants: Vec<&str> = enum_info
             .iter()
@@ -583,17 +603,27 @@ fn enum_editor(
 
     // If enum has fields, show them
     if e.field_len() > 0 {
-        ui.indent(format!("enum_fields_{}", name), |ui| {
+        // Single unnamed field (tuple variant of 1) — show content directly
+        if e.field_len() == 1 && e.name_at(0).is_none() {
             let nested_config = config.nested();
-            for i in 0..e.field_len() {
-                let field_name = e.name_at(i).map(|s| s.to_string()).unwrap_or_else(|| format!("{}", i));
-                if let Some(field) = e.field_at_mut(i) {
-                    if reflect_editor(ui, field, &field_name, &nested_config).changed() {
-                        changed = true;
-                    }
+            if let Some(field) = e.field_at_mut(0) {
+                if reflect_editor(ui, field, name, &nested_config).changed() {
+                    changed = true;
                 }
             }
-        });
+        } else {
+            ui.indent(format!("enum_fields_{}", name), |ui| {
+                let nested_config = config.nested();
+                for i in 0..e.field_len() {
+                    let field_name = e.name_at(i).map(|s| s.to_string()).unwrap_or_else(|| format!("{}", i));
+                    if let Some(field) = e.field_at_mut(i) {
+                        if reflect_editor(ui, field, &field_name, &nested_config).changed() {
+                            changed = true;
+                        }
+                    }
+                }
+            });
+        }
     }
 
     if changed {
@@ -1156,7 +1186,8 @@ pub fn reflect_viewer(
             });
         }
         ReflectRef::TupleStruct(ts) => {
-            // Newtype pattern: single-field tuple struct - show inner value directly
+            // Newtype pattern: single-field tuple struct — always unwrap,
+            // passing the parent name through so there's no "0" header
             if ts.field_len() == 1 {
                 if let Some(field) = ts.field(0) {
                     reflect_viewer(ui, field, name, config);
@@ -1307,14 +1338,22 @@ fn transform_viewer(
 
 /// Read-only enum viewer
 fn enum_viewer(ui: &mut egui::Ui, e: &dyn Enum, name: &str, config: &ReflectEditorConfig) {
-    ui.horizontal(|ui| {
-        if config.is_top_level {
-            ui.add_space(COLLAPSE_ICON_WIDTH);
-        }
-        ui.label(egui::RichText::new(name).color(colors::TEXT_MUTED));
-        ui.label(egui::RichText::new(e.variant_name()).color(colors::TEXT_MUTED));
-        readonly_badge(ui);
-    });
+    if config.is_top_level {
+        egui::CollapsingHeader::new(egui::RichText::new(name).color(colors::TEXT_MUTED))
+            .default_open(config.default_open)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(e.variant_name()).color(colors::TEXT_MUTED));
+                    readonly_badge(ui);
+                });
+            });
+    } else {
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(name).color(colors::TEXT_MUTED));
+            ui.label(egui::RichText::new(e.variant_name()).color(colors::TEXT_MUTED));
+            readonly_badge(ui);
+        });
+    }
 }
 
 /// Read-only opaque/primitive viewer

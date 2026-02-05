@@ -11,6 +11,7 @@
 //! - Listen for lifecycle events (`GameStartedEvent`, etc.)
 //! - Register custom components for scene serialization
 
+use std::any::TypeId;
 use std::collections::HashMap;
 
 use bevy::prelude::*;
@@ -231,6 +232,8 @@ pub struct CustomEntityEntry {
     pub entity_type: CustomEntityType,
     /// Auto-populated function that checks if a given entity has the marker component.
     pub has_component: fn(&World, Entity) -> bool,
+    /// The `TypeId` of the marker component `T` used during registration.
+    pub component_type_id: TypeId,
 }
 
 /// Registry of game-defined custom entity types that can be spawned from the editor.
@@ -296,6 +299,7 @@ impl RegisterCustomEntityExt for App {
         let entry = CustomEntityEntry {
             entity_type,
             has_component: has_component::<T>,
+            component_type_id: TypeId::of::<T>(),
         };
         let mut registry = self
             .world_mut()

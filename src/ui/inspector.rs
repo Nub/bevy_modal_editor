@@ -1,6 +1,7 @@
 use avian3d::prelude::RigidBody;
 use bevy::light::VolumetricLight;
 use bevy::prelude::*;
+use bevy::reflect::TypeInfo;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSpacing, SplineDistribution};
 use bevy_spline_3d::path_follow::{FollowerState, LoopMode, SplineFollower};
@@ -1260,18 +1261,61 @@ fn draw_inspector_panel(world: &mut World) {
                                 ui.add_space(4.0);
                             }
 
-                            // Custom entity inspector widgets
+                            // Custom entity inspector widgets (filtered by has_component)
+                            // Skip zero-field markers here — they appear in the Markers section
                             {
-                                let draw_fns: Vec<InspectorWidgetFn> = world
-                                    .resource::<CustomEntityRegistry>()
-                                    .entries
-                                    .iter()
-                                    .filter_map(|e| e.entity_type.draw_inspector)
-                                    .collect();
-                                for draw_fn in draw_fns {
-                                    if draw_fn(world, entity, ui) {
-                                        custom_inspector_changed = true;
+                                let custom_entries: Vec<(
+                                    &'static str,
+                                    Option<InspectorWidgetFn>,
+                                    TypeId,
+                                )> = {
+                                    let type_registry = world.resource::<AppTypeRegistry>().clone();
+                                    let type_registry = type_registry.read();
+                                    world
+                                        .resource::<CustomEntityRegistry>()
+                                        .entries
+                                        .iter()
+                                        .filter(|e| (e.has_component)(world, entity))
+                                        .filter(|e| {
+                                            // Keep entries with a custom inspector always
+                                            if e.entity_type.draw_inspector.is_some() {
+                                                return true;
+                                            }
+                                            // Skip zero-field (marker) components
+                                            if let Some(reg) = type_registry.get(e.component_type_id) {
+                                                !matches!(reg.type_info(), TypeInfo::Struct(s) if s.field_len() == 0)
+                                            } else {
+                                                true
+                                            }
+                                        })
+                                        .map(|e| {
+                                            (
+                                                e.entity_type.name,
+                                                e.entity_type.draw_inspector,
+                                                e.component_type_id,
+                                            )
+                                        })
+                                        .collect()
+                                };
+                                let config = ReflectEditorConfig::default();
+                                for (name, draw_inspector, type_id) in custom_entries {
+                                    if let Some(draw_fn) = draw_inspector {
+                                        if draw_fn(world, entity, ui) {
+                                            custom_inspector_changed = true;
+                                        }
+                                    } else {
+                                        egui::CollapsingHeader::new(
+                                            egui::RichText::new(name)
+                                                .color(colors::TEXT_PRIMARY),
+                                        )
+                                        .default_open(true)
+                                        .show(ui, |ui| {
+                                            component_editor(
+                                                world, entity, type_id, ui, &config,
+                                            );
+                                        });
                                     }
+                                    ui.add_space(4.0);
                                 }
                             }
 
@@ -1301,6 +1345,26 @@ fn draw_inspector_panel(world: &mut World) {
                         .show(ui, |ui| {
                             draw_all_components(world, entity, ui);
                         });
+
+                        // Markers section (zero-field components)
+                        {
+                            let marker_names = collect_marker_names(world, entity);
+                            if !marker_names.is_empty() {
+                                egui::CollapsingHeader::new(
+                                    egui::RichText::new("Markers")
+                                        .color(colors::TEXT_SECONDARY),
+                                )
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    for name in &marker_names {
+                                        ui.label(
+                                            egui::RichText::new(name)
+                                                .color(colors::TEXT_PRIMARY),
+                                        );
+                                    }
+                                });
+                            }
+                        }
                     });
                 }
                 _ => {
@@ -1697,6 +1761,15 @@ fn draw_inspector_panel(world: &mut World) {
 
 /// Draw all components on an entity using reflection
 fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
+    // Collect custom entity component TypeIds to exclude from the generic list
+    // (these are already shown in the main inspector area)
+    let custom_type_ids: Vec<TypeId> = world
+        .resource::<CustomEntityRegistry>()
+        .entries
+        .iter()
+        .map(|e| e.component_type_id)
+        .collect();
+
     let type_registry = world.resource::<AppTypeRegistry>().clone();
     let type_registry_guard = type_registry.read();
 
@@ -1717,6 +1790,11 @@ fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
 
                 // Check if it has ReflectComponent
                 if registration.data::<ReflectComponent>().is_none() {
+                    return None;
+                }
+
+                // Skip zero-field (marker) components — shown in Markers section
+                if matches!(registration.type_info(), TypeInfo::Struct(s) if s.field_len() == 0) {
                     return None;
                 }
 
@@ -1767,11 +1845,51 @@ fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
             continue;
         }
 
+        // Skip custom entity components (shown in main inspector area)
+        if custom_type_ids.contains(&type_id) {
+            continue;
+        }
+
         ui.add_space(2.0);
 
         // Draw the component using reflection
         component_editor(world, entity, type_id, ui, &config);
     }
+}
+
+/// Returns the short names of zero-field (marker) components on this entity.
+/// These are displayed in a dedicated "Markers" section and excluded from "All Components".
+fn collect_marker_names(world: &World, entity: Entity) -> Vec<String> {
+    let type_registry = world.resource::<AppTypeRegistry>().clone();
+    let type_registry = type_registry.read();
+    let entity_ref = world.entity(entity);
+    let archetype = entity_ref.archetype();
+
+    let mut names: Vec<String> = archetype
+        .components()
+        .iter()
+        .filter_map(|&component_id| {
+            let info = world.components().get_info(component_id)?;
+            let type_id = info.type_id()?;
+            let reg = type_registry.get(type_id)?;
+            if reg.data::<ReflectComponent>().is_none() {
+                return None;
+            }
+            match reg.type_info() {
+                TypeInfo::Struct(s) if s.field_len() == 0 => {}
+                _ => return None,
+            }
+            let name = reg
+                .type_info()
+                .type_path_table()
+                .short_path()
+                .to_string();
+            Some(name)
+        })
+        .collect();
+
+    names.sort();
+    names
 }
 
 /// Draw the component editor popup window
