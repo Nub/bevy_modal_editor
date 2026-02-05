@@ -23,7 +23,7 @@ use bevy_editor_game::{
     ValidationRegistry,
 };
 
-use crate::materials::{MaterialTypeRegistry, resolve_material_ref};
+use crate::materials::{load_base_textures, MaterialTypeRegistry, resolve_material_ref};
 use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
 use bevy_spline_3d::distribution::{
     DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
@@ -303,7 +303,9 @@ fn apply_material_def_from_fns(
     match &def.extension {
         None => {
             // Standard material
-            let mat = def.base.to_standard_material();
+            let mut mat = def.base.to_standard_material();
+            let asset_server = world.resource::<AssetServer>().clone();
+            load_base_textures(&mut mat, &def.base, &asset_server);
             let handle = world
                 .resource_mut::<Assets<StandardMaterial>>()
                 .add(mat);
@@ -312,6 +314,7 @@ fn apply_material_def_from_fns(
             }
         }
         Some(ext) => {
+            // Extension apply fns already call load_base_textures via apply_material in materials/mod.rs
             if let Some((_, apply_fn)) = registry_fns.iter().find(|(name, _)| name == &ext.type_name)
             {
                 apply_fn(world, entity, &def.base, Some(&ext.data));
@@ -320,7 +323,9 @@ fn apply_material_def_from_fns(
                     "Unknown material extension type '{}', falling back to standard",
                     ext.type_name
                 );
-                let mat = def.base.to_standard_material();
+                let mut mat = def.base.to_standard_material();
+                let asset_server = world.resource::<AssetServer>().clone();
+                load_base_textures(&mut mat, &def.base, &asset_server);
                 let handle = world
                     .resource_mut::<Assets<StandardMaterial>>()
                     .add(mat);

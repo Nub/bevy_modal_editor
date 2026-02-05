@@ -1,5 +1,6 @@
 pub mod grid;
 
+use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, StandardMaterial};
 use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
@@ -9,6 +10,41 @@ use serde::{de::DeserializeOwned, Serialize};
 
 /// Type alias for the extended grid material
 pub type GridMat = ExtendedMaterial<StandardMaterial, bevy_grid_shader::GridMaterial>;
+
+/// Load a texture with repeat wrapping enabled.
+fn load_texture_repeat(asset_server: &AssetServer, path: String) -> Handle<Image> {
+    asset_server.load_with_settings(path, |settings: &mut ImageLoaderSettings| {
+        settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+            address_mode_u: ImageAddressMode::Repeat,
+            address_mode_v: ImageAddressMode::Repeat,
+            address_mode_w: ImageAddressMode::Repeat,
+            ..default()
+        });
+    })
+}
+
+/// Load texture images from asset paths in `BaseMaterialProps` and set them on a `StandardMaterial`.
+pub fn load_base_textures(
+    mat: &mut StandardMaterial,
+    props: &BaseMaterialProps,
+    asset_server: &AssetServer,
+) {
+    if let Some(ref path) = props.base_color_texture {
+        mat.base_color_texture = Some(load_texture_repeat(asset_server, path.clone()));
+    }
+    if let Some(ref path) = props.normal_map_texture {
+        mat.normal_map_texture = Some(load_texture_repeat(asset_server, path.clone()));
+    }
+    if let Some(ref path) = props.metallic_roughness_texture {
+        mat.metallic_roughness_texture = Some(load_texture_repeat(asset_server, path.clone()));
+    }
+    if let Some(ref path) = props.emissive_texture {
+        mat.emissive_texture = Some(load_texture_repeat(asset_server, path.clone()));
+    }
+    if let Some(ref path) = props.occlusion_texture {
+        mat.occlusion_texture = Some(load_texture_repeat(asset_server, path.clone()));
+    }
+}
 
 /// Trait for game/editor material extension definitions.
 ///
@@ -72,7 +108,9 @@ impl MaterialTypeRegistry {
 fn apply_standard(world: &mut World, entity: Entity, base: &BaseMaterialProps, _ext: Option<&str>) {
     // Remove any extended material components that might be present
     // (We can't enumerate all extension types, but the caller should handle removal)
-    let mat = base.to_standard_material();
+    let mut mat = base.to_standard_material();
+    let asset_server = world.resource::<AssetServer>().clone();
+    load_base_textures(&mut mat, base, &asset_server);
     let handle = world.resource_mut::<Assets<StandardMaterial>>().add(mat);
     if let Ok(mut e) = world.get_entity_mut(entity) {
         e.insert(MeshMaterial3d(handle));
@@ -127,8 +165,11 @@ fn apply_material<D: EditorMaterialDef>(
         .and_then(|s| ron::from_str(s).ok())
         .unwrap_or_default();
     let extension = D::to_extension(&props);
+    let mut base_mat = base.to_standard_material();
+    let asset_server = world.resource::<AssetServer>().clone();
+    load_base_textures(&mut base_mat, base, &asset_server);
     let extended = ExtendedMaterial {
-        base: base.to_standard_material(),
+        base: base_mat,
         extension,
     };
     let handle = world

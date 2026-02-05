@@ -480,13 +480,17 @@ fn sync_camera_states(
     editor_state: Res<EditorState>,
     game_state: Res<State<GameState>>,
     mut game_cameras: Query<&mut Camera, (With<GameCamera>, Without<EditorCamera>)>,
+    mut editor_cameras: Query<&mut Camera, (With<EditorCamera>, Without<GameCamera>)>,
 ) {
     if !editor_state.is_changed() && !game_state.is_changed() {
         return;
     }
 
-    let active = !editor_state.editor_active && *game_state.get() == GameState::Playing;
+    let game_active = !editor_state.editor_active && *game_state.get() == GameState::Playing;
     for mut camera in &mut game_cameras {
-        camera.is_active = active;
+        camera.is_active = game_active;
+    }
+    for mut camera in &mut editor_cameras {
+        camera.is_active = !game_active;
     }
 }

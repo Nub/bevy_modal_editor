@@ -13,19 +13,16 @@ mod marble;
 mod timer;
 
 use avian3d::prelude::*;
-use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use bevy_editor_game::{
-    BaseMaterialProps, CustomEntityType, MaterialDefinition, MaterialRef, RegisterCustomEntityExt,
-    RegisterValidationExt, ValidationMessage, ValidationRule, ValidationSeverity,
+    AlphaModeValue, BaseMaterialProps, CustomEntityType, MaterialDefinition, MaterialRef,
+    RegisterCustomEntityExt, RegisterValidationExt, ValidationMessage, ValidationRule,
+    ValidationSeverity,
 };
 use bevy_modal_editor::materials::RegisterMaterialTypeExt;
 use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, GamePlugin};
 
-use checkerboard::{
-    CheckerboardMaterial, CheckerboardMaterialDef, CheckerboardMaterialPlugin,
-    CheckerboardMaterialProps,
-};
+use checkerboard::{CheckerboardMaterialDef, CheckerboardMaterialPlugin};
 
 /// Marker component for spawn point entities.
 /// The marble spawns at this entity's position when play mode starts.
@@ -84,6 +81,14 @@ fn main() {
                         Visibility::default(),
                         Collider::cuboid(1.0, 1.0, 1.0),
                         Sensor,
+                        MaterialRef::Inline(MaterialDefinition {
+                            base: BaseMaterialProps {
+                                base_color: Color::srgba(0.2, 1.0, 0.3, 0.3),
+                                alpha_mode: AlphaModeValue::Blend,
+                                ..default()
+                            },
+                            extension: None,
+                        }),
                     ))
                     .id()
             },
@@ -108,7 +113,7 @@ fn setup_default_level(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut checker_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, CheckerboardMaterial>>>,
+    asset_server: Res<AssetServer>,
     existing: Query<Entity, With<bevy_modal_editor::SceneEntity>>,
 ) {
     // Don't spawn if scene already has entities (e.g. loaded from file)
@@ -116,31 +121,53 @@ fn setup_default_level(
         return;
     }
 
-    // Ground plane (checkerboard material)
-    let ground_color = Color::srgb(0.5, 0.5, 0.55);
-    let checker_data =
-        ron::to_string(&CheckerboardMaterialProps::default()).unwrap_or_default();
+    // Ground plane (marble texture)
+    let ground_color = Color::WHITE;
     commands.spawn((
         bevy_modal_editor::SceneEntity,
         Name::new("Ground"),
         bevy_modal_editor::PrimitiveMarker {
             shape: bevy_modal_editor::PrimitiveShape::Cube,
         },
-        MaterialRef::Inline(MaterialDefinition::with_extension(
-            BaseMaterialProps {
+        MaterialRef::Inline(MaterialDefinition {
+            base: BaseMaterialProps {
                 base_color: ground_color,
+                base_color_texture: Some("textures/brick_albedo.png".into()),
+                normal_map_texture: Some("textures/brick_normal.png".into()),
+                uv_scale: [6.0, 6.0],
                 ..default()
             },
-            "checkerboard",
-            checker_data,
-        )),
-        Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-        MeshMaterial3d(checker_materials.add(ExtendedMaterial {
-            base: StandardMaterial {
-                base_color: ground_color,
-                ..default()
-            },
-            extension: CheckerboardMaterial::default(),
+            extension: None,
+        }),
+        Mesh3d(meshes.add(Mesh::from(Cuboid::new(1.0, 1.0, 1.0)).with_generated_tangents().unwrap())),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color: ground_color,
+            base_color_texture: Some(asset_server.load_with_settings(
+                "textures/brick_albedo.png",
+                |s: &mut bevy::image::ImageLoaderSettings| {
+                    s.sampler = bevy::image::ImageSampler::Descriptor(
+                        bevy::image::ImageSamplerDescriptor {
+                            address_mode_u: bevy::image::ImageAddressMode::Repeat,
+                            address_mode_v: bevy::image::ImageAddressMode::Repeat,
+                            ..default()
+                        },
+                    );
+                },
+            )),
+            normal_map_texture: Some(asset_server.load_with_settings(
+                "textures/brick_normal.png",
+                |s: &mut bevy::image::ImageLoaderSettings| {
+                    s.sampler = bevy::image::ImageSampler::Descriptor(
+                        bevy::image::ImageSamplerDescriptor {
+                            address_mode_u: bevy::image::ImageAddressMode::Repeat,
+                            address_mode_v: bevy::image::ImageAddressMode::Repeat,
+                            ..default()
+                        },
+                    );
+                },
+            )),
+            uv_transform: bevy::math::Affine2::from_scale(Vec2::splat(6.0)),
+            ..default()
         })),
         Transform::from_translation(Vec3::new(0.0, -0.5, 0.0))
             .with_scale(Vec3::new(30.0, 1.0, 30.0)),
@@ -222,16 +249,25 @@ fn setup_default_level(
     ));
 
     // Goal Zone
+    let goal_color = Color::srgba(0.2, 1.0, 0.3, 0.3);
     commands.spawn((
         bevy_modal_editor::SceneEntity,
         GoalZone,
         Name::new("Goal Zone"),
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgba(0.2, 1.0, 0.3, 0.3),
+            base_color: goal_color,
             alpha_mode: AlphaMode::Blend,
             ..default()
         })),
+        MaterialRef::Inline(MaterialDefinition {
+            base: BaseMaterialProps {
+                base_color: goal_color,
+                alpha_mode: AlphaModeValue::Blend,
+                ..default()
+            },
+            extension: None,
+        }),
         Transform::from_translation(Vec3::new(0.0, 1.0, -12.0)).with_scale(Vec3::splat(3.0)),
         RigidBody::Static,
         Collider::cuboid(1.0, 1.0, 1.0),
@@ -346,11 +382,15 @@ fn regenerate_goal_zone(world: &mut World, entity: Entity) {
     if world.get::<Visibility>(entity).is_some() {
         return;
     }
+    let mesh_handle = world
+        .resource_mut::<Assets<Mesh>>()
+        .add(Cuboid::new(1.0, 1.0, 1.0));
     if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
         entity_mut.insert((
             Visibility::default(),
             Collider::cuboid(1.0, 1.0, 1.0),
             Sensor,
+            Mesh3d(mesh_handle),
         ));
     }
 }

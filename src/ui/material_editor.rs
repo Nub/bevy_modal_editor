@@ -15,6 +15,7 @@ use bevy_editor_game::{
 use crate::editor::{EditorMode, EditorState};
 use crate::materials::{apply_material_def_standalone, resolve_material_ref, GridMat, MaterialTypeRegistry};
 use crate::selection::Selected;
+use crate::ui::file_dialog::{FileDialogState, TexturePickResult, TextureSlot};
 use crate::ui::theme::{colors, panel, panel_frame};
 use crate::utils::should_process_input;
 
@@ -170,6 +171,103 @@ fn draw_base_properties(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> bool
             .changed();
     });
 
+    ui.add_space(8.0);
+
+    // Transmission
+    ui.label(egui::RichText::new("Transmission").color(colors::TEXT_SECONDARY));
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("IOR").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::Slider::new(&mut base.ior, 1.0..=3.0).show_value(true))
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Specular").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::Slider::new(&mut base.specular_transmission, 0.0..=1.0).show_value(true))
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Diffuse").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::Slider::new(&mut base.diffuse_transmission, 0.0..=1.0).show_value(true))
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Thickness").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::Slider::new(&mut base.thickness, 0.0..=10.0).show_value(true))
+            .changed();
+    });
+
+    ui.add_space(4.0);
+
+    // Specular Tint
+    let mut tint_arr = {
+        let c = base.specular_tint.to_srgba();
+        [c.red, c.green, c.blue, c.alpha]
+    };
+    ui.label(egui::RichText::new("Specular Tint").color(colors::TEXT_SECONDARY));
+    ui.horizontal(|ui| {
+        if ui
+            .color_edit_button_rgba_unmultiplied(&mut tint_arr)
+            .changed()
+        {
+            base.specular_tint =
+                Color::srgba(tint_arr[0], tint_arr[1], tint_arr[2], tint_arr[3]);
+            changed = true;
+        }
+    });
+
+    ui.add_space(4.0);
+
+    // Clearcoat
+    ui.label(egui::RichText::new("Clearcoat").color(colors::TEXT_SECONDARY));
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Strength").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::Slider::new(&mut base.clearcoat, 0.0..=1.0).show_value(true))
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Roughness").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::Slider::new(&mut base.clearcoat_perceptual_roughness, 0.0..=1.0).show_value(true))
+            .changed();
+    });
+
+    ui.add_space(4.0);
+
+    // Anisotropy
+    ui.label(egui::RichText::new("Anisotropy").color(colors::TEXT_SECONDARY));
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Strength").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::Slider::new(&mut base.anisotropy_strength, 0.0..=1.0).show_value(true))
+            .changed();
+    });
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Rotation").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::Slider::new(&mut base.anisotropy_rotation, 0.0..=std::f32::consts::TAU).show_value(true))
+            .changed();
+    });
+
+    ui.add_space(4.0);
+
+    // UV Scale
+    ui.label(egui::RichText::new("UV Scale").color(colors::TEXT_SECONDARY));
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("U").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::DragValue::new(&mut base.uv_scale[0]).speed(0.1).range(0.01..=100.0))
+            .changed();
+        ui.label(egui::RichText::new("V").color(colors::TEXT_MUTED));
+        changed |= ui
+            .add(egui::DragValue::new(&mut base.uv_scale[1]).speed(0.1).range(0.01..=100.0))
+            .changed();
+    });
+
     ui.add_space(4.0);
 
     // Alpha Mode
@@ -214,6 +312,84 @@ fn draw_base_properties(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> bool
     changed
 }
 
+/// Result from drawing texture slot UI
+struct TextureSlotResult {
+    changed: bool,
+    browse_requested: Option<TextureSlot>,
+}
+
+/// Draw a single texture slot row
+fn draw_texture_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    slot: TextureSlot,
+    path: &mut Option<String>,
+    result: &mut TextureSlotResult,
+) {
+    ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
+    ui.horizontal(|ui| {
+        // Display current path or "None"
+        let display = path
+            .as_ref()
+            .and_then(|p| p.rsplit('/').next())
+            .unwrap_or("None");
+        ui.label(
+            egui::RichText::new(display)
+                .color(if path.is_some() {
+                    colors::TEXT_PRIMARY
+                } else {
+                    colors::TEXT_MUTED
+                })
+                .small(),
+        );
+
+        if ui
+            .small_button("Browse")
+            .on_hover_text("Pick an image file")
+            .clicked()
+        {
+            result.browse_requested = Some(slot);
+        }
+
+        if path.is_some()
+            && ui
+                .small_button("X")
+                .on_hover_text("Clear texture")
+                .clicked()
+        {
+            *path = None;
+            result.changed = true;
+        }
+    });
+    ui.add_space(2.0);
+}
+
+/// Draw texture slot UI for all 5 PBR texture maps
+fn draw_texture_slots(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> TextureSlotResult {
+    let mut result = TextureSlotResult {
+        changed: false,
+        browse_requested: None,
+    };
+
+    ui.add_space(4.0);
+    ui.separator();
+    ui.add_space(4.0);
+    ui.label(
+        egui::RichText::new("Textures")
+            .strong()
+            .color(colors::TEXT_PRIMARY),
+    );
+    ui.add_space(4.0);
+
+    draw_texture_row(ui, "Base Color", TextureSlot::BaseColor, &mut base.base_color_texture, &mut result);
+    draw_texture_row(ui, "Normal Map", TextureSlot::NormalMap, &mut base.normal_map_texture, &mut result);
+    draw_texture_row(ui, "Metallic/Roughness", TextureSlot::MetallicRoughness, &mut base.metallic_roughness_texture, &mut result);
+    draw_texture_row(ui, "Emissive", TextureSlot::Emissive, &mut base.emissive_texture, &mut result);
+    draw_texture_row(ui, "Occlusion", TextureSlot::Occlusion, &mut base.occlusion_texture, &mut result);
+
+    result
+}
+
 /// Draw the material editor panel
 fn draw_material_panel(world: &mut World) {
     // Don't draw UI when editor is disabled
@@ -255,6 +431,28 @@ fn draw_material_panel(world: &mut World) {
         .as_ref()
         .and_then(|r| resolve_material_ref(r, &library))
         .cloned();
+
+    // Check for texture pick result and apply it
+    if let Some(entity) = first_entity {
+        let pick_data = world.resource_mut::<TexturePickResult>().0.take();
+        if let Some(pick) = pick_data {
+            if pick.entity == entity {
+                if let Some(def) = &mut working_def {
+                    match pick.slot {
+                        TextureSlot::BaseColor => def.base.base_color_texture = Some(pick.path),
+                        TextureSlot::NormalMap => def.base.normal_map_texture = Some(pick.path),
+                        TextureSlot::MetallicRoughness => def.base.metallic_roughness_texture = Some(pick.path),
+                        TextureSlot::Emissive => def.base.emissive_texture = Some(pick.path),
+                        TextureSlot::Occlusion => def.base.occlusion_texture = Some(pick.path),
+                    }
+                    // Apply immediately
+                    let def_clone = def.clone();
+                    apply_and_update_entity(world, entity, def_clone);
+                }
+            }
+        }
+    }
+
     let original_def = working_def.clone();
 
     // Collect available material type names from registry
@@ -292,6 +490,10 @@ fn draw_material_panel(world: &mut World) {
     // Track extension UI changes
     let mut ext_changed = false;
     let mut new_ext_data: Option<String> = None;
+
+    // Track texture slot UI changes
+    let mut browse_texture_slot: Option<TextureSlot> = None;
+    let mut texture_changed = false;
 
     // Has material at all?
     let has_material = current_mat_ref.is_some();
@@ -444,6 +646,15 @@ fn draw_material_panel(world: &mut World) {
                                 // Base material properties
                                 draw_base_properties(ui, &mut def.base);
 
+                                // Texture slots
+                                let tex_result = draw_texture_slots(ui, &mut def.base);
+                                if tex_result.changed {
+                                    texture_changed = true;
+                                }
+                                if tex_result.browse_requested.is_some() {
+                                    browse_texture_slot = tex_result.browse_requested;
+                                }
+
                                 // Extension-specific UI (from pre-extracted fn pointer)
                                 if let (Some(ext), Some(draw_fn)) =
                                     (&def.extension, ext_draw_fn)
@@ -517,6 +728,22 @@ fn draw_material_panel(world: &mut World) {
         return;
     }
 
+    // Open file dialog for texture browsing
+    if let Some(slot) = browse_texture_slot {
+        world
+            .resource_mut::<FileDialogState>()
+            .open_pick_texture(slot, entity);
+        return;
+    }
+
+    // Apply texture clear changes
+    if texture_changed {
+        if let Some(modified) = &working_def {
+            apply_and_update_entity(world, entity, modified.clone());
+        }
+        return;
+    }
+
     // Apply base property changes
     if let (Some(original), Some(modified)) = (&original_def, &working_def) {
         let base_changed = original.base.base_color != modified.base.base_color
@@ -527,7 +754,17 @@ fn draw_material_panel(world: &mut World) {
             || original.base.alpha_cutoff != modified.base.alpha_cutoff
             || original.base.double_sided != modified.base.double_sided
             || original.base.unlit != modified.base.unlit
-            || original.base.emissive != modified.base.emissive;
+            || original.base.emissive != modified.base.emissive
+            || original.base.ior != modified.base.ior
+            || original.base.specular_transmission != modified.base.specular_transmission
+            || original.base.specular_tint != modified.base.specular_tint
+            || original.base.clearcoat != modified.base.clearcoat
+            || original.base.clearcoat_perceptual_roughness != modified.base.clearcoat_perceptual_roughness
+            || original.base.anisotropy_strength != modified.base.anisotropy_strength
+            || original.base.anisotropy_rotation != modified.base.anisotropy_rotation
+            || original.base.diffuse_transmission != modified.base.diffuse_transmission
+            || original.base.thickness != modified.base.thickness
+            || original.base.uv_scale != modified.base.uv_scale;
 
         if base_changed {
             apply_and_update_entity(world, entity, modified.clone());

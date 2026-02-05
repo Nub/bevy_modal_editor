@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::render::view::Hdr;
 use bevy_editor_game::{GameCamera, GameEntity, GameStartedEvent, GameState};
 
 use crate::marble::Marble;
@@ -54,6 +55,7 @@ fn spawn_game_camera_on_start(
                 order: 1,
                 ..default()
             },
+            Hdr,
             Transform::from_translation(Vec3::new(0.0, 10.0, 15.0))
                 .looking_at(Vec3::ZERO, Vec3::Y),
         ));

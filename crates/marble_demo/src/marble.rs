@@ -1,4 +1,5 @@
 use avian3d::prelude::*;
+use bevy::math::Affine2;
 use bevy::prelude::*;
 use bevy_editor_game::{GameCamera, GameEntity, GameStartedEvent, GameState};
 
@@ -35,10 +36,7 @@ impl Plugin for MarblePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MarbleConfig>()
             .add_systems(Update, spawn_marble_on_game_start)
-            .add_systems(
-                Update,
-                marble_input.run_if(in_state(GameState::Playing)),
-            );
+            .add_systems(Update, marble_input.run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -48,6 +46,7 @@ fn spawn_marble_on_game_start(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
     spawn_points: Query<&Transform, With<SpawnPoint>>,
 ) {
     for _ in events.read() {
@@ -60,15 +59,39 @@ fn spawn_marble_on_game_start(
 
         info!("Spawning marble at {:?}", spawn_pos);
 
+        let normal_map = asset_server.load_with_settings(
+            "textures/marble_normal.png",
+            |s: &mut bevy::image::ImageLoaderSettings| {
+                s.sampler = bevy::image::ImageSampler::Descriptor(
+                    bevy::image::ImageSamplerDescriptor {
+                        address_mode_u: bevy::image::ImageAddressMode::Repeat,
+                        address_mode_v: bevy::image::ImageAddressMode::Repeat,
+                        ..default()
+                    },
+                );
+            },
+        );
+
         commands.spawn((
             Marble,
             GameEntity,
             Name::new("Marble"),
-            Mesh3d(meshes.add(Sphere::new(0.5))),
+            Mesh3d(meshes.add(
+                Sphere::new(0.5)
+                    .mesh()
+                    .build()
+                    .with_generated_tangents()
+                    .expect("sphere should support tangent generation"),
+            )),
             MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: Color::srgb(0.8, 0.2, 0.2),
-                metallic: 0.8,
-                perceptual_roughness: 0.3,
+                base_color: Color::srgb(0.85, 1.0, 0.88),
+                specular_transmission: 0.9,
+                diffuse_transmission: 1.0,
+                thickness: 1.8,
+                ior: 1.5,
+                perceptual_roughness: 0.12,
+                normal_map_texture: Some(normal_map),
+                uv_transform: Affine2::from_scale(Vec2::splat(0.2)),
                 ..default()
             })),
             Transform::from_translation(spawn_pos),

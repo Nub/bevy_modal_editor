@@ -145,15 +145,16 @@ impl PrimitiveShape {
         }
     }
 
-    /// Create the mesh for this primitive shape
+    /// Create the mesh for this primitive shape (with tangents for normal mapping)
     pub fn create_mesh(&self) -> Mesh {
-        match self {
+        let mesh = match self {
             PrimitiveShape::Cube => Mesh::from(Cuboid::new(1.0, 1.0, 1.0)),
             PrimitiveShape::Sphere => Mesh::from(Sphere::new(0.5)),
             PrimitiveShape::Cylinder => Mesh::from(Cylinder::new(0.5, 1.0)),
             PrimitiveShape::Capsule => Mesh::from(Capsule3d::new(0.25, 0.5)),
             PrimitiveShape::Plane => Plane3d::default().mesh().size(2.0, 2.0).build(),
-        }
+        };
+        mesh.with_generated_tangents().expect("primitive mesh should support tangent generation")
     }
 
     /// Get the default color for this primitive shape

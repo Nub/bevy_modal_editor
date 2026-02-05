@@ -14,6 +14,7 @@
 use std::any::TypeId;
 use std::collections::HashMap;
 
+use bevy::math::Affine2;
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
 use bevy_egui::egui;
@@ -372,6 +373,52 @@ pub struct BaseMaterialProps {
     pub double_sided: bool,
     pub unlit: bool,
     pub alpha_mode: AlphaModeValue,
+    #[serde(default = "default_ior")]
+    pub ior: f32,
+    #[serde(default)]
+    pub specular_transmission: f32,
+    #[serde(default = "default_specular_tint")]
+    pub specular_tint: Color,
+    #[serde(default)]
+    pub clearcoat: f32,
+    #[serde(default = "default_clearcoat_roughness")]
+    pub clearcoat_perceptual_roughness: f32,
+    #[serde(default)]
+    pub anisotropy_strength: f32,
+    #[serde(default)]
+    pub anisotropy_rotation: f32,
+    #[serde(default)]
+    pub diffuse_transmission: f32,
+    #[serde(default = "default_thickness")]
+    pub thickness: f32,
+    #[serde(default = "default_uv_scale")]
+    pub uv_scale: [f32; 2],
+    #[serde(default)]
+    pub base_color_texture: Option<String>,
+    #[serde(default)]
+    pub normal_map_texture: Option<String>,
+    #[serde(default)]
+    pub metallic_roughness_texture: Option<String>,
+    #[serde(default)]
+    pub emissive_texture: Option<String>,
+    #[serde(default)]
+    pub occlusion_texture: Option<String>,
+}
+
+fn default_ior() -> f32 {
+    1.5
+}
+fn default_specular_tint() -> Color {
+    Color::WHITE
+}
+fn default_clearcoat_roughness() -> f32 {
+    0.5
+}
+fn default_thickness() -> f32 {
+    0.5
+}
+fn default_uv_scale() -> [f32; 2] {
+    [1.0, 1.0]
 }
 
 impl Default for BaseMaterialProps {
@@ -386,6 +433,21 @@ impl Default for BaseMaterialProps {
             double_sided: false,
             unlit: false,
             alpha_mode: AlphaModeValue::Opaque,
+            ior: 1.5,
+            specular_transmission: 0.0,
+            specular_tint: Color::WHITE,
+            clearcoat: 0.0,
+            clearcoat_perceptual_roughness: 0.5,
+            anisotropy_strength: 0.0,
+            anisotropy_rotation: 0.0,
+            diffuse_transmission: 0.0,
+            thickness: 0.5,
+            uv_scale: [1.0, 1.0],
+            base_color_texture: None,
+            normal_map_texture: None,
+            metallic_roughness_texture: None,
+            emissive_texture: None,
+            occlusion_texture: None,
         }
     }
 }
@@ -408,6 +470,24 @@ impl BaseMaterialProps {
             double_sided: mat.double_sided,
             unlit: mat.unlit,
             alpha_mode,
+            ior: mat.ior,
+            specular_transmission: mat.specular_transmission,
+            specular_tint: mat.specular_tint,
+            clearcoat: mat.clearcoat,
+            clearcoat_perceptual_roughness: mat.clearcoat_perceptual_roughness,
+            anisotropy_strength: mat.anisotropy_strength,
+            anisotropy_rotation: mat.anisotropy_rotation,
+            diffuse_transmission: mat.diffuse_transmission,
+            thickness: mat.thickness,
+            uv_scale: [
+                mat.uv_transform.matrix2.x_axis.x,
+                mat.uv_transform.matrix2.y_axis.y,
+            ],
+            base_color_texture: None,
+            normal_map_texture: None,
+            metallic_roughness_texture: None,
+            emissive_texture: None,
+            occlusion_texture: None,
         }
     }
 
@@ -422,6 +502,16 @@ impl BaseMaterialProps {
             alpha_mode: self.alpha_mode.to_alpha_mode(self.alpha_cutoff),
             double_sided: self.double_sided,
             unlit: self.unlit,
+            ior: self.ior,
+            specular_transmission: self.specular_transmission,
+            specular_tint: self.specular_tint,
+            clearcoat: self.clearcoat,
+            clearcoat_perceptual_roughness: self.clearcoat_perceptual_roughness,
+            anisotropy_strength: self.anisotropy_strength,
+            anisotropy_rotation: self.anisotropy_rotation,
+            diffuse_transmission: self.diffuse_transmission,
+            thickness: self.thickness,
+            uv_transform: Affine2::from_scale(Vec2::new(self.uv_scale[0], self.uv_scale[1])),
             ..default()
         }
     }
@@ -436,6 +526,16 @@ impl BaseMaterialProps {
         mat.alpha_mode = self.alpha_mode.to_alpha_mode(self.alpha_cutoff);
         mat.double_sided = self.double_sided;
         mat.unlit = self.unlit;
+        mat.ior = self.ior;
+        mat.specular_transmission = self.specular_transmission;
+        mat.specular_tint = self.specular_tint;
+        mat.clearcoat = self.clearcoat;
+        mat.clearcoat_perceptual_roughness = self.clearcoat_perceptual_roughness;
+        mat.anisotropy_strength = self.anisotropy_strength;
+        mat.anisotropy_rotation = self.anisotropy_rotation;
+        mat.diffuse_transmission = self.diffuse_transmission;
+        mat.thickness = self.thickness;
+        mat.uv_transform = Affine2::from_scale(Vec2::new(self.uv_scale[0], self.uv_scale[1]));
     }
 }
 

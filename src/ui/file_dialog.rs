@@ -25,6 +25,21 @@ fn gltf_extensions() -> Vec<&'static str> {
     vec!["gltf", "glb"]
 }
 
+/// File extensions for image textures
+fn image_extensions() -> Vec<&'static str> {
+    vec!["png", "jpg", "jpeg", "hdr", "exr", "tga", "bmp"]
+}
+
+/// Which texture slot is being picked for
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TextureSlot {
+    BaseColor,
+    NormalMap,
+    MetallicRoughness,
+    Emissive,
+    Occlusion,
+}
+
 /// The type of file operation being performed
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum FileDialogOperation {
@@ -34,6 +49,19 @@ pub enum FileDialogOperation {
     InsertGltf,
     /// Pick a RON scene file to insert
     InsertScene,
+    /// Pick a texture image for a material slot
+    PickTexture { slot: TextureSlot, entity: Entity },
+}
+
+/// Result of a texture pick operation, consumed by the material editor
+#[derive(Resource, Default)]
+pub struct TexturePickResult(pub Option<TexturePickData>);
+
+/// Data for a completed texture pick
+pub struct TexturePickData {
+    pub slot: TextureSlot,
+    pub entity: Entity,
+    pub path: String,
 }
 
 /// Resource managing the egui file dialog state
@@ -116,6 +144,22 @@ impl FileDialogState {
         self.dialog.pick_file();
         self.operation = Some(FileDialogOperation::InsertScene);
     }
+
+    /// Open the file dialog for picking a texture image
+    pub fn open_pick_texture(&mut self, slot: TextureSlot, entity: Entity) {
+        self.dialog = create_centered_dialog()
+            .add_file_filter_extensions("Image files", image_extensions())
+            .default_file_filter("Image files");
+
+        // Start in the assets directory if it exists
+        let assets_dir = PathBuf::from("assets");
+        if assets_dir.exists() {
+            self.dialog = std::mem::take(&mut self.dialog).initial_directory(assets_dir);
+        }
+
+        self.dialog.pick_file();
+        self.operation = Some(FileDialogOperation::PickTexture { slot, entity });
+    }
 }
 
 pub struct FileDialogPlugin;
@@ -123,6 +167,7 @@ pub struct FileDialogPlugin;
 impl Plugin for FileDialogPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<FileDialogState>()
+            .init_resource::<TexturePickResult>()
             .add_systems(EguiPrimaryContextPass, update_file_dialog);
     }
 }
@@ -136,6 +181,7 @@ fn update_file_dialog(
     mut insert_state: ResMut<InsertState>,
     mut next_mode: ResMut<NextState<EditorMode>>,
     editor_state: Res<EditorState>,
+    mut texture_pick: ResMut<TexturePickResult>,
 ) -> Result {
     if !editor_state.ui_enabled {
         return Ok(());
@@ -191,6 +237,25 @@ fn update_file_dialog(
                         object_type: InsertObjectType::Scene,
                     });
                     next_mode.set(EditorMode::Insert);
+                }
+                FileDialogOperation::PickTexture { slot, entity } => {
+                    // Convert absolute path to assets-relative path
+                    let path_str = path.to_string_lossy().to_string();
+                    let assets_relative = if let Some(idx) = path_str.find("/assets/") {
+                        path_str[idx + 8..].to_string()
+                    } else if let Some(idx) = path_str.find("assets/") {
+                        path_str[idx + 7..].to_string()
+                    } else {
+                        path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or(path_str)
+                    };
+
+                    texture_pick.0 = Some(TexturePickData {
+                        slot,
+                        entity,
+                        path: assets_relative,
+                    });
                 }
             }
         }
