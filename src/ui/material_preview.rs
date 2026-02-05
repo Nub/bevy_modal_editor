@@ -78,15 +78,17 @@ pub enum PreviewLighting {
     #[default]
     Studio,
     Outdoor,
+    Orbiting,
 }
 
 impl PreviewLighting {
-    pub const ALL: &[Self] = &[Self::Studio, Self::Outdoor];
+    pub const ALL: &[Self] = &[Self::Studio, Self::Outdoor, Self::Orbiting];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Studio => "Studio",
             Self::Outdoor => "Outdoor",
+            Self::Orbiting => "Orbiting",
         }
     }
 }
@@ -145,6 +147,19 @@ struct PresetPreviewLight;
 #[derive(Component)]
 struct PresetPreviewProbe;
 
+/// Marker for orbiting point lights in the main preview scene.
+#[derive(Component)]
+struct PreviewOrbitLight {
+    /// Index of this light (used to offset its orbit phase).
+    index: u32,
+}
+
+/// Marker for orbiting point lights in the preset preview scene.
+#[derive(Component)]
+struct PresetPreviewOrbitLight {
+    index: u32,
+}
+
 /// State resource for the material preview system.
 #[derive(Resource)]
 pub struct MaterialPreviewState {
@@ -187,6 +202,7 @@ impl Plugin for MaterialPreviewPlugin {
                     sync_preset_preview_material,
                     rotate_preset_preview_sphere,
                     apply_preview_settings,
+                    animate_orbit_lights,
                 ),
             );
     }
@@ -460,6 +476,8 @@ fn apply_preview_settings(
     preset_lights: Query<Entity, With<PresetPreviewLight>>,
     main_probe: Query<Entity, With<PreviewProbe>>,
     preset_probe: Query<Entity, With<PresetPreviewProbe>>,
+    main_orbit: Query<Entity, With<PreviewOrbitLight>>,
+    preset_orbit: Query<Entity, With<PresetPreviewOrbitLight>>,
 ) {
     if !settings.dirty {
         return;
@@ -473,21 +491,32 @@ fn apply_preview_settings(
         commands.entity(entity).insert(Mesh3d(new_mesh.clone()));
     }
 
+    // Cleanup helpers shared by all presets
+    let cleanup_skybox = |commands: &mut Commands, main_camera: &Query<Entity, With<PreviewCamera>>, preset_camera: &Query<Entity, With<PresetPreviewCamera>>| {
+        for entity in main_camera.iter().chain(preset_camera.iter()) {
+            commands
+                .entity(entity)
+                .remove::<Skybox>()
+                .remove::<EnvironmentMapLight>();
+        }
+    };
+    let cleanup_probes = |commands: &mut Commands, main_probe: &Query<Entity, With<PreviewProbe>>, preset_probe: &Query<Entity, With<PresetPreviewProbe>>| {
+        for entity in main_probe.iter().chain(preset_probe.iter()) {
+            commands.entity(entity).despawn();
+        }
+    };
+    let cleanup_orbit_lights = |commands: &mut Commands, main_orbit: &Query<Entity, With<PreviewOrbitLight>>, preset_orbit: &Query<Entity, With<PresetPreviewOrbitLight>>| {
+        for entity in main_orbit.iter().chain(preset_orbit.iter()) {
+            commands.entity(entity).despawn();
+        }
+    };
+
     // Apply lighting changes
     match settings.lighting {
         PreviewLighting::Studio => {
-            // Remove skybox and environment map from cameras
-            for entity in main_camera.iter().chain(preset_camera.iter()) {
-                commands
-                    .entity(entity)
-                    .remove::<Skybox>()
-                    .remove::<EnvironmentMapLight>();
-            }
-
-            // Remove IBL probe entities
-            for entity in main_probe.iter().chain(preset_probe.iter()) {
-                commands.entity(entity).despawn();
-            }
+            cleanup_skybox(&mut commands, &main_camera, &preset_camera);
+            cleanup_probes(&mut commands, &main_probe, &preset_probe);
+            cleanup_orbit_lights(&mut commands, &main_orbit, &preset_orbit);
 
             // Set directional lights to 5000 lux
             for entity in main_lights.iter().chain(preset_lights.iter()) {
@@ -499,6 +528,9 @@ fn apply_preview_settings(
             }
         }
         PreviewLighting::Outdoor => {
+            cleanup_orbit_lights(&mut commands, &main_orbit, &preset_orbit);
+            cleanup_probes(&mut commands, &main_probe, &preset_probe);
+
             let cubemap = asset_server.load("skybox/citrus_orchard_road_puresky_4k_cubemap.ktx2");
             let diffuse = asset_server.load("skybox/citrus_orchard_road_puresky_4k_diffuse.ktx2");
             let specular =
@@ -522,11 +554,6 @@ fn apply_preview_settings(
                 ));
             }
 
-            // Remove old probe entities (will re-spawn)
-            for entity in main_probe.iter().chain(preset_probe.iter()) {
-                commands.entity(entity).despawn();
-            }
-
             // Reduce directional to 1500 lux fill
             for entity in main_lights.iter().chain(preset_lights.iter()) {
                 commands.entity(entity).insert(DirectionalLight {
@@ -536,5 +563,102 @@ fn apply_preview_settings(
                 });
             }
         }
+        PreviewLighting::Orbiting => {
+            cleanup_skybox(&mut commands, &main_camera, &preset_camera);
+            cleanup_probes(&mut commands, &main_probe, &preset_probe);
+            cleanup_orbit_lights(&mut commands, &main_orbit, &preset_orbit);
+
+            // Dim directional to low ambient fill
+            for entity in main_lights.iter().chain(preset_lights.iter()) {
+                commands.entity(entity).insert(DirectionalLight {
+                    illuminance: 800.0,
+                    shadows_enabled: false,
+                    ..default()
+                });
+            }
+
+            // Spawn 3 colored orbiting point lights per scene
+            let orbit_colors = [
+                Color::srgb(1.0, 0.4, 0.3),  // warm red-orange
+                Color::srgb(0.3, 0.6, 1.0),  // cool blue
+                Color::srgb(0.4, 1.0, 0.5),  // green
+            ];
+
+            let main_layer = RenderLayers::layer(PREVIEW_RENDER_LAYER);
+            let preset_layer = RenderLayers::layer(PRESET_PREVIEW_RENDER_LAYER);
+
+            for (i, &color) in orbit_colors.iter().enumerate() {
+                let angle = (i as f32) * std::f32::consts::TAU / orbit_colors.len() as f32;
+                let pos = Vec3::new(angle.cos() * ORBIT_RADIUS, ORBIT_HEIGHT, angle.sin() * ORBIT_RADIUS);
+
+                commands.spawn((
+                    PreviewOrbitLight { index: i as u32 },
+                    PointLight {
+                        color,
+                        intensity: ORBIT_INTENSITY,
+                        range: 8.0,
+                        shadows_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_translation(pos),
+                    main_layer.clone(),
+                ));
+
+                commands.spawn((
+                    PresetPreviewOrbitLight { index: i as u32 },
+                    PointLight {
+                        color,
+                        intensity: ORBIT_INTENSITY,
+                        range: 8.0,
+                        shadows_enabled: false,
+                        ..default()
+                    },
+                    Transform::from_translation(pos),
+                    preset_layer.clone(),
+                ));
+            }
+        }
+    }
+}
+
+/// Orbit radius, height, speed, and intensity for the orbiting lights preset.
+const ORBIT_RADIUS: f32 = 1.8;
+const ORBIT_HEIGHT: f32 = 0.6;
+const ORBIT_SPEED: f32 = 0.7;
+const ORBIT_INTENSITY: f32 = 80_000.0;
+const ORBIT_LIGHT_COUNT: f32 = 3.0;
+
+/// Animate orbiting point lights around the preview object.
+fn animate_orbit_lights(
+    time: Res<Time>,
+    mode: Res<State<EditorMode>>,
+    settings: Res<PreviewSettings>,
+    mut main_lights: Query<(&PreviewOrbitLight, &mut Transform), Without<PresetPreviewOrbitLight>>,
+    mut preset_lights: Query<(&PresetPreviewOrbitLight, &mut Transform), Without<PreviewOrbitLight>>,
+) {
+    if *mode.get() != EditorMode::Material || settings.lighting != PreviewLighting::Orbiting {
+        return;
+    }
+
+    let t = time.elapsed_secs() * ORBIT_SPEED;
+
+    for (orbit, mut transform) in main_lights.iter_mut() {
+        let phase = (orbit.index as f32) * std::f32::consts::TAU / ORBIT_LIGHT_COUNT;
+        let angle = t + phase;
+        transform.translation = Vec3::new(
+            angle.cos() * ORBIT_RADIUS,
+            ORBIT_HEIGHT,
+            angle.sin() * ORBIT_RADIUS,
+        );
+    }
+
+    for (orbit, mut transform) in preset_lights.iter_mut() {
+        let phase = (orbit.index as f32) * std::f32::consts::TAU / ORBIT_LIGHT_COUNT;
+        let angle = t + phase;
+        transform.translation = Vec3::new(
+            angle.cos() * ORBIT_RADIUS,
+            ORBIT_HEIGHT,
+            angle.sin() * ORBIT_RADIUS,
+        );
     }
 }
