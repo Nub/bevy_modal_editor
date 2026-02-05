@@ -21,6 +21,14 @@ pub struct GameSnapshot {
     pub data: Option<String>,
 }
 
+/// Tracks deferred physics pause after reset.
+/// Avian3D needs a few frames with physics running to sync colliders into the
+/// spatial query pipeline, otherwise `SpatialQuery::cast_ray` returns no hits.
+#[derive(Resource, Default)]
+struct DeferredPhysicsPause {
+    frames_remaining: u32,
+}
+
 pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
@@ -28,10 +36,11 @@ impl Plugin for GamePlugin {
         // State, resources, and events are registered in EditorStatePlugin
         // so the editor always has the types available. This plugin adds the
         // actual input handling and play/pause/reset command execution.
-        app.add_systems(Update, handle_play_input)
+        app.init_resource::<DeferredPhysicsPause>()
+            .add_systems(Update, handle_play_input)
             .add_systems(
                 Update,
-                (handle_play, handle_pause, handle_reset),
+                (handle_play, handle_pause, handle_reset, deferred_physics_pause),
             )
             .add_systems(EguiPrimaryContextPass, draw_play_controls);
     }
@@ -358,9 +367,10 @@ impl Command for ResetCommand {
             warn!("No game snapshot to restore");
         }
 
-        // Pause physics
-        if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
-            physics_time.set_relative_speed(0.0);
+        // Defer physics pause by a few frames so Avian3D can sync the restored
+        // colliders into the spatial query pipeline (required for mouse selection)
+        if let Some(mut deferred) = world.get_resource_mut::<DeferredPhysicsPause>() {
+            deferred.frames_remaining = 3;
         }
 
         // Re-enable editor
@@ -391,5 +401,19 @@ impl Command for ResetCommand {
         world.write_message(GameResetEvent);
 
         info!("Game: RESET to Editing");
+    }
+}
+
+/// Pause physics after a few frames, giving Avian3D time to sync colliders.
+fn deferred_physics_pause(
+    mut deferred: ResMut<DeferredPhysicsPause>,
+    mut physics_time: ResMut<Time<Physics>>,
+) {
+    if deferred.frames_remaining == 0 {
+        return;
+    }
+    deferred.frames_remaining -= 1;
+    if deferred.frames_remaining == 0 {
+        physics_time.set_relative_speed(0.0);
     }
 }
