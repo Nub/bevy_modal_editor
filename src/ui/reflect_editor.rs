@@ -1015,8 +1015,8 @@ pub fn component_editor(
     }
 
     // Check if this component type supports mutable reflection
-    // by checking if it would panic (immutable components will panic on reflect_mut)
-    let is_mutable = is_component_mutable(world, entity, type_id);
+    // using ComponentInfo::mutable() to avoid panics on immutable components
+    let is_mutable = is_component_mutable(world, type_id);
 
     if !is_mutable {
         // Cache this type as immutable so we don't check again
@@ -1072,31 +1072,19 @@ fn show_readonly_component(
 }
 
 /// Check if a component supports mutable reflection
-/// This uses catch_unwind to safely detect immutable components
-fn is_component_mutable(world: &mut World, entity: Entity, type_id: TypeId) -> bool {
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-
-    let type_registry = world.resource::<AppTypeRegistry>().clone();
-    let type_registry = type_registry.read();
-
-    let Some(registration) = type_registry.get(type_id) else {
+/// Uses ComponentInfo::mutable() to detect immutable components without panicking
+fn is_component_mutable(world: &World, type_id: TypeId) -> bool {
+    // Get the ComponentId for this TypeId
+    let Some(component_id) = world.components().get_id(type_id) else {
         return false;
     };
 
-    let Some(reflect_component) = registration.data::<ReflectComponent>().cloned() else {
+    // Get the ComponentInfo and check mutability
+    let Some(component_info) = world.components().get_info(component_id) else {
         return false;
     };
 
-    drop(type_registry);
-
-    // We need to use AssertUnwindSafe because World doesn't implement UnwindSafe
-    // This is safe because we're not going to continue using the world if a panic occurs
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        // Try to get mutable access - this will panic for immutable components
-        let _ = reflect_component.reflect_mut(world.entity_mut(entity));
-    }));
-
-    result.is_ok()
+    component_info.mutable()
 }
 
 /// Draw a read-only viewer for any reflected value
