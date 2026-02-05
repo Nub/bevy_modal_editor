@@ -26,6 +26,7 @@ pub enum TextureSlot {
     MetallicRoughness,
     Emissive,
     Occlusion,
+    DepthMap,
 }
 
 /// Result of a texture pick operation, consumed by the material editor

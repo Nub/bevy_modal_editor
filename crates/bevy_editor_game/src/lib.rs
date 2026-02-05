@@ -403,6 +403,57 @@ pub struct BaseMaterialProps {
     pub emissive_texture: Option<String>,
     #[serde(default)]
     pub occlusion_texture: Option<String>,
+    // Depth/parallax mapping
+    #[serde(default)]
+    pub depth_map_texture: Option<String>,
+    #[serde(default = "default_parallax_depth_scale")]
+    pub parallax_depth_scale: f32,
+    #[serde(default = "default_parallax_mapping_method")]
+    pub parallax_mapping_method: ParallaxMappingMethodValue,
+    #[serde(default = "default_max_parallax_layer_count")]
+    pub max_parallax_layer_count: f32,
+}
+
+/// Serializable representation of Bevy's ParallaxMappingMethod.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+pub enum ParallaxMappingMethodValue {
+    /// Simple linear interpolation, single texture sample.
+    #[default]
+    Occlusion,
+    /// Binary search for best depth, more samples but fewer artifacts.
+    Relief { max_steps: u32 },
+}
+
+impl ParallaxMappingMethodValue {
+    pub fn to_bevy(&self) -> bevy::pbr::ParallaxMappingMethod {
+        match self {
+            Self::Occlusion => bevy::pbr::ParallaxMappingMethod::Occlusion,
+            Self::Relief { max_steps } => bevy::pbr::ParallaxMappingMethod::Relief {
+                max_steps: *max_steps,
+            },
+        }
+    }
+
+    pub fn from_bevy(method: &bevy::pbr::ParallaxMappingMethod) -> Self {
+        match method {
+            bevy::pbr::ParallaxMappingMethod::Occlusion => Self::Occlusion,
+            bevy::pbr::ParallaxMappingMethod::Relief { max_steps } => Self::Relief {
+                max_steps: *max_steps,
+            },
+        }
+    }
+}
+
+fn default_parallax_depth_scale() -> f32 {
+    0.1
+}
+
+fn default_parallax_mapping_method() -> ParallaxMappingMethodValue {
+    ParallaxMappingMethodValue::Occlusion
+}
+
+fn default_max_parallax_layer_count() -> f32 {
+    16.0
 }
 
 fn default_ior() -> f32 {
@@ -448,6 +499,10 @@ impl Default for BaseMaterialProps {
             metallic_roughness_texture: None,
             emissive_texture: None,
             occlusion_texture: None,
+            depth_map_texture: None,
+            parallax_depth_scale: default_parallax_depth_scale(),
+            parallax_mapping_method: default_parallax_mapping_method(),
+            max_parallax_layer_count: default_max_parallax_layer_count(),
         }
     }
 }
@@ -488,6 +543,12 @@ impl BaseMaterialProps {
             metallic_roughness_texture: None,
             emissive_texture: None,
             occlusion_texture: None,
+            depth_map_texture: None,
+            parallax_depth_scale: mat.parallax_depth_scale,
+            parallax_mapping_method: ParallaxMappingMethodValue::from_bevy(
+                &mat.parallax_mapping_method,
+            ),
+            max_parallax_layer_count: mat.max_parallax_layer_count,
         }
     }
 
@@ -512,6 +573,9 @@ impl BaseMaterialProps {
             diffuse_transmission: self.diffuse_transmission,
             thickness: self.thickness,
             uv_transform: Affine2::from_scale(Vec2::new(self.uv_scale[0], self.uv_scale[1])),
+            parallax_depth_scale: self.parallax_depth_scale,
+            parallax_mapping_method: self.parallax_mapping_method.to_bevy(),
+            max_parallax_layer_count: self.max_parallax_layer_count,
             ..default()
         }
     }
@@ -536,6 +600,9 @@ impl BaseMaterialProps {
         mat.diffuse_transmission = self.diffuse_transmission;
         mat.thickness = self.thickness;
         mat.uv_transform = Affine2::from_scale(Vec2::new(self.uv_scale[0], self.uv_scale[1]));
+        mat.parallax_depth_scale = self.parallax_depth_scale;
+        mat.parallax_mapping_method = self.parallax_mapping_method.to_bevy();
+        mat.max_parallax_layer_count = self.max_parallax_layer_count;
     }
 }
 

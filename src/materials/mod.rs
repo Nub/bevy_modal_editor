@@ -51,6 +51,9 @@ pub fn load_base_textures(
     if let Some(ref path) = props.occlusion_texture {
         mat.occlusion_texture = Some(load_texture_repeat(asset_server, path.clone(), false));
     }
+    if let Some(ref path) = props.depth_map_texture {
+        mat.depth_map = Some(load_texture_repeat(asset_server, path.clone(), false));
+    }
 }
 
 /// Trait for game/editor material extension definitions.

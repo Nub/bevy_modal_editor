@@ -539,6 +539,7 @@ impl Plugin for ScenePlugin {
             .register_type::<BaseMaterialProps>()
             .register_type::<MaterialExtensionData>()
             .register_type::<bevy_editor_game::AlphaModeValue>()
+            .register_type::<bevy_editor_game::ParallaxMappingMethodValue>()
             // Legacy material types (backwards compat)
             .register_type::<MaterialType>()
             .register_type::<PrimitiveMaterial>()

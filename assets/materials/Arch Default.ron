@@ -39,6 +39,10 @@
         metallic_roughness_texture: None,
         emissive_texture: None,
         occlusion_texture: None,
+        depth_map_texture: None,
+        parallax_depth_scale: 0.1,
+        parallax_mapping_method: Occlusion,
+        max_parallax_layer_count: 16.0,
     ),
     extension: Some((
         type_name: "grid",

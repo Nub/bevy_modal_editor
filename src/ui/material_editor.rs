@@ -8,7 +8,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use bevy_editor_game::{
     AlphaModeValue, BaseMaterialProps, MaterialDefinition, MaterialExtensionData, MaterialLibrary,
-    MaterialRef,
+    MaterialRef, ParallaxMappingMethodValue,
 };
 
 use crate::editor::{EditorMode, EditorState};
@@ -309,6 +309,78 @@ fn draw_base_properties(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> bool
         changed |= ui.checkbox(&mut base.unlit, "Unlit").changed();
     });
 
+    // ── Parallax Mapping ─────────────────────────────────────
+    // Only show if depth map texture is set
+    if base.depth_map_texture.is_some() {
+        section_header(ui, "Parallax Mapping", false, |ui| {
+            egui::Grid::new("parallax_grid")
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Depth Scale");
+                    changed |= value_slider(ui, &mut base.parallax_depth_scale, 0.0..=0.5);
+                    ui.end_row();
+
+                    grid_label(ui, "Method");
+                    let method_label = match base.parallax_mapping_method {
+                        ParallaxMappingMethodValue::Occlusion => "Occlusion",
+                        ParallaxMappingMethodValue::Relief { .. } => "Relief",
+                    };
+                    egui::ComboBox::from_id_salt("parallax_method")
+                        .selected_text(method_label)
+                        .width(120.0)
+                        .show_ui(ui, |ui| {
+                            if ui
+                                .selectable_label(
+                                    matches!(
+                                        base.parallax_mapping_method,
+                                        ParallaxMappingMethodValue::Occlusion
+                                    ),
+                                    "Occlusion",
+                                )
+                                .clicked()
+                            {
+                                base.parallax_mapping_method = ParallaxMappingMethodValue::Occlusion;
+                                changed = true;
+                            }
+                            if ui
+                                .selectable_label(
+                                    matches!(
+                                        base.parallax_mapping_method,
+                                        ParallaxMappingMethodValue::Relief { .. }
+                                    ),
+                                    "Relief",
+                                )
+                                .clicked()
+                            {
+                                base.parallax_mapping_method =
+                                    ParallaxMappingMethodValue::Relief { max_steps: 5 };
+                                changed = true;
+                            }
+                        });
+                    ui.end_row();
+
+                    if let ParallaxMappingMethodValue::Relief { ref mut max_steps } =
+                        base.parallax_mapping_method
+                    {
+                        grid_label(ui, "Max Steps");
+                        changed |= ui
+                            .add(
+                                egui::DragValue::new(max_steps)
+                                    .speed(1)
+                                    .range(1..=32),
+                            )
+                            .changed();
+                        ui.end_row();
+                    }
+
+                    grid_label(ui, "Max Layers");
+                    changed |= value_slider(ui, &mut base.max_parallax_layer_count, 1.0..=64.0);
+                    ui.end_row();
+                });
+        });
+    }
+
     changed
 }
 
@@ -381,6 +453,7 @@ fn draw_texture_slots(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> Textur
                 draw_texture_row(ui, "Metallic/Rough", TextureSlot::MetallicRoughness, &mut base.metallic_roughness_texture, &mut result);
                 draw_texture_row(ui, "Emissive", TextureSlot::Emissive, &mut base.emissive_texture, &mut result);
                 draw_texture_row(ui, "Occlusion", TextureSlot::Occlusion, &mut base.occlusion_texture, &mut result);
+                draw_texture_row(ui, "Depth Map", TextureSlot::DepthMap, &mut base.depth_map_texture, &mut result);
             });
     });
 
@@ -473,6 +546,7 @@ fn draw_material_panel(world: &mut World) {
                     }
                     TextureSlot::Emissive => def.base.emissive_texture = Some(pick.path),
                     TextureSlot::Occlusion => def.base.occlusion_texture = Some(pick.path),
+                    TextureSlot::DepthMap => def.base.depth_map_texture = Some(pick.path),
                 }
                 if let Some(entity) = first_entity {
                     // Apply immediately to entity

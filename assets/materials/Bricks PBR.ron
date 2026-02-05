@@ -1,9 +1,9 @@
 (
     base: (
         base_color: Srgba((
-            red: 0.8,
-            green: 0.7,
-            blue: 0.6,
+            red: 1.0,
+            green: 1.0,
+            blue: 1.0,
             alpha: 1.0,
         )),
         emissive: (
@@ -13,7 +13,7 @@
             alpha: 1.0,
         ),
         metallic: 0.0,
-        perceptual_roughness: 0.5,
+        perceptual_roughness: 0.8,
         reflectance: 0.5,
         alpha_cutoff: 0.5,
         double_sided: false,
@@ -34,18 +34,15 @@
         diffuse_transmission: 0.0,
         thickness: 0.5,
         uv_scale: (1.0, 1.0),
-        base_color_texture: None,
-        normal_map_texture: None,
+        base_color_texture: Some("textures/bricks_color.png"),
+        normal_map_texture: Some("textures/bricks_normal.png"),
         metallic_roughness_texture: None,
         emissive_texture: None,
         occlusion_texture: None,
-        depth_map_texture: None,
-        parallax_depth_scale: 0.1,
+        depth_map_texture: Some("textures/bricks_displacement.png"),
+        parallax_depth_scale: 0.3,
         parallax_mapping_method: Occlusion,
         max_parallax_layer_count: 16.0,
     ),
-    extension: Some((
-        type_name: "grid",
-        data: "(line_color:(0.0,0.0,0.0,0.5),major_line_color:(0.0,0.0,0.0,0.5),line_width:1.0,major_line_width:3.0,grid_scale:1.0,major_line_every:10,axes_xz:true,axes_xy:true,axes_yz:true,fade_distance:0.0,fade_strength:1.0)",
-    )),
+    extension: None,
 )
