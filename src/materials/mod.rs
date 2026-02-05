@@ -12,8 +12,12 @@ use serde::{de::DeserializeOwned, Serialize};
 pub type GridMat = ExtendedMaterial<StandardMaterial, bevy_grid_shader::GridMaterial>;
 
 /// Load a texture with repeat wrapping enabled.
-fn load_texture_repeat(asset_server: &AssetServer, path: String) -> Handle<Image> {
-    asset_server.load_with_settings(path, |settings: &mut ImageLoaderSettings| {
+///
+/// `is_srgb` should be `true` for color textures (base color, emissive) and
+/// `false` for data textures (normal maps, metallic/roughness, occlusion).
+fn load_texture_repeat(asset_server: &AssetServer, path: String, is_srgb: bool) -> Handle<Image> {
+    asset_server.load_with_settings(path, move |settings: &mut ImageLoaderSettings| {
+        settings.is_srgb = is_srgb;
         settings.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
             address_mode_u: ImageAddressMode::Repeat,
             address_mode_v: ImageAddressMode::Repeat,
@@ -30,19 +34,19 @@ pub fn load_base_textures(
     asset_server: &AssetServer,
 ) {
     if let Some(ref path) = props.base_color_texture {
-        mat.base_color_texture = Some(load_texture_repeat(asset_server, path.clone()));
+        mat.base_color_texture = Some(load_texture_repeat(asset_server, path.clone(), true));
     }
     if let Some(ref path) = props.normal_map_texture {
-        mat.normal_map_texture = Some(load_texture_repeat(asset_server, path.clone()));
+        mat.normal_map_texture = Some(load_texture_repeat(asset_server, path.clone(), false));
     }
     if let Some(ref path) = props.metallic_roughness_texture {
-        mat.metallic_roughness_texture = Some(load_texture_repeat(asset_server, path.clone()));
+        mat.metallic_roughness_texture = Some(load_texture_repeat(asset_server, path.clone(), false));
     }
     if let Some(ref path) = props.emissive_texture {
-        mat.emissive_texture = Some(load_texture_repeat(asset_server, path.clone()));
+        mat.emissive_texture = Some(load_texture_repeat(asset_server, path.clone(), true));
     }
     if let Some(ref path) = props.occlusion_texture {
-        mat.occlusion_texture = Some(load_texture_repeat(asset_server, path.clone()));
+        mat.occlusion_texture = Some(load_texture_repeat(asset_server, path.clone(), false));
     }
 }
 

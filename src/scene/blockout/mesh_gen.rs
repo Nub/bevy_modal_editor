@@ -206,6 +206,8 @@ pub fn generate_stairs_mesh(params: &StairsMarker) -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_indices(Indices::U32(indices))
+    .with_generated_tangents()
+    .expect("blockout mesh should support tangent generation")
 }
 
 /// Generate compound collider for stairs
@@ -325,6 +327,8 @@ pub fn generate_ramp_mesh(params: &RampMarker) -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_indices(Indices::U32(indices))
+    .with_generated_tangents()
+    .expect("blockout mesh should support tangent generation")
 }
 
 /// Generate collider for ramp using convex hull
@@ -529,6 +533,8 @@ pub fn generate_arch_mesh(params: &ArchMarker) -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_indices(Indices::U32(indices))
+    .with_generated_tangents()
+    .expect("blockout mesh should support tangent generation")
 }
 
 /// Generate collider for arch (compound of cuboids)
@@ -701,6 +707,8 @@ pub fn generate_lshape_mesh(params: &LShapeMarker) -> Mesh {
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_indices(Indices::U32(indices))
+    .with_generated_tangents()
+    .expect("blockout mesh should support tangent generation")
 }
 
 /// Generate collider for L-shape (compound of two cuboids)

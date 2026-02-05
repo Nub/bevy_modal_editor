@@ -15,7 +15,7 @@ use crate::editor::{EditorMode, EditorState};
 use crate::materials::{apply_material_def_standalone, remove_all_material_components, resolve_material_ref, MaterialTypeRegistry};
 use crate::selection::Selected;
 use crate::ui::command_palette::{CommandPaletteState, TexturePickResult, TextureSlot};
-use crate::ui::material_preview::MaterialPreviewState;
+use crate::ui::material_preview::{MaterialPreviewState, PreviewLighting, PreviewMeshShape, PreviewSettings};
 use crate::ui::theme::{
     colors, draw_centered_dialog, grid_label, panel, panel_frame, section_header, value_slider,
     DialogResult, DRAG_VALUE_WIDTH,
@@ -433,10 +433,15 @@ fn draw_material_panel(world: &mut World) {
         (None, None)
     };
 
-    // Read preview texture id
+    // Read preview texture id and current preview settings
     let preview_texture_id = world
         .get_resource::<MaterialPreviewState>()
         .and_then(|s| s.texture.egui_texture_id);
+
+    let (mut preview_mesh_shape, mut preview_lighting) = world
+        .get_resource::<PreviewSettings>()
+        .map(|s| (s.mesh_shape, s.lighting))
+        .unwrap_or_default();
 
     // Resolve the definition (we need a clone because we'll mutate it)
     let library = world
@@ -674,15 +679,34 @@ fn draw_material_panel(world: &mut World) {
 
                 ui.add_space(4.0);
 
-                // Material preview image
+                // Material preview image with context menu
                 if let Some(tex_id) = preview_texture_id {
                     let preview_width = ui.available_width().min(panel::DEFAULT_WIDTH - 16.0);
-                    ui.vertical_centered(|ui| {
+                    let response = ui.vertical_centered(|ui| {
                         ui.image(egui::load::SizedTexture::new(
                             tex_id,
                             [preview_width, preview_width],
-                        ));
+                        ))
+                    }).inner;
+
+                    response.context_menu(|ui| {
+                        ui.label(egui::RichText::new("Preview Mesh").strong().color(colors::TEXT_SECONDARY));
+                        for &shape in PreviewMeshShape::ALL {
+                            if ui.selectable_label(preview_mesh_shape == shape, shape.label()).clicked() {
+                                preview_mesh_shape = shape;
+                                ui.close();
+                            }
+                        }
+                        ui.separator();
+                        ui.label(egui::RichText::new("Lighting").strong().color(colors::TEXT_SECONDARY));
+                        for &preset in PreviewLighting::ALL {
+                            if ui.selectable_label(preview_lighting == preset, preset.label()).clicked() {
+                                preview_lighting = preset;
+                                ui.close();
+                            }
+                        }
                     });
+
                     ui.add_space(4.0);
                 }
 
@@ -837,6 +861,16 @@ fn draw_material_panel(world: &mut World) {
                 });
             }
         });
+
+    // Write preview settings changes back to the resource
+    if let Some(settings) = world.get_resource_mut::<PreviewSettings>() {
+        let settings = settings.into_inner();
+        if settings.mesh_shape != preview_mesh_shape || settings.lighting != preview_lighting {
+            settings.mesh_shape = preview_mesh_shape;
+            settings.lighting = preview_lighting;
+            settings.dirty = true;
+        }
+    }
 
     // Detect preset rename from TextEdit
     if let Some(ref lib_name) = library_preset_name {

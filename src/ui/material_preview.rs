@@ -2,6 +2,7 @@
 //! material editor panel via egui.
 
 use bevy::camera::visibility::RenderLayers;
+use bevy::core_pipeline::Skybox;
 use bevy::prelude::*;
 use bevy_egui::EguiUserTextures;
 use bevy_editor_game::{MaterialDefinition, MaterialLibrary, MaterialRef};
@@ -23,21 +24,110 @@ const PREVIEW_RENDER_LAYER: usize = 30;
 /// Render layer for the preset palette preview scene.
 const PRESET_PREVIEW_RENDER_LAYER: usize = 29;
 
+// ---------------------------------------------------------------------------
+// Preview settings (mesh shape + lighting preset)
+// ---------------------------------------------------------------------------
+
+/// Mesh shapes available for the material preview.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PreviewMeshShape {
+    #[default]
+    Sphere,
+    Cube,
+    Cylinder,
+    Plane,
+    Torus,
+}
+
+impl PreviewMeshShape {
+    pub const ALL: &[Self] = &[
+        Self::Sphere,
+        Self::Cube,
+        Self::Cylinder,
+        Self::Plane,
+        Self::Torus,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Sphere => "Sphere",
+            Self::Cube => "Cube",
+            Self::Cylinder => "Cylinder",
+            Self::Plane => "Plane",
+            Self::Torus => "Torus",
+        }
+    }
+
+    /// Create a mesh for this shape with generated tangents for normal mapping.
+    pub fn create_mesh(self) -> Mesh {
+        let mesh: Mesh = match self {
+            Self::Sphere => Sphere::new(0.7).mesh().ico(5).unwrap(),
+            Self::Cube => Cuboid::new(1.1, 1.1, 1.1).mesh().into(),
+            Self::Cylinder => Cylinder::new(0.5, 1.2).mesh().resolution(32).into(),
+            Self::Plane => Plane3d::new(Vec3::Y, Vec2::splat(0.9)).mesh().into(),
+            Self::Torus => Torus::new(0.35, 0.7).mesh().minor_resolution(24).major_resolution(48).into(),
+        };
+        mesh.with_generated_tangents()
+            .expect("preview mesh should support tangent generation")
+    }
+}
+
+/// Lighting presets for the material preview.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PreviewLighting {
+    #[default]
+    Studio,
+    Outdoor,
+}
+
+impl PreviewLighting {
+    pub const ALL: &[Self] = &[Self::Studio, Self::Outdoor];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Studio => "Studio",
+            Self::Outdoor => "Outdoor",
+        }
+    }
+}
+
+/// Resource controlling the preview mesh shape and lighting preset.
+#[derive(Resource)]
+pub struct PreviewSettings {
+    pub mesh_shape: PreviewMeshShape,
+    pub lighting: PreviewLighting,
+    pub dirty: bool,
+}
+
+impl Default for PreviewSettings {
+    fn default() -> Self {
+        Self {
+            mesh_shape: PreviewMeshShape::Sphere,
+            lighting: PreviewLighting::Studio,
+            dirty: false,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Marker components
+// ---------------------------------------------------------------------------
+
 /// Marker for the material editor preview camera entity.
 #[derive(Component)]
 struct PreviewCamera;
 
 /// Marker for the material editor preview sphere entity.
 #[derive(Component)]
-struct PreviewSphere;
-
-/// Marker for the material editor preview ground plane entity.
-#[derive(Component)]
-struct PreviewGround;
+pub(crate) struct PreviewSphere;
 
 /// Marker for the material editor preview light entity.
 #[derive(Component)]
 struct PreviewLight;
+
+/// Marker for the material editor preview IBL probe entity.
+#[derive(Component)]
+struct PreviewProbe;
 
 /// Marker for the preset palette preview camera entity.
 #[derive(Component)]
@@ -45,15 +135,15 @@ struct PresetPreviewCamera;
 
 /// Marker for the preset palette preview sphere entity.
 #[derive(Component)]
-struct PresetPreviewSphere;
-
-/// Marker for the preset palette preview ground entity.
-#[derive(Component)]
-struct PresetPreviewGround;
+pub(crate) struct PresetPreviewSphere;
 
 /// Marker for the preset palette preview light entity.
 #[derive(Component)]
 struct PresetPreviewLight;
+
+/// Marker for the preset palette preview IBL probe entity.
+#[derive(Component)]
+struct PresetPreviewProbe;
 
 /// State resource for the material preview system.
 #[derive(Resource)]
@@ -85,7 +175,8 @@ pub struct MaterialPreviewPlugin;
 
 impl Plugin for MaterialPreviewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, (setup_material_preview, setup_preset_preview))
+        app.init_resource::<PreviewSettings>()
+            .add_systems(PreStartup, (setup_material_preview, setup_preset_preview))
             .add_systems(
                 Update,
                 (
@@ -95,12 +186,13 @@ impl Plugin for MaterialPreviewPlugin {
                     register_preset_preview_texture_system,
                     sync_preset_preview_material,
                     rotate_preset_preview_sphere,
+                    apply_preview_settings,
                 ),
             );
     }
 }
 
-/// Create the preview scene: camera, sphere, ground, and light on a dedicated render layer.
+/// Create the preview scene: camera, sphere, and light on a dedicated render layer.
 fn setup_material_preview(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
@@ -116,12 +208,9 @@ fn setup_material_preview(
     for &light in &handles.lights {
         commands.entity(light).insert(PreviewLight);
     }
-    if let Some(ground) = handles.ground {
-        commands.entity(ground).insert(PreviewGround);
-    }
 
     // Preview sphere
-    let sphere_mesh = meshes.add(Sphere::new(0.7).mesh().ico(5).unwrap());
+    let sphere_mesh = meshes.add(PreviewMeshShape::Sphere.create_mesh());
     let default_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.5, 0.5, 0.5),
         ..default()
@@ -240,7 +329,7 @@ fn rotate_preview_sphere(
 // Preset palette preview (separate scene on its own render layer)
 // ---------------------------------------------------------------------------
 
-/// Create the preset preview scene: camera, sphere, ground, and light.
+/// Create the preset preview scene: camera, sphere, and light.
 fn setup_preset_preview(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
@@ -256,12 +345,9 @@ fn setup_preset_preview(
     for &light in &handles.lights {
         commands.entity(light).insert(PresetPreviewLight);
     }
-    if let Some(ground) = handles.ground {
-        commands.entity(ground).insert(PresetPreviewGround);
-    }
 
     // Preview sphere
-    let sphere_mesh = meshes.add(Sphere::new(0.7).mesh().ico(5).unwrap());
+    let sphere_mesh = meshes.add(PreviewMeshShape::Sphere.create_mesh());
     let default_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.5, 0.5, 0.5),
         ..default()
@@ -352,5 +438,103 @@ fn rotate_preset_preview_sphere(
     state.rotation_angle += PREVIEW_ROTATION_SPEED * time.delta_secs();
     if let Ok(mut transform) = sphere.single_mut() {
         transform.rotation = Quat::from_rotation_y(state.rotation_angle);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Apply preview settings (mesh shape + lighting changes)
+// ---------------------------------------------------------------------------
+
+/// When `PreviewSettings.dirty` is set, swap the preview mesh and/or lighting
+/// on both the main and preset preview scenes.
+fn apply_preview_settings(
+    mut settings: ResMut<PreviewSettings>,
+    asset_server: Res<AssetServer>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut commands: Commands,
+    main_sphere: Query<Entity, With<PreviewSphere>>,
+    preset_sphere: Query<Entity, With<PresetPreviewSphere>>,
+    main_camera: Query<Entity, With<PreviewCamera>>,
+    preset_camera: Query<Entity, With<PresetPreviewCamera>>,
+    main_lights: Query<Entity, With<PreviewLight>>,
+    preset_lights: Query<Entity, With<PresetPreviewLight>>,
+    main_probe: Query<Entity, With<PreviewProbe>>,
+    preset_probe: Query<Entity, With<PresetPreviewProbe>>,
+) {
+    if !settings.dirty {
+        return;
+    }
+    settings.dirty = false;
+
+    let new_mesh = meshes.add(settings.mesh_shape.create_mesh());
+
+    // Swap mesh on both preview spheres
+    for entity in main_sphere.iter().chain(preset_sphere.iter()) {
+        commands.entity(entity).insert(Mesh3d(new_mesh.clone()));
+    }
+
+    // Apply lighting changes
+    match settings.lighting {
+        PreviewLighting::Studio => {
+            // Remove skybox and environment map from cameras
+            for entity in main_camera.iter().chain(preset_camera.iter()) {
+                commands
+                    .entity(entity)
+                    .remove::<Skybox>()
+                    .remove::<EnvironmentMapLight>();
+            }
+
+            // Remove IBL probe entities
+            for entity in main_probe.iter().chain(preset_probe.iter()) {
+                commands.entity(entity).despawn();
+            }
+
+            // Set directional lights to 5000 lux
+            for entity in main_lights.iter().chain(preset_lights.iter()) {
+                commands.entity(entity).insert(DirectionalLight {
+                    illuminance: 5000.0,
+                    shadows_enabled: false,
+                    ..default()
+                });
+            }
+        }
+        PreviewLighting::Outdoor => {
+            let cubemap = asset_server.load("skybox/citrus_orchard_road_puresky_4k_cubemap.ktx2");
+            let diffuse = asset_server.load("skybox/citrus_orchard_road_puresky_4k_diffuse.ktx2");
+            let specular =
+                asset_server.load("skybox/citrus_orchard_road_puresky_4k_specular.ktx2");
+
+            // Add skybox + environment map to cameras
+            for entity in main_camera.iter().chain(preset_camera.iter()) {
+                commands.entity(entity).insert((
+                    Skybox {
+                        image: cubemap.clone(),
+                        brightness: 1000.0,
+                        rotation: Quat::IDENTITY,
+                    },
+                    EnvironmentMapLight {
+                        diffuse_map: diffuse.clone(),
+                        specular_map: specular.clone(),
+                        intensity: 900.0,
+                        rotation: Quat::IDENTITY,
+                        affects_lightmapped_mesh_diffuse: true,
+                    },
+                ));
+            }
+
+            // Remove old probe entities (will re-spawn)
+            for entity in main_probe.iter().chain(preset_probe.iter()) {
+                commands.entity(entity).despawn();
+            }
+
+            // Reduce directional to 1500 lux fill
+            for entity in main_lights.iter().chain(preset_lights.iter()) {
+                commands.entity(entity).insert(DirectionalLight {
+                    illuminance: 1500.0,
+                    shadows_enabled: false,
+                    ..default()
+                });
+            }
+        }
     }
 }

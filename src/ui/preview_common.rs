@@ -58,7 +58,7 @@ impl PreviewSceneConfig {
         }
     }
 
-    /// Dark gray opaque background, 3000 lux directional, ground plane, no point light.
+    /// Dark gray opaque background, 5000 lux directional, no ground plane, no point light.
     /// Suitable for material preview spheres.
     pub fn material_studio(layer: usize, order: isize) -> Self {
         Self {
@@ -67,9 +67,9 @@ impl PreviewSceneConfig {
             camera_position: Vec3::new(0.0, 0.5, 2.5),
             look_at: Vec3::ZERO,
             clear_color: ClearColorConfig::Custom(Color::srgb(0.12, 0.14, 0.18)),
-            directional_illuminance: 3000.0,
+            directional_illuminance: 5000.0,
             spawn_point_light: false,
-            spawn_ground_plane: true,
+            spawn_ground_plane: false,
         }
     }
 }
