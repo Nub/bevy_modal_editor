@@ -197,14 +197,19 @@ fn setup_editor_scene(mut commands: Commands) {
 /// Deferred by a few frames so Avian3D's broad-phase and spatial query pipeline
 /// can process the initially-spawned colliders before we freeze physics.
 /// If we pause too early, `SpatialQuery::cast_ray` returns no hits (breaking selection).
-fn pause_physics_on_startup(mut physics_time: ResMut<Time<Physics>>, mut frames: Local<u32>) {
-    if physics_time.relative_speed() == 0.0 {
+fn pause_physics_on_startup(
+    mut physics_time: ResMut<Time<Physics>>,
+    mut frames: Local<u32>,
+    mut done: Local<bool>,
+) {
+    if *done {
         return;
     }
     *frames += 1;
     // Wait a few frames for FixedUpdate to tick and Avian3D to sync colliders
     if *frames >= 3 {
         physics_time.set_relative_speed(0.0);
+        *done = true;
         info!("Physics simulation: PAUSED (default)");
     }
 }
