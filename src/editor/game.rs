@@ -367,8 +367,13 @@ impl Command for ResetCommand {
             warn!("No game snapshot to restore");
         }
 
-        // Defer physics pause by a few frames so Avian3D can sync the restored
-        // colliders into the spatial query pipeline (required for mouse selection)
+        // Temporarily enable physics so Avian3D can sync the restored colliders
+        // into the spatial query pipeline (required for mouse selection).
+        // PauseCommand already set speed to 0.0, so we must re-enable it here.
+        // The deferred system will pause again after a few frames.
+        if let Some(mut physics_time) = world.get_resource_mut::<Time<Physics>>() {
+            physics_time.set_relative_speed(1.0);
+        }
         if let Some(mut deferred) = world.get_resource_mut::<DeferredPhysicsPause>() {
             deferred.frames_remaining = 3;
         }
