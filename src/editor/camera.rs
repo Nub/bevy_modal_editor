@@ -178,10 +178,15 @@ fn camera_look(
     mouse_button: Res<ButtonInput<MouseButton>>,
     mouse_motion: Res<AccumulatedMouseMotion>,
     settings: Res<Settings>,
+    editor_state: Res<EditorState>,
     _mode: Res<State<EditorMode>>,
     mut query: Query<(&mut FlyCamera, &mut Transform), With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Must hold right mouse button for freelook
     if !mouse_button.pressed(MouseButton::Right) {
         return;
@@ -284,9 +289,14 @@ fn camera_zoom(
     scroll: Res<AccumulatedMouseScroll>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
+    editor_state: Res<EditorState>,
     mut query: Query<(&mut FlyCamera, &mut Projection), With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
+    if !editor_state.editor_active {
+        return;
+    }
+
     // Don't zoom in Insert mode (scroll used for sub-mode selection)
     if *mode.get() == EditorMode::Insert {
         return;
