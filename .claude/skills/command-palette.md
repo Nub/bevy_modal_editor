@@ -4,13 +4,18 @@ Use this skill when adding a new command to the command palette, or creating a n
 
 There are two patterns covered here:
 - **Pattern A**: Add a command to the existing command palette (most common)
-- **Pattern B**: Create a new standalone fuzzy palette (for specialized search UIs)
+- **Pattern B**: Use `draw_fuzzy_palette` for a new searchable list UI
+
+## Key Rule
+
+**Never create standalone palette implementations.** All fuzzy search UIs must use the shared `draw_fuzzy_palette()` from `src/ui/fuzzy_palette.rs`. If a new palette needs a feature that `draw_fuzzy_palette` doesn't support, **add the feature to the shared widget** so all palettes benefit.
 
 ## File Locations
 
 - **Command palette**: `src/ui/command_palette.rs`
-- **Fuzzy palette widget**: `src/ui/fuzzy_palette.rs` (reusable search UI)
+- **Fuzzy palette widget**: `src/ui/fuzzy_palette.rs` (shared search UI — modify this to add features)
 - **Theme colors**: `src/ui/theme.rs`
+- **Existing callers**: `find_object.rs`, `material_preset_palette.rs`, `entity_picker.rs`, `asset_browser.rs`, `command_palette.rs`
 
 ---
 
@@ -131,11 +136,13 @@ struct PaletteState2<'w> {
 
 ---
 
-## Pattern B: Create a New Fuzzy Palette
+## Pattern B: Use the Shared Fuzzy Palette
 
-Use `draw_fuzzy_palette()` from `src/ui/fuzzy_palette.rs` to build a new searchable list UI. All fuzzy palettes use this shared widget — never reimplement the search/keyboard/rendering logic.
+All fuzzy search UIs call `draw_fuzzy_palette()` from `src/ui/fuzzy_palette.rs`. This is the **single shared widget** for all searchable lists — command palette, find object, material presets, asset browser, entity picker, etc.
 
-**Do NOT** add new modes to `PaletteMode` or modify `command_palette.rs` for new search UIs. Instead, create a standalone palette in its own module using `draw_fuzzy_palette` directly. Examples: `src/ui/find_object.rs`, `src/ui/material_preset_palette.rs`, `src/ui/entity_picker.rs`, `src/ui/asset_browser.rs`.
+**Do NOT** create custom palette rendering. If you need a feature (e.g. multi-select, custom item rendering, new layout), add it to `draw_fuzzy_palette` and the `PaletteConfig`/`PaletteItem` types in `src/ui/fuzzy_palette.rs` so all callers can benefit.
+
+**Do NOT** add new modes to `PaletteMode` in `command_palette.rs`. New search UIs get their own module that calls `draw_fuzzy_palette` directly.
 
 ### Step 1: Implement `PaletteItem` for Your Items
 
@@ -410,13 +417,27 @@ let preview_panel: Box<dyn FnOnce(&mut egui::Ui) + '_> = Box::new(move |ui| {
 - Loading state: `"Preview loading..."` in `.color(TEXT_MUTED).italics()`
 - No selection: `"Nothing selected"` in `.color(TEXT_MUTED).italics()`
 
+### Extending the Shared Widget
+
+If `draw_fuzzy_palette` doesn't support a feature you need (e.g. multi-select, custom row rendering, action buttons), **add it to `src/ui/fuzzy_palette.rs`** — not to your caller.
+
+Typical extension points:
+- **New `PaletteConfig` field** — add an `Option<...>` field with a default of `None` so existing callers aren't affected
+- **New `PaletteItem` method** — add with a default implementation so existing item types don't break
+- **New `PaletteResult` variant** — for new interaction types (e.g. secondary action)
+- **Layout changes** — modify `draw_fuzzy_palette` internals, test against all existing callers
+
+After extending, update this skill file to document the new capability.
+
 ### Checklist (Pattern B)
 
-- [ ] `PaletteItem` implemented for items
+- [ ] `PaletteItem` implemented for items (or use pre-built `SimpleItem`/`CategorizedItem`/`KeywordItem`)
 - [ ] State resource with `open: bool` + `PaletteState` + items
 - [ ] `open()` method resets palette state and rebuilds items
 - [ ] Draw system checks `ui_enabled` and `state.open`
+- [ ] Calls `draw_fuzzy_palette` — no custom palette rendering
 - [ ] System registered in `EguiPrimaryContextPass`
 - [ ] Plugin registered (see `ui-panel` and `add-plugin` skills)
 - [ ] Preview state fields added (if using preview panel)
 - [ ] Old texture cleaned up on highlight change (if using image preview)
+- [ ] If a new feature was needed, it was added to `src/ui/fuzzy_palette.rs` (not the caller)
