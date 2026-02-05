@@ -199,6 +199,9 @@ fn propagate_layers_recursive(
 }
 
 /// Compute framing once the GLTF scene has loaded and has valid AABBs.
+/// Keeps re-checking for a while after initial framing so late-loading
+/// meshes are captured (GLTF scenes load asynchronously and may take many
+/// frames to fully instantiate).
 fn frame_gltf_preview_camera(
     mut state: ResMut<GltfPreviewState>,
     root_query: Query<Entity, With<GltfPreviewRoot>>,
@@ -206,14 +209,19 @@ fn frame_gltf_preview_camera(
     aabb_query: Query<(&Aabb, &GlobalTransform)>,
     mut transform_query: Query<&mut Transform>,
 ) {
-    if state.framed || state.current_path.is_none() {
+    if state.current_path.is_none() {
+        return;
+    }
+
+    // Stop rechecking once framed and enough time has passed for all meshes
+    if state.framed && state.frames_since_spawn > 30 {
         return;
     }
 
     state.frames_since_spawn += 1;
 
-    // Wait a few frames for scene instantiation
-    if state.frames_since_spawn < 3 {
+    // Wait a few frames for scene instantiation + transform propagation
+    if state.frames_since_spawn < 5 {
         return;
     }
 
@@ -236,8 +244,8 @@ fn frame_gltf_preview_camera(
     );
 
     if !found_any {
-        // Give up after 60 frames — model may be broken
-        if state.frames_since_spawn >= 60 {
+        // Give up after 120 frames — model may be broken
+        if state.frames_since_spawn >= 120 {
             state.framed = true;
         }
         return;
@@ -248,14 +256,19 @@ fn frame_gltf_preview_camera(
     let extents = max - min;
     let (scale, translation) = fit_transform_from_extents(center, extents);
 
-    state.fit_scale = scale;
-    state.fit_translation = translation;
-    state.framed = true;
+    // Update framing if this is first time, or if the AABB grew significantly
+    // (more meshes may have loaded since last frame)
+    let scale_changed = (state.fit_scale - scale).length() > 0.01;
+    if !state.framed || scale_changed {
+        state.fit_scale = scale;
+        state.fit_translation = translation;
+        state.framed = true;
 
-    // Apply to root transform
-    if let Ok(mut transform) = transform_query.get_mut(root_entity) {
-        transform.scale = state.fit_scale;
-        transform.translation = state.fit_translation;
+        // Apply to root transform
+        if let Ok(mut transform) = transform_query.get_mut(root_entity) {
+            transform.scale = state.fit_scale;
+            transform.translation = state.fit_translation;
+        }
     }
 }
 

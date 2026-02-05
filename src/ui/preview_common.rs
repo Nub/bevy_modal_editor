@@ -19,7 +19,7 @@ pub const PREVIEW_TEXTURE_SIZE: u32 = 512;
 pub const PREVIEW_ROTATION_SPEED: f32 = 0.3;
 
 /// The maximum extent (largest AABB dimension) the preview object should occupy.
-pub const FIT_TARGET_SIZE: f32 = 1.6;
+pub const FIT_TARGET_SIZE: f32 = 1.9;
 
 /// The Y coordinate the camera looks at — object centers are placed here.
 pub const LOOK_AT_Y: f32 = 0.5;
@@ -49,7 +49,7 @@ impl PreviewSceneConfig {
         Self {
             render_layer: layer,
             camera_order: order,
-            camera_position: Vec3::new(2.0, 1.5, 3.5),
+            camera_position: Vec3::new(1.8, 1.3, 3.0),
             look_at: Vec3::new(0.0, LOOK_AT_Y, 0.0),
             clear_color: ClearColorConfig::Custom(Color::srgba(0.0, 0.0, 0.0, 0.0)),
             directional_illuminance: 2000.0,

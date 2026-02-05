@@ -525,14 +525,12 @@ fn draw_command_palette(
                 &mut state,
                 &mut palette_state2,
                 &mut editor_state,
-                &mut mp.insert_preview_state,
                 &scene_file,
                 &registry,
                 &mp.custom_registry,
                 &selected,
                 &mut events,
                 &mut bevy_commands,
-                &mut ab.next_mode,
             );
         }
     }

@@ -12,7 +12,7 @@ use bevy_editor_game::{CustomEntityRegistry, PauseEvent, PlayEvent, ResetEvent};
 
 use crate::commands::{RedoEvent, TakeSnapshotCommand, UndoEvent};
 use crate::editor::{
-    CameraMarks, EditorMode, EditorState, InsertObjectType, JumpToLastPositionEvent,
+    CameraMarks, EditorState, JumpToLastPositionEvent,
     JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent, ToggleGridEvent,
     TogglePhysicsDebugEvent, TogglePhysicsEvent,
 };
@@ -21,7 +21,6 @@ use crate::scene::{
     UnparentSelectedEvent,
 };
 use crate::selection::Selected;
-use crate::ui::insert_preview::InsertPreviewState;
 use crate::ui::theme::colors;
 use crate::ui::SettingsWindowState;
 
@@ -508,19 +507,31 @@ pub(super) fn register_custom_entity_commands(
     }
 }
 
-/// Get filtered and sorted commands based on query using skim fuzzy matcher
+/// Get filtered and sorted commands based on query using skim fuzzy matcher.
+///
+/// - `insert_only`: if true, only show commands marked `insertable`
+/// - `exclude_insertable`: if true, hide commands marked `insertable`
 pub fn filter_commands<'a>(
     commands: &'a [Command],
     query: &str,
-    insert_mode: bool,
+    insert_only: bool,
+    exclude_insertable: bool,
 ) -> Vec<(usize, &'a Command, i64)> {
     let matcher = SkimMatcherV2::default();
 
-    // First filter by insert mode if applicable
+    // Filter by mode
     let mode_filtered: Vec<_> = commands
         .iter()
         .enumerate()
-        .filter(|(_, cmd)| !insert_mode || cmd.insertable)
+        .filter(|(_, cmd)| {
+            if insert_only && !cmd.insertable {
+                return false;
+            }
+            if exclude_insertable && cmd.insertable {
+                return false;
+            }
+            true
+        })
         .collect();
 
     if query.is_empty() {
@@ -597,19 +608,17 @@ pub(super) fn draw_commands_palette(
     state: &mut ResMut<CommandPaletteState>,
     palette_state2: &mut PaletteState2,
     editor_state: &mut ResMut<EditorState>,
-    _insert_preview_state: &mut ResMut<InsertPreviewState>,
     scene_file: &Res<SceneFile>,
     registry: &Res<CommandRegistry>,
     custom_registry: &Res<CustomEntityRegistry>,
     selected: &Query<Entity, With<Selected>>,
     events: &mut CommandEvents,
     commands: &mut Commands,
-    next_mode: &mut ResMut<NextState<EditorMode>>,
 ) -> Result {
     use bevy_egui::egui;
 
-    let in_insert_mode = state.mode == PaletteMode::Insert;
-    let filtered = filter_commands(&registry.commands, &state.query, in_insert_mode);
+    // Commands mode excludes insertable items (they live in Insert mode now)
+    let filtered = filter_commands(&registry.commands, &state.query, false, true);
 
     // Clamp selected index
     if !filtered.is_empty() {
@@ -646,19 +655,7 @@ pub(super) fn draw_commands_palette(
         state.selected_index = state.selected_index.saturating_sub(1);
     }
 
-    let title = if in_insert_mode {
-        "Insert Object"
-    } else {
-        "Command Palette"
-    };
-
-    let hint = if in_insert_mode {
-        "Type to search objects to insert..."
-    } else {
-        "Type to search commands..."
-    };
-
-    egui::Window::new(title)
+    egui::Window::new("Command Palette")
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
@@ -666,28 +663,10 @@ pub(super) fn draw_commands_palette(
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .fixed_size([400.0, 300.0])
         .show(ctx, |ui| {
-            // Mode indicator for Insert mode
-            if in_insert_mode {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("INSERT MODE")
-                            .small()
-                            .strong()
-                            .color(colors::ACCENT_GREEN),
-                    );
-                    ui.label(
-                        egui::RichText::new("- Select object, then click to place")
-                            .small()
-                            .color(colors::TEXT_MUTED),
-                    );
-                });
-                ui.add_space(4.0);
-            }
-
             // Search input
             let response = ui.add(
                 egui::TextEdit::singleline(&mut state.query)
-                    .hint_text(hint)
+                    .hint_text("Type to search commands...")
                     .desired_width(f32::INFINITY),
             );
 
@@ -755,88 +734,22 @@ pub(super) fn draw_commands_palette(
 
     // Execute action after UI
     if let Some(action) = action_to_execute {
-        // In Insert mode, send event to create preview entity
-        if in_insert_mode {
-            match &action {
-                CommandAction::SpawnPrimitive(shape) => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::Primitive(*shape),
-                    });
-                }
-                CommandAction::SpawnPointLight => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::PointLight,
-                    });
-                }
-                CommandAction::SpawnDirectionalLight => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::DirectionalLight,
-                    });
-                }
-                CommandAction::SpawnGroup => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::Group,
-                    });
-                }
-                CommandAction::InsertGltf => {
-                    state.open_asset_browser_insert_gltf();
-                    next_mode.set(EditorMode::View);
-                    return Ok(());
-                }
-                CommandAction::InsertScene => {
-                    state.open_asset_browser_insert_scene();
-                    next_mode.set(EditorMode::View);
-                    return Ok(());
-                }
-                CommandAction::SpawnSpline(spline_type) => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::Spline(*spline_type),
-                    });
-                }
-                CommandAction::SpawnFogVolume => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::FogVolume,
-                    });
-                }
-                CommandAction::SpawnStairs => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::Stairs,
-                    });
-                }
-                CommandAction::SpawnRamp => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::Ramp,
-                    });
-                }
-                CommandAction::SpawnArch => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::Arch,
-                    });
-                }
-                CommandAction::SpawnLShape => {
-                    events.start_insert.write(StartInsertEvent {
-                        object_type: InsertObjectType::LShape,
-                    });
-                }
-                _ => {}
-            }
-        } else {
-            // Normal mode - execute action immediately
-            execute_command(
-                action,
-                state,
-                palette_state2,
-                editor_state,
-                scene_file,
-                custom_registry,
-                selected,
-                events,
-                commands,
-            );
-        }
+        execute_command(
+            action,
+            state,
+            palette_state2,
+            editor_state,
+            scene_file,
+            custom_registry,
+            selected,
+            events,
+            commands,
+        );
     }
 
-    if should_close {
+    // Only close if the command didn't switch to another palette mode
+    // (e.g. InsertGltf opens AssetBrowser, SaveScene opens AssetBrowser, etc.)
+    if should_close && state.mode == PaletteMode::Commands {
         state.open = false;
     }
 

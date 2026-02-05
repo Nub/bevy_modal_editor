@@ -182,10 +182,14 @@ pub(super) fn draw_insert_palette(
                 CommandAction::InsertGltf => {
                     state.open_asset_browser_insert_gltf();
                     next_mode.set(EditorMode::View);
+                    insert_preview_state.current_kind = None;
+                    return Ok(());
                 }
                 CommandAction::InsertScene => {
                     state.open_asset_browser_insert_scene();
                     next_mode.set(EditorMode::View);
+                    insert_preview_state.current_kind = None;
+                    return Ok(());
                 }
                 CommandAction::SpawnSpline(spline_type) => {
                     events.start_insert.write(StartInsertEvent {
