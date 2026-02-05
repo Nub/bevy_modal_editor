@@ -22,7 +22,7 @@ use crate::scene::{
 };
 use crate::selection::Selected;
 use crate::ui::component_browser::{add_component_by_type_id, ComponentRegistry};
-use crate::ui::file_dialog::FileDialogState;
+use crate::ui::asset_browser::AssetBrowserState;
 use crate::ui::theme::colors;
 use crate::ui::SettingsWindowState;
 use crate::utils::should_process_input;
@@ -846,7 +846,7 @@ fn draw_command_palette(
     mut state: ResMut<CommandPaletteState>,
     mut palette_state2: PaletteState2,
     mut editor_state: ResMut<EditorState>,
-    mut file_dialog_state: ResMut<FileDialogState>,
+    mut asset_browser_state: ResMut<AssetBrowserState>,
     scene_file: Res<SceneFile>,
     registry: Res<CommandRegistry>,
     custom_registry: Res<CustomEntityRegistry>,
@@ -1071,17 +1071,11 @@ fn draw_command_palette(
                     });
                 }
                 CommandAction::InsertGltf => {
-                    // Use same code path as command palette - exit insert mode first,
-                    // file dialog will re-enter insert mode after file is picked
-                    file_dialog_state.open_insert_gltf();
-                    // Exit insert mode so the state transition triggers properly when file is picked
+                    asset_browser_state.open_insert_gltf();
                     next_mode.set(EditorMode::View);
                 }
                 CommandAction::InsertScene => {
-                    // Use same code path as command palette - exit insert mode first,
-                    // file dialog will re-enter insert mode after file is picked
-                    file_dialog_state.open_insert_scene();
-                    // Exit insert mode so the state transition triggers properly when file is picked
+                    asset_browser_state.open_insert_scene();
                     next_mode.set(EditorMode::View);
                 }
                 CommandAction::SpawnSpline(spline_type) => {
@@ -1205,12 +1199,10 @@ fn draw_command_palette(
                     events.jump_last.write(JumpToLastPositionEvent);
                 }
                 CommandAction::SaveScene => {
-                    // Open the egui file dialog for saving
-                    file_dialog_state.open_save_scene(scene_file.path.as_deref());
+                    asset_browser_state.open_save_scene(scene_file.path.as_deref());
                 }
                 CommandAction::LoadScene => {
-                    // Open the egui file dialog for loading
-                    file_dialog_state.open_load_scene(scene_file.path.as_deref());
+                    asset_browser_state.open_load_scene();
                 }
                 CommandAction::ShowHelp => {
                     palette_state2.help_state.open = true;
@@ -1266,12 +1258,10 @@ fn draw_command_palette(
                     }
                 }
                 CommandAction::InsertGltf => {
-                    // Open file dialog to pick a GLTF file
-                    file_dialog_state.open_insert_gltf();
+                    asset_browser_state.open_insert_gltf();
                 }
                 CommandAction::InsertScene => {
-                    // Open file dialog to pick a RON scene file
-                    file_dialog_state.open_insert_scene();
+                    asset_browser_state.open_insert_scene();
                 }
                 CommandAction::CreateDistribution => {
                     // Queue snapshot then deferred command to create the distribution
@@ -1567,11 +1557,43 @@ fn draw_custom_mark_dialog(
 struct ComponentSearchItem {
     type_id: TypeId,
     name: String,
+    type_path: String,
+    docs: Option<String>,
 }
 
 impl super::fuzzy_palette::PaletteItem for ComponentSearchItem {
     fn label(&self) -> &str {
         &self.name
+    }
+}
+
+/// Draw a component documentation preview panel.
+fn draw_component_doc_preview(ui: &mut egui::Ui, name: &str, type_path: &str, docs: Option<&str>) {
+    ui.label(
+        egui::RichText::new(name)
+            .strong()
+            .color(colors::TEXT_PRIMARY),
+    );
+    ui.add_space(2.0);
+    ui.label(
+        egui::RichText::new(type_path)
+            .small()
+            .color(colors::TEXT_MUTED),
+    );
+    ui.add_space(8.0);
+
+    if let Some(doc_text) = docs {
+        let mut cache = egui_commonmark::CommonMarkCache::default();
+        egui_commonmark::CommonMarkViewer::new()
+            .max_image_width(Some(0))
+            .show_scrollable("component_doc_preview", ui, &mut cache, doc_text);
+    } else {
+        ui.label(
+            egui::RichText::new("No documentation available")
+                .small()
+                .italics()
+                .color(colors::TEXT_MUTED),
+        );
     }
 }
 
@@ -1583,7 +1605,9 @@ fn draw_component_search_palette(
     type_registry: &Res<AppTypeRegistry>,
     selected: &Query<Entity, With<Selected>>,
 ) -> Result {
-    use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteResult, PaletteState};
+    use super::fuzzy_palette::{
+        draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteResult, PaletteState,
+    };
 
     // Get selected entity
     let Some(_entity) = selected.iter().next() else {
@@ -1598,12 +1622,16 @@ fn draw_component_search_palette(
         .filter_map(|registration| {
             registration.data::<ReflectComponent>()?;
             let type_id = registration.type_id();
-            let short_name = registration
-                .type_info()
-                .type_path_table()
-                .short_path()
-                .to_string();
-            Some(ComponentSearchItem { type_id, name: short_name })
+            let type_info = registration.type_info();
+            let short_name = type_info.type_path_table().short_path().to_string();
+            let type_path = type_info.type_path().to_string();
+            let docs = type_info.docs().map(|d| d.trim().to_string());
+            Some(ComponentSearchItem {
+                type_id,
+                name: short_name,
+                type_path,
+                docs,
+            })
         })
         .collect();
     components.sort_by(|a, b| a.name.cmp(&b.name));
@@ -1616,17 +1644,42 @@ fn draw_component_search_palette(
         just_opened: state.just_opened,
     };
 
+    // Determine highlighted item for the preview
+    let filtered = fuzzy_filter(&components, &palette_state.query);
+    let clamped = if filtered.is_empty() {
+        0
+    } else {
+        palette_state.selected_index.min(filtered.len() - 1)
+    };
+    let preview_info: Option<(String, String, Option<String>)> =
+        filtered.get(clamped).map(|fi| {
+            (
+                fi.item.name.clone(),
+                fi.item.type_path.clone(),
+                fi.item.docs.clone(),
+            )
+        });
+
+    let preview_panel: Option<Box<dyn FnOnce(&mut egui::Ui) + '_>> =
+        Some(Box::new(move |ui: &mut egui::Ui| {
+            if let Some((name, type_path, docs)) = &preview_info {
+                draw_component_doc_preview(ui, name, type_path, docs.as_deref());
+            }
+        }));
+
     let config = PaletteConfig {
         title: "INSPECT MODE",
         title_color: colors::ACCENT_PURPLE,
         subtitle: "Search for component to edit",
         hint_text: "Type to search components...",
         action_label: "edit",
-        size: [400.0, 300.0],
+        size: [280.0, 350.0],
         show_categories: false,
+        preview_panel,
+        preview_width: 320.0,
     };
 
-    let result = draw_fuzzy_palette(ctx, &mut palette_state, &components, &config);
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &components, config);
 
     // Sync state back
     state.query = palette_state.query;
@@ -1655,6 +1708,8 @@ struct AddComponentItem {
     short_name: String,
     category: String,
     can_instantiate: bool,
+    type_path: String,
+    docs: Option<String>,
 }
 
 impl super::fuzzy_palette::PaletteItem for AddComponentItem {
@@ -1687,7 +1742,9 @@ fn draw_add_component_palette(
     type_registry: &Res<AppTypeRegistry>,
     commands: &mut Commands,
 ) -> Result {
-    use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteResult, PaletteState};
+    use super::fuzzy_palette::{
+        draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteResult, PaletteState,
+    };
 
     // Get target entity
     let Some(target_entity) = state.target_entity else {
@@ -1710,6 +1767,8 @@ fn draw_add_component_palette(
             short_name: c.short_name.clone(),
             category: c.category.clone(),
             can_instantiate: c.can_instantiate,
+            type_path: c.type_name.clone(),
+            docs: c.docs.clone(),
         })
         .collect();
 
@@ -1720,17 +1779,42 @@ fn draw_add_component_palette(
         just_opened: state.just_opened,
     };
 
+    // Determine highlighted item for the preview
+    let filtered = fuzzy_filter(&items, &palette_state.query);
+    let clamped = if filtered.is_empty() {
+        0
+    } else {
+        palette_state.selected_index.min(filtered.len() - 1)
+    };
+    let preview_info: Option<(String, String, Option<String>)> =
+        filtered.get(clamped).map(|fi| {
+            (
+                fi.item.short_name.clone(),
+                fi.item.type_path.clone(),
+                fi.item.docs.clone(),
+            )
+        });
+
+    let preview_panel: Option<Box<dyn FnOnce(&mut egui::Ui) + '_>> =
+        Some(Box::new(move |ui: &mut egui::Ui| {
+            if let Some((name, type_path, docs)) = &preview_info {
+                draw_component_doc_preview(ui, name, type_path, docs.as_deref());
+            }
+        }));
+
     let config = PaletteConfig {
         title: "ADD COMPONENT",
         title_color: colors::ACCENT_GREEN,
         subtitle: "Select component to add",
         hint_text: "Type to search components...",
         action_label: "add",
-        size: [400.0, 350.0],
-        show_categories: true,
+        size: [280.0, 350.0],
+        show_categories: false,
+        preview_panel,
+        preview_width: 320.0,
     };
 
-    let result = draw_fuzzy_palette(ctx, &mut palette_state, &items, &config);
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &items, config);
 
     // Sync state back
     state.query = palette_state.query;
@@ -1850,9 +1934,11 @@ fn draw_remove_component_palette(
         action_label: "remove",
         size: [400.0, 350.0],
         show_categories: false,
+        preview_panel: None,
+        ..Default::default()
     };
 
-    let result = draw_fuzzy_palette(ctx, &mut palette_state, &items, &config);
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &items, config);
 
     // Sync state back
     state.query = palette_state.query;

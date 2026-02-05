@@ -147,6 +147,8 @@ pub struct PaletteConfig<'a> {
     /// Optional closure that draws a right-side preview panel.
     /// When provided, the palette uses a two-column layout (list | preview).
     pub preview_panel: Option<Box<dyn FnOnce(&mut egui::Ui) + 'a>>,
+    /// Width of the preview panel (default 230.0)
+    pub preview_width: f32,
 }
 
 impl Default for PaletteConfig<'_> {
@@ -160,6 +162,7 @@ impl Default for PaletteConfig<'_> {
             size: [400.0, 300.0],
             show_categories: false,
             preview_panel: None,
+            preview_width: 230.0,
         }
     }
 }
@@ -222,8 +225,9 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
     }
 
     let has_preview = config.preview_panel.is_some();
+    let preview_width = config.preview_width;
     let effective_size = if has_preview {
-        [config.size[0] + 238.0, config.size[1]]
+        [config.size[0] + preview_width + 8.0, config.size[1]]
     } else {
         config.size
     };
@@ -353,7 +357,7 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
                 let footer_reserve = 28.0;
                 let middle_height = (ui.available_height() - footer_reserve).max(0.0);
                 let middle_width = ui.available_width();
-                let right_width = 230.0;
+                let right_width = preview_width;
                 let sep_width = 8.0;
                 let left_width = (middle_width - right_width - sep_width).max(0.0);
 
@@ -364,6 +368,7 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
                             egui::Layout::top_down(egui::Align::LEFT),
                             |ui| {
                                 egui::ScrollArea::vertical()
+                                    .id_salt("palette_items")
                                     .auto_shrink(false)
                                     .max_height(middle_height)
                                     .show(ui, |ui| {

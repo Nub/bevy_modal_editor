@@ -46,6 +46,8 @@ pub struct ComponentInfo {
     pub category: String,
     /// Whether it can be instantiated with defaults
     pub can_instantiate: bool,
+    /// Documentation string from Reflect
+    pub docs: Option<String>,
 }
 
 /// Resource caching available components
@@ -82,12 +84,15 @@ impl ComponentRegistry {
             let can_instantiate = registration.data::<ReflectDefault>().is_some()
                 || registration.data::<ReflectFromWorld>().is_some();
 
+            let docs = registration.type_info().docs().map(|d| d.trim().to_string());
+
             self.components.push(ComponentInfo {
                 type_id: registration.type_id(),
                 type_name,
                 short_name,
                 category,
                 can_instantiate,
+                docs,
             });
         }
 

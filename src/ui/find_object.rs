@@ -157,9 +157,11 @@ fn draw_find_palette(
         action_label: "select",
         size: [400.0, 300.0],
         show_categories: false,
+        preview_panel: None,
+        ..Default::default()
     };
 
-    match draw_fuzzy_palette(ctx, &mut state.palette_state, &objects, &config) {
+    match draw_fuzzy_palette(ctx, &mut state.palette_state, &objects, config) {
         PaletteResult::Selected(index) => {
             if let Some(obj) = objects.get(index) {
                 // Deselect all currently selected

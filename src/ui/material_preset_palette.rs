@@ -207,6 +207,7 @@ fn draw_material_preset_palette(
         size: [342.0, 340.0],
         show_categories: false,
         preview_panel: Some(preview_panel),
+        ..Default::default()
     };
 
     let has_selection = selected_entities.iter().next().is_some();

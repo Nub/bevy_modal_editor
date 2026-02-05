@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/Nub/bevy_modal_editor"
 
 [workspace.dependencies]
-bevy = { version = "0.18", features = ["file_watcher", "embedded_watcher"] }
+bevy = { version = "0.18", features = ["file_watcher", "embedded_watcher", "reflect_documentation"] }
 avian3d = { version = "0.5", default-features = true, features = ["debug-plugin"] }
 bevy_egui = { git = "https://github.com/vladbat00/bevy_egui", branch = "main" }
 serde = { version = "1.0", features = ["derive"] }
@@ -50,7 +50,8 @@ serde.workspace = true
 ron.workspace = true
 dirs = "6"
 fuzzy-matcher = "0.3"
-egui-file-dialog = "0.12"
+egui_commonmark = "0.22"
+
 
 [dev-dependencies]
 bevy = { workspace = true, features = ["dynamic_linking"] }

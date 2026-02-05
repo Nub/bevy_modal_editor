@@ -130,9 +130,11 @@ fn draw_entity_picker(
         action_label: "select",
         size: [350.0, 300.0],
         show_categories: false,
+        preview_panel: None,
+        ..Default::default()
     };
 
-    match draw_fuzzy_palette(ctx, &mut state.palette_state, &entities, &config) {
+    match draw_fuzzy_palette(ctx, &mut state.palette_state, &entities, config) {
         PaletteResult::Selected(index) => {
             if let Some(entry) = entities.get(index) {
                 // Store the selection for the inspector to consume

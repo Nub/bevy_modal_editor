@@ -10,7 +10,6 @@ use std::any::TypeId;
 use bevy_editor_game::{CustomEntityRegistry, InspectorWidgetFn};
 
 use super::command_palette::{open_add_component_palette, CommandPaletteState};
-use super::component_browser::{add_component_by_type_id, draw_component_browser};
 use super::entity_picker::{draw_entity_field, make_callback_id, EntityPickerState, PendingEntitySelection};
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
@@ -1751,10 +1750,6 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
-    // Draw component browser window if open
-    if let Some((entity, type_id)) = draw_component_browser(world, &ctx) {
-        add_component_by_type_id(world, entity, type_id);
-    }
 }
 
 /// Draw all components on an entity using reflection
