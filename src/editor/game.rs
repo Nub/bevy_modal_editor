@@ -12,6 +12,7 @@ use bevy_infinite_grid::InfiniteGridSettings;
 
 use crate::editor::{EditorMode, EditorState, TransformOperation};
 use crate::scene::{build_editor_scene, restore_scene_from_data, SceneEntity};
+use crate::selection::Selected;
 use crate::ui::colors;
 
 /// Holds the pre-play scene snapshot for reset
@@ -331,6 +332,18 @@ impl Command for ResetCommand {
         };
         for entity in game_entities {
             world.despawn(entity);
+        }
+
+        // Clear selection before restoring — prevents sync_selection_outlines
+        // from queuing MeshOutline inserts on entities about to be despawned
+        let selected: Vec<Entity> = {
+            let mut q = world.query_filtered::<Entity, With<Selected>>();
+            q.iter(world).collect()
+        };
+        for entity in selected {
+            if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                entity_mut.remove::<Selected>();
+            }
         }
 
         // Get snapshot data
