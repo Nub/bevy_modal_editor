@@ -18,6 +18,7 @@ Modal editing solves this by organizing commands into modes, each with its own f
 - **Hierarchy mode**: Navigate and organize scene structure
 - **Inspector mode**: Edit component properties
 - **Blockout mode**: Rapid tile-based level prototyping
+- **Material mode**: Edit materials and textures on selected objects
 
 Every action has a keyboard shortcut. The command palette (`C`) gives you fuzzy-searchable access to all commands. Press `?` at any time to see all available hotkeys for your current mode.
 
@@ -25,8 +26,11 @@ Every action has a keyboard shortcut. The command palette (`C`) gives you fuzzy-
 
 This is a Cargo workspace containing:
 - **bevy_modal_editor** (root) - The modal level editor
+- **crates/bevy_editor_game** - Game-facing API types (state, events, custom entity registration)
 - **crates/bevy_outliner** - JFA-based object outlining for selection visualization
 - **crates/bevy_spline_3d** - 3D spline editing with interactive gizmos
+- **crates/bevy_grid_shader** - Grid material extension for StandardMaterial
+- **crates/marble_demo** - Example game built with the editor
 
 ## Quick Start
 
@@ -36,6 +40,9 @@ nix develop
 
 # Run the editor
 cargo run
+
+# Run the example game
+cargo run -p marble_demo
 
 # Build all workspace crates
 cargo build --workspace
@@ -96,6 +103,12 @@ cargo run -p bevy_spline_3d --example editor
 6. Press `Enter` to place—the new tile becomes the anchor for chaining
 7. Continue placing or press `Escape` to exit
 
+**Editing materials:**
+1. Select an object and press `M` (or `Shift+M` from any mode) to enter Material mode
+2. Edit PBR properties (color, metallic, roughness, textures)
+3. Press `F` to browse the material library presets
+4. Apply library materials or create inline custom materials
+
 ### Saving and Loading
 
 - Press `C` to open the command palette, then type "save" or "load"
@@ -121,13 +134,42 @@ The editor automatically detects if you already have EguiPlugin or Avian3D physi
 
 Press `F10` to toggle the editor UI on/off during gameplay.
 
+### Game Integration
+
+Games use the `bevy_editor_game` crate to integrate with the editor:
+
+```rust
+use bevy_editor_game::*;
+
+// Register custom components for scene serialization
+app.register_scene_component::<MyGameComponent>();
+
+// Register custom placeable entity types
+app.register_custom_entity::<SpawnPoint>(CustomEntityType {
+    name: "Spawn Point",
+    category: "Game",
+    keywords: vec!["spawn".into(), "player".into()],
+    spawn: |commands, position, rotation, name| {
+        commands.spawn((SceneEntity, Name::new(name), SpawnPoint, Transform::from_translation(position))).id()
+    },
+    ..default()
+});
+
+// React to game lifecycle events
+fn on_game_start(mut events: MessageReader<GameStartedEvent>) {
+    for _ in events.read() {
+        // Spawn game entities, start systems, etc.
+    }
+}
+```
+
 ## Features
 
 ### Core
 - **Modal Editing** - Vim-inspired modes for focused, efficient workflows
-- **Command Palette** - Fuzzy searchable commands (`C`)
+- **Command Palette** - Fuzzy searchable commands (`C`) with 3D preview
 - **Object Search** - Find objects by name (`F`)
-- **Undo/Redo** - Full command history (`U` to undo, `Ctrl+R` to redo)
+- **Undo/Redo** - Full snapshot-based history (`U` to undo, `Ctrl+R` to redo)
 - **Scene Serialization** - Save/load scenes in RON format
 
 ### Objects
@@ -135,9 +177,17 @@ Press `F10` to toggle the editor UI on/off during gameplay.
 - **Blockout Shapes** - Stairs, Ramp, Arch, L-Shape with editable parameters
 - **Point & Directional Lights** - Full lighting control with shadows
 - **Fog Volumes** - Volumetric fog for atmosphere
-- **GLTF/GLB Models** - Import 3D models
+- **GLTF/GLB Models** - Import 3D models with asset browser
 - **Nested Scenes** - Import RON scene files as sub-scenes
 - **Entity Groups** - Organize objects hierarchically
+- **Custom Entity Types** - Games register their own placeable entities
+
+### Materials
+- **Material Library** - Named material presets with live 3D preview
+- **PBR Properties** - Color, metallic, roughness, emissive, alpha
+- **Texture Support** - Base color, normal, metallic-roughness maps via asset browser
+- **Extensible Materials** - Register custom shader materials (grid, checkerboard, etc.)
+- **Per-entity Overrides** - Library references or inline custom materials
 
 ### Splines
 - **Spline Types** - Cubic Bezier, Catmull-Rom, B-Spline
@@ -158,11 +208,19 @@ Press `F10` to toggle the editor UI on/off during gameplay.
 - **Look At** - Focus on selected object (`L`)
 - **Last Position** - Return to previous view (backtick)
 
+### Game Integration
+- **Play/Pause/Reset** - Test gameplay directly in the editor (F5/F6/F7)
+- **Scene Snapshots** - Automatic state save/restore around play sessions
+- **Custom Entities** - Games register spawnable types with inspector/gizmo support
+- **Custom Components** - Game components participate in scene serialization
+- **Validation Rules** - Games define scene validation checks
+
 ### Workflow
 - **Quick Duplicate** - Clone selected objects (`Ctrl+D`)
 - **Arrow Key Nudge** - Move selected objects by grid step
 - **Preview Mode** - Hide all gizmos and debug rendering (`P`)
 - **Physics Simulation** - Toggle physics on/off via command palette
+- **Measurements** - Distance measurement between selected objects (`M`)
 
 ## Keyboard Reference
 
@@ -174,6 +232,7 @@ Press `F10` to toggle the editor UI on/off during gameplay.
 | `O` | Object Inspector mode |
 | `H` | Hierarchy mode |
 | `B` | Blockout mode |
+| `M` | Material mode |
 | `Shift+key` | Switch from any mode |
 | `Escape` | Return to View mode |
 

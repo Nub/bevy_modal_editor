@@ -140,7 +140,7 @@ impl Plugin for OperationsPlugin {
 
 ### 5. (Optional) Add to Command Palette
 
-If the operation should be available from the command palette (`:`), add it in `src/ui/command_palette.rs`:
+If the operation should be available from the command palette (`C`), add it in `src/ui/command_palette/commands.rs`:
 
 1. Add a variant to `CommandAction`:
 ```rust
@@ -150,15 +150,15 @@ enum CommandAction {
 }
 ```
 
-2. Add the command entry in the commands list:
+2. Add the command entry in `CommandRegistry::build_static_commands()`:
 ```rust
-Command {
-    name: "My Operation",
-    shortcut: "F",
-    action: CommandAction::MyOperation,
-    modes: &[EditorMode::Edit],
+self.commands.push(Command {
+    name: "My Operation".to_string(),
+    keywords: vec!["alias".into()],
     category: "Edit",
-}
+    action: CommandAction::MyOperation,
+    insertable: false,
+});
 ```
 
 3. Handle the action in the execution match:

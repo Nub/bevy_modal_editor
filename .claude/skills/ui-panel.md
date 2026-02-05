@@ -18,7 +18,7 @@ Panels are registered in `UiPlugin` (`src/ui/mod.rs`), organized into:
 - **New panel module**: `src/ui/my_panel.rs` (create new file)
 - **Registration**: `src/ui/mod.rs` — add `mod`, `pub use`, and plugin to `UiPlugin`
 - **Theme**: `src/ui/theme.rs` — colors, frames, dialog helpers, panel constants
-- **Fuzzy search**: `src/ui/fuzzy_palette.rs` — reusable searchable list widget
+- **Fuzzy search**: `src/ui/fuzzy_palette.rs` — reusable searchable list widget (used by `command_palette/` submodules)
 - **Input guard**: `src/utils.rs` — `should_process_input()`
 
 ## Step-by-Step

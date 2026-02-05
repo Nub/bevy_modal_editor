@@ -12,20 +12,28 @@ There are two patterns covered here:
 
 ## File Locations
 
-- **Command palette**: `src/ui/command_palette.rs`
+The command palette is a **directory module** at `src/ui/command_palette/`:
+
+- **Main dispatch & state**: `src/ui/command_palette/mod.rs` — `CommandPaletteState`, `PaletteMode`, `CommandPalettePlugin`, keyboard toggle handler, mode routing
+- **Command registry & execution**: `src/ui/command_palette/commands.rs` — `CommandAction`, `CommandRegistry`, `CommandEvents`, `PaletteState2`, filtering, drawing, and execution
+- **Insert mode palette**: `src/ui/command_palette/insert.rs` — Insert palette with 3D preview
+- **Component palettes**: `src/ui/command_palette/components.rs` — Component search, add, remove
+- **Find object**: `src/ui/command_palette/find_object.rs` — Scene object search by name
+- **Entity picker**: `src/ui/command_palette/entity_picker.rs` — Entity selection for field references
+- **Asset browser**: `src/ui/command_palette/asset_browser.rs` — File browser for scene/GLTF/texture operations
+- **Material presets**: `src/ui/command_palette/material_preset.rs` — Material library preset browsing
 - **Fuzzy palette widget**: `src/ui/fuzzy_palette.rs` (shared search UI — modify this to add features)
 - **Theme colors**: `src/ui/theme.rs`
-- **Existing callers**: `find_object.rs`, `material_preset_palette.rs`, `entity_picker.rs`, `asset_browser.rs`, `command_palette.rs`
 
 ---
 
 ## Pattern A: Add a Command to the Existing Palette
 
-This adds a new action accessible via the `C` key command palette. Touches **1 file** (`src/ui/command_palette.rs`) in **4 locations**.
+This adds a new action accessible via the `C` key command palette. Touches **1 file** (`src/ui/command_palette/commands.rs`) in **4 locations**.
 
 ### Step 1: Add CommandAction Variant
 
-In the `CommandAction` enum (~line 78):
+In the `CommandAction` enum in `commands.rs`:
 
 ```rust
 pub enum CommandAction {
@@ -39,7 +47,7 @@ pub enum CommandAction {
 
 ### Step 2: Add Command Entry
 
-In `CommandRegistry::build_static_commands()` (~line 245), add the command in the appropriate category group:
+In `CommandRegistry::build_static_commands()` in `commands.rs`, add the command in the appropriate category group:
 
 ```rust
 self.commands.push(Command {
@@ -59,7 +67,7 @@ self.commands.push(Command {
 
 ### Step 3: Add Insert Mode Handler (If Insertable)
 
-If `insertable: true`, add a match arm in the insert mode block (~line 1052):
+If `insertable: true`, add a match arm in the insert mode block in `commands.rs`:
 
 ```rust
 // In Insert mode, send event to create preview entity
@@ -78,7 +86,7 @@ if in_insert_mode {
 
 ### Step 4: Add Normal Mode Handler
 
-Add a match arm in the normal mode block (~line 1115):
+Add a match arm in the normal mode block in `commands.rs`:
 
 ```rust
 // Normal mode - execute action immediately
@@ -105,32 +113,32 @@ match action {
 
 ### Step 5: Add Event Writer (If Needed)
 
-If the action sends an event, add it to the `CommandEvents` SystemParam (~line 32):
+If the action sends an event, add it to the `CommandEvents` SystemParam in `commands.rs`:
 
 ```rust
 #[derive(SystemParam)]
-struct CommandEvents<'w> {
+pub(super) struct CommandEvents<'w> {
     // ... existing writers ...
-    my_event: MessageWriter<'w, MyEvent>,
+    pub my_event: MessageWriter<'w, MyEvent>,
 }
 ```
 
-Or if it needs a UI state resource, add it to `PaletteState2` (~line 51):
+Or if it needs a UI state resource, add it to `PaletteState2` in `commands.rs`:
 
 ```rust
 #[derive(SystemParam)]
-struct PaletteState2<'w> {
+pub(super) struct PaletteState2<'w> {
     // ... existing resources ...
-    my_panel_state: ResMut<'w, MyPanelState>,
+    pub my_panel_state: ResMut<'w, MyPanelState>,
 }
 ```
 
 ### Checklist (Pattern A)
 
-- [ ] `CommandAction` variant added
+- [ ] `CommandAction` variant added in `commands.rs`
 - [ ] `Command` entry added in `build_static_commands()` with name, keywords, category
-- [ ] Insert mode match arm added (if `insertable: true`)
-- [ ] Normal mode match arm added
+- [ ] Insert mode match arm added (if `insertable: true`) in `commands.rs`
+- [ ] Normal mode match arm added in `commands.rs`
 - [ ] Event writer added to `CommandEvents` (if sending an event)
 - [ ] State resource added to `PaletteState2` (if toggling UI state)
 
@@ -142,7 +150,7 @@ All fuzzy search UIs call `draw_fuzzy_palette()` from `src/ui/fuzzy_palette.rs`.
 
 **Do NOT** create custom palette rendering. If you need a feature (e.g. multi-select, custom item rendering, new layout), add it to `draw_fuzzy_palette` and the `PaletteConfig`/`PaletteItem` types in `src/ui/fuzzy_palette.rs` so all callers can benefit.
 
-**Do NOT** add new modes to `PaletteMode` in `command_palette.rs`. New search UIs get their own module that calls `draw_fuzzy_palette` directly.
+**Do NOT** add new modes to `PaletteMode` in `command_palette/mod.rs`. New search UIs get their own module that calls `draw_fuzzy_palette` directly.
 
 ### Step 1: Implement `PaletteItem` for Your Items
 
@@ -284,8 +292,9 @@ The fuzzy palette supports an optional right-side preview panel. When `preview_p
 - The `size` in `PaletteConfig` is the *left column* size — total width = `size[0] + preview_width + 8.0`
 
 **Existing usage:**
-- `src/ui/material_preset_palette.rs` — Shows a material sphere preview image
-- `src/ui/asset_browser.rs` — Shows texture thumbnail when picking textures
+- `src/ui/command_palette/material_preset.rs` — Shows a material sphere preview image
+- `src/ui/command_palette/asset_browser.rs` — Shows texture thumbnail when picking textures
+- `src/ui/command_palette/insert.rs` — Shows 3D preview of the highlighted object
 
 #### Pattern: Static Data Preview
 

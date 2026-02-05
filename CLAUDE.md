@@ -11,11 +11,18 @@ bevy_modal_editor/
 ├── Cargo.toml          (workspace root + editor package)
 ├── src/                (editor code)
 ├── crates/
-│   ├── bevy_outliner/  (JFA-based object outlining)
-│   └── bevy_spline_3d/ (3D spline editing with gizmos)
+│   ├── bevy_editor_game/ (game-facing API types)
+│   ├── bevy_grid_shader/ (grid material extension)
+│   ├── bevy_outliner/    (JFA-based object outlining)
+│   ├── bevy_spline_3d/   (3D spline editing with gizmos)
+│   └── marble_demo/      (example game)
 ```
 
 **Member crates:**
+
+- **bevy_editor_game** (`crates/bevy_editor_game`) - Game-facing API types (no systems/plugins): `GameState`, lifecycle events, custom entity/component registration, material types, validation
+
+- **bevy_grid_shader** (`crates/bevy_grid_shader`) - Grid material extension for StandardMaterial
 
 - **bevy_outliner** (`crates/bevy_outliner`) - Jump Flood Algorithm based object outlining for mesh selection visualization
 
@@ -66,8 +73,13 @@ This is a level editor for Bevy games using Avian3D physics. The main plugin (`E
 
 The editor uses vim-like modal editing (`src/editor/state.rs`):
 - **View mode**: Camera navigation and selection only
-- **Edit mode**: Transform manipulation (G=translate, R=rotate, S=scale)
-- Toggle with Tab, Escape returns to View mode
+- **Edit mode**: Transform manipulation (Q=translate, W=rotate, E=scale)
+- **Insert mode**: Add new objects with live 3D preview
+- **Hierarchy mode**: Navigate and organize scene structure
+- **Inspector mode**: Edit component properties via reflection
+- **Blockout mode**: Rapid tile-based level prototyping
+- **Material mode**: Edit materials and textures
+- Mode keys: `E`/`I`/`O`/`H`/`B`/`M`, Escape returns to View mode
 
 ### Core Modules
 
@@ -91,21 +103,30 @@ The `EditorPlugin` composes these sub-plugins:
   - `EditorStatePlugin` - Modal state machine (`EditorMode`) and `TransformOperation` resource
   - `EditorInputPlugin` - Keyboard handling for mode/operation switching
   - `EditorCameraPlugin` - Orbit camera controls
+  - `InsertModePlugin` - Object insertion with live 3D preview
+  - `BlockoutPlugin` - Tile-based level prototyping
+  - `CameraMarksPlugin` - Save/recall camera positions
   - `SplineEditPlugin` - Spline control point editing (bridges bevy_spline_3d)
+  - `SceneLoadingPlugin` - External scene/GLTF loading with progress tracking
 
 - **selection/** - Entity selection via physics raycasting against `SceneEntity` components. `Selected` marker component indicates selection state.
 
 - **commands/** - Undo/redo system
   - `HistoryPlugin` - `CommandHistory` resource with undo/redo stacks
-  - `OperationsPlugin` - Concrete command implementations
-  - Commands implement `EditorCommand` trait (execute/undo/description)
+  - `OperationsPlugin` - Concrete command implementations (delete, duplicate, copy/paste, nudge)
 
 - **scene/** - Scene management
   - `PrimitivesPlugin` - Unified entity spawning via `SpawnEntityEvent`
   - `SerializationPlugin` - RON-based save/load via `SaveSceneEvent`/`LoadSceneEvent` messages
   - `GltfSourcePlugin` - Load GLTF/GLB models as scene objects
   - `SceneSourcePlugin` - Load RON scene files as nested objects
+  - `BlockoutPlugin` - Parametric shapes (Stairs, Ramp, Arch, L-Shape) with mesh generation
   - `SceneEntity` marker component identifies editable entities
+
+- **materials/** - Material system
+  - `MaterialsPlugin` - Material library, type registry, and extensible material types
+  - `MaterialRef` component: `Library(name)` or `Inline(MaterialDefinition)`
+  - `EditorMaterialDef` trait for custom shader materials
 
 - **prefabs/** - Reusable entity templates
   - `Prefab` asset type with hierarchical `PrefabEntity` structures
@@ -114,14 +135,20 @@ The `EditorPlugin` composes these sub-plugins:
 - **gizmos/** - Visual editor overlays
   - `TransformGizmoPlugin` - Transform manipulation gizmos
   - Grid drawing system
+  - Custom entity gizmo dispatch
 
 - **ui/** - egui-based interface
-  - `PanelsPlugin` - Main panel layout
-  - `HierarchyPlugin` - Entity tree view
-  - `InspectorPlugin` - Component property editor
+  - `PanelsPlugin` - Main panel layout and status bar
+  - `HierarchyPlugin` - Entity tree view with drag-reparenting
+  - `InspectorPlugin` - Component property editor (exclusive world access)
+  - `CommandPalettePlugin` - Fuzzy search command palette (directory module at `src/ui/command_palette/`)
+  - `MaterialEditorPlugin` - Material property editing with live 3D preview
   - `ToolbarPlugin` - Tool buttons
   - `ViewGizmoPlugin` - Viewport orientation indicator
+  - `SettingsPlugin` - Persistent editor settings
+  - `ValidationPlugin` - Scene validation rules
   - `theme` module - Centralized styling with `colors`, dialog helpers (`draw_centered_dialog`, `draw_error_dialog`)
+  - `fuzzy_palette` module - Reusable fuzzy search widget (shared by all palettes)
 
 ### Key Patterns
 
@@ -231,9 +258,10 @@ let config = PaletteConfig {
     action_label: "select",
     size: [400.0, 300.0],
     show_categories: true,
+    ..Default::default()
 };
 
-match draw_fuzzy_palette(ctx, &mut palette_state, &items, &config) {
+match draw_fuzzy_palette(ctx, &mut palette_state, &items, config) {
     PaletteResult::Selected(index) => { /* handle selection */ }
     PaletteResult::Closed => { /* handle close */ }
     PaletteResult::Open => { /* still open */ }
@@ -260,20 +288,22 @@ for item in filtered {
 UI state structs follow a consistent reset pattern:
 
 ```rust
-// CommandPaletteState has helper methods
-state.open_commands();           // Opens in command mode
-state.open_insert();             // Opens in insert mode
-state.open_component_search();   // Opens for component search
-state.open_add_component(entity); // Opens for adding components
+// CommandPaletteState has helper methods for all palette modes
+state.open_commands();              // Opens in command mode (C key)
+state.open_insert();                // Opens in insert mode (I key)
+state.open_component_search();      // Opens for component search (/ key)
+state.open_add_component(entity);   // Opens for adding components (I in Inspector)
+state.open_remove_component(entity); // Opens for removing components (X in Inspector)
+state.open_find_object();           // Opens find object palette (F key)
+state.open_material_preset();       // Opens material library browser (F in Material mode)
+state.open_load_scene();            // Opens file browser for loading scenes
+state.open_save_scene(current_path); // Opens file browser for saving
 
 // Or use the standalone helper
 open_add_component_palette(&mut state, entity);
 
-// PaletteState has reset()
+// PaletteState (shared widget state) has reset()
 palette_state.reset();  // Clears query, resets index, sets just_opened
-
-// ComponentBrowserState
-browser_state.open_for_entity(entity);
 ```
 
 ### Inspector Property Helpers (`src/ui/inspector.rs`)
@@ -345,7 +375,7 @@ events.spawn_entity.write(SpawnEntityEvent {
 });
 ```
 
-`SpawnEntityKind` variants: `Primitive(PrimitiveShape)`, `Group`, `PointLight`, `DirectionalLight`, `Spline(SplineType)`
+`SpawnEntityKind` variants: `Primitive(PrimitiveShape)`, `Group`, `PointLight`, `DirectionalLight`, `Spline(SplineType)`, `FogVolume`, `Stairs`, `Ramp`, `Arch`, `LShape`, `Custom(String)`
 
 `PrimitiveShape` provides factory methods:
 - `create_mesh()` - Returns the mesh for this shape
@@ -370,4 +400,10 @@ let scene = build_editor_scene(world, entity_ids.into_iter());
 - `GroupMarker` - Empty container for organizing entities
 - `SceneLightMarker` / `DirectionalLightMarker` - Light configuration that persists to scene files
 - `SplineMarker` - Identifies spline entities (from bevy_spline_3d integration)
-- `GltfLoaded` / `SceneSourceLoaded` - Marks children loaded from external files
+- `FogVolumeMarker` - Volumetric fog configuration
+- `StairsMarker` / `RampMarker` / `ArchMarker` / `LShapeMarker` - Parametric blockout shapes
+- `MaterialRef` - Material reference (Library or Inline definition)
+- `GltfSource` / `SceneSource` - References to external GLTF/scene files
+- `AssetRef` - Generic asset reference (mesh, texture, scene)
+- `GameEntity` - Runtime game entity (auto-despawned on reset)
+- `GameCamera` - Game camera managed by editor

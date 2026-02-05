@@ -14,7 +14,7 @@ This is the most file-heavy pattern in the codebase. A new entity type touches *
 | 4 | `src/scene/mod.rs` | `.allow_component::<MyMarker>()` in `build_editor_scene`, regeneration in `regenerate_runtime_components` |
 | 6 | `src/editor/state.rs` | `InsertObjectType` variant |
 | 7 | `src/editor/insert.rs` | Preview spawning, click-to-place handler |
-| 8 | `src/ui/command_palette.rs` | `CommandAction` variant, command entry, insert mode handler, normal mode handler |
+| 8 | `src/ui/command_palette/commands.rs` | `CommandAction` variant, command entry, insert mode handler, normal mode handler |
 | 9 | `src/ui/inspector.rs` | Data struct, data fetching, UI drawing, change application, component filter |
 
 For **blockout/parametric shapes**, also modify:
@@ -66,10 +66,10 @@ pub enum SpawnEntityKind {
 }
 
 impl SpawnEntityKind {
-    pub fn display_name(&self) -> &'static str {
+    pub fn display_name(&self) -> String {
         match self {
             // ... existing arms ...
-            SpawnEntityKind::MyEntity => "My Entity",
+            SpawnEntityKind::MyEntity => "My Entity".to_string(),
         }
     }
 }
@@ -274,7 +274,7 @@ InsertObjectType::MyEntity => {
 
 ### Step 11: Add Command Palette Integration
 
-In `src/ui/command_palette.rs`:
+In `src/ui/command_palette/commands.rs`:
 
 **A) Add CommandAction variant:**
 ```rust
@@ -285,16 +285,15 @@ pub enum CommandAction {
 }
 ```
 
-**B) Add command entry** (in the commands list):
+**B) Add command entry** in `CommandRegistry::build_static_commands()`:
 ```rust
-Command {
-    name: "My Entity",
-    shortcut: "",
-    action: CommandAction::SpawnMyEntity,
-    modes: &[EditorMode::View, EditorMode::Edit],
+self.commands.push(Command {
+    name: "My Entity".to_string(),
+    keywords: vec!["alias".into()],
     category: "Insert",
-    enabled: true,
-},
+    action: CommandAction::SpawnMyEntity,
+    insertable: true,
+});
 ```
 
 **C) Add insert mode handler** (in the `if in_insert_mode` block):
