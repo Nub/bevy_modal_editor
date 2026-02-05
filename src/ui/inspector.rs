@@ -6,6 +6,8 @@ use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSpacing,
 use bevy_spline_3d::path_follow::{FollowerState, LoopMode, SplineFollower};
 use std::any::TypeId;
 
+use bevy_editor_game::{CustomEntityRegistry, InspectorWidgetFn};
+
 use super::command_palette::{open_add_component_palette, CommandPaletteState};
 use super::component_browser::{add_component_by_type_id, draw_component_browser};
 use super::entity_picker::{draw_entity_field, make_callback_id, EntityPickerState, PendingEntitySelection};
@@ -1078,6 +1080,7 @@ fn draw_inspector_panel(world: &mut World) {
     let mut spline_distribution_changed = false;
     let mut open_distribution_spline_picker = false;
     let mut open_distribution_source_picker = false;
+    let mut custom_inspector_changed = false;
 
     // Check for "N" key to focus name field (only for single selection)
     let focus_name_field = selection_count == 1
@@ -1257,6 +1260,21 @@ fn draw_inspector_panel(world: &mut World) {
                                 ui.add_space(4.0);
                             }
 
+                            // Custom entity inspector widgets
+                            {
+                                let draw_fns: Vec<InspectorWidgetFn> = world
+                                    .resource::<CustomEntityRegistry>()
+                                    .entries
+                                    .iter()
+                                    .filter_map(|e| e.entity_type.draw_inspector)
+                                    .collect();
+                                for draw_fn in draw_fns {
+                                    if draw_fn(world, entity, ui) {
+                                        custom_inspector_changed = true;
+                                    }
+                                }
+                            }
+
                             ui.separator();
                             ui.add_space(4.0);
                         }
@@ -1339,7 +1357,8 @@ fn draw_inspector_panel(world: &mut World) {
         || arch_changed
         || lshape_changed
         || spline_follower_changed
-        || spline_distribution_changed;
+        || spline_distribution_changed
+        || custom_inspector_changed;
 
     // Take a snapshot before the first change in an editing session
     if any_change {

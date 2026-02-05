@@ -782,6 +782,8 @@ name = "bevy_editor_game"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bevy_egui",
+ "ron 0.8.1",
  "serde",
 ]
 
@@ -3756,7 +3758,9 @@ dependencies = [
  "avian3d",
  "bevy",
  "bevy_editor_game",
+ "bevy_egui",
  "bevy_modal_editor",
+ "ron 0.8.1",
  "serde",
 ]
 

@@ -12,8 +12,9 @@ mod material_editor;
 mod panels;
 mod reflect_editor;
 mod settings;
-mod theme;
+pub mod theme;
 mod toolbar;
+pub mod validation;
 mod view_gizmo;
 
 pub use command_palette::*;
@@ -83,6 +84,8 @@ impl Plugin for UiPlugin {
                 FileDialogPlugin,
                 MarksPlugin,
                 EntityPickerPlugin,
-            ));
+            ))
+            // Validation
+            .add_plugins(validation::ValidationPlugin);
     }
 }

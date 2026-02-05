@@ -8,12 +8,14 @@ mod mesh_gen;
 use avian3d::prelude::*;
 use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
+use bevy_editor_game::{BaseMaterialProps, MaterialDefinition, MaterialRef};
 use bevy_grid_shader::GridMaterial;
 use serde::{Deserialize, Serialize};
 
 pub use mesh_gen::*;
 
 use super::SceneEntity;
+use crate::materials::grid::GridMaterialProps;
 
 /// Type alias for grid material
 pub type GridMat = ExtendedMaterial<StandardMaterial, GridMaterial>;
@@ -184,12 +186,21 @@ pub fn spawn_stairs(
     let marker = StairsMarker::default();
     let mesh = generate_stairs_mesh(&marker);
     let collider = generate_stairs_collider(&marker);
+    let grid_data = ron::to_string(&GridMaterialProps::default()).unwrap_or_default();
 
     commands
         .spawn((
             SceneEntity,
             Name::new(name.to_string()),
             marker,
+            MaterialRef::Inline(MaterialDefinition::with_extension(
+                BaseMaterialProps {
+                    base_color: blockout_colors::STAIRS,
+                    ..default()
+                },
+                "grid",
+                grid_data,
+            )),
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(ExtendedMaterial {
                 base: StandardMaterial {
@@ -217,12 +228,21 @@ pub fn spawn_ramp(
     let marker = RampMarker::default();
     let mesh = generate_ramp_mesh(&marker);
     let collider = generate_ramp_collider(&marker);
+    let grid_data = ron::to_string(&GridMaterialProps::default()).unwrap_or_default();
 
     commands
         .spawn((
             SceneEntity,
             Name::new(name.to_string()),
             marker,
+            MaterialRef::Inline(MaterialDefinition::with_extension(
+                BaseMaterialProps {
+                    base_color: blockout_colors::RAMP,
+                    ..default()
+                },
+                "grid",
+                grid_data,
+            )),
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(ExtendedMaterial {
                 base: StandardMaterial {
@@ -250,12 +270,21 @@ pub fn spawn_arch(
     let marker = ArchMarker::default();
     let mesh = generate_arch_mesh(&marker);
     let collider = generate_arch_collider(&marker);
+    let grid_data = ron::to_string(&GridMaterialProps::default()).unwrap_or_default();
 
     commands
         .spawn((
             SceneEntity,
             Name::new(name.to_string()),
             marker,
+            MaterialRef::Inline(MaterialDefinition::with_extension(
+                BaseMaterialProps {
+                    base_color: blockout_colors::ARCH,
+                    ..default()
+                },
+                "grid",
+                grid_data,
+            )),
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(ExtendedMaterial {
                 base: StandardMaterial {
@@ -283,12 +312,21 @@ pub fn spawn_lshape(
     let marker = LShapeMarker::default();
     let mesh = generate_lshape_mesh(&marker);
     let collider = generate_lshape_collider(&marker);
+    let grid_data = ron::to_string(&GridMaterialProps::default()).unwrap_or_default();
 
     commands
         .spawn((
             SceneEntity,
             Name::new(name.to_string()),
             marker,
+            MaterialRef::Inline(MaterialDefinition::with_extension(
+                BaseMaterialProps {
+                    base_color: blockout_colors::LSHAPE,
+                    ..default()
+                },
+                "grid",
+                grid_data,
+            )),
             Mesh3d(meshes.add(mesh)),
             MeshMaterial3d(materials.add(ExtendedMaterial {
                 base: StandardMaterial {

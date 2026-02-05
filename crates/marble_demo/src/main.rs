@@ -7,14 +7,25 @@
 //! 4. Reach the GoalZone to complete the level
 //! 5. F6 to pause, F5 to resume, F7 to reset
 
+mod checkerboard;
 mod game_camera;
 mod marble;
 mod timer;
 
 use avian3d::prelude::*;
+use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
-use bevy_editor_game::{CustomEntityType, RegisterCustomEntityExt};
-use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, EditorState, GamePlugin, PrimitiveMaterial};
+use bevy_editor_game::{
+    BaseMaterialProps, CustomEntityType, MaterialDefinition, MaterialRef, RegisterCustomEntityExt,
+    RegisterValidationExt, ValidationMessage, ValidationRule, ValidationSeverity,
+};
+use bevy_modal_editor::materials::RegisterMaterialTypeExt;
+use bevy_modal_editor::{EditorPlugin, EditorPluginConfig, GamePlugin};
+
+use checkerboard::{
+    CheckerboardMaterial, CheckerboardMaterialDef, CheckerboardMaterialPlugin,
+    CheckerboardMaterialProps,
+};
 
 /// Marker component for spawn point entities.
 /// The marble spawns at this entity's position when play mode starts.
@@ -36,6 +47,8 @@ fn main() {
             ..default()
         }))
         .add_plugins(GamePlugin)
+        .add_plugins(CheckerboardMaterialPlugin)
+        .register_material_type::<CheckerboardMaterialDef>()
         .add_plugins(marble::MarblePlugin)
         .add_plugins(game_camera::GameCameraPlugin)
         .add_plugins(timer::GameTimerPlugin)
@@ -54,6 +67,9 @@ fn main() {
                     ))
                     .id()
             },
+            draw_inspector: None,
+            draw_gizmo: Some(draw_spawn_point_gizmo),
+            regenerate: Some(regenerate_spawn_point),
         })
         .register_custom_entity::<GoalZone>(CustomEntityType {
             name: "Goal Zone",
@@ -71,16 +87,18 @@ fn main() {
                     ))
                     .id()
             },
+            draw_inspector: None,
+            draw_gizmo: Some(draw_goal_zone_gizmo),
+            regenerate: Some(regenerate_goal_zone),
         })
-        .add_systems(
-            Update,
-            (
-                draw_spawn_point_gizmos,
-                draw_goal_zone_gizmos,
-                regenerate_spawn_points,
-                regenerate_goal_zones,
-            ),
-        )
+        .register_validation(ValidationRule {
+            name: "Spawn Point",
+            validate: validate_spawn_points,
+        })
+        .register_validation(ValidationRule {
+            name: "Goal Zone",
+            validate: validate_goal_zones,
+        })
         .add_systems(Startup, setup_default_level)
         .run();
 }
@@ -90,6 +108,7 @@ fn setup_default_level(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut checker_materials: ResMut<Assets<ExtendedMaterial<StandardMaterial, CheckerboardMaterial>>>,
     existing: Query<Entity, With<bevy_modal_editor::SceneEntity>>,
 ) {
     // Don't spawn if scene already has entities (e.g. loaded from file)
@@ -97,19 +116,31 @@ fn setup_default_level(
         return;
     }
 
-    // Ground plane
+    // Ground plane (checkerboard material)
     let ground_color = Color::srgb(0.5, 0.5, 0.55);
+    let checker_data =
+        ron::to_string(&CheckerboardMaterialProps::default()).unwrap_or_default();
     commands.spawn((
         bevy_modal_editor::SceneEntity,
         Name::new("Ground"),
         bevy_modal_editor::PrimitiveMarker {
             shape: bevy_modal_editor::PrimitiveShape::Cube,
         },
-        PrimitiveMaterial::new(ground_color),
+        MaterialRef::Inline(MaterialDefinition::with_extension(
+            BaseMaterialProps {
+                base_color: ground_color,
+                ..default()
+            },
+            "checkerboard",
+            checker_data,
+        )),
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-        MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: ground_color,
-            ..default()
+        MeshMaterial3d(checker_materials.add(ExtendedMaterial {
+            base: StandardMaterial {
+                base_color: ground_color,
+                ..default()
+            },
+            extension: CheckerboardMaterial::default(),
         })),
         Transform::from_translation(Vec3::new(0.0, -0.5, 0.0))
             .with_scale(Vec3::new(30.0, 1.0, 30.0)),
@@ -125,7 +156,7 @@ fn setup_default_level(
         bevy_modal_editor::PrimitiveMarker {
             shape: bevy_modal_editor::PrimitiveShape::Cube,
         },
-        PrimitiveMaterial::new(ramp_color),
+        MaterialRef::Inline(MaterialDefinition::standard(ramp_color)),
         Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color: ramp_color,
@@ -168,7 +199,7 @@ fn setup_default_level(
             bevy_modal_editor::PrimitiveMarker {
                 shape: bevy_modal_editor::PrimitiveShape::Cube,
             },
-            PrimitiveMaterial::new(wall_color),
+            MaterialRef::Inline(MaterialDefinition::standard(wall_color)),
             Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: wall_color,
@@ -223,7 +254,7 @@ fn setup_default_level(
             bevy_modal_editor::PrimitiveMarker {
                 shape: bevy_modal_editor::PrimitiveShape::Cube,
             },
-            PrimitiveMaterial::new(obstacle_color),
+            MaterialRef::Inline(MaterialDefinition::standard(obstacle_color)),
             Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
             MeshMaterial3d(materials.add(StandardMaterial {
                 base_color: obstacle_color,
@@ -257,93 +288,110 @@ fn setup_default_level(
     info!("Default marble demo level created");
 }
 
-/// Draw gizmos for spawn points (upward arrow marker)
-fn draw_spawn_point_gizmos(
-    mut gizmos: Gizmos,
-    spawn_points: Query<&GlobalTransform, With<SpawnPoint>>,
-    editor_state: Res<EditorState>,
-) {
-    if !editor_state.gizmos_visible {
-        return;
-    }
-
+/// Draw a gizmo for a single spawn point (upward arrow marker).
+fn draw_spawn_point_gizmo(gizmos: &mut Gizmos, transform: &GlobalTransform) {
+    let pos = transform.translation();
     let color = Color::srgb(0.2, 0.8, 1.0);
-    for transform in spawn_points.iter() {
-        let pos = transform.translation();
-        let size = 0.4;
-        gizmos.circle(Isometry3d::new(pos, Quat::IDENTITY), size, color);
-        gizmos.circle(
-            Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
-            size,
-            color,
-        );
-        // Upward arrow
-        gizmos.line(pos, pos + Vec3::Y * 1.0, color);
-        gizmos.line(
-            pos + Vec3::Y * 1.0,
-            pos + Vec3::new(0.15, 0.7, 0.0),
-            color,
-        );
-        gizmos.line(
-            pos + Vec3::Y * 1.0,
-            pos + Vec3::new(-0.15, 0.7, 0.0),
-            color,
-        );
-    }
+    let size = 0.4;
+    gizmos.circle(Isometry3d::new(pos, Quat::IDENTITY), size, color);
+    gizmos.circle(
+        Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+        size,
+        color,
+    );
+    // Upward arrow
+    gizmos.line(pos, pos + Vec3::Y * 1.0, color);
+    gizmos.line(
+        pos + Vec3::Y * 1.0,
+        pos + Vec3::new(0.15, 0.7, 0.0),
+        color,
+    );
+    gizmos.line(
+        pos + Vec3::Y * 1.0,
+        pos + Vec3::new(-0.15, 0.7, 0.0),
+        color,
+    );
 }
 
-/// Draw gizmos for goal zones (green wireframe cube)
-fn draw_goal_zone_gizmos(
-    mut gizmos: Gizmos,
-    goal_zones: Query<&GlobalTransform, With<GoalZone>>,
-    editor_state: Res<EditorState>,
-) {
-    if !editor_state.gizmos_visible {
+/// Draw a gizmo for a single goal zone (green wireframe sphere).
+fn draw_goal_zone_gizmo(gizmos: &mut Gizmos, transform: &GlobalTransform) {
+    let pos = transform.translation();
+    let color = Color::srgb(0.2, 1.0, 0.3);
+    let size = 0.5;
+    gizmos.circle(Isometry3d::new(pos, Quat::IDENTITY), size, color);
+    gizmos.circle(
+        Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
+        size,
+        color,
+    );
+    gizmos.circle(
+        Isometry3d::new(pos, Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+        size,
+        color,
+    );
+}
+
+/// Regenerate runtime components for a spawn point after scene restore.
+fn regenerate_spawn_point(world: &mut World, entity: Entity) {
+    if world.get::<Visibility>(entity).is_some() {
         return;
     }
-
-    let color = Color::srgb(0.2, 1.0, 0.3);
-    for transform in goal_zones.iter() {
-        let pos = transform.translation();
-        let size = 0.5;
-        // Wireframe cube via 3 circles
-        gizmos.circle(Isometry3d::new(pos, Quat::IDENTITY), size, color);
-        gizmos.circle(
-            Isometry3d::new(pos, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
-            size,
-            color,
-        );
-        gizmos.circle(
-            Isometry3d::new(pos, Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
-            size,
-            color,
-        );
+    if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+        entity_mut.insert((Visibility::default(), Collider::sphere(0.3)));
     }
 }
 
-/// Regenerate runtime components for spawn points after scene restore
-fn regenerate_spawn_points(
-    mut commands: Commands,
-    query: Query<Entity, (With<SpawnPoint>, Without<Visibility>)>,
-) {
-    for entity in &query {
-        commands.entity(entity).insert((
-            Visibility::default(),
-            Collider::sphere(0.3),
-        ));
+/// Regenerate runtime components for a goal zone after scene restore.
+fn regenerate_goal_zone(world: &mut World, entity: Entity) {
+    if world.get::<Visibility>(entity).is_some() {
+        return;
     }
-}
-
-/// Regenerate runtime components for goal zones after scene restore
-fn regenerate_goal_zones(
-    mut commands: Commands,
-    query: Query<Entity, (With<GoalZone>, Without<Visibility>)>,
-) {
-    for entity in &query {
-        commands.entity(entity).insert((
+    if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+        entity_mut.insert((
             Visibility::default(),
             Collider::cuboid(1.0, 1.0, 1.0),
             Sensor,
         ));
+    }
+}
+
+/// Validate that exactly one spawn point exists.
+fn validate_spawn_points(world: &mut World) -> Vec<ValidationMessage> {
+    let mut q = world.query_filtered::<Entity, With<SpawnPoint>>();
+    let count = q.iter(world).count();
+    if count == 0 {
+        vec![ValidationMessage {
+            severity: ValidationSeverity::Error,
+            message: "No Spawn Point in scene. Add one for play mode.".into(),
+            entity: None,
+        }]
+    } else if count > 1 {
+        let entities: Vec<Entity> = q.iter(world).collect();
+        entities
+            .into_iter()
+            .skip(1)
+            .map(|e| ValidationMessage {
+                severity: ValidationSeverity::Warning,
+                message: "Extra Spawn Point — only the first is used.".into(),
+                entity: Some(e),
+            })
+            .collect()
+    } else {
+        vec![]
+    }
+}
+
+/// Validate that at least one goal zone exists.
+fn validate_goal_zones(world: &mut World) -> Vec<ValidationMessage> {
+    let mut q = world.query_filtered::<Entity, With<GoalZone>>();
+    let count = q.iter(world).count();
+    if count == 0 {
+        vec![ValidationMessage {
+            severity: ValidationSeverity::Warning,
+            message: "No Goal Zone in scene. Level cannot be completed.".into(),
+            entity: None,
+        }]
+    } else {
+        vec![]
     }
 }

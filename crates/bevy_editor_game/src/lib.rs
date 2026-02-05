@@ -11,8 +11,12 @@
 //! - Listen for lifecycle events (`GameStartedEvent`, etc.)
 //! - Register custom components for scene serialization
 
+use std::collections::HashMap;
+
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
+use bevy_egui::egui;
+use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
 // State
@@ -171,6 +175,26 @@ impl RegisterSceneComponentExt for App {
 }
 
 // ---------------------------------------------------------------------------
+// Custom entity registration — fn pointer types
+// ---------------------------------------------------------------------------
+
+/// Inspector widget function for a custom entity type.
+/// Called with exclusive world access, the entity, and the egui UI.
+/// Returns `true` if any property was changed.
+/// Should early-return `false` if the entity doesn't have the relevant component.
+pub type InspectorWidgetFn = fn(&mut World, Entity, &mut egui::Ui) -> bool;
+
+/// Gizmo draw function for a custom entity type.
+/// Called once per matching entity with the entity's global transform.
+pub type GizmoDrawFn = fn(&mut Gizmos, &GlobalTransform);
+
+/// Regenerate function for a custom entity type.
+/// Called with exclusive world access after scene restore.
+/// Should check internally if regeneration is needed
+/// (e.g., `world.get::<Visibility>(entity).is_none()`).
+pub type RegenerateFn = fn(&mut World, Entity);
+
+// ---------------------------------------------------------------------------
 // Custom entity registration
 // ---------------------------------------------------------------------------
 
@@ -192,12 +216,27 @@ pub struct CustomEntityType {
     /// The function should add: marker component(s), `Transform`, `Visibility`,
     /// and any physics components (`Collider`, etc.).
     pub spawn: fn(&mut Commands, Vec3, Quat) -> Entity,
+    /// Optional custom inspector widget for this entity type.
+    pub draw_inspector: Option<InspectorWidgetFn>,
+    /// Optional gizmo drawing function for this entity type.
+    pub draw_gizmo: Option<GizmoDrawFn>,
+    /// Optional regeneration function called after scene restore.
+    pub regenerate: Option<RegenerateFn>,
+}
+
+/// A registry entry pairing user-provided `CustomEntityType` data with
+/// auto-generated type information.
+pub struct CustomEntityEntry {
+    /// The user-provided entity type configuration.
+    pub entity_type: CustomEntityType,
+    /// Auto-populated function that checks if a given entity has the marker component.
+    pub has_component: fn(&World, Entity) -> bool,
 }
 
 /// Registry of game-defined custom entity types that can be spawned from the editor.
 #[derive(Resource, Default)]
 pub struct CustomEntityRegistry {
-    pub types: Vec<CustomEntityType>,
+    pub entries: Vec<CustomEntityEntry>,
 }
 
 /// Extension trait for registering custom entity types with the editor.
@@ -226,6 +265,9 @@ pub struct CustomEntityRegistry {
 ///                     Visibility::default(),
 ///                 )).id()
 ///             },
+///             draw_inspector: None,
+///             draw_gizmo: None,
+///             regenerate: None,
 ///         })
 ///         .run();
 /// }
@@ -237,6 +279,11 @@ pub trait RegisterCustomEntityExt {
     ) -> &mut Self;
 }
 
+/// Monomorphized helper that checks whether a given entity has component `T`.
+fn has_component<T: Component>(world: &World, entity: Entity) -> bool {
+    world.get::<T>(entity).is_some()
+}
+
 impl RegisterCustomEntityExt for App {
     fn register_custom_entity<T: Component + GetTypeRegistration>(
         &mut self,
@@ -245,11 +292,286 @@ impl RegisterCustomEntityExt for App {
         // Register component for scene serialization
         self.register_scene_component::<T>();
 
-        // Add to custom entity registry
+        // Add to custom entity registry with auto-populated has_component
+        let entry = CustomEntityEntry {
+            entity_type,
+            has_component: has_component::<T>,
+        };
         let mut registry = self
             .world_mut()
             .get_resource_or_insert_with(CustomEntityRegistry::default);
-        registry.types.push(entity_type);
+        registry.entries.push(entry);
         self
     }
+}
+
+// ---------------------------------------------------------------------------
+// Material system types
+// ---------------------------------------------------------------------------
+
+/// Serializable alpha mode (mirrors Bevy's AlphaMode without the non-serializable variants)
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect, Default)]
+pub enum AlphaModeValue {
+    #[default]
+    Opaque,
+    Mask,
+    Blend,
+    AlphaToCoverage,
+}
+
+impl AlphaModeValue {
+    pub fn to_alpha_mode(self, cutoff: f32) -> AlphaMode {
+        match self {
+            AlphaModeValue::Opaque => AlphaMode::Opaque,
+            AlphaModeValue::Mask => AlphaMode::Mask(cutoff),
+            AlphaModeValue::Blend => AlphaMode::Blend,
+            AlphaModeValue::AlphaToCoverage => AlphaMode::AlphaToCoverage,
+        }
+    }
+
+    pub fn from_alpha_mode(mode: &AlphaMode) -> Self {
+        match mode {
+            AlphaMode::Opaque => AlphaModeValue::Opaque,
+            AlphaMode::Mask(_) => AlphaModeValue::Mask,
+            AlphaMode::Blend => AlphaModeValue::Blend,
+            AlphaMode::AlphaToCoverage => AlphaModeValue::AlphaToCoverage,
+            _ => AlphaModeValue::Opaque,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            AlphaModeValue::Opaque => "Opaque",
+            AlphaModeValue::Mask => "Mask",
+            AlphaModeValue::Blend => "Blend",
+            AlphaModeValue::AlphaToCoverage => "Alpha to Coverage",
+        }
+    }
+
+    pub const ALL: [AlphaModeValue; 4] = [
+        AlphaModeValue::Opaque,
+        AlphaModeValue::Mask,
+        AlphaModeValue::Blend,
+        AlphaModeValue::AlphaToCoverage,
+    ];
+}
+
+/// Base PBR material properties that map to Bevy's StandardMaterial.
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct BaseMaterialProps {
+    pub base_color: Color,
+    pub emissive: LinearRgba,
+    pub metallic: f32,
+    pub perceptual_roughness: f32,
+    pub reflectance: f32,
+    pub alpha_cutoff: f32,
+    pub double_sided: bool,
+    pub unlit: bool,
+    pub alpha_mode: AlphaModeValue,
+}
+
+impl Default for BaseMaterialProps {
+    fn default() -> Self {
+        Self {
+            base_color: Color::srgb(0.5, 0.5, 0.5),
+            emissive: LinearRgba::BLACK,
+            metallic: 0.0,
+            perceptual_roughness: 0.5,
+            reflectance: 0.5,
+            alpha_cutoff: 0.5,
+            double_sided: false,
+            unlit: false,
+            alpha_mode: AlphaModeValue::Opaque,
+        }
+    }
+}
+
+impl BaseMaterialProps {
+    /// Create from a Bevy StandardMaterial
+    pub fn from_standard_material(mat: &StandardMaterial) -> Self {
+        let alpha_mode = AlphaModeValue::from_alpha_mode(&mat.alpha_mode);
+        let alpha_cutoff = match mat.alpha_mode {
+            AlphaMode::Mask(c) => c,
+            _ => 0.5,
+        };
+        Self {
+            base_color: mat.base_color,
+            emissive: mat.emissive,
+            metallic: mat.metallic,
+            perceptual_roughness: mat.perceptual_roughness,
+            reflectance: mat.reflectance,
+            alpha_cutoff,
+            double_sided: mat.double_sided,
+            unlit: mat.unlit,
+            alpha_mode,
+        }
+    }
+
+    /// Convert to a Bevy StandardMaterial
+    pub fn to_standard_material(&self) -> StandardMaterial {
+        StandardMaterial {
+            base_color: self.base_color,
+            emissive: self.emissive,
+            metallic: self.metallic,
+            perceptual_roughness: self.perceptual_roughness,
+            reflectance: self.reflectance,
+            alpha_mode: self.alpha_mode.to_alpha_mode(self.alpha_cutoff),
+            double_sided: self.double_sided,
+            unlit: self.unlit,
+            ..default()
+        }
+    }
+
+    /// Apply these properties to an existing StandardMaterial
+    pub fn apply_to(&self, mat: &mut StandardMaterial) {
+        mat.base_color = self.base_color;
+        mat.emissive = self.emissive;
+        mat.metallic = self.metallic;
+        mat.perceptual_roughness = self.perceptual_roughness;
+        mat.reflectance = self.reflectance;
+        mat.alpha_mode = self.alpha_mode.to_alpha_mode(self.alpha_cutoff);
+        mat.double_sided = self.double_sided;
+        mat.unlit = self.unlit;
+    }
+}
+
+/// RON-serialized extension data for a material extension type.
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct MaterialExtensionData {
+    /// The registered type name (e.g. "grid", "checkerboard")
+    pub type_name: String,
+    /// RON-serialized extension properties
+    pub data: String,
+}
+
+/// A complete material definition: base PBR properties + optional extension.
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct MaterialDefinition {
+    pub base: BaseMaterialProps,
+    pub extension: Option<MaterialExtensionData>,
+}
+
+impl MaterialDefinition {
+    /// Create a standard (no extension) material with the given color
+    pub fn standard(color: Color) -> Self {
+        Self {
+            base: BaseMaterialProps {
+                base_color: color,
+                ..default()
+            },
+            extension: None,
+        }
+    }
+
+    /// Create a material with a named extension
+    pub fn with_extension(base: BaseMaterialProps, type_name: &str, data: String) -> Self {
+        Self {
+            base,
+            extension: Some(MaterialExtensionData {
+                type_name: type_name.to_string(),
+                data,
+            }),
+        }
+    }
+}
+
+/// Component that references a material — either by library name or inline definition.
+///
+/// This is the single serializable component for materials on scene entities.
+/// It replaces the old `PrimitiveMaterial` + `MaterialType` pair.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Reflect)]
+#[reflect(Component)]
+pub enum MaterialRef {
+    /// References a named material in the MaterialLibrary
+    Library(String),
+    /// Inline material definition stored directly on the entity
+    Inline(MaterialDefinition),
+}
+
+impl Default for MaterialRef {
+    fn default() -> Self {
+        MaterialRef::Inline(MaterialDefinition {
+            base: BaseMaterialProps::default(),
+            extension: None,
+        })
+    }
+}
+
+/// A named collection of shared material definitions.
+///
+/// Saved/loaded as part of the scene metadata sidecar file.
+#[derive(Resource, Serialize, Deserialize, Clone, Debug, Default, Reflect)]
+pub struct MaterialLibrary {
+    pub materials: HashMap<String, MaterialDefinition>,
+}
+
+// ---------------------------------------------------------------------------
+// Validation system
+// ---------------------------------------------------------------------------
+
+/// Severity level for a validation message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValidationSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+/// A single validation message produced by a validation rule.
+#[derive(Debug, Clone)]
+pub struct ValidationMessage {
+    pub severity: ValidationSeverity,
+    pub message: String,
+    pub entity: Option<Entity>,
+}
+
+/// A named validation rule with a function that checks the world.
+pub struct ValidationRule {
+    pub name: &'static str,
+    pub validate: fn(&mut World) -> Vec<ValidationMessage>,
+}
+
+/// Registry of validation rules registered by game code.
+#[derive(Resource, Default)]
+pub struct ValidationRegistry {
+    pub rules: Vec<ValidationRule>,
+}
+
+/// Extension trait for registering validation rules.
+pub trait RegisterValidationExt {
+    fn register_validation(&mut self, rule: ValidationRule) -> &mut Self;
+}
+
+impl RegisterValidationExt for App {
+    fn register_validation(&mut self, rule: ValidationRule) -> &mut Self {
+        let mut registry = self
+            .world_mut()
+            .get_resource_or_insert_with(ValidationRegistry::default);
+        registry.rules.push(rule);
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Asset references
+// ---------------------------------------------------------------------------
+
+/// The type of asset referenced by an `AssetRef`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Reflect)]
+pub enum AssetType {
+    Mesh,
+    Audio,
+    Texture,
+    Scene,
+}
+
+/// Component that references an external asset by path.
+///
+/// The editor's regeneration system will automatically load Scene-type assets
+/// and insert a `SceneRoot` when the entity is restored from a snapshot.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Reflect)]
+#[reflect(Component)]
+pub struct AssetRef {
+    pub path: String,
+    pub asset_type: AssetType,
 }

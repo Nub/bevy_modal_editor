@@ -15,11 +15,15 @@ pub use serialization::*;
 use avian3d::prelude::*;
 use bevy::ecs::entity::EntityHashMap;
 use bevy::light::FogVolume;
-use bevy::pbr::ExtendedMaterial;
 use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
-use bevy_editor_game::{CustomEntityRegistry, SceneComponentRegistry};
-use bevy_grid_shader::GridMaterial;
+use bevy_editor_game::{
+    AssetRef, BaseMaterialProps, CustomEntityRegistry, MaterialDefinition,
+    MaterialExtensionData, MaterialLibrary, MaterialRef, SceneComponentRegistry,
+    ValidationRegistry,
+};
+
+use crate::materials::{MaterialTypeRegistry, resolve_material_ref};
 use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
 use bevy_spline_3d::distribution::{
     DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
@@ -43,7 +47,7 @@ pub struct SceneProceduralObject;
 /// Build a DynamicScene from the world with editor-relevant components.
 /// This is the single source of truth for which components are included in snapshots and saves.
 pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>) -> DynamicScene {
-    let mut builder = DynamicSceneBuilder::from_world(world)
+    let builder = DynamicSceneBuilder::from_world(world)
         .deny_all()
         // Core
         .allow_component::<SceneEntity>()
@@ -54,6 +58,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<Children>()
         // Primitives
         .allow_component::<PrimitiveMarker>()
+        .allow_component::<MaterialRef>()
+        // Backwards compat: still extract old types if present on legacy entities
         .allow_component::<PrimitiveMaterial>()
         .allow_component::<MaterialType>()
         // Groups
@@ -80,6 +86,9 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<SceneSource>()
         .allow_component::<RecursiveColliderConstructor>();
 
+    // Asset references
+    let mut builder = builder.allow_component::<AssetRef>();
+
     // Apply game-registered components
     if let Some(registry) = world.get_resource::<SceneComponentRegistry>() {
         builder = registry.apply(builder);
@@ -91,64 +100,58 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
 /// Regenerate runtime components (meshes, materials, colliders, lights, fog volumes)
 /// for entities loaded from a scene snapshot or file.
 pub fn regenerate_runtime_components(world: &mut World) {
-    // Handle primitives - collect entity, shape, material type, and optional custom color
-    let mut primitives_to_update: Vec<(Entity, PrimitiveShape, MaterialType, Option<Color>)> =
-        Vec::new();
+    // Migrate legacy entities: convert PrimitiveMaterial + MaterialType → MaterialRef
+    migrate_legacy_materials(world);
+
+    // Handle primitives with MaterialRef
+    let mut primitives_to_update: Vec<(Entity, PrimitiveShape, MaterialRef)> = Vec::new();
     {
         let mut query = world.query_filtered::<(
             Entity,
             &PrimitiveMarker,
-            Option<&MaterialType>,
-            Option<&PrimitiveMaterial>,
+            Option<&MaterialRef>,
         ), Without<Mesh3d>>();
-        for (entity, marker, mat_type, prim_mat) in query.iter(world) {
-            primitives_to_update.push((
-                entity,
-                marker.shape,
-                mat_type.copied().unwrap_or_default(),
-                prim_mat.map(|m| m.base_color),
-            ));
+        for (entity, marker, mat_ref) in query.iter(world) {
+            let mat_ref = mat_ref.cloned().unwrap_or_else(|| {
+                // Fallback for entities with no MaterialRef at all
+                MaterialRef::Inline(MaterialDefinition::standard(marker.shape.default_color()))
+            });
+            primitives_to_update.push((entity, marker.shape, mat_ref));
         }
     }
 
-    for (entity, shape, mat_type, custom_color) in primitives_to_update {
+    // Read the library and registry (cloned to avoid borrow issues)
+    let library = world
+        .get_resource::<MaterialLibrary>()
+        .cloned()
+        .unwrap_or_default();
+    let registry_types: Vec<_> = world
+        .get_resource::<MaterialTypeRegistry>()
+        .map(|r| {
+            r.types
+                .iter()
+                .map(|e| (e.type_name.to_string(), e.apply as fn(&mut World, Entity, &BaseMaterialProps, Option<&str>)))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    for (entity, shape, mat_ref) in primitives_to_update {
         let mesh_handle = world.resource_mut::<Assets<Mesh>>().add(shape.create_mesh());
         let collider = shape.create_collider();
-        let base_color = custom_color.unwrap_or_else(|| shape.default_color());
-        let base_material = StandardMaterial {
-            base_color,
-            ..default()
-        };
 
-        match mat_type {
-            MaterialType::Standard => {
-                let material_handle = world
-                    .resource_mut::<Assets<StandardMaterial>>()
-                    .add(base_material);
-                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                    entity_mut.insert((
-                        Mesh3d(mesh_handle),
-                        collider,
-                        MeshMaterial3d(material_handle),
-                    ));
-                }
-            }
-            MaterialType::Grid => {
-                let grid_mat = ExtendedMaterial {
-                    base: base_material,
-                    extension: GridMaterial::default(),
-                };
-                let material_handle = world.resource_mut::<Assets<GridMat>>().add(grid_mat);
-                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                    entity_mut.insert((
-                        Mesh3d(mesh_handle),
-                        collider,
-                        MeshMaterial3d(material_handle),
-                    ));
-                }
-            }
+        // Insert mesh and collider
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert((Mesh3d(mesh_handle), collider));
+        }
+
+        // Resolve and apply material
+        if let Some(def) = resolve_material_ref(&mat_ref, &library) {
+            apply_material_def_from_fns(world, entity, def, &registry_types);
         }
     }
+
+    // Handle blockout shapes with MaterialRef
+    regenerate_blockout_materials(world, &library, &registry_types);
 
     // Handle point lights
     let mut lights_to_update: Vec<(Entity, SceneLightMarker)> = Vec::new();
@@ -244,6 +247,161 @@ pub fn regenerate_runtime_components(world: &mut World) {
         }
     }
 
+    // Regenerate custom entity types
+    if let Some(registry) = world.get_resource::<CustomEntityRegistry>() {
+        let regen_entries: Vec<(fn(&World, Entity) -> bool, bevy_editor_game::RegenerateFn)> =
+            registry
+                .entries
+                .iter()
+                .filter_map(|e| {
+                    e.entity_type
+                        .regenerate
+                        .map(|r| (e.has_component, r))
+                })
+                .collect();
+        for (has_comp, regen_fn) in regen_entries {
+            let entities: Vec<Entity> = {
+                let mut q = world.query::<Entity>();
+                q.iter(world).filter(|&e| has_comp(world, e)).collect()
+            };
+            for entity in entities {
+                regen_fn(world, entity);
+            }
+        }
+    }
+
+    // Regenerate AssetRef entities (load Scene assets)
+    let asset_refs_to_load: Vec<(Entity, AssetRef)> = {
+        let mut query =
+            world.query_filtered::<(Entity, &AssetRef), Without<SceneRoot>>();
+        query
+            .iter(world)
+            .filter(|(_, ar)| ar.asset_type == bevy_editor_game::AssetType::Scene)
+            .map(|(e, ar)| (e, ar.clone()))
+            .collect()
+    };
+    for (entity, asset_ref) in asset_refs_to_load {
+        let handle: Handle<Scene> =
+            world.resource::<AssetServer>().load(&asset_ref.path);
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert(SceneRoot(handle));
+        }
+    }
+}
+
+/// Type-erased apply function signature for material entries
+type ApplyFn = fn(&mut World, Entity, &BaseMaterialProps, Option<&str>);
+
+/// Apply a material definition to an entity using pre-collected function pointers.
+/// This avoids borrowing the MaterialTypeRegistry from the World during iteration.
+fn apply_material_def_from_fns(
+    world: &mut World,
+    entity: Entity,
+    def: &MaterialDefinition,
+    registry_fns: &[(String, ApplyFn)],
+) {
+    match &def.extension {
+        None => {
+            // Standard material
+            let mat = def.base.to_standard_material();
+            let handle = world
+                .resource_mut::<Assets<StandardMaterial>>()
+                .add(mat);
+            if let Ok(mut e) = world.get_entity_mut(entity) {
+                e.insert(MeshMaterial3d(handle));
+            }
+        }
+        Some(ext) => {
+            if let Some((_, apply_fn)) = registry_fns.iter().find(|(name, _)| name == &ext.type_name)
+            {
+                apply_fn(world, entity, &def.base, Some(&ext.data));
+            } else {
+                warn!(
+                    "Unknown material extension type '{}', falling back to standard",
+                    ext.type_name
+                );
+                let mat = def.base.to_standard_material();
+                let handle = world
+                    .resource_mut::<Assets<StandardMaterial>>()
+                    .add(mat);
+                if let Ok(mut e) = world.get_entity_mut(entity) {
+                    e.insert(MeshMaterial3d(handle));
+                }
+            }
+        }
+    }
+}
+
+/// Migrate legacy PrimitiveMaterial + MaterialType to MaterialRef.
+/// Entities that have old components but no MaterialRef get one created.
+fn migrate_legacy_materials(world: &mut World) {
+    let mut to_migrate: Vec<(Entity, Color, MaterialType)> = Vec::new();
+    {
+        let mut query = world.query_filtered::<(
+            Entity,
+            Option<&PrimitiveMaterial>,
+            Option<&MaterialType>,
+            Option<&PrimitiveMarker>,
+        ), Without<MaterialRef>>();
+        for (entity, prim_mat, mat_type, prim_marker) in query.iter(world) {
+            // Only migrate entities that have at least one old component
+            if prim_mat.is_some() || mat_type.is_some() {
+                let color = prim_mat
+                    .map(|m| m.base_color)
+                    .or_else(|| prim_marker.map(|m| m.shape.default_color()))
+                    .unwrap_or(Color::srgb(0.5, 0.5, 0.5));
+                let mat_type = mat_type.copied().unwrap_or_default();
+                to_migrate.push((entity, color, mat_type));
+            }
+        }
+    }
+
+    let grid_default_data =
+        ron::to_string(&crate::materials::grid::GridMaterialProps::default()).unwrap_or_default();
+
+    for (entity, color, mat_type) in to_migrate {
+        let mat_ref = match mat_type {
+            MaterialType::Standard => MaterialRef::Inline(MaterialDefinition::standard(color)),
+            MaterialType::Grid => MaterialRef::Inline(MaterialDefinition::with_extension(
+                BaseMaterialProps {
+                    base_color: color,
+                    ..default()
+                },
+                "grid",
+                grid_default_data.clone(),
+            )),
+        };
+        if let Ok(mut e) = world.get_entity_mut(entity) {
+            e.insert(mat_ref);
+        }
+    }
+}
+
+/// Regenerate materials for blockout shapes that have MaterialRef but no rendered material.
+fn regenerate_blockout_materials(
+    world: &mut World,
+    library: &MaterialLibrary,
+    registry_fns: &[(String, ApplyFn)],
+) {
+    // Find blockout entities without a mesh material that have MaterialRef
+    let mut blockouts: Vec<(Entity, MaterialRef)> = Vec::new();
+    {
+        // Blockout shapes have marker components but may lack MaterialRef
+        // Check stairs, ramps, arches, l-shapes that have Mesh3d but no material yet
+        let mut query = world.query_filtered::<(Entity, &MaterialRef), (
+            Without<MeshMaterial3d<StandardMaterial>>,
+            With<Mesh3d>,
+        )>();
+        for (entity, mat_ref) in query.iter(world) {
+            blockouts.push((entity, mat_ref.clone()));
+        }
+    }
+
+    for (entity, mat_ref) in blockouts {
+        if let Some(def) = resolve_material_ref(&mat_ref, library) {
+            apply_material_def_from_fns(world, entity, def, registry_fns);
+        }
+    }
 }
 
 /// Restore the scene from serialized RON data.
@@ -335,6 +493,7 @@ impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SceneComponentRegistry>()
             .init_resource::<CustomEntityRegistry>()
+            .init_resource::<ValidationRegistry>()
             .add_plugins(PrimitivesPlugin)
             .add_plugins(SerializationPlugin)
             .add_plugins(GltfSourcePlugin)
@@ -367,9 +526,18 @@ impl Plugin for ScenePlugin {
             .register_type::<DistributedInstance>()
             // Fog volume types
             .register_type::<FogVolumeMarker>()
-            // Material types
+            // Material types (new system)
+            .register_type::<MaterialRef>()
+            .register_type::<MaterialDefinition>()
+            .register_type::<BaseMaterialProps>()
+            .register_type::<MaterialExtensionData>()
+            .register_type::<bevy_editor_game::AlphaModeValue>()
+            // Legacy material types (backwards compat)
             .register_type::<MaterialType>()
-            .register_type::<PrimitiveMaterial>();
+            .register_type::<PrimitiveMaterial>()
+            // Asset reference types
+            .register_type::<AssetRef>()
+            .register_type::<bevy_editor_game::AssetType>();
     }
 }
 
@@ -398,7 +566,7 @@ fn handle_spawn_demo_scene(
             SceneEntity,
             Name::new("Ground"),
             PrimitiveMarker { shape: PrimitiveShape::Cube },
-            PrimitiveMaterial::new(ground_color),
+            MaterialRef::Inline(MaterialDefinition::standard(ground_color)),
             Mesh3d(ground_mesh),
             MeshMaterial3d(ground_material),
             Transform::from_translation(Vec3::new(0.0, -0.5, 0.0))
@@ -418,7 +586,7 @@ fn handle_spawn_demo_scene(
             SceneEntity,
             Name::new("Central Pillar"),
             PrimitiveMarker { shape: PrimitiveShape::Cylinder },
-            PrimitiveMaterial::new(pillar_color),
+            MaterialRef::Inline(MaterialDefinition::standard(pillar_color)),
             Mesh3d(pillar_mesh.clone()),
             MeshMaterial3d(pillar_material.clone()),
             Transform::from_translation(Vec3::new(0.0, 2.0, 0.0))
@@ -433,7 +601,7 @@ fn handle_spawn_demo_scene(
                 SceneEntity,
                 Name::new("Corner Pillar"),
                 PrimitiveMarker { shape: PrimitiveShape::Cylinder },
-                PrimitiveMaterial::new(pillar_color),
+                MaterialRef::Inline(MaterialDefinition::standard(pillar_color)),
                 Mesh3d(pillar_mesh.clone()),
                 MeshMaterial3d(pillar_material.clone()),
                 Transform::from_translation(Vec3::new(x, 1.5, z))
@@ -455,7 +623,7 @@ fn handle_spawn_demo_scene(
                 SceneEntity,
                 Name::new(format!("Bouncy Sphere {}", i + 1)),
                 PrimitiveMarker { shape: PrimitiveShape::Sphere },
-                PrimitiveMaterial::new(sphere_color),
+                MaterialRef::Inline(MaterialDefinition::standard(sphere_color)),
                 Mesh3d(sphere_mesh.clone()),
                 MeshMaterial3d(sphere_material.clone()),
                 Transform::from_translation(Vec3::new(*x, *y, *z)),
@@ -475,7 +643,7 @@ fn handle_spawn_demo_scene(
             SceneEntity,
             Name::new("Falling Cube"),
             PrimitiveMarker { shape: PrimitiveShape::Cube },
-            PrimitiveMaterial::new(cube_color),
+            MaterialRef::Inline(MaterialDefinition::standard(cube_color)),
             Mesh3d(cube_mesh),
             MeshMaterial3d(cube_material),
             Transform::from_translation(Vec3::new(-3.0, 8.0, 1.0))

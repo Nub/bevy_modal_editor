@@ -1,22 +1,26 @@
-//! Material editor panel for editing StandardMaterial and GridMaterial properties on selected entities.
+//! Material editor panel for editing materials on selected entities.
+//!
+//! Reads and writes the `MaterialRef` component directly, which fixes the
+//! desync where UI changes were lost on save/load. The `MaterialTypeRegistry`
+//! provides extension-specific UI and apply functions.
 
-use bevy::pbr::{ExtendedMaterial, StandardMaterial};
+use bevy::pbr::StandardMaterial;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
-use bevy_grid_shader::{GridAxes, GridMaterial};
+use bevy_editor_game::{
+    AlphaModeValue, BaseMaterialProps, MaterialDefinition, MaterialExtensionData, MaterialLibrary,
+    MaterialRef,
+};
 
 use crate::editor::{EditorMode, EditorState};
-use crate::scene::MaterialType;
+use crate::materials::{apply_material_def_standalone, resolve_material_ref, GridMat, MaterialTypeRegistry};
 use crate::selection::Selected;
 use crate::ui::theme::{colors, panel, panel_frame};
 use crate::utils::should_process_input;
 
-/// Type alias for the extended grid material
-pub type GridMat = ExtendedMaterial<StandardMaterial, GridMaterial>;
-
 /// Resource storing copied material data for paste operations
 #[derive(Resource, Default)]
-pub struct CopiedMaterial(pub Option<StandardMaterialData>);
+pub struct CopiedMaterial(pub Option<MaterialDefinition>);
 
 pub struct MaterialEditorPlugin;
 
@@ -35,51 +39,40 @@ fn handle_material_copy_paste(
     editor_state: Res<EditorState>,
     mut contexts: EguiContexts,
     mut copied_material: ResMut<CopiedMaterial>,
-    selected_std: Query<&MeshMaterial3d<StandardMaterial>, With<Selected>>,
-    selected_grid: Query<&MeshMaterial3d<GridMat>, With<Selected>>,
-    mut std_materials: ResMut<Assets<StandardMaterial>>,
-    grid_materials: Res<Assets<GridMat>>,
+    selected_refs: Query<&MaterialRef, With<Selected>>,
+    library: Res<MaterialLibrary>,
+    mut commands: Commands,
+    selected_entities: Query<Entity, With<Selected>>,
 ) {
     if !should_process_input(&editor_state, &mut contexts) {
         return;
     }
 
-    // Only handle Y/P in Material mode
     if *mode.get() != EditorMode::Material {
         return;
     }
 
     // Y to copy material from first selected entity
     if keyboard.just_pressed(KeyCode::KeyY) {
-        // Try StandardMaterial first
-        if let Some(mat_handle) = selected_std.iter().next() {
-            if let Some(material) = std_materials.get(&mat_handle.0) {
-                copied_material.0 = Some(StandardMaterialData::from_material(material));
+        if let Some(mat_ref) = selected_refs.iter().next() {
+            if let Some(def) = resolve_material_ref(mat_ref, &library) {
+                copied_material.0 = Some(def.clone());
                 info!("Copied material");
-                return;
-            }
-        }
-        // Try GridMaterial
-        if let Some(mat_handle) = selected_grid.iter().next() {
-            if let Some(material) = grid_materials.get(&mat_handle.0) {
-                copied_material.0 = Some(StandardMaterialData::from_material(&material.base));
-                info!("Copied material (base properties)");
             }
         }
         return;
     }
 
-    // P to paste material to all selected entities (only base properties)
+    // P to paste material to all selected entities
     if keyboard.just_pressed(KeyCode::KeyP) {
-        if let Some(ref data) = copied_material.0 {
+        if let Some(ref def) = copied_material.0 {
             let mut count = 0;
-            for mat_handle in selected_std.iter() {
-                if let Some(material) = std_materials.get_mut(&mat_handle.0) {
-                    data.apply_to_material(material);
-                    count += 1;
-                }
+            for entity in selected_entities.iter() {
+                commands
+                    .entity(entity)
+                    .insert(MaterialRef::Inline(def.clone()));
+                count += 1;
             }
-            // Note: For grid materials, we'd need mutable access which requires more complex handling
             if count > 0 {
                 info!("Pasted material to {} entities", count);
             }
@@ -89,236 +82,62 @@ fn handle_material_copy_paste(
     }
 }
 
-/// Extracted StandardMaterial data for UI editing
-#[derive(Clone)]
-pub struct StandardMaterialData {
-    base_color: [f32; 4],
-    emissive: [f32; 4],
-    metallic: f32,
-    perceptual_roughness: f32,
-    reflectance: f32,
-    alpha_mode: AlphaModeSelection,
-    alpha_cutoff: f32,
-    double_sided: bool,
-    unlit: bool,
-}
-
-/// Extracted GridMaterial data for UI editing
-#[derive(Clone)]
-pub struct GridMaterialData {
-    line_color: [f32; 4],
-    major_line_color: [f32; 4],
-    line_width: f32,
-    major_line_width: f32,
-    grid_scale: f32,
-    major_line_every: u32,
-    axes_xz: bool,
-    axes_xy: bool,
-    axes_yz: bool,
-    fade_distance: f32,
-    fade_strength: f32,
-}
-
-impl GridMaterialData {
-    fn from_grid_material(mat: &GridMaterial) -> Self {
-        let axes = mat.uniform.axes;
-        Self {
-            line_color: [
-                mat.uniform.line_color.red,
-                mat.uniform.line_color.green,
-                mat.uniform.line_color.blue,
-                mat.uniform.line_color.alpha,
-            ],
-            major_line_color: [
-                mat.uniform.major_line_color.red,
-                mat.uniform.major_line_color.green,
-                mat.uniform.major_line_color.blue,
-                mat.uniform.major_line_color.alpha,
-            ],
-            line_width: mat.uniform.line_width,
-            major_line_width: mat.uniform.major_line_width,
-            grid_scale: mat.uniform.grid_scale,
-            major_line_every: mat.uniform.major_line_every,
-            axes_xz: (axes & GridAxes::XZ.bits()) != 0,
-            axes_xy: (axes & GridAxes::XY.bits()) != 0,
-            axes_yz: (axes & GridAxes::YZ.bits()) != 0,
-            fade_distance: mat.uniform.fade_distance,
-            fade_strength: mat.uniform.fade_strength,
-        }
-    }
-
-    fn apply_to_grid_material(&self, mat: &mut GridMaterial) {
-        mat.uniform.line_color = LinearRgba::new(
-            self.line_color[0],
-            self.line_color[1],
-            self.line_color[2],
-            self.line_color[3],
-        );
-        mat.uniform.major_line_color = LinearRgba::new(
-            self.major_line_color[0],
-            self.major_line_color[1],
-            self.major_line_color[2],
-            self.major_line_color[3],
-        );
-        mat.uniform.line_width = self.line_width;
-        mat.uniform.major_line_width = self.major_line_width;
-        mat.uniform.grid_scale = self.grid_scale;
-        mat.uniform.major_line_every = self.major_line_every;
-
-        let mut axes = 0u32;
-        if self.axes_xz { axes |= GridAxes::XZ.bits(); }
-        if self.axes_xy { axes |= GridAxes::XY.bits(); }
-        if self.axes_yz { axes |= GridAxes::YZ.bits(); }
-        mat.uniform.axes = axes;
-
-        mat.uniform.fade_distance = self.fade_distance;
-        mat.uniform.fade_strength = self.fade_strength;
-    }
-}
-
-impl Default for GridMaterialData {
-    fn default() -> Self {
-        Self {
-            line_color: [0.3, 0.3, 0.3, 1.0],
-            major_line_color: [0.5, 0.5, 0.5, 1.0],
-            line_width: 1.0,
-            major_line_width: 2.0,
-            grid_scale: 1.0,
-            major_line_every: 5,
-            axes_xz: true,
-            axes_xy: false,
-            axes_yz: false,
-            fade_distance: 50.0,
-            fade_strength: 1.0,
-        }
-    }
-}
-
-/// Simplified alpha mode for UI selection
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AlphaModeSelection {
-    Opaque,
-    Mask,
-    Blend,
-    AlphaToCoverage,
-}
-
-impl AlphaModeSelection {
-    fn from_alpha_mode(mode: &AlphaMode) -> Self {
-        match mode {
-            AlphaMode::Opaque => AlphaModeSelection::Opaque,
-            AlphaMode::Mask(_) => AlphaModeSelection::Mask,
-            AlphaMode::Blend => AlphaModeSelection::Blend,
-            AlphaMode::AlphaToCoverage => AlphaModeSelection::AlphaToCoverage,
-            _ => AlphaModeSelection::Opaque,
-        }
-    }
-
-    fn to_alpha_mode(self, cutoff: f32) -> AlphaMode {
-        match self {
-            AlphaModeSelection::Opaque => AlphaMode::Opaque,
-            AlphaModeSelection::Mask => AlphaMode::Mask(cutoff),
-            AlphaModeSelection::Blend => AlphaMode::Blend,
-            AlphaModeSelection::AlphaToCoverage => AlphaMode::AlphaToCoverage,
-        }
-    }
-
-    fn label(&self) -> &'static str {
-        match self {
-            AlphaModeSelection::Opaque => "Opaque",
-            AlphaModeSelection::Mask => "Mask",
-            AlphaModeSelection::Blend => "Blend",
-            AlphaModeSelection::AlphaToCoverage => "Alpha to Coverage",
-        }
-    }
-
-    const ALL: [AlphaModeSelection; 4] = [
-        AlphaModeSelection::Opaque,
-        AlphaModeSelection::Mask,
-        AlphaModeSelection::Blend,
-        AlphaModeSelection::AlphaToCoverage,
-    ];
-}
-
-impl StandardMaterialData {
-    fn from_material(mat: &StandardMaterial) -> Self {
-        let base = mat.base_color.to_srgba();
-        let emissive = mat.emissive.to_vec4();
-        let alpha_mode = AlphaModeSelection::from_alpha_mode(&mat.alpha_mode);
-        let alpha_cutoff = match mat.alpha_mode {
-            AlphaMode::Mask(c) => c,
-            _ => 0.5,
-        };
-
-        Self {
-            base_color: [base.red, base.green, base.blue, base.alpha],
-            emissive: [emissive.x, emissive.y, emissive.z, emissive.w],
-            metallic: mat.metallic,
-            perceptual_roughness: mat.perceptual_roughness,
-            reflectance: mat.reflectance,
-            alpha_mode,
-            alpha_cutoff,
-            double_sided: mat.double_sided,
-            unlit: mat.unlit,
-        }
-    }
-
-    fn apply_to_material(&self, mat: &mut StandardMaterial) {
-        mat.base_color = Color::srgba(
-            self.base_color[0],
-            self.base_color[1],
-            self.base_color[2],
-            self.base_color[3],
-        );
-        mat.emissive = LinearRgba::new(
-            self.emissive[0],
-            self.emissive[1],
-            self.emissive[2],
-            self.emissive[3],
-        );
-        mat.metallic = self.metallic;
-        mat.perceptual_roughness = self.perceptual_roughness;
-        mat.reflectance = self.reflectance;
-        mat.alpha_mode = self.alpha_mode.to_alpha_mode(self.alpha_cutoff);
-        mat.double_sided = self.double_sided;
-        mat.unlit = self.unlit;
-    }
-
-    fn to_material(&self) -> StandardMaterial {
-        let mut mat = StandardMaterial::default();
-        self.apply_to_material(&mut mat);
-        mat
-    }
-}
-
-/// Draw the standard material properties section
-fn draw_material_properties(ui: &mut egui::Ui, data: &mut StandardMaterialData) -> bool {
+/// Draw the base PBR material properties
+fn draw_base_properties(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> bool {
     let mut changed = false;
 
     ui.add_space(4.0);
 
     // Base Color with alpha
+    let mut color_arr = {
+        let c = base.base_color.to_srgba();
+        [c.red, c.green, c.blue, c.alpha]
+    };
     ui.label(egui::RichText::new("Base Color").color(colors::TEXT_SECONDARY));
     ui.horizontal(|ui| {
-        changed |= ui.color_edit_button_rgba_unmultiplied(&mut data.base_color).changed();
+        if ui
+            .color_edit_button_rgba_unmultiplied(&mut color_arr)
+            .changed()
+        {
+            base.base_color =
+                Color::srgba(color_arr[0], color_arr[1], color_arr[2], color_arr[3]);
+            changed = true;
+        }
     });
 
     ui.add_space(4.0);
 
-    // Emissive color (RGB only, intensity is the W component)
+    // Emissive color (RGB) + intensity (W)
+    let mut emissive_rgb = [base.emissive.red, base.emissive.green, base.emissive.blue];
+    let mut emissive_intensity = base.emissive.alpha;
     ui.label(egui::RichText::new("Emissive").color(colors::TEXT_SECONDARY));
     ui.horizontal(|ui| {
-        let mut emissive_rgb = [data.emissive[0], data.emissive[1], data.emissive[2]];
         if ui.color_edit_button_rgb(&mut emissive_rgb).changed() {
-            data.emissive[0] = emissive_rgb[0];
-            data.emissive[1] = emissive_rgb[1];
-            data.emissive[2] = emissive_rgb[2];
+            base.emissive = LinearRgba::new(
+                emissive_rgb[0],
+                emissive_rgb[1],
+                emissive_rgb[2],
+                emissive_intensity,
+            );
             changed = true;
         }
         ui.label(egui::RichText::new("Intensity").color(colors::TEXT_MUTED));
-        changed |= ui
-            .add(egui::DragValue::new(&mut data.emissive[3]).speed(0.1).range(0.0..=100.0))
-            .changed();
+        if ui
+            .add(
+                egui::DragValue::new(&mut emissive_intensity)
+                    .speed(0.1)
+                    .range(0.0..=100.0),
+            )
+            .changed()
+        {
+            base.emissive = LinearRgba::new(
+                emissive_rgb[0],
+                emissive_rgb[1],
+                emissive_rgb[2],
+                emissive_intensity,
+            );
+            changed = true;
+        }
     });
 
     ui.add_space(4.0);
@@ -327,7 +146,7 @@ fn draw_material_properties(ui: &mut egui::Ui, data: &mut StandardMaterialData) 
     ui.label(egui::RichText::new("Metallic").color(colors::TEXT_SECONDARY));
     ui.horizontal(|ui| {
         changed |= ui
-            .add(egui::Slider::new(&mut data.metallic, 0.0..=1.0).show_value(true))
+            .add(egui::Slider::new(&mut base.metallic, 0.0..=1.0).show_value(true))
             .changed();
     });
 
@@ -337,7 +156,7 @@ fn draw_material_properties(ui: &mut egui::Ui, data: &mut StandardMaterialData) 
     ui.label(egui::RichText::new("Roughness").color(colors::TEXT_SECONDARY));
     ui.horizontal(|ui| {
         changed |= ui
-            .add(egui::Slider::new(&mut data.perceptual_roughness, 0.0..=1.0).show_value(true))
+            .add(egui::Slider::new(&mut base.perceptual_roughness, 0.0..=1.0).show_value(true))
             .changed();
     });
 
@@ -347,7 +166,7 @@ fn draw_material_properties(ui: &mut egui::Ui, data: &mut StandardMaterialData) 
     ui.label(egui::RichText::new("Reflectance").color(colors::TEXT_SECONDARY));
     ui.horizontal(|ui| {
         changed |= ui
-            .add(egui::Slider::new(&mut data.reflectance, 0.0..=1.0).show_value(true))
+            .add(egui::Slider::new(&mut base.reflectance, 0.0..=1.0).show_value(true))
             .changed();
     });
 
@@ -357,10 +176,13 @@ fn draw_material_properties(ui: &mut egui::Ui, data: &mut StandardMaterialData) 
     ui.label(egui::RichText::new("Alpha Mode").color(colors::TEXT_SECONDARY));
     ui.horizontal(|ui| {
         egui::ComboBox::from_id_salt("alpha_mode")
-            .selected_text(data.alpha_mode.label())
+            .selected_text(base.alpha_mode.label())
             .show_ui(ui, |ui| {
-                for mode in AlphaModeSelection::ALL {
-                    if ui.selectable_value(&mut data.alpha_mode, mode, mode.label()).changed() {
+                for mode in AlphaModeValue::ALL {
+                    if ui
+                        .selectable_value(&mut base.alpha_mode, mode, mode.label())
+                        .changed()
+                    {
                         changed = true;
                     }
                 }
@@ -368,12 +190,12 @@ fn draw_material_properties(ui: &mut egui::Ui, data: &mut StandardMaterialData) 
     });
 
     // Alpha Cutoff (only shown for Mask mode)
-    if data.alpha_mode == AlphaModeSelection::Mask {
+    if base.alpha_mode == AlphaModeValue::Mask {
         ui.add_space(4.0);
         ui.label(egui::RichText::new("Alpha Cutoff").color(colors::TEXT_SECONDARY));
         ui.horizontal(|ui| {
             changed |= ui
-                .add(egui::Slider::new(&mut data.alpha_cutoff, 0.0..=1.0).show_value(true))
+                .add(egui::Slider::new(&mut base.alpha_cutoff, 0.0..=1.0).show_value(true))
                 .changed();
         });
     }
@@ -383,107 +205,8 @@ fn draw_material_properties(ui: &mut egui::Ui, data: &mut StandardMaterialData) 
     // Options section
     ui.label(egui::RichText::new("Options").color(colors::TEXT_SECONDARY));
     ui.horizontal(|ui| {
-        changed |= ui.checkbox(&mut data.double_sided, "Double Sided").changed();
-        changed |= ui.checkbox(&mut data.unlit, "Unlit").changed();
-    });
-
-    ui.add_space(4.0);
-
-    changed
-}
-
-/// Draw the grid material properties section
-fn draw_grid_properties(ui: &mut egui::Ui, data: &mut GridMaterialData) -> bool {
-    let mut changed = false;
-
-    ui.add_space(8.0);
-    ui.label(egui::RichText::new("Grid Properties").color(colors::ACCENT_CYAN).strong());
-    ui.add_space(4.0);
-
-    // Line Color
-    ui.label(egui::RichText::new("Line Color").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui.color_edit_button_rgba_unmultiplied(&mut data.line_color).changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Major Line Color
-    ui.label(egui::RichText::new("Major Line Color").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui.color_edit_button_rgba_unmultiplied(&mut data.major_line_color).changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Line Width
-    ui.label(egui::RichText::new("Line Width").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(egui::DragValue::new(&mut data.line_width).speed(0.1).range(0.1..=10.0))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Major Line Width
-    ui.label(egui::RichText::new("Major Line Width").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(egui::DragValue::new(&mut data.major_line_width).speed(0.1).range(0.1..=10.0))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Grid Scale
-    ui.label(egui::RichText::new("Grid Scale").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(egui::DragValue::new(&mut data.grid_scale).speed(0.1).range(0.1..=100.0))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Major Line Every
-    ui.label(egui::RichText::new("Major Line Every").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        let mut major = data.major_line_every as i32;
-        if ui.add(egui::DragValue::new(&mut major).range(1..=100)).changed() {
-            data.major_line_every = major.max(1) as u32;
-            changed = true;
-        }
-    });
-
-    ui.add_space(4.0);
-
-    // Axes
-    ui.label(egui::RichText::new("Axes").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui.checkbox(&mut data.axes_xz, "XZ").changed();
-        changed |= ui.checkbox(&mut data.axes_xy, "XY").changed();
-        changed |= ui.checkbox(&mut data.axes_yz, "YZ").changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Fade Distance
-    ui.label(egui::RichText::new("Fade Distance").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(egui::DragValue::new(&mut data.fade_distance).speed(1.0).range(0.0..=1000.0))
-            .changed();
-    });
-
-    ui.add_space(4.0);
-
-    // Fade Strength
-    ui.label(egui::RichText::new("Fade Strength").color(colors::TEXT_SECONDARY));
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(egui::DragValue::new(&mut data.fade_strength).speed(0.1).range(0.0..=10.0))
-            .changed();
+        changed |= ui.checkbox(&mut base.double_sided, "Double Sided").changed();
+        changed |= ui.checkbox(&mut base.unlit, "Unlit").changed();
     });
 
     ui.add_space(4.0);
@@ -504,80 +227,74 @@ fn draw_material_panel(world: &mut World) {
         return;
     }
 
-    // Query for selected entities with standard materials
-    let selected_std: Vec<(Entity, AssetId<StandardMaterial>)> = {
-        let mut query = world.query_filtered::<(Entity, &MeshMaterial3d<StandardMaterial>), With<Selected>>();
-        query
-            .iter(world)
-            .map(|(e, mat)| (e, mat.0.id()))
-            .collect()
+    // Collect selected entity info
+    let selected_entities: Vec<Entity> = {
+        let mut query = world.query_filtered::<Entity, With<Selected>>();
+        query.iter(world).collect()
     };
 
-    // Query for selected entities with grid materials
-    let selected_grid: Vec<(Entity, AssetId<GridMat>)> = {
-        let mut query = world.query_filtered::<(Entity, &MeshMaterial3d<GridMat>), With<Selected>>();
-        query
-            .iter(world)
-            .map(|(e, mat)| (e, mat.0.id()))
-            .collect()
-    };
+    let total_selected = selected_entities.len();
+    let first_entity = selected_entities.first().copied();
 
-    // Determine which material type we have
-    let has_std = !selected_std.is_empty();
-    let has_grid = !selected_grid.is_empty();
-    let selection_count = if has_std { selected_std.len() } else { selected_grid.len() };
-
-    // Get the selected entity
-    let selected_entity = if has_std {
-        Some(selected_std[0].0)
-    } else if has_grid {
-        Some(selected_grid[0].0)
-    } else {
-        None
-    };
-
-    // Get entity name and material type
-    let (entity_name, current_material_type) = if let Some(entity) = selected_entity {
+    // Get MaterialRef + Name for first selected entity
+    let (entity_name, current_mat_ref) = if let Some(entity) = first_entity {
         let name = world.get::<Name>(entity).map(|n| n.as_str().to_string());
-        let mat_type = world.get::<MaterialType>(entity).copied().unwrap_or(MaterialType::Standard);
-        (name, Some(mat_type))
+        let mat_ref = world.get::<MaterialRef>(entity).cloned();
+        (name, mat_ref)
     } else {
         (None, None)
     };
 
-    // Extract material data for single selection
-    let mut std_data = if selection_count == 1 && has_std {
-        let asset_id = selected_std[0].1;
-        world
-            .resource::<Assets<StandardMaterial>>()
-            .get(asset_id)
-            .map(StandardMaterialData::from_material)
-    } else if selection_count == 1 && has_grid {
-        let asset_id = selected_grid[0].1;
-        world
-            .resource::<Assets<GridMat>>()
-            .get(asset_id)
-            .map(|m| StandardMaterialData::from_material(&m.base))
-    } else {
-        None
-    };
+    // Resolve the definition (we need a clone because we'll mutate it)
+    let library = world
+        .get_resource::<MaterialLibrary>()
+        .cloned()
+        .unwrap_or_default();
 
-    let mut grid_data = if selection_count == 1 && has_grid {
-        let asset_id = selected_grid[0].1;
-        world
-            .resource::<Assets<GridMat>>()
-            .get(asset_id)
-            .map(|m| GridMaterialData::from_grid_material(&m.extension))
-    } else {
-        None
-    };
+    let mut working_def = current_mat_ref
+        .as_ref()
+        .and_then(|r| resolve_material_ref(r, &library))
+        .cloned();
+    let original_def = working_def.clone();
 
-    // Store original data for change detection
-    let original_std_data = std_data.clone();
-    let original_grid_data = grid_data.clone();
+    // Collect available material type names from registry
+    let type_names: Vec<(&'static str, &'static str)> = world
+        .get_resource::<MaterialTypeRegistry>()
+        .map(|reg| {
+            reg.types
+                .iter()
+                .map(|e| (e.type_name, e.display_name))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Determine current extension type name (owned to avoid borrow conflict)
+    let current_type_name: String = working_def
+        .as_ref()
+        .and_then(|d| d.extension.as_ref())
+        .map(|e| e.type_name.clone())
+        .unwrap_or_else(|| "standard".to_string());
+
+    // Extract the draw_extension_ui function pointer before entering the UI closure
+    let ext_draw_fn: Option<fn(&mut egui::Ui, &str) -> (bool, String)> = working_def
+        .as_ref()
+        .and_then(|d| d.extension.as_ref())
+        .and_then(|ext| {
+            world
+                .get_resource::<MaterialTypeRegistry>()
+                .and_then(|r| r.find(&ext.type_name))
+                .map(|e| e.draw_extension_ui)
+        });
 
     // Track if material type should change
-    let mut new_material_type: Option<MaterialType> = None;
+    let mut new_type_name: Option<String> = None;
+
+    // Track extension UI changes
+    let mut ext_changed = false;
+    let mut new_ext_data: Option<String> = None;
+
+    // Has material at all?
+    let has_material = current_mat_ref.is_some();
 
     // Get egui context
     let ctx = {
@@ -592,33 +309,29 @@ fn draw_material_panel(world: &mut World) {
     };
 
     // Calculate available height using shared panel settings
-    let available_height = ctx.content_rect().height()
-        - panel::STATUS_BAR_HEIGHT
-        - panel::WINDOW_PADDING * 2.0;
+    let available_height =
+        ctx.content_rect().height() - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
 
     egui::Window::new("Material")
         .default_size([panel::DEFAULT_WIDTH, available_height])
         .min_width(panel::MIN_WIDTH)
         .min_height(panel::MIN_HEIGHT)
         .max_height(available_height)
-        .anchor(egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+        .anchor(
+            egui::Align2::RIGHT_TOP,
+            [-panel::WINDOW_PADDING, panel::WINDOW_PADDING],
+        )
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
         .scroll(false)
         .frame(panel_frame(&ctx.style()))
         .show(&ctx, |ui| {
-            // Force the window content to fill available height
-            ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
-
-            // Check selection state
-            let total_selected: usize = {
-                let mut query = world.query_filtered::<Entity, With<Selected>>();
-                query.iter(world).count()
-            };
+            ui.set_min_height(
+                available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING,
+            );
 
             if total_selected == 0 {
-                // No selection at all
                 ui.add_space(20.0);
                 ui.vertical_centered(|ui| {
                     ui.label(
@@ -628,13 +341,14 @@ fn draw_material_panel(world: &mut World) {
                     );
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new("Select an entity with a material\nto edit its properties.")
-                            .small()
-                            .color(colors::TEXT_MUTED),
+                        egui::RichText::new(
+                            "Select an entity with a material\nto edit its properties.",
+                        )
+                        .small()
+                        .color(colors::TEXT_MUTED),
                     );
                 });
-            } else if !has_std && !has_grid {
-                // Selection exists but no materials
+            } else if !has_material {
                 ui.add_space(20.0);
                 ui.vertical_centered(|ui| {
                     ui.label(
@@ -644,13 +358,12 @@ fn draw_material_panel(world: &mut World) {
                     );
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new("Selected entities don't have\na material.")
+                        egui::RichText::new("Selected entities don't have\na material component.")
                             .small()
                             .color(colors::TEXT_MUTED),
                     );
                 });
-            } else if selection_count == 1 {
-                // Single selection with material
+            } else if total_selected == 1 {
                 ui.add_space(4.0);
 
                 // Entity name
@@ -661,7 +374,7 @@ fn draw_material_panel(world: &mut World) {
                             .size(14.0)
                             .color(colors::TEXT_PRIMARY),
                     );
-                } else if let Some(entity) = selected_entity {
+                } else if let Some(entity) = first_entity {
                     ui.label(
                         egui::RichText::new(format!("Entity {:?}", entity))
                             .strong()
@@ -670,32 +383,54 @@ fn draw_material_panel(world: &mut World) {
                     );
                 }
 
+                // Library/Inline indicator
+                if let Some(ref mat_ref) = current_mat_ref {
+                    match mat_ref {
+                        MaterialRef::Library(name) => {
+                            ui.label(
+                                egui::RichText::new(format!("Library: {}", name))
+                                    .small()
+                                    .color(colors::ACCENT_BLUE),
+                            );
+                        }
+                        MaterialRef::Inline(_) => {
+                            ui.label(
+                                egui::RichText::new("Inline material")
+                                    .small()
+                                    .color(colors::TEXT_MUTED),
+                            );
+                        }
+                    }
+                }
+
                 ui.add_space(4.0);
 
                 // Material type selector
-                if let Some(mat_type) = current_material_type {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new("Type").color(colors::TEXT_SECONDARY));
-                        let mut selected_type = mat_type;
-                        egui::ComboBox::from_id_salt("material_type")
-                            .selected_text(match selected_type {
-                                MaterialType::Standard => "Standard",
-                                MaterialType::Grid => "Grid",
-                            })
-                            .show_ui(ui, |ui| {
-                                if ui.selectable_value(&mut selected_type, MaterialType::Standard, "Standard").clicked() {
-                                    if selected_type != mat_type {
-                                        new_material_type = Some(MaterialType::Standard);
-                                    }
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Type").color(colors::TEXT_SECONDARY));
+                    let current_display = type_names
+                        .iter()
+                        .find(|(tn, _)| *tn == current_type_name)
+                        .map(|(_, dn)| *dn)
+                        .unwrap_or("Standard");
+
+                    egui::ComboBox::from_id_salt("material_type")
+                        .selected_text(current_display)
+                        .show_ui(ui, |ui| {
+                            for &(type_name, display_name) in &type_names {
+                                if ui
+                                    .selectable_label(
+                                        type_name == current_type_name,
+                                        display_name,
+                                    )
+                                    .clicked()
+                                    && type_name != current_type_name
+                                {
+                                    new_type_name = Some(type_name.to_string());
                                 }
-                                if ui.selectable_value(&mut selected_type, MaterialType::Grid, "Grid").clicked() {
-                                    if selected_type != mat_type {
-                                        new_material_type = Some(MaterialType::Grid);
-                                    }
-                                }
-                            });
-                    });
-                }
+                            }
+                        });
+                });
 
                 ui.add_space(4.0);
                 ui.separator();
@@ -703,17 +438,21 @@ fn draw_material_panel(world: &mut World) {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.add_space(4.0);
                     ui.horizontal(|ui| {
-                        ui.add_space(8.0); // Left padding
+                        ui.add_space(8.0);
                         ui.vertical(|ui| {
-                            // Always show base material properties
-                            if let Some(ref mut data) = std_data {
-                                draw_material_properties(ui, data);
-                            }
+                            if let Some(def) = &mut working_def {
+                                // Base material properties
+                                draw_base_properties(ui, &mut def.base);
 
-                            // Show grid properties only for grid materials
-                            if has_grid {
-                                if let Some(ref mut data) = grid_data {
-                                    draw_grid_properties(ui, data);
+                                // Extension-specific UI (from pre-extracted fn pointer)
+                                if let (Some(ext), Some(draw_fn)) =
+                                    (&def.extension, ext_draw_fn)
+                                {
+                                    let (ch, nd) = draw_fn(ui, &ext.data);
+                                    if ch {
+                                        ext_changed = true;
+                                        new_ext_data = Some(nd);
+                                    }
                                 }
                             }
                         });
@@ -724,7 +463,7 @@ fn draw_material_panel(world: &mut World) {
                 ui.add_space(20.0);
                 ui.vertical_centered(|ui| {
                     ui.label(
-                        egui::RichText::new(format!("{} entities selected", selection_count))
+                        egui::RichText::new(format!("{} entities selected", total_selected))
                             .color(colors::TEXT_MUTED)
                             .italics(),
                     );
@@ -738,97 +477,83 @@ fn draw_material_panel(world: &mut World) {
             }
         });
 
+    let Some(entity) = first_entity else { return };
+    if total_selected != 1 { return; }
+
     // Handle material type change
-    if let (Some(new_type), Some(entity)) = (new_material_type, selected_entity) {
-        switch_material_type(world, entity, new_type, std_data.as_ref());
-        return; // Don't apply other changes when switching type
-    }
-
-    // Apply changes back to standard material
-    if let (Some(original), Some(modified)) = (&original_std_data, &std_data) {
-        let changed = original.base_color != modified.base_color
-            || original.emissive != modified.emissive
-            || original.metallic != modified.metallic
-            || original.perceptual_roughness != modified.perceptual_roughness
-            || original.reflectance != modified.reflectance
-            || original.alpha_mode != modified.alpha_mode
-            || original.alpha_cutoff != modified.alpha_cutoff
-            || original.double_sided != modified.double_sided
-            || original.unlit != modified.unlit;
-
-        if changed && selection_count == 1 {
-            if has_std {
-                let asset_id = selected_std[0].1;
-                if let Some(material) = world.resource_mut::<Assets<StandardMaterial>>().get_mut(asset_id) {
-                    modified.apply_to_material(material);
-                }
-            } else if has_grid {
-                let asset_id = selected_grid[0].1;
-                if let Some(material) = world.resource_mut::<Assets<GridMat>>().get_mut(asset_id) {
-                    modified.apply_to_material(&mut material.base);
-                }
+    if let Some(new_type) = new_type_name {
+        if let Some(mut def) = working_def.take() {
+            if new_type == "standard" {
+                def.extension = None;
+            } else {
+                // Get default extension data from registry
+                let default_data = world
+                    .get_resource::<MaterialTypeRegistry>()
+                    .and_then(|r| r.find(&new_type))
+                    .and_then(|e| e.default_extension_data.clone())
+                    .unwrap_or_default();
+                def.extension = Some(MaterialExtensionData {
+                    type_name: new_type,
+                    data: default_data,
+                });
             }
+
+            apply_and_update_entity(world, entity, def);
         }
+        return;
     }
 
-    // Apply changes back to grid material extension
-    if let (Some(original), Some(modified)) = (&original_grid_data, &grid_data) {
-        let changed = original.line_color != modified.line_color
-            || original.major_line_color != modified.major_line_color
-            || original.line_width != modified.line_width
-            || original.major_line_width != modified.major_line_width
-            || original.grid_scale != modified.grid_scale
-            || original.major_line_every != modified.major_line_every
-            || original.axes_xz != modified.axes_xz
-            || original.axes_xy != modified.axes_xy
-            || original.axes_yz != modified.axes_yz
-            || original.fade_distance != modified.fade_distance
-            || original.fade_strength != modified.fade_strength;
-
-        if changed && selection_count == 1 && has_grid {
-            let asset_id = selected_grid[0].1;
-            if let Some(material) = world.resource_mut::<Assets<GridMat>>().get_mut(asset_id) {
-                modified.apply_to_grid_material(&mut material.extension);
+    // Apply extension data changes
+    if ext_changed {
+        if let Some(mut def) = working_def.take() {
+            if let Some(new_data) = new_ext_data {
+                if let Some(ext) = &mut def.extension {
+                    ext.data = new_data;
+                }
             }
+
+            apply_and_update_entity(world, entity, def);
+        }
+        return;
+    }
+
+    // Apply base property changes
+    if let (Some(original), Some(modified)) = (&original_def, &working_def) {
+        let base_changed = original.base.base_color != modified.base.base_color
+            || original.base.metallic != modified.base.metallic
+            || original.base.perceptual_roughness != modified.base.perceptual_roughness
+            || original.base.reflectance != modified.base.reflectance
+            || original.base.alpha_mode != modified.base.alpha_mode
+            || original.base.alpha_cutoff != modified.base.alpha_cutoff
+            || original.base.double_sided != modified.base.double_sided
+            || original.base.unlit != modified.base.unlit
+            || original.base.emissive != modified.base.emissive;
+
+        if base_changed {
+            apply_and_update_entity(world, entity, modified.clone());
         }
     }
 }
 
-/// Switch an entity's material type
-fn switch_material_type(
-    world: &mut World,
-    entity: Entity,
-    new_type: MaterialType,
-    current_std_data: Option<&StandardMaterialData>,
-) {
-    // Get the base material data to preserve
-    let base_material = current_std_data.map(|d| d.to_material()).unwrap_or_default();
+/// Remove old material, insert new MaterialRef, and apply the definition to the entity.
+fn apply_and_update_entity(world: &mut World, entity: Entity, def: MaterialDefinition) {
+    // Remove old material components
+    remove_all_material_components(world, entity);
 
-    match new_type {
-        MaterialType::Standard => {
-            // Remove grid material component if present
-            world.entity_mut(entity).remove::<MeshMaterial3d<GridMat>>();
-
-            // Add standard material
-            let handle = world.resource_mut::<Assets<StandardMaterial>>().add(base_material);
-            world.entity_mut(entity).insert(MeshMaterial3d(handle));
-        }
-        MaterialType::Grid => {
-            // Remove standard material component if present
-            world.entity_mut(entity).remove::<MeshMaterial3d<StandardMaterial>>();
-
-            // Create extended material with grid extension
-            let grid_mat = ExtendedMaterial {
-                base: base_material,
-                extension: GridMaterial::default(),
-            };
-            let handle = world.resource_mut::<Assets<GridMat>>().add(grid_mat);
-            world.entity_mut(entity).insert(MeshMaterial3d(handle));
-        }
+    // Write new MaterialRef
+    let mat_ref = MaterialRef::Inline(def.clone());
+    if let Ok(mut e) = world.get_entity_mut(entity) {
+        e.insert(mat_ref);
     }
 
-    // Update the material type marker
-    world.entity_mut(entity).insert(new_type);
+    // Apply material (registry lookup + world mutation in one step)
+    apply_material_def_standalone(world, entity, &def);
+}
 
-    info!("Switched material type to {:?}", new_type);
+/// Remove all possible material components from an entity.
+fn remove_all_material_components(world: &mut World, entity: Entity) {
+    if let Ok(mut e) = world.get_entity_mut(entity) {
+        e.remove::<MeshMaterial3d<StandardMaterial>>();
+        e.remove::<MeshMaterial3d<GridMat>>();
+    }
 }

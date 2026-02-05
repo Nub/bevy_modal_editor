@@ -46,6 +46,7 @@ pub mod commands;
 pub mod constants;
 pub mod editor;
 pub mod gizmos;
+pub mod materials;
 pub mod prefabs;
 pub mod scene;
 pub mod selection;
@@ -60,7 +61,7 @@ pub use editor::{EditorPlugin, EditorPluginConfig, GamePlugin};
 
 // Re-export commonly used types
 pub use scene::{
-    DirectionalLightMarker, GroupMarker, Locked, PrimitiveMaterial, PrimitiveMarker,
+    DirectionalLightMarker, GroupMarker, Locked, PrimitiveMarker,
     PrimitiveShape, SceneEntity, SceneLightMarker,
 };
 
@@ -72,11 +73,21 @@ pub use editor::{AxisConstraint, EditorMode, EditorState, TransformOperation};
 
 // Re-export from bevy_editor_game
 pub use bevy_editor_game::{
-    CustomEntityRegistry, CustomEntityType, RegisterCustomEntityExt,
+    CustomEntityEntry, CustomEntityRegistry, CustomEntityType, RegisterCustomEntityExt,
+    InspectorWidgetFn, GizmoDrawFn, RegenerateFn,
     GameCamera, GameEntity, GameState, PauseEvent, PlayEvent, ResetEvent,
     GameStartedEvent, GameResumedEvent, GamePausedEvent, GameResetEvent,
     SceneComponentRegistry, RegisterSceneComponentExt,
+    ValidationMessage, ValidationRegistry, ValidationRule, ValidationSeverity,
+    RegisterValidationExt,
+    AssetRef, AssetType,
 };
+
+// Re-export material system
+pub use bevy_editor_game::{
+    BaseMaterialProps, MaterialDefinition, MaterialLibrary, MaterialRef,
+};
+pub use materials::RegisterMaterialTypeExt;
 
 // Re-export scene loading
 pub use editor::{SceneLoadingProgress, SceneLoadingState};

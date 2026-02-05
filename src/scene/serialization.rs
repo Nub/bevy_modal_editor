@@ -10,6 +10,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use bevy_editor_game::{MaterialLibrary, MaterialRef};
+
 use super::{
     build_editor_scene, regenerate_runtime_components, PrimitiveMarker, SceneEntity,
     SceneLightMarker,
@@ -80,10 +82,12 @@ impl SceneFile {
     }
 }
 
-/// Sidecar data for editor-specific metadata (camera marks, etc.)
+/// Sidecar data for editor-specific metadata (camera marks, material library, etc.)
 #[derive(Serialize, Deserialize, Default)]
 struct EditorMetadata {
     camera_marks: HashMap<String, CameraMark>,
+    #[serde(default)]
+    material_library: MaterialLibrary,
 }
 
 /// Serializable transform data (used by prefabs)
@@ -247,9 +251,16 @@ impl Command for SaveSceneCommand {
                     return;
                 }
 
+                // Read the material library to include in metadata
+                let material_library = world
+                    .get_resource::<MaterialLibrary>()
+                    .cloned()
+                    .unwrap_or_default();
+
                 // Write sidecar file with editor metadata
                 let metadata = EditorMetadata {
                     camera_marks: self.camera_marks.clone(),
+                    material_library,
                 };
                 let metadata_path = format!("{}.meta", self.path);
                 if let Ok(metadata_str) =
@@ -320,6 +331,12 @@ fn handle_load_scene(
                 if !metadata.camera_marks.is_empty() {
                     camera_marks.marks = metadata.camera_marks;
                     info!("Loaded camera marks from metadata");
+                }
+                // Restore material library (merge loaded materials over defaults)
+                if !metadata.material_library.materials.is_empty() {
+                    commands.queue(RestoreMaterialLibraryCommand {
+                        library: metadata.material_library,
+                    });
                 }
             }
         }
@@ -401,6 +418,27 @@ impl Command for LoadSceneCommand {
     }
 }
 
+/// Command to restore the material library from loaded metadata.
+/// Merges loaded materials over whatever is currently in the library.
+struct RestoreMaterialLibraryCommand {
+    library: MaterialLibrary,
+}
+
+impl Command for RestoreMaterialLibraryCommand {
+    fn apply(self, world: &mut World) {
+        if let Some(mut lib) = world.get_resource_mut::<MaterialLibrary>() {
+            // Merge loaded materials over existing defaults
+            for (name, def) in self.library.materials {
+                lib.materials.insert(name, def);
+            }
+            info!(
+                "Material library restored ({} entries)",
+                lib.materials.len()
+            );
+        }
+    }
+}
+
 /// Draw the error dialog if it's open
 fn draw_error_dialog(
     mut contexts: EguiContexts,
@@ -428,6 +466,7 @@ fn detect_scene_changes(
     changed_lights: Query<(), (With<SceneEntity>, Changed<SceneLightMarker>)>,
     changed_bodies: Query<(), (With<SceneEntity>, Changed<RigidBody>)>,
     changed_splines: Query<(), (With<SceneEntity>, Changed<Spline>)>,
+    changed_materials: Query<(), (With<SceneEntity>, Changed<MaterialRef>)>,
     added_entities: Query<(), Added<SceneEntity>>,
     mut removed_entities: RemovedComponents<SceneEntity>,
 ) {
@@ -443,6 +482,7 @@ fn detect_scene_changes(
         || !changed_lights.is_empty()
         || !changed_bodies.is_empty()
         || !changed_splines.is_empty()
+        || !changed_materials.is_empty()
         || !added_entities.is_empty()
         || removed_entities.read().next().is_some();
 

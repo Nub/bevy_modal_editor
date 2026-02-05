@@ -1,0 +1,186 @@
+(
+  resources: {},
+  entities: {
+    4294967211: (
+      components: {
+        "bevy_ecs::name::Name": "Sun",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::DirectionalLightMarker": (
+          color: LinearRgba((
+            red: 1.0,
+            green: 1.0,
+            blue: 1.0,
+            alpha: 1.0,
+          )),
+          illuminance: 15000.0,
+          shadows_enabled: true,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (10.0, 20.0, 10.0),
+          rotation: (-0.4247082, 0.33985114, 0.1759199, 0.82047325),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967212: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Obstacle 3",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (3.0, 0.5, -8.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967213: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Obstacle 2",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-5.0, 0.5, -3.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.5, 1.0, 3.0),
+        ),
+      },
+    ),
+    4294967214: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Obstacle 1",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (5.0, 0.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (2.0, 1.0, 2.0),
+        ),
+      },
+    ),
+    4294967215: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Goal Zone",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 1.0, -12.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (3.0, 3.0, 3.0),
+        ),
+        "marble_demo::GoalZone": (),
+      },
+    ),
+    4294967216: (
+      components: {
+        "bevy_ecs::name::Name": "Spawn Point",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 2.0, 10.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+        "marble_demo::SpawnPoint": (),
+      },
+    ),
+    4294967217: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Wall Front",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 1.0, 15.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (30.0, 2.0, 0.5),
+        ),
+      },
+    ),
+    4294967218: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Wall Back",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 1.0, -15.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (30.0, 2.0, 0.5),
+        ),
+      },
+    ),
+    4294967219: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Wall Right",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (15.0, 1.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.5, 2.0, 30.0),
+        ),
+      },
+    ),
+    4294967220: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Wall Left",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-15.0, 1.0, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (0.5, 2.0, 30.0),
+        ),
+      },
+    ),
+    4294967221: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Ramp",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 0.5, -5.0),
+          rotation: (-0.09983341, 0.0, 0.0, 0.99500406),
+          scale: (4.0, 0.3, 8.0),
+        ),
+      },
+    ),
+    4294967222: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Ground",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, -0.5, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (30.0, 1.0, 30.0),
+        ),
+      },
+    ),
+  },
+)

@@ -8,5 +8,7 @@ publish = false
 bevy.workspace = true
 avian3d.workspace = true
 serde.workspace = true
+ron.workspace = true
 bevy_modal_editor = { path = "../.." }
 bevy_editor_game.workspace = true
+bevy_egui.workspace = true

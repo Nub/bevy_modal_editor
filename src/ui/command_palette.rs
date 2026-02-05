@@ -699,16 +699,17 @@ fn register_custom_entity_commands(
     custom_entities: Res<CustomEntityRegistry>,
     mut registry: ResMut<CommandRegistry>,
 ) {
-    for entity_type in &custom_entities.types {
+    for entry in &custom_entities.entries {
         registry.commands.push(Command {
-            name: format!("Add {}", entity_type.name),
-            keywords: entity_type
+            name: format!("Add {}", entry.entity_type.name),
+            keywords: entry
+                .entity_type
                 .keywords
                 .iter()
                 .map(|k| k.to_string())
                 .collect(),
-            category: entity_type.category,
-            action: CommandAction::SpawnCustomEntity(entity_type.name.to_string()),
+            category: entry.entity_type.category,
+            action: CommandAction::SpawnCustomEntity(entry.entity_type.name.to_string()),
             insertable: false,
         });
     }
@@ -1183,10 +1184,10 @@ fn draw_command_palette(
                 }
                 CommandAction::SpawnCustomEntity(ref type_name) => {
                     let position = custom_registry
-                        .types
+                        .entries
                         .iter()
-                        .find(|t| t.name == type_name)
-                        .map(|t| t.default_position)
+                        .find(|e| e.entity_type.name == type_name)
+                        .map(|e| e.entity_type.default_position)
                         .unwrap_or(Vec3::ZERO);
                     events.spawn_entity.write(SpawnEntityEvent {
                         kind: SpawnEntityKind::Custom(type_name.clone()),

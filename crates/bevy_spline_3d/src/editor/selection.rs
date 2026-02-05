@@ -54,6 +54,8 @@ pub fn pick_control_points(
     mut selection_state: ResMut<SelectionState>,
 ) {
     if !settings.enabled {
+        // Clear stale hover state so it doesn't block other systems
+        selection_state.hovered_point = None;
         return;
     }
 
@@ -206,6 +208,14 @@ pub fn handle_point_drag(
     markers: Query<(Entity, &ControlPointMarker)>,
     selected_points: Query<Entity, With<SelectedControlPoint>>,
 ) {
+    // Always process drag end regardless of enabled state to prevent stuck dragging state.
+    // If settings become disabled mid-drag (e.g. user presses Escape while dragging),
+    // we must still clear the dragging flag when the mouse is released.
+    if mouse.just_released(MouseButton::Left) {
+        selection_state.dragging = false;
+        selection_state.dragged_points.clear();
+    }
+
     if !settings.enabled {
         return;
     }
@@ -247,12 +257,6 @@ pub fn handle_point_drag(
                 }
             }
         }
-    }
-
-    // End drag
-    if mouse.just_released(MouseButton::Left) {
-        selection_state.dragging = false;
-        selection_state.dragged_points.clear();
     }
 
     // Continue drag - move all dragged points by the same delta

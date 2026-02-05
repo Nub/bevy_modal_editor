@@ -35,4 +35,4 @@
 mod material;
 
 pub use bevy::pbr::{ExtendedMaterial, StandardMaterial};
-pub use material::{GridAxes, GridMaterial, GridMaterialPlugin};
+pub use material::{GridAxes, GridMaterial, GridMaterialPlugin, GridMaterialUniform};

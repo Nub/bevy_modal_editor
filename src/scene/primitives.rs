@@ -5,13 +5,14 @@ use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
 
 use bevy::pbr::ExtendedMaterial;
-use bevy_editor_game::CustomEntityRegistry;
+use bevy_editor_game::{BaseMaterialProps, CustomEntityRegistry, MaterialDefinition, MaterialRef};
 use bevy_grid_shader::GridMaterial;
 
 use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs, GridMat};
 use super::SceneEntity;
 use crate::commands::TakeSnapshotCommand;
 use crate::constants::{light_colors, physics, primitive_colors};
+use crate::materials::grid::GridMaterialProps;
 use crate::selection::Selected;
 
 /// Marker component for group entities (containers for nesting)
@@ -328,12 +329,12 @@ fn handle_spawn_entity(
             SpawnEntityKind::Arch => spawn_arch(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::LShape => spawn_lshape(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::Custom(type_name) => {
-                let entity_type = custom_registry
-                    .types
+                let entry = custom_registry
+                    .entries
                     .iter()
-                    .find(|t| t.name == type_name)
+                    .find(|e| e.entity_type.name == type_name)
                     .unwrap_or_else(|| panic!("Unknown custom entity type: {}", type_name));
-                let entity = (entity_type.spawn)(&mut commands, event.position, event.rotation);
+                let entity = (entry.entity_type.spawn)(&mut commands, event.position, event.rotation);
                 commands.entity(entity).insert((SceneEntity, Name::new(name.clone())));
                 entity
             }
@@ -368,13 +369,21 @@ pub fn spawn_primitive(
     name: &str,
 ) -> Entity {
     let color = shape.default_color();
+    let grid_data =
+        ron::to_string(&GridMaterialProps::default()).unwrap_or_default();
     commands
         .spawn((
             SceneEntity,
             Name::new(name.to_string()),
             PrimitiveMarker { shape },
-            PrimitiveMaterial::new(color),
-            MaterialType::Grid,
+            MaterialRef::Inline(MaterialDefinition::with_extension(
+                BaseMaterialProps {
+                    base_color: color,
+                    ..default()
+                },
+                "grid",
+                grid_data,
+            )),
             Mesh3d(meshes.add(shape.create_mesh())),
             MeshMaterial3d(materials.add(ExtendedMaterial {
                 base: StandardMaterial {

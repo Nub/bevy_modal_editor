@@ -2,9 +2,12 @@ mod transform;
 
 pub use transform::*;
 
+use bevy::ecs::system::SystemState;
 use bevy::gizmos::config::{DefaultGizmoConfigGroup, GizmoConfigGroup, GizmoConfigStore};
 use bevy::prelude::*;
 use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin, InfiniteGridSettings};
+
+use bevy_editor_game::CustomEntityRegistry;
 
 use crate::editor::EditorState;
 use crate::scene::{DirectionalLightMarker, SceneLightMarker};
@@ -27,7 +30,7 @@ impl Plugin for EditorGizmosPlugin {
             .add_plugins(TransformGizmoPlugin)
             .add_plugins(InfiniteGridPlugin)
             .add_systems(PreStartup, (configure_gizmos, spawn_grid))
-            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos));
+            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos, draw_custom_entity_gizmos));
     }
 }
 
@@ -175,4 +178,44 @@ fn draw_point_light_gizmos(
     }
 }
 
+/// Draw gizmos for custom entity types registered via `CustomEntityRegistry`.
+fn draw_custom_entity_gizmos(world: &mut World) {
+    if !world.resource::<EditorState>().gizmos_visible {
+        return;
+    }
 
+    // Collect (has_component, draw_gizmo) pairs from the registry
+    let Some(registry) = world.get_resource::<CustomEntityRegistry>() else {
+        return;
+    };
+    let gizmo_entries: Vec<_> = registry
+        .entries
+        .iter()
+        .filter_map(|e| e.entity_type.draw_gizmo.map(|draw| (e.has_component, draw)))
+        .collect();
+
+    if gizmo_entries.is_empty() {
+        return;
+    }
+
+    // Collect matching (entity, transform) pairs
+    let mut to_draw: Vec<(bevy_editor_game::GizmoDrawFn, GlobalTransform)> = Vec::new();
+    {
+        let mut query = world.query::<(Entity, &GlobalTransform)>();
+        for (entity, global_transform) in query.iter(world) {
+            for &(has_comp, draw_fn) in &gizmo_entries {
+                if has_comp(world, entity) {
+                    to_draw.push((draw_fn, *global_transform));
+                }
+            }
+        }
+    }
+
+    // Extract Gizmos and draw
+    let mut state = SystemState::<Gizmos>::new(world);
+    let mut gizmos = state.get_mut(world);
+    for (draw_fn, transform) in &to_draw {
+        draw_fn(&mut gizmos, transform);
+    }
+    state.apply(world);
+}

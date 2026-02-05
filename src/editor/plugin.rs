@@ -18,6 +18,7 @@ use super::spline_edit::SplineEditPlugin;
 use super::state::EditorStatePlugin;
 use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
+use crate::materials::MaterialsPlugin;
 use crate::prefabs::PrefabsPlugin;
 use crate::scene::ScenePlugin;
 use crate::selection::SelectionPlugin;
@@ -145,6 +146,8 @@ impl Plugin for EditorPlugin {
             // Third-party rendering plugins
             .add_plugins(OutlinePlugin)
             .add_plugins(GridMaterialPlugin)
+            // Material system
+            .add_plugins(MaterialsPlugin)
             // Editor core
             .add_plugins(EditorStatePlugin)
             .add_plugins(EditorInputPlugin)
@@ -170,7 +173,11 @@ impl Plugin for EditorPlugin {
             app.add_systems(PreStartup, setup_editor_scene);
         }
         if self.config.pause_physics_on_startup {
-            app.add_systems(PreStartup, pause_physics_on_startup);
+            // Defer physics pause by one frame so Avian3D's spatial query pipeline
+            // can initialize with the spawned colliders. If we pause at PreStartup,
+            // the physics schedule never steps and SpatialQuery::cast_ray returns
+            // no hits (breaking selection).
+            app.add_systems(Update, pause_physics_on_startup);
         }
     }
 }
@@ -185,8 +192,19 @@ fn setup_editor_scene(mut commands: Commands) {
     });
 }
 
-/// Pause physics simulation on startup by setting time scale to 0
-fn pause_physics_on_startup(mut physics_time: ResMut<Time<Physics>>) {
-    physics_time.set_relative_speed(0.0);
-    info!("Physics simulation: PAUSED (default)");
+/// Pause physics simulation after Avian3D has had time to initialize.
+///
+/// Deferred by a few frames so Avian3D's broad-phase and spatial query pipeline
+/// can process the initially-spawned colliders before we freeze physics.
+/// If we pause too early, `SpatialQuery::cast_ray` returns no hits (breaking selection).
+fn pause_physics_on_startup(mut physics_time: ResMut<Time<Physics>>, mut frames: Local<u32>) {
+    if physics_time.relative_speed() == 0.0 {
+        return;
+    }
+    *frames += 1;
+    // Wait a few frames for FixedUpdate to tick and Avian3D to sync colliders
+    if *frames >= 3 {
+        physics_time.set_relative_speed(0.0);
+        info!("Physics simulation: PAUSED (default)");
+    }
 }
