@@ -1,19 +1,22 @@
-//! Asset browser palette — replaces the native file dialog with a fuzzy search
-//! palette that recursively scans the `assets/` directory.
+//! Asset browser palette — fuzzy search palette that recursively scans the
+//! `assets/` directory.
 
 use std::path::Path;
 
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass, EguiTextureHandle};
+use bevy_egui::{egui, EguiContexts, EguiTextureHandle};
 
-use crate::editor::{EditorMode, EditorState, InsertObjectType, InsertState, StartInsertEvent};
+use crate::editor::{EditorMode, InsertObjectType, InsertState, StartInsertEvent};
 use crate::scene::{LoadSceneEvent, SaveSceneEvent};
 use crate::ui::fuzzy_palette::{
     draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteItem, PaletteResult, PaletteState,
 };
+use crate::ui::gltf_preview::GltfPreviewState;
 use crate::ui::theme::colors;
 
-// ── Types re-exported from the old file_dialog module ────────────────
+use super::CommandPaletteState;
+
+// ── Types re-exported for external consumers ─────────────────────────
 
 /// Which texture slot is being picked for
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -40,7 +43,7 @@ pub struct TexturePickData {
 
 /// What kind of file operation the asset browser is performing.
 #[derive(Clone)]
-enum BrowseOperation {
+pub(crate) enum BrowseOperation {
     LoadScene,
     SaveScene,
     InsertGltf,
@@ -51,15 +54,15 @@ enum BrowseOperation {
 // ── Asset file item ──────────────────────────────────────────────────
 
 /// A single file entry found in the `assets/` directory.
-struct AssetFileItem {
+pub(crate) struct AssetFileItem {
     /// Path relative to `assets/` (e.g. "textures/brick.png")
-    relative_path: String,
+    pub relative_path: String,
     /// Filename only (e.g. "brick.png")
-    filename: String,
+    pub(crate) filename: String,
     /// Parent directory relative to `assets/`, or empty for root files
-    directory: String,
+    pub(crate) directory: String,
     /// True only for the virtual "Save as" item
-    is_save_as: bool,
+    pub is_save_as: bool,
 }
 
 impl PaletteItem for AssetFileItem {
@@ -83,7 +86,7 @@ impl PaletteItem for AssetFileItem {
 // ── Scanning ─────────────────────────────────────────────────────────
 
 /// Recursively scan `assets/` for files matching the given extensions.
-fn scan_assets(extensions: &[&str]) -> Vec<AssetFileItem> {
+pub(crate) fn scan_assets(extensions: &[&str]) -> Vec<AssetFileItem> {
     let assets_dir = Path::new("assets");
     if !assets_dir.is_dir() {
         return Vec::new();
@@ -138,94 +141,10 @@ fn scan_dir_recursive(
     }
 }
 
-// ── State ────────────────────────────────────────────────────────────
-
-/// Resource managing the asset browser palette state.
-#[derive(Resource)]
-pub struct AssetBrowserState {
-    pub open: bool,
-    palette_state: PaletteState,
-    operation: Option<BrowseOperation>,
-    items: Vec<AssetFileItem>,
-    /// Path of the currently previewed texture (relative to assets/).
-    preview_path: Option<String>,
-    /// Strong handle keeping the preview image alive.
-    preview_handle: Option<Handle<Image>>,
-    /// Egui texture id for the preview image.
-    preview_texture_id: Option<egui::TextureId>,
-}
-
-impl Default for AssetBrowserState {
-    fn default() -> Self {
-        Self {
-            open: false,
-            palette_state: PaletteState::default(),
-            operation: None,
-            items: Vec::new(),
-            preview_path: None,
-            preview_handle: None,
-            preview_texture_id: None,
-        }
-    }
-}
-
-impl AssetBrowserState {
-    fn open_with(&mut self, operation: BrowseOperation, extensions: &[&str]) {
-        self.items = scan_assets(extensions);
-        self.palette_state.reset();
-        self.operation = Some(operation);
-        self.open = true;
-        self.preview_path = None;
-        self.preview_handle = None;
-        self.preview_texture_id = None;
-    }
-
-    pub fn open_load_scene(&mut self) {
-        self.open_with(BrowseOperation::LoadScene, &["ron"]);
-    }
-
-    pub fn open_save_scene(&mut self, current_path: Option<&str>) {
-        self.open_with(BrowseOperation::SaveScene, &["ron"]);
-
-        // Prepend virtual "Save as" item
-        self.items.insert(
-            0,
-            AssetFileItem {
-                relative_path: String::new(),
-                filename: "Save as new file...".to_string(),
-                directory: String::new(),
-                is_save_as: true,
-            },
-        );
-
-        // Pre-populate the query with the current scene filename (without extension)
-        if let Some(path) = current_path {
-            let name = Path::new(path)
-                .file_stem()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
-            self.palette_state.query = name.to_string();
-        }
-    }
-
-    pub fn open_insert_gltf(&mut self) {
-        self.open_with(BrowseOperation::InsertGltf, &["gltf", "glb"]);
-    }
-
-    pub fn open_insert_scene(&mut self) {
-        self.open_with(BrowseOperation::InsertScene, &["ron"]);
-    }
-
-    pub fn open_pick_texture(&mut self, slot: TextureSlot, entity: Option<Entity>) {
-        self.open_with(
-            BrowseOperation::PickTexture { slot, entity },
-            &["png", "jpg", "jpeg", "hdr", "exr", "tga", "bmp"],
-        );
-    }
-}
+// ── Preview cleanup ──────────────────────────────────────────────────
 
 /// Remove the preview texture from egui and clear state fields.
-fn cleanup_preview(state: &mut AssetBrowserState, contexts: &mut EguiContexts) {
+fn cleanup_preview(state: &mut CommandPaletteState, contexts: &mut EguiContexts) {
     if let Some(ref handle) = state.preview_handle.take() {
         contexts.remove_image(handle);
     }
@@ -233,28 +152,25 @@ fn cleanup_preview(state: &mut AssetBrowserState, contexts: &mut EguiContexts) {
     state.preview_path = None;
 }
 
-// ── System ───────────────────────────────────────────────────────────
+// ── Draw ─────────────────────────────────────────────────────────────
 
-fn draw_asset_browser(
-    mut contexts: EguiContexts,
-    mut state: ResMut<AssetBrowserState>,
-    mut load_events: MessageWriter<LoadSceneEvent>,
-    mut save_events: MessageWriter<SaveSceneEvent>,
-    mut insert_events: MessageWriter<StartInsertEvent>,
-    mut insert_state: ResMut<InsertState>,
-    mut next_mode: ResMut<NextState<EditorMode>>,
-    editor_state: Res<EditorState>,
-    mut texture_pick: ResMut<TexturePickResult>,
-    asset_server: Res<AssetServer>,
+/// Draw the asset browser palette.
+pub(super) fn draw_asset_browser(
+    contexts: &mut EguiContexts,
+    state: &mut ResMut<CommandPaletteState>,
+    load_events: &mut MessageWriter<LoadSceneEvent>,
+    save_events: &mut MessageWriter<SaveSceneEvent>,
+    insert_events: &mut MessageWriter<StartInsertEvent>,
+    insert_state: &mut ResMut<InsertState>,
+    next_mode: &mut ResMut<NextState<EditorMode>>,
+    texture_pick: &mut ResMut<TexturePickResult>,
+    asset_server: &Res<AssetServer>,
+    gltf_preview_state: &mut ResMut<GltfPreviewState>,
 ) -> Result {
-    if !editor_state.ui_enabled || !state.open {
-        return Ok(());
-    }
-
     // Clone the egui context so we can also use contexts.add_image/remove_image later.
     let ctx = contexts.ctx_mut()?.clone();
 
-    let operation = match &state.operation {
+    let operation = match &state.browse_operation {
         Some(op) => op.clone(),
         None => {
             state.open = false;
@@ -300,38 +216,42 @@ fn draw_asset_browser(
         ),
     };
 
-    // Split borrow: get &mut to the inner struct so Rust allows field-level borrows
-    let inner: &mut AssetBrowserState = &mut state;
+    // Bridge CommandPaletteState to PaletteState
+    let mut palette_state = PaletteState {
+        query: std::mem::take(&mut state.query),
+        selected_index: state.selected_index,
+        just_opened: state.just_opened,
+    };
 
     // ── Texture preview tracking (PickTexture mode only) ────────────
     let is_pick_texture = matches!(&operation, BrowseOperation::PickTexture { .. });
     let preview_panel: Option<Box<dyn FnOnce(&mut egui::Ui)>> = if is_pick_texture {
         // Resolve the currently highlighted item's path
-        let filtered = fuzzy_filter(&inner.items, &inner.palette_state.query);
+        let filtered = fuzzy_filter(&state.asset_items, &palette_state.query);
         let highlighted_path = filtered
-            .get(inner.palette_state.selected_index)
+            .get(palette_state.selected_index)
             .map(|fi| fi.item.relative_path.clone());
 
         // Update preview if highlighted item changed
-        if highlighted_path != inner.preview_path {
+        if highlighted_path != state.preview_path {
             // Remove old egui texture
-            if let Some(ref old_handle) = inner.preview_handle.take() {
+            if let Some(ref old_handle) = state.preview_handle.take() {
                 contexts.remove_image(old_handle);
-                inner.preview_texture_id = None;
+                state.preview_texture_id = None;
             }
 
             if let Some(ref path) = highlighted_path {
                 let handle: Handle<Image> = asset_server.load(path.clone());
                 let tex_id = contexts.add_image(EguiTextureHandle::Strong(handle.clone()));
-                inner.preview_handle = Some(handle);
-                inner.preview_texture_id = Some(tex_id);
+                state.preview_handle = Some(handle);
+                state.preview_texture_id = Some(tex_id);
             }
 
-            inner.preview_path = highlighted_path;
+            state.preview_path = highlighted_path;
         }
 
         // Build preview closure if we have a texture to show
-        if let (Some(tex_id), Some(path)) = (inner.preview_texture_id, &inner.preview_path) {
+        if let (Some(tex_id), Some(path)) = (state.preview_texture_id, &state.preview_path) {
             let tex_id = tex_id;
             let filename = Path::new(path)
                 .file_name()
@@ -357,6 +277,50 @@ fn draw_asset_browser(
         } else {
             None
         }
+    } else if matches!(&operation, BrowseOperation::InsertGltf) {
+        // Resolve the currently highlighted item's path for GLTF preview
+        let filtered = fuzzy_filter(&state.asset_items, &palette_state.query);
+        let highlighted_path = filtered
+            .get(palette_state.selected_index)
+            .map(|fi| fi.item.relative_path.clone());
+
+        // Drive the GLTF preview state with the highlighted path
+        gltf_preview_state.current_path = highlighted_path;
+
+        // Build preview closure if we have a render texture
+        if let Some(tex_id) = gltf_preview_state.texture.egui_texture_id {
+            let filename = gltf_preview_state
+                .current_path
+                .as_ref()
+                .and_then(|p| {
+                    Path::new(p)
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                })
+                .unwrap_or_default();
+            let is_framed = gltf_preview_state.current_path.is_some();
+            Some(Box::new(move |ui: &mut egui::Ui| {
+                ui.label(
+                    egui::RichText::new("Preview")
+                        .small()
+                        .strong()
+                        .color(colors::TEXT_SECONDARY),
+                );
+                ui.add_space(4.0);
+                let size = ui.available_width().min(220.0);
+                ui.image(egui::load::SizedTexture::new(tex_id, [size, size]));
+                ui.add_space(4.0);
+                if is_framed {
+                    ui.label(
+                        egui::RichText::new(&filename)
+                            .color(colors::TEXT_PRIMARY)
+                            .strong(),
+                    );
+                }
+            }))
+        } else {
+            None
+        }
     } else {
         None
     };
@@ -373,13 +337,18 @@ fn draw_asset_browser(
         ..Default::default()
     };
 
-    let result = draw_fuzzy_palette(&ctx, &mut inner.palette_state, &inner.items, config);
+    let result = draw_fuzzy_palette(&ctx, &mut palette_state, &state.asset_items, config);
+
+    // Sync state back
+    state.query = palette_state.query;
+    state.selected_index = palette_state.selected_index;
+    state.just_opened = palette_state.just_opened;
 
     match result {
         PaletteResult::Selected(index) => {
-            let relative_path = inner.items[index].relative_path.clone();
-            let is_save_as = inner.items[index].is_save_as;
-            let query = inner.palette_state.query.trim().to_string();
+            let relative_path = state.asset_items[index].relative_path.clone();
+            let is_save_as = state.asset_items[index].is_save_as;
+            let query = state.query.trim().to_string();
 
             match &operation {
                 BrowseOperation::LoadScene => {
@@ -425,29 +394,19 @@ fn draw_asset_browser(
                 }
             }
 
-            cleanup_preview(&mut state, &mut contexts);
+            cleanup_preview(state, contexts);
+            gltf_preview_state.current_path = None;
             state.open = false;
-            state.operation = None;
+            state.browse_operation = None;
         }
         PaletteResult::Closed => {
-            cleanup_preview(&mut state, &mut contexts);
+            cleanup_preview(state, contexts);
+            gltf_preview_state.current_path = None;
             state.open = false;
-            state.operation = None;
+            state.browse_operation = None;
         }
         PaletteResult::Open => {}
     }
 
     Ok(())
-}
-
-// ── Plugin ───────────────────────────────────────────────────────────
-
-pub struct AssetBrowserPlugin;
-
-impl Plugin for AssetBrowserPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<AssetBrowserState>()
-            .init_resource::<TexturePickResult>()
-            .add_systems(EguiPrimaryContextPass, draw_asset_browser);
-    }
 }

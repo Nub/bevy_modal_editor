@@ -9,8 +9,7 @@ use std::any::TypeId;
 
 use bevy_editor_game::{CustomEntityRegistry, InspectorWidgetFn};
 
-use super::command_palette::{open_add_component_palette, CommandPaletteState};
-use super::entity_picker::{draw_entity_field, make_callback_id, EntityPickerState, PendingEntitySelection};
+use super::command_palette::{open_add_component_palette, CommandPaletteState, draw_entity_field, make_callback_id, PendingEntitySelection};
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::commands::TakeSnapshotCommand;
@@ -1667,8 +1666,8 @@ fn draw_inspector_panel(world: &mut World) {
     if open_spline_picker {
         if let Some(entity) = single_entity {
             let callback_id = make_callback_id(entity, "spline");
-            let mut picker_state = world.resource_mut::<EntityPickerState>();
-            picker_state.open_for_field(entity, "Spline", callback_id);
+            let mut palette_state = world.resource_mut::<CommandPaletteState>();
+            palette_state.open_entity_picker(entity, "Spline", callback_id);
         }
     }
 
@@ -1676,8 +1675,8 @@ fn draw_inspector_panel(world: &mut World) {
     if open_distribution_spline_picker {
         if let Some(entity) = single_entity {
             let callback_id = make_callback_id(entity, "distribution_spline");
-            let mut picker_state = world.resource_mut::<EntityPickerState>();
-            picker_state.open_for_field(entity, "Distribution Spline", callback_id);
+            let mut palette_state = world.resource_mut::<CommandPaletteState>();
+            palette_state.open_entity_picker(entity, "Distribution Spline", callback_id);
         }
     }
 
@@ -1685,8 +1684,8 @@ fn draw_inspector_panel(world: &mut World) {
     if open_distribution_source_picker {
         if let Some(entity) = single_entity {
             let callback_id = make_callback_id(entity, "distribution_source");
-            let mut picker_state = world.resource_mut::<EntityPickerState>();
-            picker_state.open_for_field(entity, "Distribution Source", callback_id);
+            let mut palette_state = world.resource_mut::<CommandPaletteState>();
+            palette_state.open_entity_picker(entity, "Distribution Source", callback_id);
         }
     }
 
@@ -1737,8 +1736,8 @@ fn draw_inspector_panel(world: &mut World) {
             // Open the entity picker
             if let Some(entity) = single_entity {
                 let callback_id = make_callback_id(entity, &field);
-                let mut picker_state = world.resource_mut::<EntityPickerState>();
-                picker_state.open_for_field(entity, &field, callback_id);
+                let mut palette_state = world.resource_mut::<CommandPaletteState>();
+                palette_state.open_entity_picker(entity, &field, callback_id);
             }
         }
     }

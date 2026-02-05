@@ -196,11 +196,15 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
         state.selected_index = state.selected_index.min(filtered.len() - 1);
     }
 
+    // Skip input handling on the first frame to avoid consuming leftover
+    // keypresses (e.g. Enter from the palette that opened us).
+    let skip_input = state.just_opened;
+
     // Check for keyboard input
-    let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
-    let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-    let down_pressed = ctx.input(|i| i.key_pressed(egui::Key::ArrowDown));
-    let up_pressed = ctx.input(|i| i.key_pressed(egui::Key::ArrowUp));
+    let enter_pressed = !skip_input && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    let escape_pressed = !skip_input && ctx.input(|i| i.key_pressed(egui::Key::Escape));
+    let down_pressed = !skip_input && ctx.input(|i| i.key_pressed(egui::Key::ArrowDown));
+    let up_pressed = !skip_input && ctx.input(|i| i.key_pressed(egui::Key::ArrowUp));
 
     // Handle Escape
     if escape_pressed {

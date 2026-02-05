@@ -1,16 +1,15 @@
 mod command_palette;
 mod component_browser;
 mod edit_info;
-mod entity_picker;
-mod file_dialog;
-mod find_object;
 pub mod fuzzy_palette;
+pub mod gltf_preview;
 mod hierarchy;
+pub mod insert_preview;
+pub mod preview_common;
 mod inspector;
 mod marks;
 mod material_editor;
 pub mod material_preview;
-mod material_preset_palette;
 mod panels;
 mod reflect_editor;
 mod settings;
@@ -22,9 +21,6 @@ mod view_gizmo;
 pub use command_palette::*;
 pub use component_browser::*;
 pub use edit_info::*;
-pub use entity_picker::*;
-pub use file_dialog::*;
-pub use find_object::*;
 pub use fuzzy_palette::{
     draw_fuzzy_palette, fuzzy_filter, CategorizedItem, FilteredItem, KeywordItem, PaletteConfig,
     PaletteItem, PaletteResult, PaletteState, SimpleItem,
@@ -75,6 +71,8 @@ impl Plugin for UiPlugin {
                 InspectorPlugin,
                 material_editor::MaterialEditorPlugin,
                 material_preview::MaterialPreviewPlugin,
+                insert_preview::InsertPreviewPlugin,
+                gltf_preview::GltfPreviewPlugin,
                 ToolbarPlugin,
                 ViewGizmoPlugin,
                 EditInfoPlugin,
@@ -82,12 +80,8 @@ impl Plugin for UiPlugin {
             // Popups and dialogs - modal UI elements
             .add_plugins((
                 CommandPalettePlugin,
-                FindObjectPlugin,
                 ComponentBrowserPlugin,
-                FileDialogPlugin,
                 MarksPlugin,
-                EntityPickerPlugin,
-                material_preset_palette::MaterialPresetPalettePlugin,
             ))
             // Validation
             .add_plugins(validation::ValidationPlugin);

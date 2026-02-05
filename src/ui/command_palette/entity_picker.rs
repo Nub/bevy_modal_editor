@@ -1,43 +1,13 @@
+//! Entity picker palette — select an entity for a field reference.
+
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_egui::egui;
 
-use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteItem, PaletteResult, PaletteState};
-use super::theme::colors;
 use crate::scene::SceneEntity;
+use crate::ui::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteItem, PaletteResult, PaletteState};
+use crate::ui::theme::colors;
 
-/// State for the entity picker popup
-#[derive(Resource, Default)]
-pub struct EntityPickerState {
-    /// Whether the picker is open
-    pub open: bool,
-    /// The palette state for fuzzy search
-    pub palette_state: PaletteState,
-    /// The entity being edited (that contains the Entity field)
-    pub editing_entity: Option<Entity>,
-    /// Field name being edited (for display/identification)
-    pub field_name: String,
-    /// Callback identifier to know which field to update
-    pub callback_id: u64,
-}
-
-impl EntityPickerState {
-    /// Open the entity picker for a specific field
-    pub fn open_for_field(&mut self, editing_entity: Entity, field_name: &str, callback_id: u64) {
-        self.open = true;
-        self.palette_state.reset();
-        self.editing_entity = Some(editing_entity);
-        self.field_name = field_name.to_string();
-        self.callback_id = callback_id;
-    }
-
-    /// Close the picker
-    pub fn close(&mut self) {
-        self.open = false;
-        self.editing_entity = None;
-        self.field_name.clear();
-        self.callback_id = 0;
-    }
-}
+use super::CommandPaletteState;
 
 /// Result of entity picker selection
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +21,16 @@ pub struct EntityPickerSelection {
 /// Resource to store the pending entity selection (set when user picks an entity)
 #[derive(Resource, Default)]
 pub struct PendingEntitySelection(pub Option<EntityPickerSelection>);
+
+/// Resource to track the current entity being inspected (for reflection editor context)
+#[derive(Resource, Default)]
+pub struct CurrentInspectedEntity(pub Option<Entity>);
+
+/// Resource to signal that an entity picker should be opened for a reflection-based field
+#[derive(Resource, Default)]
+pub struct PendingEntityPickerRequest {
+    pub field_path: Option<String>,
+}
 
 /// Entry for an entity in the picker
 struct EntityEntry {
@@ -80,33 +60,13 @@ impl PaletteItem for EntityEntry {
     }
 }
 
-pub struct EntityPickerPlugin;
-
-impl Plugin for EntityPickerPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<EntityPickerState>()
-            .init_resource::<PendingEntitySelection>()
-            .init_resource::<CurrentInspectedEntity>()
-            .init_resource::<PendingEntityPickerRequest>()
-            .add_systems(EguiPrimaryContextPass, draw_entity_picker);
-    }
-}
-
 /// Draw the entity picker popup
-fn draw_entity_picker(
-    mut contexts: EguiContexts,
-    mut state: ResMut<EntityPickerState>,
-    mut pending_selection: ResMut<PendingEntitySelection>,
-    scene_entities: Query<(Entity, &Name), With<SceneEntity>>,
-) {
-    if !state.open {
-        return;
-    }
-
-    let Ok(ctx) = contexts.ctx_mut() else {
-        return;
-    };
-
+pub(super) fn draw_entity_picker(
+    ctx: &egui::Context,
+    state: &mut ResMut<CommandPaletteState>,
+    pending_selection: &mut ResMut<PendingEntitySelection>,
+    scene_entities: &Query<(Entity, &Name), With<SceneEntity>>,
+) -> Result {
     // Build list of entities
     let entities: Vec<EntityEntry> = scene_entities
         .iter()
@@ -118,14 +78,22 @@ fn draw_entity_picker(
 
     // Check for escape to close
     if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
-        state.close();
-        return;
+        state.open = false;
+        return Ok(());
     }
 
+    // Bridge CommandPaletteState to PaletteState
+    let mut palette_state = PaletteState {
+        query: std::mem::take(&mut state.query),
+        selected_index: state.selected_index,
+        just_opened: state.just_opened,
+    };
+
+    let field_name = state.picker_field_name.clone();
     let config = PaletteConfig {
         title: "SELECT ENTITY",
         title_color: colors::ACCENT_CYAN,
-        subtitle: &format!("for {}", state.field_name),
+        subtitle: &format!("for {}", field_name),
         hint_text: "Search entities...",
         action_label: "select",
         size: [350.0, 300.0],
@@ -134,22 +102,31 @@ fn draw_entity_picker(
         ..Default::default()
     };
 
-    match draw_fuzzy_palette(ctx, &mut state.palette_state, &entities, config) {
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &entities, config);
+
+    // Sync state back
+    state.query = palette_state.query;
+    state.selected_index = palette_state.selected_index;
+    state.just_opened = palette_state.just_opened;
+
+    match result {
         PaletteResult::Selected(index) => {
             if let Some(entry) = entities.get(index) {
                 // Store the selection for the inspector to consume
                 pending_selection.0 = Some(EntityPickerSelection {
                     selected_entity: entry.entity,
-                    callback_id: state.callback_id,
+                    callback_id: state.picker_callback_id,
                 });
             }
-            state.close();
+            state.open = false;
         }
         PaletteResult::Closed => {
-            state.close();
+            state.open = false;
         }
         PaletteResult::Open => {}
     }
+
+    Ok(())
 }
 
 /// Helper function to draw an entity field with a picker button
@@ -195,14 +172,4 @@ pub fn make_callback_id(entity: Entity, field_name: &str) -> u64 {
     entity.hash(&mut hasher);
     field_name.hash(&mut hasher);
     hasher.finish()
-}
-
-/// Resource to track the current entity being inspected (for reflection editor context)
-#[derive(Resource, Default)]
-pub struct CurrentInspectedEntity(pub Option<Entity>);
-
-/// Resource to signal that an entity picker should be opened for a reflection-based field
-#[derive(Resource, Default)]
-pub struct PendingEntityPickerRequest {
-    pub field_path: Option<String>,
 }

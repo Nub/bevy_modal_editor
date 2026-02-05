@@ -1,12 +1,9 @@
 //! 3D material preview viewport rendered to a texture and displayed in the
 //! material editor panel via egui.
 
-use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
-use bevy::camera::RenderTarget;
 use bevy::prelude::*;
-use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
-use bevy_egui::{egui, EguiTextureHandle, EguiUserTextures};
+use bevy_egui::EguiUserTextures;
 use bevy_editor_game::{MaterialDefinition, MaterialLibrary, MaterialRef};
 
 use crate::editor::{EditorMode, EditorState};
@@ -15,15 +12,16 @@ use crate::materials::{
 };
 use crate::selection::Selected;
 use crate::ui::material_editor::EditingPreset;
+use crate::ui::preview_common::{
+    register_preview_egui_texture, spawn_preview_scene, PreviewSceneConfig, PreviewTexture,
+    PREVIEW_ROTATION_SPEED,
+};
 
 /// Render layer for the material editor preview scene (outliner uses layer 31).
 const PREVIEW_RENDER_LAYER: usize = 30;
 
 /// Render layer for the preset palette preview scene.
 const PRESET_PREVIEW_RENDER_LAYER: usize = 29;
-
-/// Resolution of the preview render texture.
-const PREVIEW_TEXTURE_SIZE: u32 = 512;
 
 /// Marker for the material editor preview camera entity.
 #[derive(Component)]
@@ -60,26 +58,21 @@ struct PresetPreviewLight;
 /// State resource for the material preview system.
 #[derive(Resource)]
 pub struct MaterialPreviewState {
-    /// Handle to the render texture.
-    pub render_texture: Handle<Image>,
-    /// Egui texture id once registered.
-    pub egui_texture_id: Option<egui::TextureId>,
+    /// Shared render texture + egui texture id.
+    pub texture: PreviewTexture,
     /// Whether the preview scene has been set up.
     pub initialized: bool,
     /// Serialized form of last applied material for change detection.
     last_applied_hash: Option<String>,
     /// Current rotation angle of the sphere.
     rotation_angle: f32,
-    // NOTE: No preview_override — the preset palette uses its own PresetPreviewState.
 }
 
 /// State resource for the preset palette preview (separate scene).
 #[derive(Resource)]
 pub struct PresetPreviewState {
-    /// Handle to the render texture.
-    pub render_texture: Handle<Image>,
-    /// Egui texture id once registered.
-    pub egui_texture_id: Option<egui::TextureId>,
+    /// Shared render texture + egui texture id.
+    pub texture: PreviewTexture,
     /// Serialized form of last applied material for change detection.
     last_applied_hash: Option<String>,
     /// Current rotation angle of the sphere.
@@ -96,10 +89,10 @@ impl Plugin for MaterialPreviewPlugin {
             .add_systems(
                 Update,
                 (
-                    register_preview_texture,
+                    register_preview_texture_system,
                     sync_preview_material,
                     rotate_preview_sphere,
-                    register_preset_preview_texture,
+                    register_preset_preview_texture_system,
                     sync_preset_preview_material,
                     rotate_preset_preview_sphere,
                 ),
@@ -114,38 +107,18 @@ fn setup_material_preview(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    // Create render texture
-    let size = Extent3d {
-        width: PREVIEW_TEXTURE_SIZE,
-        height: PREVIEW_TEXTURE_SIZE,
-        depth_or_array_layers: 1,
-    };
-    let mut image = Image::new_fill(
-        size,
-        TextureDimension::D2,
-        &[0, 0, 0, 255],
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-    );
-    image.texture_descriptor.usage =
-        TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING;
-    let render_texture = images.add(image);
-
+    let config = PreviewSceneConfig::material_studio(PREVIEW_RENDER_LAYER, -2);
     let layer = RenderLayers::layer(PREVIEW_RENDER_LAYER);
+    let handles = spawn_preview_scene(&mut commands, &mut images, &mut meshes, &mut materials, &config);
 
-    // Preview camera
-    commands.spawn((
-        PreviewCamera,
-        Camera3d::default(),
-        Camera {
-            order: -2,
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.12, 0.14, 0.18)),
-            ..default()
-        },
-        RenderTarget::Image(render_texture.clone().into()),
-        Transform::from_xyz(0.0, 0.5, 2.5).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
-        layer.clone(),
-    ));
+    // Tag spawned entities with local markers
+    commands.entity(handles.camera).insert(PreviewCamera);
+    for &light in &handles.lights {
+        commands.entity(light).insert(PreviewLight);
+    }
+    if let Some(ground) = handles.ground {
+        commands.entity(ground).insert(PreviewGround);
+    }
 
     // Preview sphere
     let sphere_mesh = meshes.add(Sphere::new(0.7).mesh().ico(5).unwrap());
@@ -158,38 +131,14 @@ fn setup_material_preview(
         Mesh3d(sphere_mesh),
         MeshMaterial3d(default_material),
         Transform::IDENTITY,
-        layer.clone(),
-    ));
-
-    // Ground plane
-    let ground_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(3.0)));
-    let ground_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.15, 0.15, 0.17),
-        ..default()
-    });
-    commands.spawn((
-        PreviewGround,
-        Mesh3d(ground_mesh),
-        MeshMaterial3d(ground_material),
-        Transform::from_xyz(0.0, -0.7, 0.0),
-        layer.clone(),
-    ));
-
-    // Directional light
-    commands.spawn((
-        PreviewLight,
-        DirectionalLight {
-            illuminance: 3000.0,
-            shadows_enabled: false,
-            ..default()
-        },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.4, 0.0)),
         layer,
     ));
 
     commands.insert_resource(MaterialPreviewState {
-        render_texture,
-        egui_texture_id: None,
+        texture: PreviewTexture {
+            render_texture: handles.render_texture,
+            egui_texture_id: None,
+        },
         initialized: true,
         last_applied_hash: None,
         rotation_angle: 0.0,
@@ -197,15 +146,11 @@ fn setup_material_preview(
 }
 
 /// Register the render texture with bevy_egui once (runs until successful).
-fn register_preview_texture(
+fn register_preview_texture_system(
     mut state: ResMut<MaterialPreviewState>,
     mut user_textures: ResMut<EguiUserTextures>,
 ) {
-    if state.egui_texture_id.is_some() {
-        return;
-    }
-    let id = user_textures.add_image(EguiTextureHandle::Strong(state.render_texture.clone()));
-    state.egui_texture_id = Some(id);
+    register_preview_egui_texture(&mut state.texture, &mut user_textures);
 }
 
 /// Keep the preview sphere's material in sync with the selected entity's material.
@@ -285,7 +230,7 @@ fn rotate_preview_sphere(
         return;
     }
 
-    state.rotation_angle += 0.3 * time.delta_secs();
+    state.rotation_angle += PREVIEW_ROTATION_SPEED * time.delta_secs();
     if let Ok(mut transform) = sphere.single_mut() {
         transform.rotation = Quat::from_rotation_y(state.rotation_angle);
     }
@@ -302,37 +247,20 @@ fn setup_preset_preview(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let size = Extent3d {
-        width: PREVIEW_TEXTURE_SIZE,
-        height: PREVIEW_TEXTURE_SIZE,
-        depth_or_array_layers: 1,
-    };
-    let mut image = Image::new_fill(
-        size,
-        TextureDimension::D2,
-        &[0, 0, 0, 255],
-        TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD | RenderAssetUsages::MAIN_WORLD,
-    );
-    image.texture_descriptor.usage =
-        TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING;
-    let render_texture = images.add(image);
-
+    let config = PreviewSceneConfig::material_studio(PRESET_PREVIEW_RENDER_LAYER, -3);
     let layer = RenderLayers::layer(PRESET_PREVIEW_RENDER_LAYER);
+    let handles = spawn_preview_scene(&mut commands, &mut images, &mut meshes, &mut materials, &config);
 
-    commands.spawn((
-        PresetPreviewCamera,
-        Camera3d::default(),
-        Camera {
-            order: -3,
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.12, 0.14, 0.18)),
-            ..default()
-        },
-        RenderTarget::Image(render_texture.clone().into()),
-        Transform::from_xyz(0.0, 0.5, 2.5).looking_at(Vec3::new(0.0, 0.0, 0.0), Vec3::Y),
-        layer.clone(),
-    ));
+    // Tag spawned entities with local markers
+    commands.entity(handles.camera).insert(PresetPreviewCamera);
+    for &light in &handles.lights {
+        commands.entity(light).insert(PresetPreviewLight);
+    }
+    if let Some(ground) = handles.ground {
+        commands.entity(ground).insert(PresetPreviewGround);
+    }
 
+    // Preview sphere
     let sphere_mesh = meshes.add(Sphere::new(0.7).mesh().ico(5).unwrap());
     let default_material = materials.add(StandardMaterial {
         base_color: Color::srgb(0.5, 0.5, 0.5),
@@ -343,36 +271,14 @@ fn setup_preset_preview(
         Mesh3d(sphere_mesh),
         MeshMaterial3d(default_material),
         Transform::IDENTITY,
-        layer.clone(),
-    ));
-
-    let ground_mesh = meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(3.0)));
-    let ground_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.15, 0.15, 0.17),
-        ..default()
-    });
-    commands.spawn((
-        PresetPreviewGround,
-        Mesh3d(ground_mesh),
-        MeshMaterial3d(ground_material),
-        Transform::from_xyz(0.0, -0.7, 0.0),
-        layer.clone(),
-    ));
-
-    commands.spawn((
-        PresetPreviewLight,
-        DirectionalLight {
-            illuminance: 3000.0,
-            shadows_enabled: false,
-            ..default()
-        },
-        Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.8, 0.4, 0.0)),
         layer,
     ));
 
     commands.insert_resource(PresetPreviewState {
-        render_texture,
-        egui_texture_id: None,
+        texture: PreviewTexture {
+            render_texture: handles.render_texture,
+            egui_texture_id: None,
+        },
         last_applied_hash: None,
         rotation_angle: 0.0,
         current_def: None,
@@ -380,15 +286,11 @@ fn setup_preset_preview(
 }
 
 /// Register the preset preview render texture with bevy_egui.
-fn register_preset_preview_texture(
+fn register_preset_preview_texture_system(
     mut state: ResMut<PresetPreviewState>,
     mut user_textures: ResMut<EguiUserTextures>,
 ) {
-    if state.egui_texture_id.is_some() {
-        return;
-    }
-    let id = user_textures.add_image(EguiTextureHandle::Strong(state.render_texture.clone()));
-    state.egui_texture_id = Some(id);
+    register_preview_egui_texture(&mut state.texture, &mut user_textures);
 }
 
 /// Keep the preset preview sphere in sync with the palette's current selection.
@@ -447,7 +349,7 @@ fn rotate_preset_preview_sphere(
         return;
     }
 
-    state.rotation_angle += 0.3 * time.delta_secs();
+    state.rotation_angle += PREVIEW_ROTATION_SPEED * time.delta_secs();
     if let Ok(mut transform) = sphere.single_mut() {
         transform.rotation = Quat::from_rotation_y(state.rotation_angle);
     }

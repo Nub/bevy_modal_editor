@@ -1,70 +1,14 @@
-use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+//! Find object palette — search scene objects by name.
 
-use super::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteItem, PaletteResult, PaletteState};
-use super::theme::colors;
-use crate::editor::{EditorMode, EditorState};
+use bevy::prelude::*;
+use bevy_egui::egui;
+
 use crate::scene::SceneEntity;
 use crate::selection::Selected;
-use crate::utils::should_process_input;
+use crate::ui::fuzzy_palette::{draw_fuzzy_palette, PaletteConfig, PaletteItem, PaletteResult, PaletteState};
+use crate::ui::theme::colors;
 
-/// Resource to track find object palette state
-#[derive(Resource)]
-pub struct FindObjectState {
-    pub open: bool,
-    pub palette_state: PaletteState,
-}
-
-impl Default for FindObjectState {
-    fn default() -> Self {
-        Self {
-            open: false,
-            palette_state: PaletteState::default(),
-        }
-    }
-}
-
-pub struct FindObjectPlugin;
-
-impl Plugin for FindObjectPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<FindObjectState>()
-            .add_systems(Update, handle_find_toggle)
-            .add_systems(EguiPrimaryContextPass, draw_find_palette);
-    }
-}
-
-/// Open palette with F key (not in Hierarchy mode), or / key in Hierarchy mode
-fn handle_find_toggle(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut state: ResMut<FindObjectState>,
-    editor_mode: Res<State<EditorMode>>,
-    editor_state: Res<EditorState>,
-    mut contexts: EguiContexts,
-) {
-    // Don't open if already open
-    if state.open {
-        return;
-    }
-
-    if !should_process_input(&editor_state, &mut contexts) {
-        return;
-    }
-
-    let in_hierarchy = *editor_mode.get() == EditorMode::Hierarchy;
-    let in_material = *editor_mode.get() == EditorMode::Material;
-
-    // F key opens find palette (not in Hierarchy mode where F is used for inline filtering,
-    // and not in Material mode where F opens the preset palette)
-    // "/" key opens find palette only in Hierarchy mode
-    let f_pressed = keyboard.just_pressed(KeyCode::KeyF) && !in_hierarchy && !in_material;
-    let slash_pressed = keyboard.just_pressed(KeyCode::Slash) && in_hierarchy;
-
-    if f_pressed || slash_pressed {
-        state.open = true;
-        state.palette_state.reset();
-    }
-}
+use super::CommandPaletteState;
 
 /// Entry for a scene object that implements PaletteItem
 struct ObjectEntry {
@@ -79,25 +23,13 @@ impl PaletteItem for ObjectEntry {
 }
 
 /// Draw the find object palette
-fn draw_find_palette(
-    mut contexts: EguiContexts,
-    mut state: ResMut<FindObjectState>,
-    mut commands: Commands,
-    scene_objects: Query<(Entity, &Name), With<SceneEntity>>,
-    selected_entities: Query<Entity, With<Selected>>,
-    editor_state: Res<EditorState>,
+pub(super) fn draw_find_palette(
+    ctx: &egui::Context,
+    state: &mut ResMut<CommandPaletteState>,
+    commands: &mut Commands,
+    scene_objects: &Query<(Entity, &Name), With<SceneEntity>>,
+    selected_entities: &Query<Entity, With<Selected>>,
 ) -> Result {
-    // Don't draw UI when editor is disabled
-    if !editor_state.ui_enabled {
-        return Ok(());
-    }
-
-    if !state.open {
-        return Ok(());
-    }
-
-    let ctx = contexts.ctx_mut()?;
-
     // Build list of scene objects
     let objects: Vec<ObjectEntry> = scene_objects
         .iter()
@@ -109,7 +41,6 @@ fn draw_find_palette(
 
     // Handle empty scene
     if objects.is_empty() {
-        // Draw a simple message window
         egui::Window::new("Find Object")
             .collapsible(false)
             .resizable(false)
@@ -149,6 +80,13 @@ fn draw_find_palette(
         return Ok(());
     }
 
+    // Bridge CommandPaletteState to PaletteState
+    let mut palette_state = PaletteState {
+        query: std::mem::take(&mut state.query),
+        selected_index: state.selected_index,
+        just_opened: state.just_opened,
+    };
+
     let config = PaletteConfig {
         title: "FIND OBJECT",
         title_color: colors::ACCENT_CYAN,
@@ -161,7 +99,14 @@ fn draw_find_palette(
         ..Default::default()
     };
 
-    match draw_fuzzy_palette(ctx, &mut state.palette_state, &objects, config) {
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &objects, config);
+
+    // Sync state back
+    state.query = palette_state.query;
+    state.selected_index = palette_state.selected_index;
+    state.just_opened = palette_state.just_opened;
+
+    match result {
         PaletteResult::Selected(index) => {
             if let Some(obj) = objects.get(index) {
                 // Deselect all currently selected

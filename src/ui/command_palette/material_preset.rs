@@ -1,39 +1,19 @@
+//! Material preset palette — browse and apply material library presets.
+
 use bevy::prelude::*;
 use bevy_editor_game::{BaseMaterialProps, MaterialDefinition, MaterialLibrary, MaterialRef};
-use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_egui::egui;
 
-use super::fuzzy_palette::{
-    draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteItem, PaletteResult, PaletteState,
-};
-use super::material_preview::PresetPreviewState;
-use super::theme::colors;
-use crate::editor::{EditorMode, EditorState};
 use crate::materials::{apply_material_def_standalone, remove_all_material_components};
 use crate::selection::Selected;
+use crate::ui::fuzzy_palette::{
+    draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteItem, PaletteResult, PaletteState,
+};
 use crate::ui::material_editor::EditingPreset;
-use crate::utils::should_process_input;
+use crate::ui::material_preview::PresetPreviewState;
+use crate::ui::theme::colors;
 
-/// Resource tracking state of the material preset search palette.
-#[derive(Resource)]
-pub struct MaterialPresetPaletteState {
-    pub open: bool,
-    pub palette_state: PaletteState,
-    /// Name of the previously previewed preset, for change detection.
-    prev_previewed_name: Option<String>,
-    /// Previous query string, used to detect query changes.
-    prev_query: String,
-}
-
-impl Default for MaterialPresetPaletteState {
-    fn default() -> Self {
-        Self {
-            open: false,
-            palette_state: PaletteState::default(),
-            prev_previewed_name: None,
-            prev_query: String::new(),
-        }
-    }
-}
+use super::CommandPaletteState;
 
 /// A library preset entry for fuzzy filtering.
 struct PresetItem {
@@ -51,72 +31,28 @@ impl PaletteItem for PresetItem {
     }
 }
 
-pub struct MaterialPresetPalettePlugin;
-
-impl Plugin for MaterialPresetPalettePlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<MaterialPresetPaletteState>()
-            .add_systems(Update, handle_preset_palette_toggle)
-            .add_systems(EguiPrimaryContextPass, draw_material_preset_palette);
-    }
-}
-
-/// Open the preset palette with F in Material mode.
-fn handle_preset_palette_toggle(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut state: ResMut<MaterialPresetPaletteState>,
-    editor_mode: Res<State<EditorMode>>,
-    editor_state: Res<EditorState>,
-    mut contexts: EguiContexts,
-) {
-    if state.open {
-        return;
-    }
-    if !should_process_input(&editor_state, &mut contexts) {
-        return;
-    }
-    if *editor_mode.get() != EditorMode::Material {
-        return;
-    }
-    if keyboard.just_pressed(KeyCode::KeyF) {
-        state.open = true;
-        state.palette_state.reset();
-        // Start on first library item (index 1), not "New Preset" (index 0)
-        state.palette_state.selected_index = 1;
-        state.prev_previewed_name = None;
-    }
-}
-
 /// Draw the material preset palette using the shared fuzzy palette widget.
-fn draw_material_preset_palette(
-    mut contexts: EguiContexts,
-    mut state: ResMut<MaterialPresetPaletteState>,
-    mut preview_state: ResMut<PresetPreviewState>,
-    editor_state: Res<EditorState>,
-    editor_mode: Res<State<EditorMode>>,
-    library: Res<MaterialLibrary>,
-    selected_entities: Query<Entity, With<Selected>>,
-    mut editing_preset: ResMut<EditingPreset>,
-    mut commands: Commands,
+pub(super) fn draw_material_preset_palette(
+    ctx: &egui::Context,
+    state: &mut ResMut<CommandPaletteState>,
+    preview_state: &mut ResMut<PresetPreviewState>,
+    library: &Res<MaterialLibrary>,
+    selected_entities: &Query<Entity, With<Selected>>,
+    editing_preset: &mut ResMut<EditingPreset>,
+    commands: &mut Commands,
 ) -> Result {
-    if !editor_state.ui_enabled || !state.open {
-        return Ok(());
-    }
-
-    // Close if mode changed away from Material
-    if *editor_mode.get() != EditorMode::Material {
-        state.open = false;
-        preview_state.current_def = None;
-        return Ok(());
-    }
-
-    let ctx = contexts.ctx_mut()?;
+    // Bridge CommandPaletteState to PaletteState
+    let mut palette_state = PaletteState {
+        query: std::mem::take(&mut state.query),
+        selected_index: state.selected_index,
+        just_opened: state.just_opened,
+    };
 
     // Build items: "New Preset" (always-visible) at index 0, then sorted library presets
-    let new_label = if state.palette_state.query.trim().is_empty() {
+    let new_label = if palette_state.query.trim().is_empty() {
         "+ New Preset".to_string()
     } else {
-        format!("+ New Preset \"{}\"", state.palette_state.query.trim())
+        format!("+ New Preset \"{}\"", palette_state.query.trim())
     };
     let mut items: Vec<PresetItem> = vec![PresetItem {
         name: new_label,
@@ -130,24 +66,24 @@ fn draw_material_preset_palette(
     }));
 
     // When the query changes, auto-select the first library match (skip pinned "New Preset")
-    if state.palette_state.query != state.prev_query {
-        state.prev_query = state.palette_state.query.clone();
-        let filtered = fuzzy_filter(&items, &state.palette_state.query);
+    if palette_state.query != state.prev_query {
+        state.prev_query = palette_state.query.clone();
+        let filtered = fuzzy_filter(&items, &palette_state.query);
         // Find first non-pinned item's display position
         let first_library = filtered
             .iter()
             .position(|fi| !fi.item.is_new_preset)
             .unwrap_or(0);
-        state.palette_state.selected_index = first_library;
+        palette_state.selected_index = first_library;
     }
 
     // Update preview based on currently highlighted item
     {
-        let filtered = fuzzy_filter(&items, &state.palette_state.query);
+        let filtered = fuzzy_filter(&items, &palette_state.query);
         let clamped = if filtered.is_empty() {
             0
         } else {
-            state.palette_state.selected_index.min(filtered.len() - 1)
+            palette_state.selected_index.min(filtered.len() - 1)
         };
         let current_name = filtered.get(clamped).and_then(|fi| {
             if fi.item.is_new_preset {
@@ -165,7 +101,7 @@ fn draw_material_preset_palette(
         }
     }
 
-    let preview_texture_id = preview_state.egui_texture_id;
+    let preview_texture_id = preview_state.texture.egui_texture_id;
     let preview_name = state.prev_previewed_name.clone();
 
     let preview_panel: Box<dyn FnOnce(&mut egui::Ui) + '_> = Box::new(move |ui: &mut egui::Ui| {
@@ -212,12 +148,19 @@ fn draw_material_preset_palette(
 
     let has_selection = selected_entities.iter().next().is_some();
 
-    match draw_fuzzy_palette(ctx, &mut state.palette_state, &items, config) {
+    let result = draw_fuzzy_palette(ctx, &mut palette_state, &items, config);
+
+    // Sync state back
+    state.query = palette_state.query;
+    state.selected_index = palette_state.selected_index;
+    state.just_opened = palette_state.just_opened;
+
+    match result {
         PaletteResult::Selected(index) => {
             if items[index].is_new_preset {
                 // "New Preset" selected — create and add to library
-                let query = state.palette_state.query.trim().to_string();
-                let new_name = new_preset_name(&query, &library);
+                let query = state.query.trim().to_string();
+                let new_name = new_preset_name(&query, library);
                 let def = MaterialDefinition {
                     base: BaseMaterialProps::default(),
                     extension: None,
@@ -273,7 +216,7 @@ fn draw_material_preset_palette(
 
 /// Generate a unique preset name. Uses the query if non-empty, otherwise "New Material".
 /// Appends a number suffix if the name already exists.
-fn new_preset_name(query: &str, library: &MaterialLibrary) -> String {
+pub(super) fn new_preset_name(query: &str, library: &MaterialLibrary) -> String {
     let base = if query.is_empty() {
         "New Material".to_string()
     } else {

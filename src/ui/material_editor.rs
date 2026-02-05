@@ -14,7 +14,7 @@ use bevy_editor_game::{
 use crate::editor::{EditorMode, EditorState};
 use crate::materials::{apply_material_def_standalone, remove_all_material_components, resolve_material_ref, MaterialTypeRegistry};
 use crate::selection::Selected;
-use crate::ui::file_dialog::{FileDialogState, TexturePickResult, TextureSlot};
+use crate::ui::command_palette::{CommandPaletteState, TexturePickResult, TextureSlot};
 use crate::ui::material_preview::MaterialPreviewState;
 use crate::ui::theme::{
     colors, draw_centered_dialog, grid_label, panel, panel_frame, section_header, value_slider,
@@ -436,7 +436,7 @@ fn draw_material_panel(world: &mut World) {
     // Read preview texture id
     let preview_texture_id = world
         .get_resource::<MaterialPreviewState>()
-        .and_then(|s| s.egui_texture_id);
+        .and_then(|s| s.texture.egui_texture_id);
 
     // Resolve the definition (we need a clone because we'll mutate it)
     let library = world
@@ -852,7 +852,7 @@ fn draw_material_panel(world: &mut World) {
             // Open file dialog for texture browsing (preset path)
             if let Some(slot) = browse_texture_slot {
                 world
-                    .resource_mut::<FileDialogState>()
+                    .resource_mut::<CommandPaletteState>()
                     .open_pick_texture(slot, None);
                 return;
             }
@@ -963,7 +963,7 @@ fn draw_material_panel(world: &mut World) {
     // Open file dialog for texture browsing
     if let Some(slot) = browse_texture_slot {
         world
-            .resource_mut::<FileDialogState>()
+            .resource_mut::<CommandPaletteState>()
             .open_pick_texture(slot, Some(entity));
         return;
     }
