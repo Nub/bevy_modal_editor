@@ -1,7 +1,10 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use bevy_editor_game::{GameStartedEvent, GameState};
+use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
+use bevy_modal_editor::ui::theme::colors;
 
+use crate::levels::LevelCompleteEvent;
 use crate::GoalZone;
 
 use crate::marble::Marble;
@@ -25,9 +28,10 @@ impl Plugin for GameTimerPlugin {
             .add_systems(Update, reset_timer_on_game_start)
             .add_systems(
                 Update,
-                (update_timer, check_goal_reached, draw_timer_ui)
+                (update_timer, check_goal_reached)
                     .run_if(in_state(GameState::Playing)),
-            );
+            )
+            .add_systems(EguiPrimaryContextPass, draw_timer_ui.run_if(in_state(GameState::Playing)));
     }
 }
 
@@ -53,6 +57,7 @@ fn check_goal_reached(
     mut timer: ResMut<GameTimer>,
     marble_query: Query<&Transform, With<Marble>>,
     goal_query: Query<(&Transform, &Collider), With<GoalZone>>,
+    mut complete_events: MessageWriter<LevelCompleteEvent>,
 ) {
     if timer.completed {
         return;
@@ -78,16 +83,41 @@ fn check_goal_reached(
             timer.completed = true;
             timer.completion_time = Some(timer.elapsed);
             info!("Goal reached! Time: {:.2}s", timer.elapsed);
+            complete_events.write(LevelCompleteEvent { time: timer.elapsed });
         }
     }
 }
 
-/// Draw a simple timer overlay UI
+/// Draw the timer HUD overlay during play
 fn draw_timer_ui(
-    _timer: Res<GameTimer>,
-    _gizmos: Gizmos,
-) {
-    // Timer UI is drawn as screen-space text via the 2D overlay
-    // For simplicity, we'll log completion — a full UI would use egui
-    // The status bar already shows PLAYING state
+    timer: Res<GameTimer>,
+    mut contexts: EguiContexts,
+) -> Result {
+    let ctx = contexts.ctx_mut()?;
+
+    egui::Area::new(egui::Id::new("timer_hud"))
+        .anchor(egui::Align2::CENTER_TOP, [0.0, 8.0])
+        .show(ctx, |ui| {
+            let frame = egui::Frame::NONE
+                .fill(egui::Color32::from_black_alpha(160))
+                .corner_radius(egui::CornerRadius::same(8))
+                .inner_margin(egui::Margin::symmetric(16, 6));
+
+            frame.show(ui, |ui| {
+                let time_text = format!("{:.2}s", timer.elapsed);
+                let color = if timer.completed {
+                    colors::ACCENT_GREEN
+                } else {
+                    colors::TEXT_PRIMARY
+                };
+                ui.label(
+                    egui::RichText::new(time_text)
+                        .color(color)
+                        .size(20.0)
+                        .monospace(),
+                );
+            });
+        });
+
+    Ok(())
 }
