@@ -23,6 +23,13 @@ impl Plugin for HierarchyPlugin {
 }
 
 /// State for hierarchy panel (expanded nodes, etc.)
+#[derive(Default, PartialEq, Eq, Clone, Copy)]
+enum HierarchyTab {
+    #[default]
+    Scene,
+    World,
+}
+
 #[derive(Resource, Default)]
 pub struct HierarchyState {
     /// Set of expanded group entities
@@ -35,6 +42,10 @@ pub struct HierarchyState {
     pub focus_filter: bool,
     /// Whether the filter is active (visible even when empty)
     pub filter_active: bool,
+    /// Active tab
+    tab: HierarchyTab,
+    /// Filter for world tab
+    world_filter: String,
 }
 
 /// Payload for drag and drop operations
@@ -112,6 +123,7 @@ fn draw_hierarchy_panel(
         ),
         (With<SceneEntity>, Without<ProceduralEntity>),
     >,
+    all_entities: Query<(Entity, Option<&Name>, Option<&ChildOf>)>,
     selected: Query<Entity, With<Selected>>,
     mut commands: Commands,
     mut hierarchy_state: ResMut<HierarchyState>,
@@ -170,6 +182,23 @@ fn draw_hierarchy_panel(
         .show(ctx, |ui| {
             // Force the window content to fill available height
             ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
+
+            // Tab bar
+            ui.horizontal(|ui| {
+                if ui.selectable_label(hierarchy_state.tab == HierarchyTab::Scene, "Scene").clicked() {
+                    hierarchy_state.tab = HierarchyTab::Scene;
+                }
+                if ui.selectable_label(hierarchy_state.tab == HierarchyTab::World, "World").clicked() {
+                    hierarchy_state.tab = HierarchyTab::World;
+                }
+            });
+            ui.separator();
+
+            if hierarchy_state.tab == HierarchyTab::World {
+                draw_world_browser(ui, &mut hierarchy_state, &all_entities);
+                // Early return from closure — reparent_op stays None
+                return;
+            }
 
             // Show filter input if filter is active or has content
             let show_filter = hierarchy_state.filter_active || !hierarchy_state.filter.is_empty();
@@ -607,4 +636,92 @@ fn draw_draggable_button(
     }
 
     response
+}
+
+/// Draw the world entity browser — lists ALL entities, not just scene entities.
+fn draw_world_browser(
+    ui: &mut egui::Ui,
+    hierarchy_state: &mut ResMut<HierarchyState>,
+    all_entities: &Query<(Entity, Option<&Name>, Option<&ChildOf>)>,
+) {
+    // Filter
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Filter").color(colors::TEXT_MUTED));
+        ui.text_edit_singleline(&mut hierarchy_state.world_filter);
+    });
+    ui.add_space(4.0);
+
+    let filter = hierarchy_state.world_filter.to_lowercase();
+
+    // Collect root entities (no parent)
+    let mut roots: Vec<(Entity, Option<&Name>)> = all_entities
+        .iter()
+        .filter(|(_, _, parent)| parent.is_none())
+        .map(|(e, name, _)| (e, name))
+        .collect();
+    roots.sort_by_key(|(e, _)| *e);
+
+    let total = all_entities.iter().count();
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for (entity, name) in &roots {
+            draw_world_entity_row(ui, *entity, *name, &filter, all_entities, 0);
+        }
+    });
+
+    ui.add_space(4.0);
+    ui.separator();
+    ui.label(
+        egui::RichText::new(format!("{} total entities", total))
+            .small()
+            .color(colors::TEXT_MUTED),
+    );
+}
+
+fn draw_world_entity_row(
+    ui: &mut egui::Ui,
+    entity: Entity,
+    name: Option<&Name>,
+    filter: &str,
+    all_entities: &Query<(Entity, Option<&Name>, Option<&ChildOf>)>,
+    depth: usize,
+) {
+    let display = if let Some(n) = name {
+        format!("{:?}  {}", entity, n.as_str())
+    } else {
+        format!("{:?}", entity)
+    };
+
+    // Collect children
+    let mut children: Vec<(Entity, Option<&Name>)> = all_entities
+        .iter()
+        .filter(|(_, _, parent)| parent.map(|p| p.get()) == Some(entity))
+        .map(|(e, n, _)| (e, n))
+        .collect();
+    children.sort_by_key(|(e, _)| *e);
+
+    // Filter: skip if neither this entity nor any descendant matches
+    let matches_filter = filter.is_empty() || display.to_lowercase().contains(filter);
+    if !matches_filter && children.is_empty() {
+        return;
+    }
+
+    if children.is_empty() {
+        ui.horizontal(|ui| {
+            ui.add_space(depth as f32 * 16.0 + 18.0);
+            ui.label(egui::RichText::new(&display).color(colors::TEXT_SECONDARY));
+        });
+    } else {
+        let id = ui.make_persistent_id(("world", entity));
+        egui::CollapsingHeader::new(
+            egui::RichText::new(&display).color(colors::TEXT_SECONDARY),
+        )
+        .id_salt(id)
+        .default_open(depth == 0)
+        .show(ui, |ui| {
+            for (child_entity, child_name) in &children {
+                draw_world_entity_row(ui, *child_entity, *child_name, filter, all_entities, depth + 1);
+            }
+        });
+    }
 }

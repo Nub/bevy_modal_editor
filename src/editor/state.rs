@@ -37,6 +37,8 @@ pub enum EditorMode {
     Material,
     /// Camera mode: configure render settings (AA, bloom, color grading, etc.)
     Camera,
+    /// Particle mode: edit bevy_hanabi particle effects on selected entity
+    Particle,
 }
 
 /// The active transform operation in Edit mode
@@ -217,6 +219,8 @@ pub enum InsertObjectType {
     Arch,
     /// Parametric L-shape corner
     LShape,
+    /// Particle effect (bevy_hanabi)
+    ParticleEffect,
 }
 
 /// Marker component for preview entities in Insert mode

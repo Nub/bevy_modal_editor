@@ -19,6 +19,7 @@ bevy_spline_3d = { path = "crates/bevy_spline_3d" }
 bevy_grid_shader = { path = "crates/bevy_grid_shader" }
 bevy_editor_game = { path = "crates/bevy_editor_game" }
 bevy_procedural = { path = "crates/bevy_procedural" }
+bevy_hanabi = { version = "0.18", default-features = false, features = ["3d", "serde"] }
 fastrand = "2.0"
 
 [package]
@@ -49,6 +50,7 @@ bevy_outliner.workspace = true
 bevy_grid_shader.workspace = true
 bevy_editor_game.workspace = true
 bevy_procedural.workspace = true
+bevy_hanabi.workspace = true
 serde.workspace = true
 ron.workspace = true
 dirs = "6"

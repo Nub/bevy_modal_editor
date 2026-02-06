@@ -12,6 +12,7 @@ mod marks;
 mod material_editor;
 pub mod material_preview;
 mod panels;
+mod particle_editor;
 mod reflect_editor;
 mod settings;
 pub mod theme;
@@ -73,6 +74,7 @@ impl Plugin for UiPlugin {
                 material_editor::MaterialEditorPlugin,
                 camera_settings::CameraSettingsPlugin,
                 material_preview::MaterialPreviewPlugin,
+                particle_editor::ParticleEditorPlugin,
                 insert_preview::InsertPreviewPlugin,
                 gltf_preview::GltfPreviewPlugin,
                 ToolbarPlugin,

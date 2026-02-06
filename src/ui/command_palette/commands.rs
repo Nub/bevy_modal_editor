@@ -88,6 +88,8 @@ pub enum CommandAction {
     SpawnArch,
     /// Spawn parametric L-shape
     SpawnLShape,
+    /// Spawn a particle effect (bevy_hanabi)
+    SpawnParticleEffect,
     /// Spawn a custom entity type registered by the game
     SpawnCustomEntity(String),
     /// Start simulation (play or resume)
@@ -252,6 +254,13 @@ impl CommandRegistry {
             keywords: vec!["volumetric".into(), "fog".into(), "atmosphere".into(), "mist".into(), "haze".into()],
             category: "Effects",
             action: CommandAction::SpawnFogVolume,
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add Particle Effect".to_string(),
+            keywords: vec!["particle".into(), "emitter".into(), "vfx".into(), "fx".into(), "hanabi".into(), "fire".into(), "smoke".into(), "sparks".into()],
+            category: "Effects",
+            action: CommandAction::SpawnParticleEffect,
             insertable: true,
         });
 
@@ -893,6 +902,13 @@ fn execute_command(
         CommandAction::SpawnLShape => {
             events.spawn_entity.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::LShape,
+                position: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+            });
+        }
+        CommandAction::SpawnParticleEffect => {
+            events.spawn_entity.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::ParticleEffect,
                 position: Vec3::ZERO,
                 rotation: Quat::IDENTITY,
             });

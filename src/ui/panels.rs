@@ -101,6 +101,7 @@ fn draw_status_bar(
                     EditorMode::Blockout => "BLOCKOUT",
                     EditorMode::Material => "MATERIAL",
                     EditorMode::Camera => "CAMERA",
+                    EditorMode::Particle => "PARTICLE",
                 };
                 let mode_color = match mode.get() {
                     EditorMode::View => colors::ACCENT_BLUE,
@@ -111,6 +112,7 @@ fn draw_status_bar(
                     EditorMode::Blockout => colors::ACCENT_ORANGE,
                     EditorMode::Material => colors::ACCENT_PURPLE,
                     EditorMode::Camera => colors::ACCENT_CYAN,
+                    EditorMode::Particle => colors::ACCENT_GREEN,
                 };
                 ui.label(
                     egui::RichText::new(format!("[{}]", mode_text))
@@ -390,6 +392,10 @@ fn get_hints_for_mode(
         EditorMode::Camera => vec![
             ("P", "Preview"),
             ("R", "Revert"),
+            ("Drag", "Adjust values"),
+            ("Esc", "View"),
+        ],
+        EditorMode::Particle => vec![
             ("Drag", "Adjust values"),
             ("Esc", "View"),
         ],

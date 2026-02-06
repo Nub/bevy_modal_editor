@@ -23,6 +23,7 @@ use super::spline_edit::SplineEditPlugin;
 use super::state::EditorStatePlugin;
 use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
+use crate::particles::ParticlePlugin;
 use crate::materials::MaterialsPlugin;
 use crate::prefabs::PrefabsPlugin;
 use crate::scene::ScenePlugin;
@@ -198,6 +199,9 @@ impl Plugin for EditorPlugin {
             .add_plugins(ScenePlugin)
             .add_plugins(PrefabsPlugin)
             .add_plugins(CommandsPlugin)
+            // Particles
+            .add_plugins(bevy_hanabi::HanabiPlugin)
+            .add_plugins(ParticlePlugin)
             // UI
             .add_plugins(UiPlugin);
 

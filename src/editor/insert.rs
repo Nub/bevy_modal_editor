@@ -362,6 +362,22 @@ pub fn spawn_preview_entity(
                 ))
                 .id()
         }
+        InsertObjectType::ParticleEffect => {
+            // Show a small glowing sphere as the particle effect preview
+            commands
+                .spawn((
+                    InsertPreview,
+                    Mesh3d(meshes.add(Sphere::new(0.3))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(1.0, 0.5, 0.2, 0.6),
+                        alpha_mode: AlphaMode::Blend,
+                        emissive: bevy::color::LinearRgba::new(1.0, 0.5, 0.2, 1.0) * 4.0,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
     }
 }
 
@@ -594,6 +610,7 @@ fn handle_insert_click(
         InsertObjectType::Ramp => "Ramp".to_string(),
         InsertObjectType::Arch => "Arch".to_string(),
         InsertObjectType::LShape => "L-Shape".to_string(),
+        InsertObjectType::ParticleEffect => "Particle Effect".to_string(),
     };
     commands.queue(TakeSnapshotCommand {
         description: format!("Insert {}", object_name),
@@ -685,6 +702,13 @@ fn handle_insert_click(
         InsertObjectType::LShape => {
             spawn_entity_events.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::LShape,
+                position,
+                rotation,
+            });
+        }
+        InsertObjectType::ParticleEffect => {
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::ParticleEffect,
                 position,
                 rotation,
             });

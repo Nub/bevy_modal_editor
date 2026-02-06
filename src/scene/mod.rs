@@ -78,6 +78,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<DistributedInstance>()
         // Fog
         .allow_component::<FogVolumeMarker>()
+        // Particles
+        .allow_component::<crate::particles::ParticleEffectMarker>()
         // Blockout shapes
         .allow_component::<StairsMarker>()
         .allow_component::<RampMarker>()
