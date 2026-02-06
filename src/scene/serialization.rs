@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use bevy_editor_game::{MaterialLibrary, MaterialRef};
+use bevy_editor_game::{CameraRenderSettings, MaterialLibrary, MaterialRef};
 
 use super::{
     build_editor_scene, regenerate_runtime_components, PrimitiveMarker, SceneEntity,
@@ -88,6 +88,8 @@ struct EditorMetadata {
     camera_marks: HashMap<String, CameraMark>,
     #[serde(default)]
     material_library: MaterialLibrary,
+    #[serde(default)]
+    camera_render_settings: Option<CameraRenderSettings>,
 }
 
 /// Serializable transform data (used by prefabs)
@@ -257,10 +259,16 @@ impl Command for SaveSceneCommand {
                     .cloned()
                     .unwrap_or_default();
 
+                // Read camera render settings
+                let camera_render_settings = world
+                    .get_resource::<CameraRenderSettings>()
+                    .cloned();
+
                 // Write sidecar file with editor metadata
                 let metadata = EditorMetadata {
                     camera_marks: self.camera_marks.clone(),
                     material_library,
+                    camera_render_settings,
                 };
                 let metadata_path = format!("{}.meta", self.path);
                 if let Ok(metadata_str) =
@@ -337,6 +345,10 @@ fn handle_load_scene(
                     commands.queue(RestoreMaterialLibraryCommand {
                         library: metadata.material_library,
                     });
+                }
+                // Restore camera render settings
+                if let Some(settings) = metadata.camera_render_settings {
+                    commands.queue(RestoreCameraSettingsCommand { settings });
                 }
             }
         }
@@ -436,6 +448,18 @@ impl Command for RestoreMaterialLibraryCommand {
                 lib.materials.len()
             );
         }
+    }
+}
+
+/// Command to restore camera render settings from loaded metadata.
+struct RestoreCameraSettingsCommand {
+    settings: CameraRenderSettings,
+}
+
+impl Command for RestoreCameraSettingsCommand {
+    fn apply(self, world: &mut World) {
+        world.insert_resource(self.settings);
+        info!("Camera render settings restored from scene metadata");
     }
 }
 

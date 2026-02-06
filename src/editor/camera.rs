@@ -6,7 +6,7 @@ use bevy::render::view::Hdr;
 use bevy_egui::{EguiContexts, EguiGlobalSettings, PrimaryEguiContext};
 use bevy_outliner::prelude::*;
 
-use bevy_editor_game::{GameCamera, GameState};
+use bevy_editor_game::{CameraRenderSettings, GameCamera, GameState};
 
 use super::{EditorMode, EditorState, TransformOperation};
 use crate::selection::Selected;
@@ -55,6 +55,7 @@ impl Plugin for EditorCameraPlugin {
                     handle_camera_preset,
                     look_at_selected,
                     sync_camera_states,
+                    apply_settings_to_new_game_cameras,
                 ),
             );
     }
@@ -492,5 +493,183 @@ fn sync_camera_states(
     }
     for mut camera in &mut editor_cameras {
         camera.is_active = !game_active;
+    }
+}
+
+/// Apply camera render settings to newly spawned game cameras.
+fn apply_settings_to_new_game_cameras(
+    new_cameras: Query<Entity, Added<GameCamera>>,
+    settings: Res<CameraRenderSettings>,
+    mut commands: Commands,
+) {
+    for entity in &new_cameras {
+        // Apply tonemapping
+        let tonemapping = match settings.tonemapping {
+            bevy_editor_game::TonemappingMode::None => {
+                bevy::core_pipeline::tonemapping::Tonemapping::None
+            }
+            bevy_editor_game::TonemappingMode::Reinhard => {
+                bevy::core_pipeline::tonemapping::Tonemapping::Reinhard
+            }
+            bevy_editor_game::TonemappingMode::ReinhardLuminance => {
+                bevy::core_pipeline::tonemapping::Tonemapping::ReinhardLuminance
+            }
+            bevy_editor_game::TonemappingMode::AcesFitted => {
+                bevy::core_pipeline::tonemapping::Tonemapping::AcesFitted
+            }
+            bevy_editor_game::TonemappingMode::AgX => {
+                bevy::core_pipeline::tonemapping::Tonemapping::AgX
+            }
+            bevy_editor_game::TonemappingMode::SomewhatBoringDisplayTransform => {
+                bevy::core_pipeline::tonemapping::Tonemapping::SomewhatBoringDisplayTransform
+            }
+            bevy_editor_game::TonemappingMode::TonyMcMapface => {
+                bevy::core_pipeline::tonemapping::Tonemapping::TonyMcMapface
+            }
+            bevy_editor_game::TonemappingMode::BlenderFilmic => {
+                bevy::core_pipeline::tonemapping::Tonemapping::BlenderFilmic
+            }
+        };
+
+        let mut entity_cmds = commands.entity(entity);
+        entity_cmds.insert(tonemapping);
+        entity_cmds
+            .insert(bevy::camera::Exposure { ev100: settings.exposure });
+
+        // Bloom
+        if let Some(bloom) = &settings.bloom {
+            let composite = match bloom.composite_mode {
+                bevy_editor_game::BloomComposite::EnergyConserving => {
+                    bevy::post_process::bloom::BloomCompositeMode::EnergyConserving
+                }
+                bevy_editor_game::BloomComposite::Additive => {
+                    bevy::post_process::bloom::BloomCompositeMode::Additive
+                }
+            };
+            entity_cmds.insert(bevy::post_process::bloom::Bloom {
+                intensity: bloom.intensity,
+                low_frequency_boost: bloom.low_frequency_boost,
+                low_frequency_boost_curvature: bloom.low_frequency_boost_curvature,
+                high_pass_frequency: bloom.high_pass_frequency,
+                composite_mode: composite,
+                ..default()
+            });
+        }
+
+        // Distance Fog
+        if let Some(fog) = &settings.distance_fog {
+            let falloff = match &fog.falloff {
+                bevy_editor_game::FogFalloffMode::Linear { start, end } => {
+                    bevy::pbr::FogFalloff::Linear {
+                        start: *start,
+                        end: *end,
+                    }
+                }
+                bevy_editor_game::FogFalloffMode::Exponential { density } => {
+                    bevy::pbr::FogFalloff::Exponential { density: *density }
+                }
+                bevy_editor_game::FogFalloffMode::ExponentialSquared { density } => {
+                    bevy::pbr::FogFalloff::ExponentialSquared { density: *density }
+                }
+            };
+            entity_cmds.insert(bevy::pbr::DistanceFog {
+                color: fog.color,
+                directional_light_color: fog.directional_light_color,
+                directional_light_exponent: fog.directional_light_exponent,
+                falloff,
+            });
+        }
+
+        // Anti-aliasing
+        match settings.anti_aliasing {
+            bevy_editor_game::AntiAliasingMode::MsaaOff => {
+                entity_cmds.insert(Msaa::Off);
+            }
+            bevy_editor_game::AntiAliasingMode::Msaa2x => {
+                entity_cmds.insert(Msaa::Sample2);
+            }
+            bevy_editor_game::AntiAliasingMode::Msaa4x => {
+                entity_cmds.insert(Msaa::default());
+            }
+            bevy_editor_game::AntiAliasingMode::Msaa8x => {
+                entity_cmds.insert(Msaa::Sample8);
+            }
+            bevy_editor_game::AntiAliasingMode::Fxaa => {
+                entity_cmds.insert(Msaa::Off);
+                entity_cmds.insert(bevy::anti_alias::fxaa::Fxaa::default());
+            }
+        }
+
+        // SSAO (requires Msaa::Off)
+        if let Some(ssao) = &settings.ssao {
+            // SSAO is incompatible with MSAA — force it off
+            entity_cmds.insert(Msaa::Off);
+
+            let quality_level = match ssao.quality {
+                bevy_editor_game::SsaoQuality::Low => {
+                    bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Low
+                }
+                bevy_editor_game::SsaoQuality::Medium => {
+                    bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Medium
+                }
+                bevy_editor_game::SsaoQuality::High => {
+                    bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::High
+                }
+                bevy_editor_game::SsaoQuality::Ultra => {
+                    bevy::pbr::ScreenSpaceAmbientOcclusionQualityLevel::Ultra
+                }
+            };
+            entity_cmds.insert(bevy::pbr::ScreenSpaceAmbientOcclusion {
+                quality_level,
+                constant_object_thickness: ssao.constant_object_thickness,
+            });
+        }
+
+        // Depth of Field
+        if let Some(dof) = &settings.depth_of_field {
+            let mode = match dof.mode {
+                bevy_editor_game::DofMode::Gaussian => {
+                    bevy::post_process::dof::DepthOfFieldMode::Gaussian
+                }
+                bevy_editor_game::DofMode::Bokeh => {
+                    bevy::post_process::dof::DepthOfFieldMode::Bokeh
+                }
+            };
+            entity_cmds.insert(bevy::post_process::dof::DepthOfField {
+                mode,
+                focal_distance: dof.focal_distance,
+                aperture_f_stops: dof.aperture_f_stops,
+                sensor_height: dof.sensor_height,
+                max_depth: dof.max_depth,
+                ..default()
+            });
+        }
+
+        // Color Grading
+        let cg = &settings.color_grading;
+        let convert_section = |s: &bevy_editor_game::ColorGradingSection| {
+            bevy::render::view::ColorGradingSection {
+                saturation: s.saturation,
+                contrast: s.contrast,
+                gamma: s.gamma,
+                gain: s.gain,
+                lift: s.lift,
+            }
+        };
+        entity_cmds.insert(bevy::render::view::ColorGrading {
+            global: bevy::render::view::ColorGradingGlobal {
+                exposure: cg.exposure,
+                temperature: cg.temperature,
+                tint: cg.tint,
+                hue: cg.hue,
+                post_saturation: cg.post_saturation,
+                ..default()
+            },
+            shadows: convert_section(&cg.shadows),
+            midtones: convert_section(&cg.midtones),
+            highlights: convert_section(&cg.highlights),
+        });
+
+        info!("Applied camera render settings to new GameCamera {:?}", entity);
     }
 }

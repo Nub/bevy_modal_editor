@@ -35,6 +35,8 @@ pub enum EditorMode {
     Blockout,
     /// Material mode: select and edit materials on selected entity
     Material,
+    /// Camera mode: configure render settings (AA, bloom, color grading, etc.)
+    Camera,
 }
 
 /// The active transform operation in Edit mode

@@ -736,6 +736,342 @@ pub enum AssetType {
     Scene,
 }
 
+// ---------------------------------------------------------------------------
+// Camera render settings
+// ---------------------------------------------------------------------------
+
+/// Serializable camera render settings — applied to GameCamera and optionally
+/// previewed on the editor camera. Persisted in the scene metadata sidecar.
+#[derive(Resource, Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct CameraRenderSettings {
+    pub tonemapping: TonemappingMode,
+    /// EV100 exposure value (default 9.7 matches Bevy's default)
+    pub exposure: f32,
+    pub bloom: Option<BloomSettingsData>,
+    pub color_grading: ColorGradingSettings,
+    pub ssao: Option<SsaoSettings>,
+    pub depth_of_field: Option<DofSettings>,
+    pub distance_fog: Option<FogSettingsData>,
+    pub anti_aliasing: AntiAliasingMode,
+}
+
+impl Default for CameraRenderSettings {
+    fn default() -> Self {
+        Self {
+            tonemapping: TonemappingMode::default(),
+            exposure: 9.7,
+            bloom: None,
+            color_grading: ColorGradingSettings::default(),
+            ssao: None,
+            depth_of_field: None,
+            distance_fog: None,
+            anti_aliasing: AntiAliasingMode::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+pub enum TonemappingMode {
+    None,
+    Reinhard,
+    ReinhardLuminance,
+    AcesFitted,
+    AgX,
+    SomewhatBoringDisplayTransform,
+    #[default]
+    TonyMcMapface,
+    BlenderFilmic,
+}
+
+impl TonemappingMode {
+    pub const ALL: [Self; 8] = [
+        Self::None,
+        Self::Reinhard,
+        Self::ReinhardLuminance,
+        Self::AcesFitted,
+        Self::AgX,
+        Self::SomewhatBoringDisplayTransform,
+        Self::TonyMcMapface,
+        Self::BlenderFilmic,
+    ];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::None => "None",
+            Self::Reinhard => "Reinhard",
+            Self::ReinhardLuminance => "Reinhard Luminance",
+            Self::AcesFitted => "ACES Fitted",
+            Self::AgX => "AgX",
+            Self::SomewhatBoringDisplayTransform => "SomewhatBoring",
+            Self::TonyMcMapface => "TonyMcMapface",
+            Self::BlenderFilmic => "Blender Filmic",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct BloomSettingsData {
+    pub intensity: f32,
+    pub low_frequency_boost: f32,
+    pub low_frequency_boost_curvature: f32,
+    pub high_pass_frequency: f32,
+    pub composite_mode: BloomComposite,
+}
+
+impl Default for BloomSettingsData {
+    fn default() -> Self {
+        Self {
+            intensity: 0.15,
+            low_frequency_boost: 0.7,
+            low_frequency_boost_curvature: 0.95,
+            high_pass_frequency: 1.0,
+            composite_mode: BloomComposite::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+pub enum BloomComposite {
+    #[default]
+    EnergyConserving,
+    Additive,
+}
+
+impl BloomComposite {
+    pub const ALL: [Self; 2] = [Self::EnergyConserving, Self::Additive];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::EnergyConserving => "Energy Conserving",
+            Self::Additive => "Additive",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct ColorGradingSettings {
+    pub exposure: f32,
+    pub temperature: f32,
+    pub tint: f32,
+    pub hue: f32,
+    pub post_saturation: f32,
+    pub shadows: ColorGradingSection,
+    pub midtones: ColorGradingSection,
+    pub highlights: ColorGradingSection,
+}
+
+impl Default for ColorGradingSettings {
+    fn default() -> Self {
+        Self {
+            exposure: 0.0,
+            temperature: 0.0,
+            tint: 0.0,
+            hue: 0.0,
+            post_saturation: 1.0,
+            shadows: ColorGradingSection::default(),
+            midtones: ColorGradingSection::default(),
+            highlights: ColorGradingSection::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct ColorGradingSection {
+    pub saturation: f32,
+    pub contrast: f32,
+    pub gamma: f32,
+    pub gain: f32,
+    pub lift: f32,
+}
+
+impl Default for ColorGradingSection {
+    fn default() -> Self {
+        Self {
+            saturation: 1.0,
+            contrast: 1.0,
+            gamma: 1.0,
+            gain: 1.0,
+            lift: 0.0,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct SsaoSettings {
+    pub quality: SsaoQuality,
+    pub constant_object_thickness: f32,
+}
+
+impl Default for SsaoSettings {
+    fn default() -> Self {
+        Self {
+            quality: SsaoQuality::default(),
+            constant_object_thickness: 0.25,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+pub enum SsaoQuality {
+    Low,
+    Medium,
+    #[default]
+    High,
+    Ultra,
+}
+
+impl SsaoQuality {
+    pub const ALL: [Self; 4] = [Self::Low, Self::Medium, Self::High, Self::Ultra];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Low => "Low",
+            Self::Medium => "Medium",
+            Self::High => "High",
+            Self::Ultra => "Ultra",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct DofSettings {
+    pub mode: DofMode,
+    pub focal_distance: f32,
+    pub aperture_f_stops: f32,
+    pub sensor_height: f32,
+    pub max_depth: f32,
+}
+
+impl Default for DofSettings {
+    fn default() -> Self {
+        Self {
+            mode: DofMode::default(),
+            focal_distance: 10.0,
+            aperture_f_stops: 1.0 / 8.0,
+            sensor_height: 0.01866,
+            max_depth: f32::INFINITY,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+pub enum DofMode {
+    #[default]
+    Gaussian,
+    Bokeh,
+}
+
+impl DofMode {
+    pub const ALL: [Self; 2] = [Self::Gaussian, Self::Bokeh];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Gaussian => "Gaussian",
+            Self::Bokeh => "Bokeh",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct FogSettingsData {
+    pub color: Color,
+    pub directional_light_color: Color,
+    pub directional_light_exponent: f32,
+    pub falloff: FogFalloffMode,
+}
+
+impl Default for FogSettingsData {
+    fn default() -> Self {
+        Self {
+            color: Color::srgba(0.35, 0.48, 0.66, 1.0),
+            directional_light_color: Color::srgba(0.98, 0.95, 0.89, 1.0),
+            directional_light_exponent: 8.0,
+            falloff: FogFalloffMode::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub enum FogFalloffMode {
+    Linear {
+        #[serde(default = "default_fog_start")]
+        start: f32,
+        #[serde(default = "default_fog_end")]
+        end: f32,
+    },
+    Exponential {
+        #[serde(default = "default_fog_density")]
+        density: f32,
+    },
+    ExponentialSquared {
+        #[serde(default = "default_fog_density")]
+        density: f32,
+    },
+}
+
+impl Default for FogFalloffMode {
+    fn default() -> Self {
+        Self::Linear {
+            start: default_fog_start(),
+            end: default_fog_end(),
+        }
+    }
+}
+
+fn default_fog_start() -> f32 {
+    0.0
+}
+fn default_fog_end() -> f32 {
+    100.0
+}
+fn default_fog_density() -> f32 {
+    0.02
+}
+
+impl FogFalloffMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Linear { .. } => "Linear",
+            Self::Exponential { .. } => "Exponential",
+            Self::ExponentialSquared { .. } => "Exponential²",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
+pub enum AntiAliasingMode {
+    MsaaOff,
+    Msaa2x,
+    #[default]
+    Msaa4x,
+    Msaa8x,
+    Fxaa,
+}
+
+impl AntiAliasingMode {
+    pub const ALL: [Self; 5] = [
+        Self::MsaaOff,
+        Self::Msaa2x,
+        Self::Msaa4x,
+        Self::Msaa8x,
+        Self::Fxaa,
+    ];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::MsaaOff => "MSAA Off",
+            Self::Msaa2x => "MSAA 2x",
+            Self::Msaa4x => "MSAA 4x",
+            Self::Msaa8x => "MSAA 8x",
+            Self::Fxaa => "FXAA",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Asset references
+// ---------------------------------------------------------------------------
+
 /// Component that references an external asset by path.
 ///
 /// The editor's regeneration system will automatically load Scene-type assets

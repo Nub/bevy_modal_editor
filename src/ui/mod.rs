@@ -1,3 +1,4 @@
+mod camera_settings;
 mod command_palette;
 mod component_browser;
 mod edit_info;
@@ -70,6 +71,7 @@ impl Plugin for UiPlugin {
                 HierarchyPlugin,
                 InspectorPlugin,
                 material_editor::MaterialEditorPlugin,
+                camera_settings::CameraSettingsPlugin,
                 material_preview::MaterialPreviewPlugin,
                 insert_preview::InsertPreviewPlugin,
                 gltf_preview::GltfPreviewPlugin,

@@ -152,6 +152,18 @@ fn handle_mode_input(
         return;
     }
 
+    // V enters Camera mode (only from View mode or with Shift)
+    if keyboard.just_pressed(KeyCode::KeyV) {
+        if *current_mode.get() == EditorMode::Camera {
+            next_mode.set(EditorMode::View);
+        } else if can_change_mode {
+            next_mode.set(EditorMode::Camera);
+            *transform_op = TransformOperation::None;
+            *axis_constraint = AxisConstraint::None;
+        }
+        return;
+    }
+
     // Escape returns to View mode from any mode, unless a popup is open
     // (let the popup handle Escape first)
     if keyboard.just_pressed(KeyCode::Escape) {
@@ -187,7 +199,7 @@ fn handle_mode_input(
                 // With Shift, can enter Edit mode from any mode
                 next_mode.set(EditorMode::Edit);
             }
-            EditorMode::Insert | EditorMode::ObjectInspector | EditorMode::Hierarchy | EditorMode::Blockout | EditorMode::Material => {}
+            EditorMode::Insert | EditorMode::ObjectInspector | EditorMode::Hierarchy | EditorMode::Blockout | EditorMode::Material | EditorMode::Camera => {}
         }
         return;
     }
