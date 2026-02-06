@@ -9,7 +9,7 @@ use bevy_spline_3d::prelude::Spline;
 use crate::commands::TakeSnapshotCommand;
 use crate::constants::physics;
 use crate::editor::{ActiveEdgeSnaps, AxisConstraint, DimensionSnapSettings, EditStepAmount, EditorCamera, EditorMode, EditorState, GizmoAxisConstraint, SnapSubMode, TransformOperation};
-use crate::gizmos::{XRayGizmoConfig, XRayGizmoDimmed};
+use crate::gizmos::{SelectionCircleGizmo, XRayGizmoConfig, XRayGizmoDimmed};
 use crate::scene::{Locked, SplineMarker};
 use crate::selection::Selected;
 use crate::ui::Settings;
@@ -151,9 +151,9 @@ impl Plugin for TransformGizmoPlugin {
 /// Draw gizmos for selected entities
 #[allow(clippy::too_many_arguments)]
 fn draw_selection_gizmos(
-    mut gizmos: Gizmos,
     mut xray_gizmos: Gizmos<XRayGizmoConfig>,
     mut dimmed_gizmos: Gizmos<XRayGizmoDimmed>,
+    mut sel_gizmos: Gizmos<SelectionCircleGizmo>,
     selected: Query<(&GlobalTransform, Option<&SplineMarker>, Option<&Spline>), With<Selected>>,
     mode: Res<State<EditorMode>>,
     transform_op: Res<TransformOperation>,
@@ -168,10 +168,10 @@ fn draw_selection_gizmos(
     for (global_transform, spline_marker, spline) in selected.iter() {
         let pos = global_transform.translation();
 
-        // For splines, draw a selection highlight along the curve (splines don't have mesh outlines)
+        // For splines, draw a thick selection highlight along the curve (splines don't have mesh outlines)
         if spline_marker.is_some() {
             if let Some(spline) = spline {
-                draw_spline_selection_highlight(&mut gizmos, spline, global_transform);
+                draw_spline_selection_highlight(&mut sel_gizmos, spline, global_transform);
             }
         }
         // Note: Mesh-based entities use MeshOutline component for selection indication
@@ -190,8 +190,8 @@ fn draw_selection_gizmos(
     }
 }
 
-/// Draw a selection highlight along the spline curve
-fn draw_spline_selection_highlight(gizmos: &mut Gizmos, spline: &Spline, transform: &GlobalTransform) {
+/// Draw a thick selection highlight along the spline curve using the selection gizmo group
+fn draw_spline_selection_highlight(gizmos: &mut Gizmos<SelectionCircleGizmo>, spline: &Spline, transform: &GlobalTransform) {
     if !spline.is_valid() {
         return;
     }

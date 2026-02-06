@@ -8,8 +8,7 @@ use bevy::prelude::*;
 
 /// Configuration for projecting geometry onto surfaces.
 ///
-/// Add this component to a `SplineRoad` or `SplineDistribution` entity
-/// to make it conform to terrain below.
+/// Add this component to a `SplineRoad` entity to make it conform to terrain below.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct SplineMeshProjection {

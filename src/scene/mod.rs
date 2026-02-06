@@ -27,10 +27,6 @@ use bevy_editor_game::{
 use crate::materials::{load_base_textures, MaterialTypeRegistry, resolve_material_ref};
 use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
 use bevy_procedural::{ProceduralEntity, ProceduralPlacer, ProceduralTemplate};
-use bevy_spline_3d::distribution::{
-    DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
-    SplineDistribution,
-};
 use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::de::DeserializeSeed;
 
@@ -73,9 +69,6 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         // Splines
         .allow_component::<SplineMarker>()
         .allow_component::<Spline>()
-        .allow_component::<SplineDistribution>()
-        .allow_component::<DistributionSource>()
-        .allow_component::<DistributedInstance>()
         // Fog
         .allow_component::<FogVolumeMarker>()
         // Particles
@@ -532,12 +525,6 @@ impl Plugin for ScenePlugin {
             .register_type::<SplineMarker>()
             .register_type::<Spline>()
             .register_type::<SplineType>()
-            // Spline distribution types
-            .register_type::<SplineDistribution>()
-            .register_type::<DistributionOrientation>()
-            .register_type::<DistributionSpacing>()
-            .register_type::<DistributionSource>()
-            .register_type::<DistributedInstance>()
             // Fog volume types
             .register_type::<FogVolumeMarker>()
             // Material types (new system)

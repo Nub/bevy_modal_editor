@@ -21,10 +21,6 @@ name = "editor"
 path = "examples/editor.rs"
 
 [[example]]
-name = "distribution"
-path = "examples/distribution.rs"
-
-[[example]]
 name = "road"
 path = "examples/road.rs"
 
@@ -36,6 +32,3 @@ path = "examples/intersection.rs"
 name = "path_follow"
 path = "examples/path_follow.rs"
 
-[[example]]
-name = "surface_projection"
-path = "examples/surface_projection.rs"

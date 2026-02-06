@@ -12,7 +12,7 @@ use bevy_editor_game::CustomEntityRegistry;
 use avian3d::prelude::{Collider, SimpleCollider};
 
 use crate::editor::EditorState;
-use crate::scene::{DirectionalLightMarker, SceneLightMarker};
+use crate::scene::{DirectionalLightMarker, SceneLightMarker, SplineMarker};
 use crate::selection::Selected;
 use crate::ui::Settings;
 
@@ -202,7 +202,7 @@ fn draw_point_light_gizmos(
 /// radius when no collider is present.
 fn draw_meshless_selection_gizmos(
     mut gizmos: Gizmos<SelectionCircleGizmo>,
-    selected: Query<(&GlobalTransform, Option<&Collider>), (With<Selected>, Without<Mesh3d>)>,
+    selected: Query<(&GlobalTransform, Option<&Collider>), (With<Selected>, Without<Mesh3d>, Without<SplineMarker>)>,
     editor_state: Res<EditorState>,
 ) {
     if !editor_state.gizmos_visible {

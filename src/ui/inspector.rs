@@ -4,7 +4,6 @@ use bevy::prelude::*;
 use bevy::reflect::TypeInfo;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_procedural::{PlacementOrientation, ProceduralPlacer, SamplingMode};
-use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSpacing, SplineDistribution};
 use bevy_spline_3d::path_follow::{FollowerState, LoopMode, SplineFollower};
 use std::any::TypeId;
 
@@ -267,49 +266,6 @@ impl From<&SplineFollower> for SplineFollowerData {
             constant_speed: follower.constant_speed,
         }
     }
-}
-
-/// Data for SplineDistribution editing
-#[derive(Clone)]
-struct SplineDistributionData {
-    spline: Entity,
-    source: Entity,
-    count: usize,
-    orientation_mode: usize, // 0=PositionOnly, 1=AlignToTangent
-    up_vector: [f32; 3],
-    spacing_mode: usize, // 0=Uniform, 1=Parametric
-    offset: [f32; 3],
-    enabled: bool,
-}
-
-impl From<&SplineDistribution> for SplineDistributionData {
-    fn from(dist: &SplineDistribution) -> Self {
-        let (orientation_mode, up_vector) = match dist.orientation {
-            DistributionOrientation::PositionOnly => (0, [0.0, 1.0, 0.0]),
-            DistributionOrientation::AlignToTangent { up } => (1, [up.x, up.y, up.z]),
-        };
-        let spacing_mode = match dist.spacing {
-            DistributionSpacing::Uniform => 0,
-            DistributionSpacing::Parametric => 1,
-        };
-        Self {
-            spline: dist.spline,
-            source: dist.source,
-            count: dist.count,
-            orientation_mode,
-            up_vector,
-            spacing_mode,
-            offset: [dist.offset.x, dist.offset.y, dist.offset.z],
-            enabled: dist.enabled,
-        }
-    }
-}
-
-/// Result from drawing spline distribution section
-struct SplineDistributionResult {
-    changed: bool,
-    open_spline_picker: bool,
-    open_source_picker: bool,
 }
 
 /// Template data for UI editing
@@ -855,105 +811,6 @@ fn draw_spline_follower_section(
     result
 }
 
-/// Draw SplineDistribution properties section
-fn draw_spline_distribution_section(
-    ui: &mut egui::Ui,
-    data: &mut SplineDistributionData,
-    spline_name: Option<&str>,
-    source_name: Option<&str>,
-) -> SplineDistributionResult {
-    let mut result = SplineDistributionResult {
-        changed: false,
-        open_spline_picker: false,
-        open_source_picker: false,
-    };
-
-    section_header(ui, "Spline Distribution", true, |ui| {
-        egui::Grid::new("spline_distribution_grid")
-            .num_columns(2)
-            .spacing([8.0, 4.0])
-            .show(ui, |ui| {
-                // Spline entity reference
-                grid_label(ui, "Spline");
-                result.open_spline_picker = draw_entity_field(ui, "", data.spline, spline_name);
-                ui.end_row();
-
-                // Source entity reference
-                grid_label(ui, "Source");
-                result.open_source_picker = draw_entity_field(ui, "", data.source, source_name);
-                ui.end_row();
-
-                // Count
-                grid_label(ui, "Count");
-                let mut count_i32 = data.count as i32;
-                if ui
-                    .add_sized(
-                        [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
-                        egui::DragValue::new(&mut count_i32).speed(1).range(1..=1000),
-                    )
-                    .changed()
-                {
-                    data.count = count_i32.max(1) as usize;
-                    result.changed = true;
-                }
-                ui.end_row();
-
-                // Enabled
-                grid_label(ui, "Enabled");
-                result.changed |= ui.checkbox(&mut data.enabled, "").changed();
-                ui.end_row();
-
-                // Orientation mode
-                grid_label(ui, "Orientation");
-                egui::ComboBox::from_id_salt("distribution_orientation")
-                    .selected_text(match data.orientation_mode {
-                        0 => "Position Only",
-                        _ => "Align to Tangent",
-                    })
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_value(&mut data.orientation_mode, 0, "Position Only").clicked() {
-                            result.changed = true;
-                        }
-                        if ui.selectable_value(&mut data.orientation_mode, 1, "Align to Tangent").clicked() {
-                            result.changed = true;
-                        }
-                    });
-                ui.end_row();
-
-                // Up vector (only show if align_to_tangent)
-                if data.orientation_mode == 1 {
-                    grid_label(ui, "Up Vector");
-                    result.changed |= xyz_row(ui, &mut data.up_vector, 0.01);
-                    ui.end_row();
-                }
-
-                // Spacing mode
-                grid_label(ui, "Spacing");
-                egui::ComboBox::from_id_salt("distribution_spacing")
-                    .selected_text(match data.spacing_mode {
-                        0 => "Uniform",
-                        _ => "Parametric",
-                    })
-                    .show_ui(ui, |ui| {
-                        if ui.selectable_value(&mut data.spacing_mode, 0, "Uniform").clicked() {
-                            result.changed = true;
-                        }
-                        if ui.selectable_value(&mut data.spacing_mode, 1, "Parametric").clicked() {
-                            result.changed = true;
-                        }
-                    });
-                ui.end_row();
-
-                // Offset
-                grid_label(ui, "Offset");
-                result.changed |= xyz_row(ui, &mut data.offset, 0.1);
-                ui.end_row();
-            });
-    });
-
-    result
-}
-
 /// Result from drawing the ProceduralPlacer section
 struct ProceduralPlacerResult {
     changed: bool,
@@ -1320,19 +1177,6 @@ fn draw_inspector_panel(world: &mut World) {
         world.get::<Name>(data.spline).map(|n| n.as_str().to_string())
     });
 
-    // Get spline distribution data for single selection
-    let mut spline_distribution_data = single_entity.and_then(|e| {
-        world.get::<SplineDistribution>(e).map(|d| SplineDistributionData::from(d))
-    });
-
-    // Get the distribution spline and source entity names (for display in the picker)
-    let distribution_spline_name: Option<String> = spline_distribution_data.as_ref().and_then(|data| {
-        world.get::<Name>(data.spline).map(|n| n.as_str().to_string())
-    });
-    let distribution_source_name: Option<String> = spline_distribution_data.as_ref().and_then(|data| {
-        world.get::<Name>(data.source).map(|n| n.as_str().to_string())
-    });
-
     // Get procedural placer component data for single selection
     let mut procedural_placer_data = single_entity.and_then(|e| {
         world.get::<ProceduralPlacer>(e).map(|p| ProceduralPlacerData::from_placer(p, world))
@@ -1361,9 +1205,6 @@ fn draw_inspector_panel(world: &mut World) {
     let mut lshape_changed = false;
     let mut spline_follower_changed = false;
     let mut open_spline_picker = false;
-    let mut spline_distribution_changed = false;
-    let mut open_distribution_spline_picker = false;
-    let mut open_distribution_source_picker = false;
     let mut custom_inspector_changed = false;
 
     // Procedural placer change tracking
@@ -1532,20 +1373,6 @@ fn draw_inspector_panel(world: &mut World) {
                                 let result = draw_spline_follower_section(ui, data, spline_name.as_deref());
                                 spline_follower_changed = result.changed;
                                 open_spline_picker = result.open_spline_picker;
-                                ui.add_space(4.0);
-                            }
-
-                            // Spline distribution properties
-                            if let Some(ref mut data) = spline_distribution_data {
-                                let result = draw_spline_distribution_section(
-                                    ui,
-                                    data,
-                                    distribution_spline_name.as_deref(),
-                                    distribution_source_name.as_deref(),
-                                );
-                                spline_distribution_changed = result.changed;
-                                open_distribution_spline_picker = result.open_spline_picker;
-                                open_distribution_source_picker = result.open_source_picker;
                                 ui.add_space(4.0);
                             }
 
@@ -1790,7 +1617,6 @@ fn draw_inspector_panel(world: &mut World) {
         || arch_changed
         || lshape_changed
         || spline_follower_changed
-        || spline_distribution_changed
         || procedural_placer_changed
         || custom_inspector_changed;
 
@@ -2013,29 +1839,6 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
-    // Apply spline distribution changes
-    if spline_distribution_changed {
-        if let (Some(entity), Some(data)) = (single_entity, spline_distribution_data.clone()) {
-            if let Some(mut dist) = world.get_mut::<SplineDistribution>(entity) {
-                dist.spline = data.spline;
-                dist.source = data.source;
-                dist.count = data.count;
-                dist.enabled = data.enabled;
-                dist.orientation = match data.orientation_mode {
-                    0 => DistributionOrientation::PositionOnly,
-                    _ => DistributionOrientation::AlignToTangent {
-                        up: Vec3::new(data.up_vector[0], data.up_vector[1], data.up_vector[2]),
-                    },
-                };
-                dist.spacing = match data.spacing_mode {
-                    0 => DistributionSpacing::Uniform,
-                    _ => DistributionSpacing::Parametric,
-                };
-                dist.offset = Vec3::new(data.offset[0], data.offset[1], data.offset[2]);
-            }
-        }
-    }
-
     // Remove template from procedural placer
     if let Some(remove_index) = remove_placer_template_index {
         if let Some(entity) = single_entity {
@@ -2096,24 +1899,6 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
-    // Open entity picker for distribution spline field
-    if open_distribution_spline_picker {
-        if let Some(entity) = single_entity {
-            let callback_id = make_callback_id(entity, "distribution_spline");
-            let mut palette_state = world.resource_mut::<CommandPaletteState>();
-            palette_state.open_entity_picker(entity, "Distribution Spline", callback_id);
-        }
-    }
-
-    // Open entity picker for distribution source field
-    if open_distribution_source_picker {
-        if let Some(entity) = single_entity {
-            let callback_id = make_callback_id(entity, "distribution_source");
-            let mut palette_state = world.resource_mut::<CommandPaletteState>();
-            palette_state.open_entity_picker(entity, "Distribution Source", callback_id);
-        }
-    }
-
     // Open entity picker for placer template field
     if open_placer_template_picker {
         if let Some(entity) = single_entity {
@@ -2133,22 +1918,6 @@ fn draw_inspector_panel(world: &mut World) {
                 if selection.callback_id == spline_callback {
                     if let Some(mut follower) = world.get_mut::<SplineFollower>(entity) {
                         follower.spline = selection.selected_entity;
-                    }
-                }
-
-                // Check if this is for the distribution spline field
-                let dist_spline_callback = make_callback_id(entity, "distribution_spline");
-                if selection.callback_id == dist_spline_callback {
-                    if let Some(mut dist) = world.get_mut::<SplineDistribution>(entity) {
-                        dist.spline = selection.selected_entity;
-                    }
-                }
-
-                // Check if this is for the distribution source field
-                let dist_source_callback = make_callback_id(entity, "distribution_source");
-                if selection.callback_id == dist_source_callback {
-                    if let Some(mut dist) = world.get_mut::<SplineDistribution>(entity) {
-                        dist.source = selection.selected_entity;
                     }
                 }
 
@@ -2275,10 +2044,6 @@ fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
             || name == "FogVolumeMarker"
             || name == "RigidBody"
             || name == "SplineFollower"
-            || name == "SplineDistribution"
-            || name == "DistributionSource"
-            || name == "DistributedInstance"
-            || name == "DistributionState"
             || name == "StairsMarker"
             || name == "RampMarker"
             || name == "ArchMarker"

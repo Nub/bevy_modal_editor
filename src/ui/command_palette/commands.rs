@@ -5,7 +5,7 @@ use bevy::prelude::*;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
-use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSource, SplineDistribution};
+use bevy_procedural::{PlacementOrientation, ProceduralPlacer, ProceduralTemplate, WeightedTemplate};
 use bevy_spline_3d::prelude::{Spline, SplineType};
 
 use bevy_editor_game::{CustomEntityRegistry, PauseEvent, PlayEvent, ResetEvent};
@@ -1043,7 +1043,7 @@ fn execute_command(
     }
 }
 
-/// Command to create a spline distribution from selected entities (deferred execution)
+/// Command to create a procedural placement from selected entities (deferred execution)
 struct CreateDistributionCommand {
     selected_entities: Vec<Entity>,
 }
@@ -1072,16 +1072,19 @@ impl bevy::prelude::Command for CreateDistributionCommand {
             }
         };
 
-        // Add distribution component directly to the spline entity
-        world.entity_mut(spline_entity).insert(
-            SplineDistribution::new(spline_entity, source_entity, 10)
-                .with_orientation(DistributionOrientation::align_to_tangent())
-                .uniform(),
-        );
+        // Add ProceduralPlacer to the spline entity with the source as a template
+        world.entity_mut(spline_entity).insert(ProceduralPlacer {
+            templates: vec![WeightedTemplate::new(source_entity, 1.0)],
+            count: 10,
+            orientation: PlacementOrientation::AlignToTangent {
+                up: Vec3::Y,
+            },
+            ..default()
+        });
 
-        // Mark source as DistributionSource (hides it from rendering)
-        world.entity_mut(source_entity).insert(DistributionSource);
+        // Mark source as ProceduralTemplate (hides it from rendering)
+        world.entity_mut(source_entity).insert(ProceduralTemplate);
 
-        info!("Added distribution to spline with 10 instances");
+        info!("Added procedural placement to spline with 10 instances");
     }
 }

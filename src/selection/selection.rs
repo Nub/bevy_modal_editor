@@ -3,8 +3,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 use bevy_outliner::prelude::*;
-use bevy_procedural::ProceduralEntity;
-use bevy_spline_3d::distribution::{DistributionSource, SplineDistribution};
+use bevy_procedural::{ProceduralEntity, ProceduralTemplate};
 use bevy_spline_3d::prelude::{SelectionState as SplineSelectionState, Spline};
 
 use crate::constants::physics;
@@ -29,7 +28,7 @@ pub struct SelectionSystemPlugin;
 impl Plugin for SelectionSystemPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SelectionState>()
-            .add_systems(Update, (update_multi_select_state, handle_click_selection, sync_selection_outlines, sync_distribution_source_visibility));
+            .add_systems(Update, (update_multi_select_state, handle_click_selection, sync_selection_outlines));
     }
 }
 
@@ -55,7 +54,7 @@ fn handle_click_selection(
     mode: Res<State<EditorMode>>,
     mut commands: Commands,
     mut contexts: EguiContexts,
-    distribution_sources: Query<Entity, With<DistributionSource>>,
+    template_entities: Query<Entity, With<ProceduralTemplate>>,
     procedural_entities: Query<Entity, With<ProceduralEntity>>,
 ) {
     // Only select on left click
@@ -118,9 +117,9 @@ fn handle_click_selection(
         }
     }
 
-    // Cast ray against physics colliders, excluding distribution sources and procedural entities
+    // Cast ray against physics colliders, excluding template and procedural entities
     // (they're hidden but their colliders still exist, or shouldn't be selectable)
-    let mut excluded: Vec<Entity> = distribution_sources.iter().collect();
+    let mut excluded: Vec<Entity> = template_entities.iter().collect();
     excluded.extend(procedural_entities.iter());
     let filter = SpatialQueryFilter::default().with_excluded_entities(excluded);
     let physics_hit = spatial_query.cast_ray(
@@ -339,35 +338,3 @@ fn add_outline_to_descendants(
     }
 }
 
-/// Show distribution source entities when their distribution is selected,
-/// hide them otherwise
-fn sync_distribution_source_visibility(
-    selected_distributions: Query<&SplineDistribution, With<Selected>>,
-    all_distributions: Query<&SplineDistribution>,
-    mut source_visibility: Query<&mut Visibility, With<DistributionSource>>,
-) {
-    // Collect source entities of selected distributions
-    let selected_sources: std::collections::HashSet<Entity> = selected_distributions
-        .iter()
-        .map(|d| d.source)
-        .collect();
-
-    // Collect all distribution source entities
-    let all_sources: std::collections::HashSet<Entity> = all_distributions
-        .iter()
-        .map(|d| d.source)
-        .collect();
-
-    // Update visibility for each source
-    for source_entity in all_sources {
-        if let Ok(mut visibility) = source_visibility.get_mut(source_entity) {
-            if selected_sources.contains(&source_entity) {
-                // Show source if its distribution is selected
-                *visibility = Visibility::Visible;
-            } else {
-                // Hide source if its distribution is not selected
-                *visibility = Visibility::Hidden;
-            }
-        }
-    }
-}

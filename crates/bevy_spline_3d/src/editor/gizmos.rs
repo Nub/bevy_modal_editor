@@ -3,7 +3,6 @@
 use avian3d::prelude::*;
 use bevy::prelude::*;
 
-use crate::distribution::SplineDistribution;
 use crate::road::SplineRoad;
 use crate::spline::{
     get_effective_control_points, get_effective_curve_points, CachedSplineCurve,
@@ -78,12 +77,10 @@ pub fn project_spline_visualization(
     mut commands: Commands,
     settings: Res<EditorSettings>,
     spatial_query: SpatialQuery,
-    // Query all roads/distributions with projection (including changed ones)
+    // Query all roads with projection (including changed ones)
     roads: Query<(&SplineRoad, &SplineMeshProjection)>,
-    distributions: Query<(&SplineDistribution, &SplineMeshProjection)>,
     // Track when projection settings change
     changed_road_projections: Query<&SplineRoad, Changed<SplineMeshProjection>>,
-    changed_dist_projections: Query<&SplineDistribution, Changed<SplineMeshProjection>>,
     // All splines with their caches
     all_splines: Query<(
         Entity,
@@ -107,22 +104,12 @@ pub fn project_spline_visualization(
         }
     }
 
-    for (distribution, projection) in &distributions {
-        if projection.enabled {
-            projected_splines.insert(distribution.spline, projection);
-        }
-    }
-
     // Collect splines that need re-projection due to changed projection settings
     let mut splines_needing_update: std::collections::HashSet<Entity> =
         std::collections::HashSet::new();
 
     for road in &changed_road_projections {
         splines_needing_update.insert(road.spline);
-    }
-
-    for dist in &changed_dist_projections {
-        splines_needing_update.insert(dist.spline);
     }
 
     // Also include splines that changed

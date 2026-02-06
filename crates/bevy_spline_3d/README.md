@@ -8,7 +8,6 @@ A Bevy plugin for 3D spline editing with interactive gizmos. ![Screenshot](docs/
 - **Interactive editing**: Click and drag control points with visual gizmos
 - **Road generation**: Extrude cross-section meshes along splines
 - **Road intersections**: Connect multiple roads at intersection points
-- **Object distribution**: Place objects along splines with configurable spacing
 - **Path following**: Animate entities along spline paths
 - **Surface projection**: Project roads and objects onto terrain using physics raycasting
 - **Serialization**: Compatible with Bevy's scene system
@@ -58,7 +57,6 @@ fn setup(mut commands: Commands) {
 | `SplinePlugin` | Core spline functionality (required) |
 | `SplineEditorPlugin` | Interactive editing with gizmos and hotkeys |
 | `SplineRoadPlugin` | Generate road meshes along splines |
-| `SplineDistributionPlugin` | Distribute entities along splines |
 | `SplineFollowPlugin` | Animate entities following spline paths |
 | `SurfaceProjectionPlugin` | Project roads/objects onto terrain |
 | `CameraPlugin` | Orbit and fly camera controls |
@@ -88,14 +86,9 @@ cargo run --example road
 # Road intersections
 cargo run --example intersection
 
-# Object distribution
-cargo run --example distribution
-
 # Path following animation
 cargo run --example path_follow
 
-# Surface projection (requires terrain)
-cargo run --example surface_projection
 ```
 
 ## Surface Projection

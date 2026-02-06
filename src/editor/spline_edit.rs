@@ -6,8 +6,8 @@
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
+use bevy_procedural::ProceduralEntity;
 use bevy_spline_3d::prelude::*;
-use bevy_spline_3d::distribution::DistributedInstance;
 use bevy_spline_3d::editor::selection::pick_control_points;
 use bevy_spline_3d::road::{GeneratedRoadMesh, GeneratedIntersectionMesh};
 
@@ -552,7 +552,7 @@ fn tag_procedural_objects(
             Or<(
                 With<GeneratedRoadMesh>,
                 With<GeneratedIntersectionMesh>,
-                With<DistributedInstance>,
+                With<ProceduralEntity>,
             )>,
             Without<SceneProceduralObject>,
         ),
