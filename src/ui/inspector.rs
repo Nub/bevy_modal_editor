@@ -8,7 +8,7 @@ use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSpacing,
 use bevy_spline_3d::path_follow::{FollowerState, LoopMode, SplineFollower};
 use std::any::TypeId;
 
-use bevy_editor_game::{CustomEntityRegistry, InspectorWidgetFn};
+use bevy_editor_game::{CustomEntityRegistry, InspectorWidgetFn, SceneComponentRegistry};
 
 use super::command_palette::{open_add_component_palette, CommandPaletteState, draw_entity_field, make_callback_id, PendingEntitySelection};
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
@@ -1620,6 +1620,78 @@ fn draw_inspector_panel(world: &mut World) {
                             ui.add_space(4.0);
                         }
 
+                        // Game components (registered via register_scene_component)
+                        {
+                            let game_comp_entries: Vec<(TypeId, String)> = {
+                                let scene_reg = world.resource::<SceneComponentRegistry>();
+                                let custom_reg = world.resource::<CustomEntityRegistry>();
+                                let type_registry = world.resource::<AppTypeRegistry>().clone();
+                                let type_registry = type_registry.read();
+
+                                // Collect TypeIds already handled by custom entity registry
+                                let custom_type_ids: Vec<TypeId> = custom_reg
+                                    .entries
+                                    .iter()
+                                    .map(|e| e.component_type_id)
+                                    .collect();
+
+                                let entity_ref = world.entity(entity);
+                                let archetype = entity_ref.archetype();
+                                let component_type_ids: Vec<TypeId> = archetype
+                                    .components()
+                                    .iter()
+                                    .filter_map(|&cid| {
+                                        world.components().get_info(cid)?.type_id()
+                                    })
+                                    .collect();
+
+                                scene_reg
+                                    .type_ids
+                                    .iter()
+                                    .filter(|tid| component_type_ids.contains(tid))
+                                    .filter(|tid| !custom_type_ids.contains(tid))
+                                    .filter_map(|&tid| {
+                                        let reg = type_registry.get(tid)?;
+                                        // Skip zero-field markers
+                                        if matches!(reg.type_info(), TypeInfo::Struct(s) if s.field_len() == 0) {
+                                            return None;
+                                        }
+                                        let name = reg
+                                            .type_info()
+                                            .type_path_table()
+                                            .short_path()
+                                            .to_string();
+                                        Some((tid, name))
+                                    })
+                                    .collect()
+                            };
+
+                            if !game_comp_entries.is_empty() {
+                                ui.label(
+                                    egui::RichText::new("Game Components")
+                                        .strong()
+                                        .color(colors::TEXT_SECONDARY),
+                                );
+                                ui.add_space(4.0);
+                                let config = ReflectEditorConfig::default();
+                                for (type_id, name) in &game_comp_entries {
+                                    egui::CollapsingHeader::new(
+                                        egui::RichText::new(name.as_str())
+                                            .color(colors::TEXT_PRIMARY),
+                                    )
+                                    .default_open(true)
+                                    .show(ui, |ui| {
+                                        component_editor(
+                                            world, entity, *type_id, ui, &config,
+                                        );
+                                    });
+                                    ui.add_space(4.0);
+                                }
+                                ui.separator();
+                                ui.add_space(4.0);
+                            }
+                        }
+
                         // Add Component button
                         ui.add_space(4.0);
                         if ui
@@ -2127,14 +2199,18 @@ fn draw_inspector_panel(world: &mut World) {
 
 /// Draw all components on an entity using reflection
 fn draw_all_components(world: &mut World, entity: Entity, ui: &mut egui::Ui) {
-    // Collect custom entity component TypeIds to exclude from the generic list
+    // Collect custom entity and scene-registered component TypeIds to exclude
     // (these are already shown in the main inspector area)
-    let custom_type_ids: Vec<TypeId> = world
-        .resource::<CustomEntityRegistry>()
-        .entries
-        .iter()
-        .map(|e| e.component_type_id)
-        .collect();
+    let custom_type_ids: Vec<TypeId> = {
+        let mut ids: Vec<TypeId> = world
+            .resource::<CustomEntityRegistry>()
+            .entries
+            .iter()
+            .map(|e| e.component_type_id)
+            .collect();
+        ids.extend_from_slice(&world.resource::<SceneComponentRegistry>().type_ids);
+        ids
+    };
 
     let type_registry = world.resource::<AppTypeRegistry>().clone();
     let type_registry_guard = type_registry.read();

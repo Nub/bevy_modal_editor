@@ -124,6 +124,8 @@ pub struct GameResetEvent;
 #[derive(Resource, Default)]
 pub struct SceneComponentRegistry {
     appliers: Vec<fn(DynamicSceneBuilder) -> DynamicSceneBuilder>,
+    /// TypeIds of all registered scene components, for inspector discovery.
+    pub type_ids: Vec<TypeId>,
 }
 
 impl SceneComponentRegistry {
@@ -131,6 +133,7 @@ impl SceneComponentRegistry {
     pub fn register<T: Component>(&mut self) {
         self.appliers
             .push(|builder| builder.allow_component::<T>());
+        self.type_ids.push(TypeId::of::<T>());
     }
 
     /// Apply all registered component allowances to a scene builder.
