@@ -8,6 +8,12 @@ use bevy_hanabi::prelude::*;
 
 use crate::scene::SceneEntity;
 
+/// Marker on the child entity that holds the actual `ParticleEffect`.
+/// The parent (container) has `ParticleEffectMarker` + `SceneEntity`;
+/// this child is disposable and gets destroyed/recreated on every edit.
+#[derive(Component)]
+pub struct ParticleEffectChild;
+
 pub struct ParticlePlugin;
 
 impl Plugin for ParticlePlugin {
@@ -38,52 +44,40 @@ impl Plugin for ParticlePlugin {
 
 /// Detect changes to `ParticleEffectMarker` and rebuild the effect.
 ///
-/// - Removes `ParticleEffect`, `EffectProperties`, and `CompiledParticleEffect`
-///   then re-inserts a fresh `ParticleEffect` with the updated asset.
-/// - Updates `EffectSpawner` settings directly for instant spawner changes.
+/// The container entity (with `SceneEntity` + `ParticleEffectMarker`) never
+/// gets hanabi components. Instead, a disposable child entity holds the
+/// `ParticleEffect`. On every edit the old child is despawned and a fresh
+/// one is spawned with a new asset.
 fn rebuild_particle_effects(
     mut commands: Commands,
     mut effects: ResMut<Assets<EffectAsset>>,
-    mut query: Query<
-        (
-            Entity,
-            &ParticleEffectMarker,
-            Option<&ParticleEffect>,
-            Option<&mut EffectSpawner>,
-        ),
+    query: Query<
+        (Entity, &ParticleEffectMarker, Option<&Children>),
         (With<SceneEntity>, Changed<ParticleEffectMarker>),
     >,
+    effect_children: Query<Entity, With<ParticleEffectChild>>,
 ) {
-    for (entity, marker, existing_effect, maybe_spawner) in &mut query {
-        let asset = build::build_effect(marker);
-
-        if let Some(_effect) = existing_effect {
-            // Create a new asset and replace the ParticleEffect component,
-            // which triggers hanabi to fully reinitialize.
-            let handle = effects.add(asset);
-            commands
-                .entity(entity)
-                .remove::<(ParticleEffect, EffectProperties, CompiledParticleEffect, EffectSpawner)>()
-                .insert(ParticleEffect::new(handle));
-
-            // Update spawner settings directly (instant)
-            if let Some(mut spawner) = maybe_spawner {
-                let new_settings = match &marker.spawner {
-                    SpawnerConfig::Rate { rate } => SpawnerSettings::rate((*rate).into()),
-                    SpawnerConfig::Once { count } => SpawnerSettings::once((*count).into()),
-                    SpawnerConfig::Burst { count, period } => {
-                        SpawnerSettings::burst((*count).into(), (*period).into())
-                    }
-                };
-                spawner.settings = new_settings;
+    for (container, marker, children) in &query {
+        // Despawn any existing effect child
+        if let Some(children) = children {
+            for child in children.iter() {
+                if effect_children.contains(child) {
+                    commands.entity(child).despawn();
+                }
             }
-        } else {
-            // First time: create handle and insert ParticleEffect component
-            let handle = effects.add(asset);
-            commands.entity(entity).insert((
-                ParticleEffect::new(handle),
-                Visibility::default(),
-            ));
         }
+
+        // Build a fresh asset and spawn a new child
+        let asset = build::build_effect(marker);
+        let handle = effects.add(asset);
+
+        let child = commands
+            .spawn((
+                ParticleEffectChild,
+                ParticleEffect::new(handle),
+            ))
+            .id();
+
+        commands.entity(container).add_child(child);
     }
 }
