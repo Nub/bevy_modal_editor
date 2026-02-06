@@ -1,0 +1,14 @@
+[package]
+name = "fp_demo"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+bevy = { workspace = true, features = ["wav"] }
+avian3d.workspace = true
+serde.workspace = true
+ron.workspace = true
+bevy_modal_editor = { path = "../.." }
+bevy_editor_game.workspace = true
+bevy_locomotion = { git = "https://github.com/Nub/bevy_locomotion.git" }

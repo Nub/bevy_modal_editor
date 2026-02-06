@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader", "crates/bevy_editor_game", "crates/bevy_procedural", "crates/marble_demo"]
+members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader", "crates/bevy_editor_game", "crates/bevy_procedural", "crates/marble_demo", "crates/fp_demo"]
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
