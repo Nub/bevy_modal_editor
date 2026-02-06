@@ -343,6 +343,33 @@ pub struct KillSphereData {
     pub kill_inside: bool,
 }
 
+/// Tangential acceleration (orbital/swirl motion around an axis).
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct TangentAccelData {
+    pub origin: Vec3,
+    pub axis: Vec3,
+    pub accel: f32,
+}
+
+/// Attract particles toward a sphere surface.
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct ConformToSphereData {
+    pub origin: Vec3,
+    pub radius: f32,
+    pub influence_dist: f32,
+    pub attraction_accel: f32,
+    pub max_speed: f32,
+}
+
+/// Constrain particle position to a cone volume or surface.
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct SetPositionCone3dData {
+    pub height: f32,
+    pub base_radius: f32,
+    pub top_radius: f32,
+    pub volume: bool,
+}
+
 /// Serializable update modifier (applied every frame).
 #[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
 pub enum UpdateModifierData {
@@ -351,6 +378,9 @@ pub enum UpdateModifierData {
     LinearDrag(LinearDragData),
     KillAabb(KillAabbData),
     KillSphere(KillSphereData),
+    TangentAccel(TangentAccelData),
+    ConformToSphere(ConformToSphereData),
+    SetPositionCone3d(SetPositionCone3dData),
 }
 
 impl From<AccelModifierData> for UpdateModifierData {
@@ -367,6 +397,9 @@ impl UpdateModifierData {
             Self::LinearDrag(_) => "Linear Drag",
             Self::KillAabb(_) => "Kill AABB",
             Self::KillSphere(_) => "Kill Sphere",
+            Self::TangentAccel(_) => "Tangent Accel",
+            Self::ConformToSphere(_) => "Conform to Sphere",
+            Self::SetPositionCone3d(_) => "Position Cone 3D",
         }
     }
 
@@ -383,6 +416,24 @@ impl UpdateModifierData {
             center: Vec3::ZERO,
             radius: 10.0,
             kill_inside: false,
+        })),
+        ("Tangent Accel", || Self::TangentAccel(TangentAccelData {
+            origin: Vec3::ZERO,
+            axis: Vec3::Y,
+            accel: 5.0,
+        })),
+        ("Conform to Sphere", || Self::ConformToSphere(ConformToSphereData {
+            origin: Vec3::ZERO,
+            radius: 2.0,
+            influence_dist: 5.0,
+            attraction_accel: 10.0,
+            max_speed: 5.0,
+        })),
+        ("Position Cone 3D", || Self::SetPositionCone3d(SetPositionCone3dData {
+            height: 2.0,
+            base_radius: 1.0,
+            top_radius: 0.0,
+            volume: true,
         })),
     ];
 }

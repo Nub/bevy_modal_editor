@@ -201,6 +201,9 @@ enum UpdateModBuilt {
     LinearDrag(LinearDragModifier),
     KillAabb(KillAabbModifier),
     KillSphere(KillSphereModifier),
+    TangentAccel(TangentAccelModifier),
+    ConformToSphere(ConformToSphereModifier),
+    SetPositionCone3d(SetPositionCone3dModifier),
 }
 
 fn build_update_modifier(module: &mut Module, data: &UpdateModifierData) -> UpdateModBuilt {
@@ -232,6 +235,35 @@ fn build_update_modifier(module: &mut Module, data: &UpdateModifierData) -> Upda
                 KillSphereModifier::new(c, sqr).with_kill_inside(d.kill_inside),
             )
         }
+        UpdateModifierData::TangentAccel(d) => {
+            let o = module.lit(d.origin);
+            let a = module.lit(d.axis);
+            let acc = module.lit(d.accel);
+            UpdateModBuilt::TangentAccel(TangentAccelModifier::new(o, a, acc))
+        }
+        UpdateModifierData::ConformToSphere(d) => {
+            let o = module.lit(d.origin);
+            let r = module.lit(d.radius);
+            let inf = module.lit(d.influence_dist);
+            let acc = module.lit(d.attraction_accel);
+            let spd = module.lit(d.max_speed);
+            UpdateModBuilt::ConformToSphere(ConformToSphereModifier::new(o, r, inf, acc, spd))
+        }
+        UpdateModifierData::SetPositionCone3d(d) => {
+            let h = module.lit(d.height);
+            let br = module.lit(d.base_radius);
+            let tr = module.lit(d.top_radius);
+            UpdateModBuilt::SetPositionCone3d(SetPositionCone3dModifier {
+                height: h,
+                base_radius: br,
+                top_radius: tr,
+                dimension: if d.volume {
+                    ShapeDimension::Volume
+                } else {
+                    ShapeDimension::Surface
+                },
+            })
+        }
     }
 }
 
@@ -242,6 +274,9 @@ fn apply_update_modifier(effect: EffectAsset, built: UpdateModBuilt) -> EffectAs
         UpdateModBuilt::LinearDrag(m) => effect.update(m),
         UpdateModBuilt::KillAabb(m) => effect.update(m),
         UpdateModBuilt::KillSphere(m) => effect.update(m),
+        UpdateModBuilt::TangentAccel(m) => effect.update(m),
+        UpdateModBuilt::ConformToSphere(m) => effect.update(m),
+        UpdateModBuilt::SetPositionCone3d(m) => effect.update(m),
     }
 }
 

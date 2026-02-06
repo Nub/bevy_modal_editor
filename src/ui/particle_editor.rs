@@ -1,4 +1,10 @@
 //! Particle editor panel for editing bevy_hanabi effects on selected entities.
+//!
+//! Niagara-inspired card-based layout with color-coded modifier categories:
+//! - **Spawner**: orange accent
+//! - **Spawn (init)**: green accent
+//! - **Update**: blue accent
+//! - **Render**: purple accent
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
@@ -6,10 +12,7 @@ use bevy_egui::{egui, EguiPrimaryContextPass};
 use crate::editor::{EditorMode, EditorState};
 use crate::particles::data::*;
 use crate::selection::Selected;
-use crate::ui::theme::{colors, panel, panel_frame};
-
-/// Accent red color for remove buttons (not in the shared palette).
-const ACCENT_RED: egui::Color32 = egui::Color32::from_rgb(220, 80, 80);
+use crate::ui::theme::{colors, grid_label, panel, panel_frame};
 
 pub struct ParticleEditorPlugin;
 
@@ -18,6 +21,318 @@ impl Plugin for ParticleEditorPlugin {
         app.add_systems(EguiPrimaryContextPass, draw_particle_panel);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Card / section drawing helpers
+// ---------------------------------------------------------------------------
+
+/// Corner radius used on module cards.
+const CARD_ROUNDING: u8 = 4;
+/// Width of the colored left-border accent stripe.
+const ACCENT_STRIPE_WIDTH: f32 = 3.0;
+
+/// Draw a color-coded module card.
+///
+/// Returns `true` when the [×] remove button in the header is clicked.
+fn modifier_card(
+    ui: &mut egui::Ui,
+    label: &str,
+    accent: egui::Color32,
+    _id: egui::Id,
+    body: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    let mut removed = false;
+
+    let frame = egui::Frame::new()
+        .fill(colors::BG_MEDIUM)
+        .corner_radius(egui::CornerRadius::same(CARD_ROUNDING))
+        .inner_margin(egui::Margin::same(6));
+
+    let resp = frame.show(ui, |ui| {
+        // Header row: label (bold) left, [×] right
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new(label).strong().color(colors::TEXT_PRIMARY));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let btn = ui.add(
+                    egui::Button::new(
+                        egui::RichText::new("\u{00d7}") // ×
+                            .color(colors::STATUS_ERROR),
+                    )
+                    .frame(false),
+                );
+                if btn.on_hover_text("Remove modifier").clicked() {
+                    removed = true;
+                }
+            });
+        });
+
+        ui.add_space(2.0);
+        body(ui);
+    });
+
+    // Paint the accent stripe over the left edge of the card.
+    let card_rect = resp.response.rect;
+    let stripe = egui::Rect::from_min_max(
+        card_rect.left_top(),
+        egui::pos2(
+            card_rect.left() + ACCENT_STRIPE_WIDTH,
+            card_rect.bottom(),
+        ),
+    );
+    ui.painter().rect_filled(
+        stripe,
+        egui::CornerRadius {
+            nw: CARD_ROUNDING,
+            sw: CARD_ROUNDING,
+            ne: 0,
+            se: 0,
+        },
+        accent,
+    );
+
+    ui.add_space(4.0);
+
+    removed
+}
+
+/// Draw a category section header (e.g. "SPAWN", "UPDATE", "RENDER") with a
+/// colored label on the left and a [+] dropdown on the right.
+fn category_header<T>(
+    ui: &mut egui::Ui,
+    label: &str,
+    accent: egui::Color32,
+    options: &[(&str, fn() -> T)],
+    list: &mut Vec<T>,
+) {
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(label)
+                .strong()
+                .size(12.0)
+                .color(accent),
+        );
+        // Separator line filling the middle
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.menu_button(egui::RichText::new("+").strong().color(accent), |ui| {
+                for (name, factory) in options {
+                    if ui.button(*name).clicked() {
+                        list.push(factory());
+                        ui.close();
+                    }
+                }
+            });
+        });
+    });
+    ui.add_space(4.0);
+}
+
+/// Draw a horizontal gradient preview bar for Color/Size Over Lifetime.
+fn gradient_preview_bar(ui: &mut egui::Ui, keys: &[GradientKeyData], is_color: bool) {
+    let desired = egui::vec2(ui.available_width(), 16.0);
+    let (rect, _resp) = ui.allocate_exact_size(desired, egui::Sense::hover());
+
+    if keys.is_empty() {
+        return;
+    }
+
+    let painter = ui.painter();
+    let n_segments = 64;
+
+    // Sort keys by ratio for correct interpolation.
+    let mut sorted: Vec<_> = keys.iter().collect();
+    sorted.sort_by(|a, b| a.ratio.partial_cmp(&b.ratio).unwrap_or(std::cmp::Ordering::Equal));
+
+    for seg in 0..n_segments {
+        let t0 = seg as f32 / n_segments as f32;
+        let t1 = (seg + 1) as f32 / n_segments as f32;
+        let t_mid = (t0 + t1) * 0.5;
+
+        let value = sample_gradient(&sorted, t_mid);
+
+        let color = if is_color {
+            egui::Color32::from_rgba_unmultiplied(
+                (value.x * 255.0).clamp(0.0, 255.0) as u8,
+                (value.y * 255.0).clamp(0.0, 255.0) as u8,
+                (value.z * 255.0).clamp(0.0, 255.0) as u8,
+                (value.w * 255.0).clamp(0.0, 255.0) as u8,
+            )
+        } else {
+            // Size: grayscale from magnitude of XYZ
+            let brightness = (value.x + value.y + value.z) / 3.0;
+            let v = (brightness.clamp(0.0, 1.0) * 255.0) as u8;
+            egui::Color32::from_rgb(v, v, v)
+        };
+
+        let x0 = rect.left() + t0 * rect.width();
+        let x1 = rect.left() + t1 * rect.width();
+        let seg_rect = egui::Rect::from_min_max(
+            egui::pos2(x0, rect.top()),
+            egui::pos2(x1, rect.bottom()),
+        );
+        painter.rect_filled(seg_rect, 0.0, color);
+    }
+
+    // Thin border around the bar.
+    painter.rect_stroke(
+        rect,
+        egui::CornerRadius::same(2),
+        egui::Stroke::new(1.0, colors::WIDGET_BORDER),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// Linearly sample a sorted gradient at position `t` (0..1).
+fn sample_gradient(sorted: &[&GradientKeyData], t: f32) -> Vec4 {
+    if sorted.is_empty() {
+        return Vec4::ZERO;
+    }
+    if sorted.len() == 1 || t <= sorted[0].ratio {
+        return sorted[0].value;
+    }
+    if t >= sorted.last().unwrap().ratio {
+        return sorted.last().unwrap().value;
+    }
+    for window in sorted.windows(2) {
+        let (a, b) = (window[0], window[1]);
+        if t >= a.ratio && t <= b.ratio {
+            let frac = if (b.ratio - a.ratio).abs() < 1e-6 {
+                0.0
+            } else {
+                (t - a.ratio) / (b.ratio - a.ratio)
+            };
+            return a.value.lerp(b.value, frac);
+        }
+    }
+    sorted.last().unwrap().value
+}
+
+/// Draw a spawner card (orange accent, no remove button).
+fn draw_spawner_card(ui: &mut egui::Ui, spawner: &mut SpawnerConfig) {
+    let accent = colors::ACCENT_ORANGE;
+
+    let frame = egui::Frame::new()
+        .fill(colors::BG_MEDIUM)
+        .corner_radius(egui::CornerRadius::same(CARD_ROUNDING))
+        .inner_margin(egui::Margin::same(6));
+
+    let resp = frame.show(ui, |ui| {
+        // Header
+        ui.label(
+            egui::RichText::new("Spawner")
+                .strong()
+                .color(colors::TEXT_PRIMARY),
+        );
+        ui.add_space(2.0);
+
+        // Mode selector
+        let mode_idx = match spawner {
+            SpawnerConfig::Rate { .. } => 0,
+            SpawnerConfig::Once { .. } => 1,
+            SpawnerConfig::Burst { .. } => 2,
+        };
+
+        let mut new_mode = mode_idx;
+
+        egui::Grid::new("spawner_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                grid_label(ui, "Mode");
+                egui::ComboBox::from_id_salt("spawner_mode")
+                    .selected_text(match mode_idx {
+                        0 => "Rate",
+                        1 => "Once",
+                        _ => "Burst",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut new_mode, 0, "Rate");
+                        ui.selectable_value(&mut new_mode, 1, "Once");
+                        ui.selectable_value(&mut new_mode, 2, "Burst");
+                    });
+                ui.end_row();
+            });
+
+        if new_mode != mode_idx {
+            *spawner = match new_mode {
+                0 => SpawnerConfig::Rate { rate: 50.0 },
+                1 => SpawnerConfig::Once { count: 100.0 },
+                _ => SpawnerConfig::Burst {
+                    count: 100.0,
+                    period: 2.0,
+                },
+            };
+        }
+
+        egui::Grid::new("spawner_values_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| match spawner {
+                SpawnerConfig::Rate { rate } => {
+                    grid_label(ui, "Rate");
+                    ui.add(
+                        egui::DragValue::new(rate)
+                            .speed(1.0)
+                            .range(0.1..=100000.0)
+                            .max_decimals(1),
+                    );
+                    ui.end_row();
+                }
+                SpawnerConfig::Once { count } => {
+                    grid_label(ui, "Count");
+                    ui.add(
+                        egui::DragValue::new(count)
+                            .speed(1.0)
+                            .range(1.0..=100000.0)
+                            .max_decimals(0),
+                    );
+                    ui.end_row();
+                }
+                SpawnerConfig::Burst { count, period } => {
+                    grid_label(ui, "Count");
+                    ui.add(
+                        egui::DragValue::new(count)
+                            .speed(1.0)
+                            .range(1.0..=100000.0)
+                            .max_decimals(0),
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Period");
+                    ui.add(
+                        egui::DragValue::new(period)
+                            .speed(0.1)
+                            .range(0.01..=60.0)
+                            .max_decimals(2)
+                            .suffix(" s"),
+                    );
+                    ui.end_row();
+                }
+            });
+    });
+
+    // Accent stripe
+    let card_rect = resp.response.rect;
+    let stripe = egui::Rect::from_min_max(
+        card_rect.left_top(),
+        egui::pos2(card_rect.left() + ACCENT_STRIPE_WIDTH, card_rect.bottom()),
+    );
+    ui.painter().rect_filled(
+        stripe,
+        egui::CornerRadius {
+            nw: CARD_ROUNDING,
+            sw: CARD_ROUNDING,
+            ne: 0,
+            se: 0,
+        },
+        accent,
+    );
+    ui.add_space(4.0);
+}
+
+// ---------------------------------------------------------------------------
+// Main panel entry point
+// ---------------------------------------------------------------------------
 
 /// Draw the particle editor panel (exclusive world access).
 fn draw_particle_panel(world: &mut World) {
@@ -36,7 +351,6 @@ fn draw_particle_panel(world: &mut World) {
         match q.iter(world).next() {
             Some(e) => e,
             None => {
-                // No selected particle entity — show hint
                 draw_empty_panel(world);
                 return;
             }
@@ -50,7 +364,7 @@ fn draw_particle_panel(world: &mut World) {
         .clone();
     let original = marker.clone();
 
-    // Draw the panel
+    // Get egui context
     let ctx = {
         let Some(mut egui_ctx) = world
             .query::<&mut bevy_egui::EguiContext>()
@@ -87,36 +401,27 @@ fn draw_particle_panel(world: &mut World) {
                 .show(ui, |ui| {
                     ui.set_min_width(280.0);
 
-                    // Top-level settings
-                    draw_top_level_settings(ui, &mut marker);
+                    // -- System settings (compact grid) --
+                    draw_system_settings(ui, &mut marker);
+                    ui.add_space(4.0);
+
+                    // -- Spawner card (orange) --
+                    draw_spawner_card(ui, &mut marker.spawner);
+
+                    // -- Spawn / Init section (green) --
+                    draw_init_section(ui, &mut marker.init_modifiers);
+
+                    // -- Update section (blue) --
+                    draw_update_section(ui, &mut marker.update_modifiers);
+
+                    // -- Render section (purple) --
+                    draw_render_section(ui, &mut marker.render_modifiers);
+
                     ui.add_space(8.0);
-                    ui.separator();
-
-                    // Spawner
-                    ui.add_space(4.0);
-                    draw_spawner_section(ui, &mut marker.spawner);
-                    ui.add_space(4.0);
-                    ui.separator();
-
-                    // Init modifiers
-                    ui.add_space(4.0);
-                    draw_init_modifiers(ui, &mut marker.init_modifiers);
-                    ui.add_space(4.0);
-                    ui.separator();
-
-                    // Update modifiers
-                    ui.add_space(4.0);
-                    draw_update_modifiers(ui, &mut marker.update_modifiers);
-                    ui.add_space(4.0);
-                    ui.separator();
-
-                    // Render modifiers
-                    ui.add_space(4.0);
-                    draw_render_modifiers(ui, &mut marker.render_modifiers);
                 });
         });
 
-    // Write back if changed (compare serialized for deep equality)
+    // Write back if changed
     let changed = ron::to_string(&marker).ok() != ron::to_string(&original).ok();
     if changed {
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
@@ -168,191 +473,141 @@ fn draw_empty_panel(world: &mut World) {
 }
 
 // ---------------------------------------------------------------------------
-// Top-level settings
+// System settings (compact 2-column grid)
 // ---------------------------------------------------------------------------
 
-fn draw_top_level_settings(ui: &mut egui::Ui, marker: &mut ParticleEffectMarker) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Capacity").color(colors::TEXT_SECONDARY));
-        let mut cap = marker.capacity as i32;
-        if ui
-            .add(egui::DragValue::new(&mut cap).range(1..=1_000_000).speed(100))
-            .changed()
-        {
-            marker.capacity = cap.max(1) as u32;
-        }
-    });
+fn draw_system_settings(ui: &mut egui::Ui, marker: &mut ParticleEffectMarker) {
+    egui::Grid::new("system_settings_grid")
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            // Capacity
+            grid_label(ui, "Capacity");
+            let mut cap = marker.capacity as i32;
+            if ui
+                .add(egui::DragValue::new(&mut cap).range(1..=1_000_000).speed(100))
+                .changed()
+            {
+                marker.capacity = cap.max(1) as u32;
+            }
+            ui.end_row();
 
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Sim Space").color(colors::TEXT_SECONDARY));
-        egui::ComboBox::from_id_salt("sim_space")
-            .selected_text(match marker.simulation_space {
-                ParticleSimSpace::Global => "Global",
-                ParticleSimSpace::Local => "Local",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut marker.simulation_space, ParticleSimSpace::Global, "Global");
-                ui.selectable_value(&mut marker.simulation_space, ParticleSimSpace::Local, "Local");
-            });
-    });
+            // Sim Space
+            grid_label(ui, "Sim Space");
+            egui::ComboBox::from_id_salt("sim_space")
+                .selected_text(match marker.simulation_space {
+                    ParticleSimSpace::Global => "Global",
+                    ParticleSimSpace::Local => "Local",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut marker.simulation_space,
+                        ParticleSimSpace::Global,
+                        "Global",
+                    );
+                    ui.selectable_value(
+                        &mut marker.simulation_space,
+                        ParticleSimSpace::Local,
+                        "Local",
+                    );
+                });
+            ui.end_row();
 
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Sim Condition").color(colors::TEXT_SECONDARY));
-        egui::ComboBox::from_id_salt("sim_condition")
-            .selected_text(match marker.simulation_condition {
-                ParticleSimCondition::WhenVisible => "When Visible",
-                ParticleSimCondition::Always => "Always",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut marker.simulation_condition,
-                    ParticleSimCondition::WhenVisible,
-                    "When Visible",
-                );
-                ui.selectable_value(
-                    &mut marker.simulation_condition,
-                    ParticleSimCondition::Always,
-                    "Always",
-                );
-            });
-    });
+            // Condition
+            grid_label(ui, "Condition");
+            egui::ComboBox::from_id_salt("sim_condition")
+                .selected_text(match marker.simulation_condition {
+                    ParticleSimCondition::WhenVisible => "When Visible",
+                    ParticleSimCondition::Always => "Always",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut marker.simulation_condition,
+                        ParticleSimCondition::WhenVisible,
+                        "When Visible",
+                    );
+                    ui.selectable_value(
+                        &mut marker.simulation_condition,
+                        ParticleSimCondition::Always,
+                        "Always",
+                    );
+                });
+            ui.end_row();
 
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Integration").color(colors::TEXT_SECONDARY));
-        egui::ComboBox::from_id_salt("motion_int")
-            .selected_text(match marker.motion_integration {
-                ParticleMotionIntegration::None => "None",
-                ParticleMotionIntegration::PreUpdate => "Pre-Update",
-                ParticleMotionIntegration::PostUpdate => "Post-Update",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(
-                    &mut marker.motion_integration,
-                    ParticleMotionIntegration::None,
-                    "None",
-                );
-                ui.selectable_value(
-                    &mut marker.motion_integration,
-                    ParticleMotionIntegration::PreUpdate,
-                    "Pre-Update",
-                );
-                ui.selectable_value(
-                    &mut marker.motion_integration,
-                    ParticleMotionIntegration::PostUpdate,
-                    "Post-Update",
-                );
-            });
-    });
+            // Integration
+            grid_label(ui, "Integration");
+            egui::ComboBox::from_id_salt("motion_int")
+                .selected_text(match marker.motion_integration {
+                    ParticleMotionIntegration::None => "None",
+                    ParticleMotionIntegration::PreUpdate => "Pre-Update",
+                    ParticleMotionIntegration::PostUpdate => "Post-Update",
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(
+                        &mut marker.motion_integration,
+                        ParticleMotionIntegration::None,
+                        "None",
+                    );
+                    ui.selectable_value(
+                        &mut marker.motion_integration,
+                        ParticleMotionIntegration::PreUpdate,
+                        "Pre-Update",
+                    );
+                    ui.selectable_value(
+                        &mut marker.motion_integration,
+                        ParticleMotionIntegration::PostUpdate,
+                        "Post-Update",
+                    );
+                });
+            ui.end_row();
 
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Alpha Mode").color(colors::TEXT_SECONDARY));
-        egui::ComboBox::from_id_salt("alpha_mode")
-            .selected_text(marker.alpha_mode.label())
-            .show_ui(ui, |ui| {
-                for mode in &ParticleAlphaMode::ALL {
-                    ui.selectable_value(&mut marker.alpha_mode, *mode, mode.label());
-                }
-            });
-    });
+            // Alpha mode
+            grid_label(ui, "Alpha");
+            egui::ComboBox::from_id_salt("alpha_mode")
+                .selected_text(marker.alpha_mode.label())
+                .show_ui(ui, |ui| {
+                    for mode in &ParticleAlphaMode::ALL {
+                        ui.selectable_value(&mut marker.alpha_mode, *mode, mode.label());
+                    }
+                });
+            ui.end_row();
+        });
 }
 
 // ---------------------------------------------------------------------------
-// Spawner section
+// Init (Spawn) section — green accent
 // ---------------------------------------------------------------------------
 
-fn draw_spawner_section(ui: &mut egui::Ui, spawner: &mut SpawnerConfig) {
-    ui.label(
-        egui::RichText::new("Spawner")
-            .strong()
-            .color(colors::TEXT_PRIMARY),
+fn draw_init_section(ui: &mut egui::Ui, modifiers: &mut Vec<InitModifierData>) {
+    category_header(
+        ui,
+        "SPAWN",
+        colors::ACCENT_GREEN,
+        InitModifierData::ADD_OPTIONS,
+        modifiers,
     );
-    ui.add_space(4.0);
-
-    // Mode selector
-    let mode_idx = match spawner {
-        SpawnerConfig::Rate { .. } => 0,
-        SpawnerConfig::Once { .. } => 1,
-        SpawnerConfig::Burst { .. } => 2,
-    };
-
-    let mut new_mode = mode_idx;
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Mode").color(colors::TEXT_SECONDARY));
-        egui::ComboBox::from_id_salt("spawner_mode")
-            .selected_text(match mode_idx {
-                0 => "Rate",
-                1 => "Once",
-                _ => "Burst",
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(&mut new_mode, 0, "Rate");
-                ui.selectable_value(&mut new_mode, 1, "Once");
-                ui.selectable_value(&mut new_mode, 2, "Burst");
-            });
-    });
-
-    if new_mode != mode_idx {
-        *spawner = match new_mode {
-            0 => SpawnerConfig::Rate { rate: 50.0 },
-            1 => SpawnerConfig::Once { count: 100.0 },
-            _ => SpawnerConfig::Burst {
-                count: 100.0,
-                period: 2.0,
-            },
-        };
-    }
-
-    match spawner {
-        SpawnerConfig::Rate { rate } => {
-            draw_drag_row(ui, "Rate", rate, 1.0, 0.1..=100000.0);
-        }
-        SpawnerConfig::Once { count } => {
-            draw_drag_row(ui, "Count", count, 1.0, 1.0..=100000.0);
-        }
-        SpawnerConfig::Burst { count, period } => {
-            draw_drag_row(ui, "Count", count, 1.0, 1.0..=100000.0);
-            draw_drag_row(ui, "Period", period, 0.1, 0.01..=60.0);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Init modifiers
-// ---------------------------------------------------------------------------
-
-fn draw_init_modifiers(ui: &mut egui::Ui, modifiers: &mut Vec<InitModifierData>) {
-    draw_modifier_list_header(ui, "Init Modifiers", InitModifierData::ADD_OPTIONS, modifiers);
 
     let mut remove_idx = None;
     for (i, m) in modifiers.iter_mut().enumerate() {
-        let id = ui.make_persistent_id(format!("init_{}", i));
-        egui::CollapsingHeader::new(
-            egui::RichText::new(m.label()).color(colors::TEXT_PRIMARY),
-        )
-        .id_salt(id)
-        .default_open(true)
-        .show(ui, |ui| {
-            draw_init_modifier_fields(ui, m, i);
-            if ui
-                .button(egui::RichText::new("Remove").color(ACCENT_RED))
-                .clicked()
-            {
-                remove_idx = Some(i);
-            }
-        });
+        let id = ui.make_persistent_id(format!("init_card_{i}"));
+        if modifier_card(ui, m.label(), colors::ACCENT_GREEN, id, |ui| {
+            draw_init_modifier_body(ui, m, i);
+        }) {
+            remove_idx = Some(i);
+        }
     }
     if let Some(idx) = remove_idx {
         modifiers.remove(idx);
     }
 }
 
-fn draw_init_modifier_fields(ui: &mut egui::Ui, m: &mut InitModifierData, idx: usize) {
+fn draw_init_modifier_body(ui: &mut egui::Ui, m: &mut InitModifierData, idx: usize) {
     match m {
         InitModifierData::SetLifetime(range) => {
             draw_scalar_range(ui, "Lifetime", range, 0.1, 0.01..=120.0, idx);
         }
         InitModifierData::SetColor(color) => {
-            draw_vec4_color(ui, "Color", color);
+            draw_vec4_color_row(ui, "Color", color);
         }
         InitModifierData::SetSize(range) => {
             draw_scalar_range(ui, "Size", range, 0.01, 0.001..=100.0, idx);
@@ -362,7 +617,7 @@ fn draw_init_modifier_fields(ui: &mut egui::Ui, m: &mut InitModifierData, idx: u
             radius,
             volume,
         } => {
-            draw_vec3_row(ui, "Center", center, 0.1);
+            draw_vec3_grid(ui, "Center", center, 0.1, idx, "pos_sphere");
             draw_scalar_range(ui, "Radius", radius, 0.1, 0.0..=1000.0, idx);
             ui.checkbox(volume, "Volume");
         }
@@ -372,13 +627,13 @@ fn draw_init_modifier_fields(ui: &mut egui::Ui, m: &mut InitModifierData, idx: u
             radius,
             volume,
         } => {
-            draw_vec3_row(ui, "Center", center, 0.1);
-            draw_vec3_row(ui, "Axis", axis, 0.01);
+            draw_vec3_grid(ui, "Center", center, 0.1, idx, "pos_circle_c");
+            draw_vec3_grid(ui, "Axis", axis, 0.01, idx, "pos_circle_a");
             draw_scalar_range(ui, "Radius", radius, 0.1, 0.0..=1000.0, idx);
             ui.checkbox(volume, "Volume");
         }
         InitModifierData::SetVelocitySphere { center, speed } => {
-            draw_vec3_row(ui, "Center", center, 0.1);
+            draw_vec3_grid(ui, "Center", center, 0.1, idx, "vel_sphere");
             draw_scalar_range(ui, "Speed", speed, 0.1, 0.0..=1000.0, idx);
         }
         InitModifierData::SetVelocityTangent {
@@ -386,119 +641,254 @@ fn draw_init_modifier_fields(ui: &mut egui::Ui, m: &mut InitModifierData, idx: u
             axis,
             speed,
         } => {
-            draw_vec3_row(ui, "Origin", origin, 0.1);
-            draw_vec3_row(ui, "Axis", axis, 0.01);
+            draw_vec3_grid(ui, "Origin", origin, 0.1, idx, "vel_tan_o");
+            draw_vec3_grid(ui, "Axis", axis, 0.01, idx, "vel_tan_a");
             draw_scalar_range(ui, "Speed", speed, 0.1, 0.0..=1000.0, idx);
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Update modifiers
+// Update section — blue accent
 // ---------------------------------------------------------------------------
 
-fn draw_update_modifiers(ui: &mut egui::Ui, modifiers: &mut Vec<UpdateModifierData>) {
-    draw_modifier_list_header(ui, "Update Modifiers", UpdateModifierData::ADD_OPTIONS, modifiers);
+fn draw_update_section(ui: &mut egui::Ui, modifiers: &mut Vec<UpdateModifierData>) {
+    category_header(
+        ui,
+        "UPDATE",
+        colors::ACCENT_BLUE,
+        UpdateModifierData::ADD_OPTIONS,
+        modifiers,
+    );
 
     let mut remove_idx = None;
     for (i, m) in modifiers.iter_mut().enumerate() {
-        let id = ui.make_persistent_id(format!("update_{}", i));
-        egui::CollapsingHeader::new(
-            egui::RichText::new(m.label()).color(colors::TEXT_PRIMARY),
-        )
-        .id_salt(id)
-        .default_open(true)
-        .show(ui, |ui| {
-            draw_update_modifier_fields(ui, m);
-            if ui
-                .button(egui::RichText::new("Remove").color(ACCENT_RED))
-                .clicked()
-            {
-                remove_idx = Some(i);
-            }
-        });
+        let id = ui.make_persistent_id(format!("update_card_{i}"));
+        if modifier_card(ui, m.label(), colors::ACCENT_BLUE, id, |ui| {
+            draw_update_modifier_body(ui, m, i);
+        }) {
+            remove_idx = Some(i);
+        }
     }
     if let Some(idx) = remove_idx {
         modifiers.remove(idx);
     }
 }
 
-fn draw_update_modifier_fields(ui: &mut egui::Ui, m: &mut UpdateModifierData) {
+fn draw_update_modifier_body(ui: &mut egui::Ui, m: &mut UpdateModifierData, idx: usize) {
     match m {
         UpdateModifierData::Accel(d) => {
-            draw_vec3_row(ui, "Accel", &mut d.accel, 0.1);
+            draw_vec3_grid(ui, "Accel", &mut d.accel, 0.1, idx, "accel");
         }
         UpdateModifierData::RadialAccel(d) => {
-            draw_vec3_row(ui, "Origin", &mut d.origin, 0.1);
-            draw_drag_row(ui, "Accel", &mut d.accel, 0.1, -1000.0..=1000.0);
+            draw_vec3_grid(ui, "Origin", &mut d.origin, 0.1, idx, "radial_o");
+            egui::Grid::new(format!("radial_val_{idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Accel");
+                    ui.add(
+                        egui::DragValue::new(&mut d.accel)
+                            .speed(0.1)
+                            .range(-1000.0..=1000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+                });
         }
         UpdateModifierData::LinearDrag(d) => {
-            draw_drag_row(ui, "Drag", &mut d.drag, 0.1, 0.0..=100.0);
+            egui::Grid::new(format!("drag_grid_{idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Drag");
+                    ui.add(
+                        egui::DragValue::new(&mut d.drag)
+                            .speed(0.1)
+                            .range(0.0..=100.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+                });
         }
         UpdateModifierData::KillAabb(d) => {
-            draw_vec3_row(ui, "Center", &mut d.center, 0.1);
-            draw_vec3_row(ui, "Half Size", &mut d.half_size, 0.1);
+            draw_vec3_grid(ui, "Center", &mut d.center, 0.1, idx, "kaabb_c");
+            draw_vec3_grid(ui, "Half Size", &mut d.half_size, 0.1, idx, "kaabb_hs");
             ui.checkbox(&mut d.kill_inside, "Kill Inside");
         }
         UpdateModifierData::KillSphere(d) => {
-            draw_vec3_row(ui, "Center", &mut d.center, 0.1);
-            draw_drag_row(ui, "Radius", &mut d.radius, 0.1, 0.0..=10000.0);
+            draw_vec3_grid(ui, "Center", &mut d.center, 0.1, idx, "ksphere_c");
+            egui::Grid::new(format!("ksphere_r_{idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Radius");
+                    ui.add(
+                        egui::DragValue::new(&mut d.radius)
+                            .speed(0.1)
+                            .range(0.0..=10000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+                });
             ui.checkbox(&mut d.kill_inside, "Kill Inside");
+        }
+        UpdateModifierData::TangentAccel(d) => {
+            draw_vec3_grid(ui, "Origin", &mut d.origin, 0.1, idx, "tan_o");
+            draw_vec3_grid(ui, "Axis", &mut d.axis, 0.01, idx, "tan_a");
+            egui::Grid::new(format!("tan_accel_{idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Accel");
+                    ui.add(
+                        egui::DragValue::new(&mut d.accel)
+                            .speed(0.1)
+                            .range(-1000.0..=1000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+                });
+        }
+        UpdateModifierData::ConformToSphere(d) => {
+            draw_vec3_grid(ui, "Origin", &mut d.origin, 0.1, idx, "conform_o");
+            egui::Grid::new(format!("conform_vals_{idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Radius");
+                    ui.add(
+                        egui::DragValue::new(&mut d.radius)
+                            .speed(0.1)
+                            .range(0.0..=10000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Influence");
+                    ui.add(
+                        egui::DragValue::new(&mut d.influence_dist)
+                            .speed(0.1)
+                            .range(0.0..=10000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Accel");
+                    ui.add(
+                        egui::DragValue::new(&mut d.attraction_accel)
+                            .speed(0.1)
+                            .range(0.0..=10000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Max Speed");
+                    ui.add(
+                        egui::DragValue::new(&mut d.max_speed)
+                            .speed(0.1)
+                            .range(0.0..=10000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+                });
+        }
+        UpdateModifierData::SetPositionCone3d(d) => {
+            egui::Grid::new(format!("cone_vals_{idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Height");
+                    ui.add(
+                        egui::DragValue::new(&mut d.height)
+                            .speed(0.1)
+                            .range(0.0..=1000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Base Radius");
+                    ui.add(
+                        egui::DragValue::new(&mut d.base_radius)
+                            .speed(0.1)
+                            .range(0.0..=1000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Top Radius");
+                    ui.add(
+                        egui::DragValue::new(&mut d.top_radius)
+                            .speed(0.1)
+                            .range(0.0..=1000.0)
+                            .max_decimals(3),
+                    );
+                    ui.end_row();
+                });
+            ui.checkbox(&mut d.volume, "Volume");
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Render modifiers
+// Render section — purple accent
 // ---------------------------------------------------------------------------
 
-fn draw_render_modifiers(ui: &mut egui::Ui, modifiers: &mut Vec<RenderModifierData>) {
-    draw_modifier_list_header(ui, "Render Modifiers", RenderModifierData::ADD_OPTIONS, modifiers);
+fn draw_render_section(ui: &mut egui::Ui, modifiers: &mut Vec<RenderModifierData>) {
+    category_header(
+        ui,
+        "RENDER",
+        colors::ACCENT_PURPLE,
+        RenderModifierData::ADD_OPTIONS,
+        modifiers,
+    );
 
     let mut remove_idx = None;
     for (i, m) in modifiers.iter_mut().enumerate() {
-        let id = ui.make_persistent_id(format!("render_{}", i));
-        egui::CollapsingHeader::new(
-            egui::RichText::new(m.label()).color(colors::TEXT_PRIMARY),
-        )
-        .id_salt(id)
-        .default_open(true)
-        .show(ui, |ui| {
-            draw_render_modifier_fields(ui, m, i);
-            if ui
-                .button(egui::RichText::new("Remove").color(ACCENT_RED))
-                .clicked()
-            {
-                remove_idx = Some(i);
-            }
-        });
+        let id = ui.make_persistent_id(format!("render_card_{i}"));
+        if modifier_card(ui, m.label(), colors::ACCENT_PURPLE, id, |ui| {
+            draw_render_modifier_body(ui, m, i);
+        }) {
+            remove_idx = Some(i);
+        }
     }
     if let Some(idx) = remove_idx {
         modifiers.remove(idx);
     }
 }
 
-fn draw_render_modifier_fields(ui: &mut egui::Ui, m: &mut RenderModifierData, idx: usize) {
+fn draw_render_modifier_body(ui: &mut egui::Ui, m: &mut RenderModifierData, idx: usize) {
     match m {
         RenderModifierData::ColorOverLifetime { keys } => {
-            draw_gradient_editor(ui, keys, "color_grad", idx, true);
+            gradient_preview_bar(ui, keys, true);
+            ui.add_space(4.0);
+            draw_gradient_keys(ui, keys, idx, true);
         }
         RenderModifierData::SizeOverLifetime { keys } => {
-            draw_gradient_editor(ui, keys, "size_grad", idx, false);
+            gradient_preview_bar(ui, keys, false);
+            ui.add_space(4.0);
+            draw_gradient_keys(ui, keys, idx, false);
         }
         RenderModifierData::SetColor { color } => {
-            draw_vec4_color(ui, "Color", color);
+            draw_vec4_color_row(ui, "Color", color);
         }
         RenderModifierData::SetSize { size } => {
-            draw_vec3_row(ui, "Size", size, 0.01);
+            draw_vec3_grid(ui, "Size", size, 0.01, idx, "rend_size");
         }
         RenderModifierData::Orient { mode } => {
-            egui::ComboBox::from_id_salt(format!("orient_{}", idx))
-                .selected_text(mode.label())
-                .show_ui(ui, |ui| {
-                    for m_opt in &ParticleOrientMode::ALL {
-                        ui.selectable_value(mode, *m_opt, m_opt.label());
-                    }
+            egui::Grid::new(format!("orient_grid_{idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Mode");
+                    egui::ComboBox::from_id_salt(format!("orient_{idx}"))
+                        .selected_text(mode.label())
+                        .show_ui(ui, |ui| {
+                            for m_opt in &ParticleOrientMode::ALL {
+                                ui.selectable_value(mode, *m_opt, m_opt.label());
+                            }
+                        });
+                    ui.end_row();
                 });
         }
         RenderModifierData::ScreenSpaceSize => {
@@ -512,14 +902,13 @@ fn draw_render_modifier_fields(ui: &mut egui::Ui, m: &mut RenderModifierData, id
 }
 
 // ---------------------------------------------------------------------------
-// Gradient editor
+// Gradient key editor (used inside render cards)
 // ---------------------------------------------------------------------------
 
-fn draw_gradient_editor(
+fn draw_gradient_keys(
     ui: &mut egui::Ui,
     keys: &mut Vec<GradientKeyData>,
-    id_prefix: &str,
-    mod_idx: usize,
+    _mod_idx: usize,
     is_color: bool,
 ) {
     let mut remove_key = None;
@@ -534,11 +923,13 @@ fn draw_gradient_editor(
             );
             if is_color {
                 let mut rgba = [key.value.x, key.value.y, key.value.z, key.value.w];
-                if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
+                if ui
+                    .color_edit_button_rgba_unmultiplied(&mut rgba)
+                    .changed()
+                {
                     key.value = Vec4::new(rgba[0], rgba[1], rgba[2], rgba[3]);
                 }
             } else {
-                // Size: just XYZ
                 ui.add(
                     egui::DragValue::new(&mut key.value.x)
                         .speed(0.01)
@@ -558,8 +949,14 @@ fn draw_gradient_editor(
                         .max_decimals(3),
                 );
             }
+            // Per-key remove button
             if ui
-                .small_button(egui::RichText::new("x").color(ACCENT_RED))
+                .add(
+                    egui::Button::new(
+                        egui::RichText::new("\u{00d7}").color(colors::STATUS_ERROR),
+                    )
+                    .frame(false),
+                )
                 .on_hover_text("Remove key")
                 .clicked()
             {
@@ -578,7 +975,10 @@ fn draw_gradient_editor(
         .button(egui::RichText::new("+ Key").color(colors::ACCENT_GREEN))
         .clicked()
     {
-        let ratio = keys.last().map(|k| (k.ratio + 1.0) / 2.0).unwrap_or(0.5);
+        let ratio = keys
+            .last()
+            .map(|k| (k.ratio + 1.0) / 2.0)
+            .unwrap_or(0.5);
         keys.push(GradientKeyData {
             ratio: ratio.min(1.0),
             value: if is_color {
@@ -591,42 +991,48 @@ fn draw_gradient_editor(
 }
 
 // ---------------------------------------------------------------------------
-// Modifier list header with Add dropdown
+// Shared property drawing helpers
 // ---------------------------------------------------------------------------
 
-fn draw_modifier_list_header<T>(
+/// Draw a Vec3 value in a 2-column grid with axis-colored X/Y/Z prefixes.
+fn draw_vec3_grid(
     ui: &mut egui::Ui,
-    title: &str,
-    options: &[(&str, fn() -> T)],
-    list: &mut Vec<T>,
+    label: &str,
+    val: &mut Vec3,
+    speed: f64,
+    idx: usize,
+    salt: &str,
 ) {
-    ui.horizontal(|ui| {
-        ui.label(
-            egui::RichText::new(title)
-                .strong()
-                .color(colors::TEXT_PRIMARY),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.menu_button(
-                egui::RichText::new("+").color(colors::ACCENT_GREEN),
-                |ui| {
-                    for (name, factory) in options {
-                        if ui.button(*name).clicked() {
-                            list.push(factory());
-                            ui.close_menu();
-                        }
-                    }
-                },
-            );
+    egui::Grid::new(format!("v3_{salt}_{idx}"))
+        .num_columns(2)
+        .spacing([8.0, 4.0])
+        .show(ui, |ui| {
+            grid_label(ui, label);
+            ui.horizontal(|ui| {
+                ui.add(
+                    egui::DragValue::new(&mut val.x)
+                        .speed(speed)
+                        .prefix("x:")
+                        .max_decimals(3),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut val.y)
+                        .speed(speed)
+                        .prefix("y:")
+                        .max_decimals(3),
+                );
+                ui.add(
+                    egui::DragValue::new(&mut val.z)
+                        .speed(speed)
+                        .prefix("z:")
+                        .max_decimals(3),
+                );
+            });
+            ui.end_row();
         });
-    });
-    ui.add_space(4.0);
 }
 
-// ---------------------------------------------------------------------------
-// Shared drawing helpers
-// ---------------------------------------------------------------------------
-
+/// Draw a ScalarRange (Constant or Random) with a toggle checkbox.
 fn draw_scalar_range(
     ui: &mut egui::Ui,
     label: &str,
@@ -635,11 +1041,11 @@ fn draw_scalar_range(
     clamp: std::ops::RangeInclusive<f32>,
     _idx: usize,
 ) {
+    let is_random = matches!(range, ScalarRange::Random(_, _));
+    let mut toggle = is_random;
+
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
-
-        let is_random = matches!(range, ScalarRange::Random(_, _));
-        let mut toggle = is_random;
         if ui.checkbox(&mut toggle, "Random").changed() {
             if toggle {
                 let val = match range {
@@ -691,54 +1097,13 @@ fn draw_scalar_range(
     }
 }
 
-fn draw_vec3_row(ui: &mut egui::Ui, label: &str, val: &mut Vec3, speed: f64) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
-        ui.add(
-            egui::DragValue::new(&mut val.x)
-                .speed(speed)
-                .prefix("x:")
-                .max_decimals(3),
-        );
-        ui.add(
-            egui::DragValue::new(&mut val.y)
-                .speed(speed)
-                .prefix("y:")
-                .max_decimals(3),
-        );
-        ui.add(
-            egui::DragValue::new(&mut val.z)
-                .speed(speed)
-                .prefix("z:")
-                .max_decimals(3),
-        );
-    });
-}
-
-fn draw_vec4_color(ui: &mut egui::Ui, label: &str, val: &mut Vec4) {
+/// Draw a Vec4 as an RGBA color picker in a row.
+fn draw_vec4_color_row(ui: &mut egui::Ui, label: &str, val: &mut Vec4) {
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
         let mut rgba = [val.x, val.y, val.z, val.w];
         if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
             *val = Vec4::new(rgba[0], rgba[1], rgba[2], rgba[3]);
         }
-    });
-}
-
-fn draw_drag_row(
-    ui: &mut egui::Ui,
-    label: &str,
-    val: &mut f32,
-    speed: f64,
-    range: std::ops::RangeInclusive<f32>,
-) {
-    ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
-        ui.add(
-            egui::DragValue::new(val)
-                .speed(speed)
-                .range(range)
-                .max_decimals(3),
-        );
     });
 }
