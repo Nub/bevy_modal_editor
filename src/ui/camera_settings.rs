@@ -13,8 +13,8 @@ use bevy_editor_game::{
     FogSettingsData, SsaoQuality, SsaoSettings, TonemappingMode,
 };
 
-use crate::editor::{EditorCamera, EditorMode, EditorState};
-use crate::ui::theme::{colors, grid_label, panel, panel_frame, section_header, value_slider, DRAG_VALUE_WIDTH};
+use crate::editor::{EditorCamera, EditorMode, EditorState, PanelSide, PinnedWindows};
+use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame, section_header, value_slider, DRAG_VALUE_WIDTH};
 
 /// UI state for the camera settings panel
 #[derive(Resource, Default)]
@@ -40,7 +40,8 @@ fn draw_camera_settings_panel(world: &mut World) {
     }
 
     let current_mode = *world.resource::<State<EditorMode>>().get();
-    if current_mode != EditorMode::Camera {
+    let is_pinned = world.resource::<PinnedWindows>().0.contains(&EditorMode::Camera);
+    if current_mode != EditorMode::Camera && !is_pinned {
         return;
     }
 
@@ -68,10 +69,22 @@ fn draw_camera_settings_panel(world: &mut World) {
     let available_height = ctx.input(|i: &egui::InputState| i.viewport_rect().height());
     let panel_height = available_height - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
 
+    // If pinned and the active mode also uses the left side, move to the right
+    let displaced = is_pinned
+        && current_mode != EditorMode::Camera
+        && current_mode.panel_side() == Some(PanelSide::Left);
+    let (anchor_align, anchor_offset) = if displaced {
+        (egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    } else {
+        (egui::Align2::LEFT_TOP, [panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    };
+
+    let mut pin_toggled = false;
+
     egui::Window::new("Camera Settings")
         .id(egui::Id::new("camera_settings_panel"))
         .frame(panel_frame(&ctx.style()))
-        .default_pos([panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+        .anchor(anchor_align, anchor_offset)
         .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
         .max_height(panel_height)
@@ -79,7 +92,7 @@ fn draw_camera_settings_panel(world: &mut World) {
         .collapsible(false)
         .title_bar(false)
         .show(&ctx, |ui| {
-            // Title
+            // Title with pin button
             ui.horizontal(|ui| {
                 ui.label(
                     egui::RichText::new("CAMERA")
@@ -90,6 +103,9 @@ fn draw_camera_settings_panel(world: &mut World) {
                     egui::RichText::new("Render Settings")
                         .color(colors::TEXT_SECONDARY),
                 );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    pin_toggled = draw_pin_button(ui, is_pinned);
+                });
             });
             ui.separator();
 
@@ -258,6 +274,14 @@ fn draw_camera_settings_panel(world: &mut World) {
             } else {
                 revert_render_settings_on_entity(world, entity);
             }
+        }
+    }
+
+    // Toggle pin state if button was clicked
+    if pin_toggled {
+        let mut pinned = world.resource_mut::<PinnedWindows>();
+        if !pinned.0.remove(&EditorMode::Camera) {
+            pinned.0.insert(EditorMode::Camera);
         }
     }
 }

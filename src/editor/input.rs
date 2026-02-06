@@ -3,7 +3,7 @@ use bevy_egui::EguiContexts;
 
 use bevy_editor_game::GameState;
 
-use super::state::{AxisConstraint, ControlPointSnapState, CycleShadingModeEvent, EditorMode, EditorState, ToggleEditorEvent, TogglePreviewModeEvent, TransformOperation};
+use super::state::{AxisConstraint, ControlPointSnapState, CycleShadingModeEvent, EditorMode, EditorState, PinnedWindows, ToggleEditorEvent, TogglePreviewModeEvent, TransformOperation};
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
 use crate::selection::Selected;
@@ -21,6 +21,7 @@ impl Plugin for EditorInputPlugin {
             handle_preview_mode_shortcut,
             handle_measurement_toggle,
             handle_shading_mode_shortcut,
+            handle_pin_window,
         ));
     }
 }
@@ -326,5 +327,32 @@ fn handle_shading_mode_shortcut(
     // Z to cycle shading modes (only in View mode)
     if keyboard.just_pressed(KeyCode::KeyZ) && *mode.get() == EditorMode::View {
         cycle_events.write(CycleShadingModeEvent);
+    }
+}
+
+/// Handle "." key to toggle pinning the current mode's window
+fn handle_pin_window(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    current_mode: Res<State<EditorMode>>,
+    editor_state: Res<EditorState>,
+    game_state: Res<State<GameState>>,
+    mut pinned_window: ResMut<PinnedWindows>,
+    mut contexts: EguiContexts,
+) {
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+
+    if *game_state.get() != GameState::Editing {
+        return;
+    }
+
+    if keyboard.just_pressed(KeyCode::Period) {
+        let mode = *current_mode.get();
+        if mode.has_panel() {
+            if !pinned_window.0.remove(&mode) {
+                pinned_window.0.insert(mode);
+            }
+        }
     }
 }

@@ -9,10 +9,10 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 
-use crate::editor::{EditorMode, EditorState};
+use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::particles::data::*;
 use crate::selection::Selected;
-use crate::ui::theme::{colors, grid_label, panel, panel_frame};
+use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame};
 
 pub struct ParticleEditorPlugin;
 
@@ -341,7 +341,8 @@ fn draw_particle_panel(world: &mut World) {
     }
 
     let current_mode = *world.resource::<State<EditorMode>>().get();
-    if current_mode != EditorMode::Particle {
+    let is_pinned = world.resource::<PinnedWindows>().0.contains(&EditorMode::Particle);
+    if current_mode != EditorMode::Particle && !is_pinned {
         return;
     }
 
@@ -351,7 +352,7 @@ fn draw_particle_panel(world: &mut World) {
         match q.iter(world).next() {
             Some(e) => e,
             None => {
-                draw_empty_panel(world);
+                draw_empty_panel(world, is_pinned, current_mode);
                 return;
             }
         }
@@ -379,15 +380,24 @@ fn draw_particle_panel(world: &mut World) {
     let available_height =
         ctx.content_rect().height() - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
 
+    // If pinned and the active mode also uses the right side, move to the left
+    let displaced = is_pinned
+        && current_mode != EditorMode::Particle
+        && current_mode.panel_side() == Some(PanelSide::Right);
+    let (anchor_align, anchor_offset) = if displaced {
+        (egui::Align2::LEFT_TOP, [panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    } else {
+        (egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    };
+
+    let mut pin_toggled = false;
+
     egui::Window::new("Particle Effect")
         .default_size([panel::DEFAULT_WIDTH, available_height])
         .min_width(panel::MIN_WIDTH)
         .min_height(panel::MIN_HEIGHT)
         .max_height(available_height)
-        .anchor(
-            egui::Align2::RIGHT_TOP,
-            [-panel::WINDOW_PADDING, panel::WINDOW_PADDING],
-        )
+        .anchor(anchor_align, anchor_offset)
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
@@ -395,6 +405,11 @@ fn draw_particle_panel(world: &mut World) {
         .frame(panel_frame(&ctx.style()))
         .show(&ctx, |ui| {
             ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
+
+            // Pin button (right-aligned)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                pin_toggled = draw_pin_button(ui, is_pinned);
+            });
 
             egui::ScrollArea::vertical()
                 .auto_shrink([false, false])
@@ -428,9 +443,17 @@ fn draw_particle_panel(world: &mut World) {
             entity_mut.insert(marker);
         }
     }
+
+    // Toggle pin state if button was clicked
+    if pin_toggled {
+        let mut pinned = world.resource_mut::<PinnedWindows>();
+        if !pinned.0.remove(&EditorMode::Particle) {
+            pinned.0.insert(EditorMode::Particle);
+        }
+    }
 }
 
-fn draw_empty_panel(world: &mut World) {
+fn draw_empty_panel(world: &mut World, is_pinned: bool, current_mode: EditorMode) {
     let ctx = {
         let Some(mut egui_ctx) = world
             .query::<&mut bevy_egui::EguiContext>()
@@ -445,15 +468,23 @@ fn draw_empty_panel(world: &mut World) {
     let available_height =
         ctx.content_rect().height() - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
 
+    let displaced = is_pinned
+        && current_mode != EditorMode::Particle
+        && current_mode.panel_side() == Some(PanelSide::Right);
+    let (anchor_align, anchor_offset) = if displaced {
+        (egui::Align2::LEFT_TOP, [panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    } else {
+        (egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    };
+
+    let mut pin_toggled = false;
+
     egui::Window::new("Particle Effect")
         .default_size([panel::DEFAULT_WIDTH, available_height])
         .min_width(panel::MIN_WIDTH)
         .min_height(panel::MIN_HEIGHT)
         .max_height(available_height)
-        .anchor(
-            egui::Align2::RIGHT_TOP,
-            [-panel::WINDOW_PADDING, panel::WINDOW_PADDING],
-        )
+        .anchor(anchor_align, anchor_offset)
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
@@ -461,6 +492,12 @@ fn draw_empty_panel(world: &mut World) {
         .frame(panel_frame(&ctx.style()))
         .show(&ctx, |ui| {
             ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
+
+            // Pin button (right-aligned)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                pin_toggled = draw_pin_button(ui, is_pinned);
+            });
+
             ui.add_space(20.0);
             ui.vertical_centered(|ui| {
                 ui.label(
@@ -470,6 +507,14 @@ fn draw_empty_panel(world: &mut World) {
                 );
             });
         });
+
+    // Toggle pin state if button was clicked
+    if pin_toggled {
+        let mut pinned = world.resource_mut::<PinnedWindows>();
+        if !pinned.0.remove(&EditorMode::Particle) {
+            pinned.0.insert(EditorMode::Particle);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

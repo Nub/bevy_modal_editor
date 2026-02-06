@@ -13,13 +13,13 @@ use super::command_palette::{open_add_component_palette, CommandPaletteState, dr
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::commands::TakeSnapshotCommand;
-use crate::editor::{EditorMode, EditorState};
+use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::scene::{
     blockout::{ArchMarker, LShapeMarker, RampMarker, StairsMarker},
     DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker,
 };
 use crate::selection::Selected;
-use crate::ui::theme::{colors, grid_label, panel, panel_frame, section_header, value_slider, DRAG_VALUE_WIDTH};
+use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame, section_header, value_slider, DRAG_VALUE_WIDTH};
 
 /// Represents the RigidBody type for UI selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1083,9 +1083,10 @@ fn draw_inspector_panel(world: &mut World) {
         return;
     }
 
-    // Only show inspector in ObjectInspector mode
-    let current_mode = world.resource::<State<EditorMode>>().get();
-    if *current_mode != EditorMode::ObjectInspector {
+    // Show inspector in ObjectInspector mode, or when pinned
+    let current_mode = *world.resource::<State<EditorMode>>().get();
+    let is_pinned = world.resource::<PinnedWindows>().0.contains(&EditorMode::ObjectInspector);
+    if current_mode != EditorMode::ObjectInspector && !is_pinned {
         return;
     }
 
@@ -1223,12 +1224,24 @@ fn draw_inspector_panel(world: &mut World) {
         - panel::STATUS_BAR_HEIGHT
         - panel::WINDOW_PADDING * 2.0;
 
+    // If pinned and the active mode also uses the right side, move to the left
+    let displaced = is_pinned
+        && current_mode != EditorMode::ObjectInspector
+        && current_mode.panel_side() == Some(PanelSide::Right);
+    let (anchor_align, anchor_offset) = if displaced {
+        (egui::Align2::LEFT_TOP, [panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    } else {
+        (egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    };
+
+    let mut pin_toggled = false;
+
     let panel_response = egui::Window::new("Inspector")
         .default_size([panel::DEFAULT_WIDTH, available_height])
         .min_width(panel::MIN_WIDTH)
         .min_height(panel::MIN_HEIGHT)
         .max_height(available_height)
-        .anchor(egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+        .anchor(anchor_align, anchor_offset)
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
@@ -1237,6 +1250,11 @@ fn draw_inspector_panel(world: &mut World) {
         .show(&ctx, |ui| {
             // Force the window content to fill available height
             ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
+
+            // Pin button (right-aligned)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                pin_toggled = draw_pin_button(ui, is_pinned);
+            });
 
             match selection_count {
                 0 => {
@@ -1964,6 +1982,13 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
+    // Toggle pin state if button was clicked
+    if pin_toggled {
+        let mut pinned = world.resource_mut::<PinnedWindows>();
+        if !pinned.0.remove(&EditorMode::ObjectInspector) {
+            pinned.0.insert(EditorMode::ObjectInspector);
+        }
+    }
 }
 
 /// Draw all components on an entity using reflection

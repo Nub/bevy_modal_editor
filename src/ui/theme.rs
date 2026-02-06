@@ -48,6 +48,19 @@ pub mod panel {
     pub const BOTTOM_PADDING: f32 = 30.0;
 }
 
+/// Draw a pin toggle button. Returns true if clicked.
+pub fn draw_pin_button(ui: &mut egui::Ui, is_pinned: bool) -> bool {
+    let icon = "\u{f08d}";
+    let color = if is_pinned { colors::ACCENT_BLUE } else { colors::TEXT_MUTED };
+    let response = ui.add(
+        egui::Button::new(egui::RichText::new(icon).color(color))
+            .frame(false),
+    );
+    let clicked = response.clicked();
+    response.on_hover_text(if is_pinned { "Unpin window" } else { "Pin window" });
+    clicked
+}
+
 /// Create a standard window frame with consistent styling
 pub fn window_frame(style: &egui::Style) -> egui::Frame {
     egui::Frame::window(style)

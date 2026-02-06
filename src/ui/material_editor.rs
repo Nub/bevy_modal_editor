@@ -11,13 +11,13 @@ use bevy_editor_game::{
     MaterialRef, ParallaxMappingMethodValue,
 };
 
-use crate::editor::{EditorMode, EditorState};
+use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::materials::{apply_material_def_standalone, remove_all_material_components, resolve_material_ref, MaterialTypeRegistry};
 use crate::selection::Selected;
 use crate::ui::command_palette::{CommandPaletteState, TexturePickResult, TextureSlot};
 use crate::ui::material_preview::{MaterialPreviewState, PreviewLighting, PreviewMeshShape, PreviewSettings};
 use crate::ui::theme::{
-    colors, draw_centered_dialog, grid_label, panel, panel_frame, section_header, value_slider,
+    colors, draw_centered_dialog, draw_pin_button, grid_label, panel, panel_frame, section_header, value_slider,
     DialogResult, DRAG_VALUE_WIDTH,
 };
 use crate::utils::should_process_input;
@@ -467,9 +467,10 @@ fn draw_material_panel(world: &mut World) {
         return;
     }
 
-    // Only show in Material mode
-    let current_mode = world.resource::<State<EditorMode>>().get();
-    if *current_mode != EditorMode::Material {
+    // Show in Material mode, or when pinned
+    let current_mode = *world.resource::<State<EditorMode>>().get();
+    let is_pinned = world.resource::<PinnedWindows>().0.contains(&EditorMode::Material);
+    if current_mode != EditorMode::Material && !is_pinned {
         return;
     }
 
@@ -639,15 +640,24 @@ fn draw_material_panel(world: &mut World) {
     let available_height =
         ctx.content_rect().height() - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
 
+    // If pinned and the active mode also uses the right side, move to the left
+    let displaced = is_pinned
+        && current_mode != EditorMode::Material
+        && current_mode.panel_side() == Some(PanelSide::Right);
+    let (anchor_align, anchor_offset) = if displaced {
+        (egui::Align2::LEFT_TOP, [panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    } else {
+        (egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    };
+
+    let mut pin_toggled = false;
+
     egui::Window::new("Material")
         .default_size([panel::DEFAULT_WIDTH, available_height])
         .min_width(panel::MIN_WIDTH)
         .min_height(panel::MIN_HEIGHT)
         .max_height(available_height)
-        .anchor(
-            egui::Align2::RIGHT_TOP,
-            [-panel::WINDOW_PADDING, panel::WINDOW_PADDING],
-        )
+        .anchor(anchor_align, anchor_offset)
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
@@ -657,6 +667,11 @@ fn draw_material_panel(world: &mut World) {
             ui.set_min_height(
                 available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING,
             );
+
+            // Pin button (right-aligned)
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                pin_toggled = draw_pin_button(ui, is_pinned);
+            });
 
             if total_selected == 0 && editing_preset_name.is_none() {
                 ui.add_space(20.0);
@@ -1165,6 +1180,14 @@ fn draw_material_panel(world: &mut World) {
     // Handle preset rename (entity path)
     if let Some((old_name, new_name)) = rename_preset {
         apply_preset_rename(world, &old_name, &new_name);
+    }
+
+    // Toggle pin state if button was clicked
+    if pin_toggled {
+        let mut pinned = world.resource_mut::<PinnedWindows>();
+        if !pinned.0.remove(&EditorMode::Material) {
+            pinned.0.insert(EditorMode::Material);
+        }
     }
 }
 

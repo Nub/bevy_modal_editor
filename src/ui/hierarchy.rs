@@ -8,10 +8,10 @@ use std::collections::HashSet;
 use bevy_procedural::ProceduralEntity;
 
 use crate::commands::TakeSnapshotCommand;
-use crate::editor::{EditorMode, EditorState};
+use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::scene::{GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::selection::Selected;
-use crate::ui::theme::{colors, panel, panel_frame};
+use crate::ui::theme::{colors, draw_pin_button, panel, panel_frame};
 
 pub struct HierarchyPlugin;
 
@@ -127,14 +127,16 @@ fn draw_hierarchy_panel(
     selected: Query<Entity, With<Selected>>,
     mut commands: Commands,
     mut hierarchy_state: ResMut<HierarchyState>,
+    mut pinned_window: ResMut<PinnedWindows>,
 ) -> Result {
     // Don't draw UI when editor is disabled
     if !editor_state.ui_enabled {
         return Ok(());
     }
 
-    // Only show hierarchy panel in Hierarchy mode
-    if *current_mode.get() != EditorMode::Hierarchy {
+    // Show hierarchy panel in Hierarchy mode, or when pinned
+    let is_pinned = pinned_window.0.contains(&EditorMode::Hierarchy);
+    if *current_mode.get() != EditorMode::Hierarchy && !is_pinned {
         // Clear filter when leaving hierarchy mode
         hierarchy_state.filter.clear();
         hierarchy_state.filter_active = false;
@@ -168,12 +170,22 @@ fn draw_hierarchy_panel(
         - panel::STATUS_BAR_HEIGHT
         - panel::WINDOW_PADDING * 2.0;
 
+    // If pinned and the active mode also uses the left side, move to the right
+    let displaced = is_pinned
+        && *current_mode.get() != EditorMode::Hierarchy
+        && current_mode.get().panel_side() == Some(PanelSide::Left);
+    let (anchor_align, anchor_offset) = if displaced {
+        (egui::Align2::RIGHT_TOP, [-panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    } else {
+        (egui::Align2::LEFT_TOP, [panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+    };
+
     egui::Window::new("Scene")
         .default_size([panel::DEFAULT_WIDTH, available_height])
         .min_width(panel::MIN_WIDTH)
         .min_height(panel::MIN_HEIGHT)
         .max_height(available_height)
-        .anchor(egui::Align2::LEFT_TOP, [panel::WINDOW_PADDING, panel::WINDOW_PADDING])
+        .anchor(anchor_align, anchor_offset)
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
@@ -183,7 +195,7 @@ fn draw_hierarchy_panel(
             // Force the window content to fill available height
             ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
 
-            // Tab bar
+            // Tab bar with pin button
             ui.horizontal(|ui| {
                 if ui.selectable_label(hierarchy_state.tab == HierarchyTab::Scene, "Scene").clicked() {
                     hierarchy_state.tab = HierarchyTab::Scene;
@@ -191,6 +203,13 @@ fn draw_hierarchy_panel(
                 if ui.selectable_label(hierarchy_state.tab == HierarchyTab::World, "World").clicked() {
                     hierarchy_state.tab = HierarchyTab::World;
                 }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if draw_pin_button(ui, is_pinned) {
+                        if !pinned_window.0.remove(&EditorMode::Hierarchy) {
+                            pinned_window.0.insert(EditorMode::Hierarchy);
+                        }
+                    }
+                });
             });
             ui.separator();
 

@@ -41,6 +41,33 @@ pub enum EditorMode {
     Particle,
 }
 
+/// Which screen side a mode's panel occupies
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelSide {
+    Left,
+    Right,
+}
+
+impl EditorMode {
+    /// Returns the panel side if this mode has a window, None otherwise
+    pub fn panel_side(&self) -> Option<PanelSide> {
+        match self {
+            Self::ObjectInspector | Self::Material | Self::Particle => Some(PanelSide::Right),
+            Self::Hierarchy | Self::Camera => Some(PanelSide::Left),
+            _ => None,
+        }
+    }
+
+    /// Returns true if this mode has an associated panel window
+    pub fn has_panel(&self) -> bool {
+        self.panel_side().is_some()
+    }
+}
+
+/// Tracks which mode windows are pinned to stay visible across mode changes
+#[derive(Debug, Default, Resource)]
+pub struct PinnedWindows(pub std::collections::HashSet<EditorMode>);
+
 /// The active transform operation in Edit mode
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Resource)]
 pub enum TransformOperation {
@@ -354,6 +381,7 @@ impl Plugin for EditorStatePlugin {
             .init_resource::<ActiveEdgeSnaps>()
             .init_resource::<GizmoAxisConstraint>()
             .init_resource::<ControlPointSnapState>()
+            .init_resource::<PinnedWindows>()
             .insert_resource(InsertState::new())
             .add_message::<TogglePhysicsDebugEvent>()
             .add_message::<TogglePhysicsEvent>()
