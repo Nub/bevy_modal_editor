@@ -1,0 +1,18 @@
+[package]
+name = "bevy_procedural"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "Procedural object placement system for Bevy"
+repository.workspace = true
+
+[features]
+default = ["spline"]
+spline = ["bevy_spline_3d"]
+
+[dependencies]
+bevy.workspace = true
+avian3d.workspace = true
+bevy_spline_3d = { workspace = true, optional = true }
+serde.workspace = true
+fastrand = "2.0"

@@ -333,7 +333,12 @@ struct ProceduralPlacerData {
     orientation: usize, // 0=Identity, 1=AlignToTangent, 2=AlignToSurface, 3=RandomYaw, 4=RandomFull
     up_vector: [f32; 3],
     offset: [f32; 3],
+    // Projection config
     projection_enabled: bool,
+    projection_direction: [f32; 3],
+    projection_local_space: bool,
+    projection_ray_offset: f32,
+    projection_max_distance: f32,
     use_bounds_offset: bool,
     enabled: bool,
 }
@@ -367,6 +372,10 @@ impl ProceduralPlacerData {
             up_vector,
             offset: [p.offset.x, p.offset.y, p.offset.z],
             projection_enabled: p.projection.enabled,
+            projection_direction: [p.projection.direction.x, p.projection.direction.y, p.projection.direction.z],
+            projection_local_space: p.projection.local_space,
+            projection_ray_offset: p.projection.ray_origin_offset,
+            projection_max_distance: p.projection.max_distance,
             use_bounds_offset: p.use_bounds_offset,
             enabled: p.enabled,
         }
@@ -1109,8 +1118,38 @@ fn draw_procedural_placer_section(ui: &mut egui::Ui, data: &mut ProceduralPlacer
                 result.changed |= ui.checkbox(&mut data.projection_enabled, "").changed();
                 ui.end_row();
 
-                // Bounds Offset (only if projection enabled)
+                // Projection settings (only if projection enabled)
                 if data.projection_enabled {
+                    grid_label(ui, "Direction");
+                    result.changed |= xyz_row(ui, &mut data.projection_direction, 0.1);
+                    ui.end_row();
+
+                    grid_label(ui, "Local Space");
+                    result.changed |= ui.checkbox(&mut data.projection_local_space, "").changed();
+                    ui.end_row();
+
+                    grid_label(ui, "Ray Offset");
+                    result.changed |= ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut data.projection_ray_offset)
+                                .speed(0.1)
+                                .range(0.0..=1000.0),
+                        )
+                        .changed();
+                    ui.end_row();
+
+                    grid_label(ui, "Max Distance");
+                    result.changed |= ui
+                        .add_sized(
+                            [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                            egui::DragValue::new(&mut data.projection_max_distance)
+                                .speed(1.0)
+                                .range(0.0..=10000.0),
+                        )
+                        .changed();
+                    ui.end_row();
+
                     grid_label(ui, "Bounds Offset");
                     result.changed |= ui.checkbox(&mut data.use_bounds_offset, "").changed();
                     ui.end_row();
@@ -1296,10 +1335,6 @@ fn draw_inspector_panel(world: &mut World) {
 
     // Get procedural placer component data for single selection
     let mut procedural_placer_data = single_entity.and_then(|e| {
-        let has_placer = world.get::<ProceduralPlacer>(e).is_some();
-        if has_placer {
-            bevy::log::info!("Entity {:?} has ProceduralPlacer component", e);
-        }
         world.get::<ProceduralPlacer>(e).map(|p| ProceduralPlacerData::from_placer(p, world))
     });
 
@@ -1516,7 +1551,6 @@ fn draw_inspector_panel(world: &mut World) {
 
                             // Procedural placer properties
                             if let Some(ref mut data) = procedural_placer_data {
-                                bevy::log::info!("Drawing ProceduralPlacer section");
                                 let result = draw_procedural_placer_section(ui, data);
                                 procedural_placer_changed = result.changed;
                                 open_placer_template_picker = result.open_template_picker;
@@ -1961,6 +1995,14 @@ fn draw_inspector_panel(world: &mut World) {
                 };
                 placer.offset = Vec3::new(data.offset[0], data.offset[1], data.offset[2]);
                 placer.projection.enabled = data.projection_enabled;
+                placer.projection.direction = Vec3::new(
+                    data.projection_direction[0],
+                    data.projection_direction[1],
+                    data.projection_direction[2],
+                );
+                placer.projection.local_space = data.projection_local_space;
+                placer.projection.ray_origin_offset = data.projection_ray_offset;
+                placer.projection.max_distance = data.projection_max_distance;
                 placer.use_bounds_offset = data.use_bounds_offset;
                 placer.enabled = data.enabled;
                 // Update template weights
