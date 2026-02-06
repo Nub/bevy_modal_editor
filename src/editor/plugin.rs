@@ -2,12 +2,15 @@ use avian3d::debug_render::PhysicsDebugPlugin;
 use avian3d::prelude::{Physics, PhysicsPlugins};
 use avian3d::schedule::PhysicsTime;
 use bevy::image::{ImageFilterMode, ImagePlugin, ImageSamplerDescriptor};
+use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use bevy_grid_shader::GridMaterialPlugin;
 use bevy_outliner::prelude::*;
 use bevy_spline_3d::distribution::SplineDistributionPlugin;
 use bevy_spline_3d::path_follow::SplineFollowPlugin;
+
+use super::state::ViewportShadingMode;
 
 use super::blockout::BlockoutPlugin;
 use super::camera::EditorCameraPlugin;
@@ -173,6 +176,7 @@ impl Plugin for EditorPlugin {
             // Third-party rendering plugins
             .add_plugins(OutlinePlugin)
             .add_plugins(GridMaterialPlugin)
+            .add_plugins(WireframePlugin::default())
             // Material system
             .add_plugins(MaterialsPlugin)
             // Editor core
@@ -194,6 +198,9 @@ impl Plugin for EditorPlugin {
             .add_plugins(CommandsPlugin)
             // UI
             .add_plugins(UiPlugin);
+
+        // Shading mode system
+        app.add_systems(Update, apply_shading_mode.run_if(resource_changed::<ViewportShadingMode>));
 
         // Pre-startup systems (run before game Startup systems)
         if self.config.add_ambient_light {
@@ -238,5 +245,24 @@ fn pause_physics_on_startup(
         physics_time.set_relative_speed(0.0);
         *done = true;
         info!("Physics simulation: PAUSED (default)");
+    }
+}
+
+/// Apply viewport shading mode changes.
+///
+/// Currently supports:
+/// - Wireframe: Enables global wireframe rendering
+/// - Others: Standard rendering (wireframe disabled)
+fn apply_shading_mode(
+    shading_mode: Res<ViewportShadingMode>,
+    mut wireframe_config: ResMut<WireframeConfig>,
+) {
+    match *shading_mode {
+        ViewportShadingMode::Wireframe => {
+            wireframe_config.global = true;
+        }
+        _ => {
+            wireframe_config.global = false;
+        }
     }
 }

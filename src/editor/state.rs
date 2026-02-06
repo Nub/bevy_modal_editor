@@ -269,6 +269,52 @@ pub struct TogglePreviewModeEvent;
 #[derive(Message)]
 pub struct ToggleEditorEvent;
 
+// ---------------------------------------------------------------------------
+// Viewport Shading
+// ---------------------------------------------------------------------------
+
+/// Viewport shading mode for scene visualization
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Resource, Reflect)]
+pub enum ViewportShadingMode {
+    /// Normal rendering with full materials and lighting
+    #[default]
+    Rendered,
+    /// Solid colors without textures (base color only, no textures)
+    Solid,
+    /// Wireframe overlay on top of solid shading
+    Wireframe,
+    /// Unlit rendering (materials without lighting calculations)
+    Unlit,
+}
+
+impl ViewportShadingMode {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Rendered => "Rendered",
+            Self::Solid => "Solid",
+            Self::Wireframe => "Wireframe",
+            Self::Unlit => "Unlit",
+        }
+    }
+
+    pub fn cycle_next(&self) -> Self {
+        match self {
+            Self::Rendered => Self::Solid,
+            Self::Solid => Self::Wireframe,
+            Self::Wireframe => Self::Unlit,
+            Self::Unlit => Self::Rendered,
+        }
+    }
+}
+
+/// Event to set a specific viewport shading mode
+#[derive(Message)]
+pub struct SetShadingModeEvent(pub ViewportShadingMode);
+
+/// Event to cycle to the next shading mode
+#[derive(Message)]
+pub struct CycleShadingModeEvent;
+
 /// Event to start inserting an object in Insert mode
 #[derive(Message)]
 pub struct StartInsertEvent {
@@ -309,6 +355,9 @@ impl Plugin for EditorStatePlugin {
             .add_message::<TogglePreviewModeEvent>()
             .add_message::<ToggleEditorEvent>()
             .add_message::<StartInsertEvent>()
+            .add_message::<SetShadingModeEvent>()
+            .add_message::<CycleShadingModeEvent>()
+            .init_resource::<ViewportShadingMode>()
             .add_systems(
                 Update,
                 (
@@ -317,6 +366,8 @@ impl Plugin for EditorStatePlugin {
                     handle_toggle_grid,
                     handle_toggle_preview_mode,
                     handle_toggle_editor,
+                    handle_set_shading_mode,
+                    handle_cycle_shading_mode,
                 ),
             )
             .add_systems(PostUpdate, keep_spatial_query_updated);
@@ -453,6 +504,30 @@ fn handle_toggle_editor(
             "Editor: {}",
             if editor_state.editor_active { "ON" } else { "OFF" }
         );
+    }
+}
+
+/// Handle setting a specific shading mode
+fn handle_set_shading_mode(
+    mut events: MessageReader<SetShadingModeEvent>,
+    mut shading_mode: ResMut<ViewportShadingMode>,
+) {
+    for event in events.read() {
+        if *shading_mode != event.0 {
+            *shading_mode = event.0;
+            info!("Viewport shading: {}", shading_mode.display_name());
+        }
+    }
+}
+
+/// Handle cycling through shading modes
+fn handle_cycle_shading_mode(
+    mut events: MessageReader<CycleShadingModeEvent>,
+    mut shading_mode: ResMut<ViewportShadingMode>,
+) {
+    for _ in events.read() {
+        *shading_mode = shading_mode.cycle_next();
+        info!("Viewport shading: {}", shading_mode.display_name());
     }
 }
 

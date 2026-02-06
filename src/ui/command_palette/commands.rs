@@ -12,9 +12,9 @@ use bevy_editor_game::{CustomEntityRegistry, PauseEvent, PlayEvent, ResetEvent};
 
 use crate::commands::{RedoEvent, TakeSnapshotCommand, UndoEvent};
 use crate::editor::{
-    CameraMarks, EditorState, JumpToLastPositionEvent,
-    JumpToMarkEvent, SetCameraMarkEvent, StartInsertEvent, ToggleGridEvent,
-    TogglePhysicsDebugEvent, TogglePhysicsEvent,
+    CameraMarks, CycleShadingModeEvent, EditorState, JumpToLastPositionEvent,
+    JumpToMarkEvent, SetCameraMarkEvent, SetShadingModeEvent, StartInsertEvent, ToggleGridEvent,
+    TogglePhysicsDebugEvent, TogglePhysicsEvent, ViewportShadingMode,
 };
 use crate::scene::{
     PrimitiveShape, SceneFile, SpawnDemoSceneEvent, SpawnEntityEvent, SpawnEntityKind,
@@ -97,6 +97,10 @@ pub enum CommandAction {
     Reset,
     /// Generate a museum scene showcasing all primitives and assets
     GenerateMuseum,
+    /// Set a specific viewport shading mode
+    SetShadingMode(ViewportShadingMode),
+    /// Cycle to the next shading mode
+    CycleShadingMode,
 }
 
 /// Resource containing all available commands
@@ -374,6 +378,43 @@ impl CommandRegistry {
             insertable: false,
         });
 
+        // Viewport shading modes
+        self.commands.push(Command {
+            name: "Shading: Rendered".to_string(),
+            keywords: vec!["viewport".into(), "full".into(), "materials".into(), "lighting".into()],
+            category: "View",
+            action: CommandAction::SetShadingMode(ViewportShadingMode::Rendered),
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Shading: Solid".to_string(),
+            keywords: vec!["viewport".into(), "flat".into(), "color".into(), "no".into(), "texture".into()],
+            category: "View",
+            action: CommandAction::SetShadingMode(ViewportShadingMode::Solid),
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Shading: Wireframe".to_string(),
+            keywords: vec!["viewport".into(), "edges".into(), "lines".into(), "mesh".into()],
+            category: "View",
+            action: CommandAction::SetShadingMode(ViewportShadingMode::Wireframe),
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Shading: Unlit".to_string(),
+            keywords: vec!["viewport".into(), "flat".into(), "no".into(), "shadows".into(), "fullbright".into()],
+            category: "View",
+            action: CommandAction::SetShadingMode(ViewportShadingMode::Unlit),
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Cycle Shading Mode".to_string(),
+            keywords: vec!["viewport".into(), "next".into(), "switch".into()],
+            category: "View",
+            action: CommandAction::CycleShadingMode,
+            insertable: false,
+        });
+
         // Grid snap
         self.commands.push(Command {
             name: "Grid Snap: Off".to_string(),
@@ -600,6 +641,8 @@ pub(super) struct CommandEvents<'w> {
     pub pause: MessageWriter<'w, PauseEvent>,
     pub reset: MessageWriter<'w, ResetEvent>,
     pub generate_scene: MessageWriter<'w, GenerateSceneEvent>,
+    pub set_shading: MessageWriter<'w, SetShadingModeEvent>,
+    pub cycle_shading: MessageWriter<'w, CycleShadingModeEvent>,
 }
 
 /// System parameter grouping palette UI state resources
@@ -949,6 +992,12 @@ fn execute_command(
             events.generate_scene.write(GenerateSceneEvent {
                 generator: SceneGenerator::Museum,
             });
+        }
+        CommandAction::SetShadingMode(mode) => {
+            events.set_shading.write(SetShadingModeEvent(mode));
+        }
+        CommandAction::CycleShadingMode => {
+            events.cycle_shading.write(CycleShadingModeEvent);
         }
     }
 }

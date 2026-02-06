@@ -627,6 +627,7 @@ fn draw_help_window(
                     shortcut_row(ui, "U", "Undo");
                     shortcut_row(ui, "Ctrl+R", "Redo");
                     shortcut_row(ui, "P", "Preview mode");
+                    shortcut_row(ui, "Z", "Cycle shading mode");
                 });
 
                 ui.add_space(16.0);

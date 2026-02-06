@@ -175,7 +175,7 @@ impl PrimitiveShape {
         match self {
             PrimitiveShape::Cube => Collider::cuboid(1.0, 1.0, 1.0),
             PrimitiveShape::Sphere => Collider::sphere(0.5),
-            PrimitiveShape::Cylinder => Collider::cylinder(0.5, 0.5),
+            PrimitiveShape::Cylinder => Collider::cylinder(0.5, 1.0),
             PrimitiveShape::Capsule => Collider::capsule(0.25, 0.5),
             PrimitiveShape::Plane => Collider::cuboid(2.0, 0.01, 2.0),
         }

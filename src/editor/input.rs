@@ -3,7 +3,7 @@ use bevy_egui::EguiContexts;
 
 use bevy_editor_game::GameState;
 
-use super::state::{AxisConstraint, ControlPointSnapState, EditorMode, EditorState, ToggleEditorEvent, TogglePreviewModeEvent, TransformOperation};
+use super::state::{AxisConstraint, ControlPointSnapState, CycleShadingModeEvent, EditorMode, EditorState, ToggleEditorEvent, TogglePreviewModeEvent, TransformOperation};
 use crate::commands::TakeSnapshotCommand;
 use crate::scene::GroupSelectedEvent;
 use crate::selection::Selected;
@@ -20,6 +20,7 @@ impl Plugin for EditorInputPlugin {
             handle_group_shortcut,
             handle_preview_mode_shortcut,
             handle_measurement_toggle,
+            handle_shading_mode_shortcut,
         ));
     }
 }
@@ -283,5 +284,23 @@ fn handle_measurement_toggle(
             "Measurements: {}",
             if editor_state.measurements_visible { "ON" } else { "OFF" }
         );
+    }
+}
+
+/// Handle Z key to cycle viewport shading modes (View mode only)
+fn handle_shading_mode_shortcut(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    editor_state: Res<EditorState>,
+    mode: Res<State<EditorMode>>,
+    mut cycle_events: MessageWriter<CycleShadingModeEvent>,
+    mut contexts: EguiContexts,
+) {
+    if !should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+
+    // Z to cycle shading modes (only in View mode)
+    if keyboard.just_pressed(KeyCode::KeyZ) && *mode.get() == EditorMode::View {
+        cycle_events.write(CycleShadingModeEvent);
     }
 }
