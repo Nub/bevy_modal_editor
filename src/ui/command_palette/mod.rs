@@ -582,6 +582,7 @@ fn draw_help_window(
                     shortcut_row(ui, "O", "Object Inspector mode");
                     shortcut_row(ui, "H", "Hierarchy mode");
                     shortcut_row(ui, "B", "Blockout mode");
+                    shortcut_row(ui, "N", "Particle mode");
                     shortcut_row(ui, "Shift+key", "Switch from any mode");
                     shortcut_row(ui, "Esc", "Return to View mode");
 
@@ -666,6 +667,12 @@ fn draw_help_window(
                     shortcut_row(ui, "WASDQE", "Select face");
                     shortcut_row(ui, "R", "Rotate 90°");
                     shortcut_row(ui, "Enter", "Place tile");
+
+                    ui.add_space(12.0);
+                    help_section(ui, "Particle Mode (N)");
+                    shortcut_row(ui, "+", "Add modifier");
+                    shortcut_row(ui, "×", "Remove modifier");
+                    shortcut_row(ui, "Drag", "Adjust values");
                 });
             });
 

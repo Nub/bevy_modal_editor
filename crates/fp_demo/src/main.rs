@@ -2,10 +2,10 @@
 //!
 //! Demonstrates locomotion integration with bevy_modal_editor:
 //! 1. Design a level in the editor with locomotion markers
-//! 2. Press F5 to play — FPS player spawns at SpawnPoint
+//! 2. Click Play to start — FPS player spawns at SpawnPoint
 //! 3. Navigate the arena, collect all 10 coins
 //! 4. Timer tracks from first movement to all coins collected
-//! 5. F7 to reset, F5 to replay
+//! 5. Escape to pause, F7 to reset
 
 mod coins;
 pub mod levels;

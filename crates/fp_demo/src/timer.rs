@@ -167,7 +167,7 @@ fn spawn_hud_on_game_start(
                             ));
 
                             card.spawn((
-                                Text::new("Press F7 to reset, F5 to replay"),
+                                Text::new("F7 to reset"),
                                 TextFont {
                                     font_size: 14.0,
                                     ..default()

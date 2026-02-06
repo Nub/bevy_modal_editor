@@ -303,6 +303,7 @@ fn get_hints_for_mode(
             ("O", "Inspect"),
             ("M", "Material"),
             ("V", "Camera"),
+            ("N", "Particle"),
             ("H", "Hierarchy"),
             ("B", "Blockout"),
             ("?", "Help"),
@@ -396,6 +397,7 @@ fn get_hints_for_mode(
             ("Esc", "View"),
         ],
         EditorMode::Particle => vec![
+            ("+", "Add modifier"),
             ("Drag", "Adjust values"),
             ("Esc", "View"),
         ],

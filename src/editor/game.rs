@@ -42,8 +42,8 @@ fn handle_play_input(
     mut pause_events: MessageWriter<PauseEvent>,
     mut reset_events: MessageWriter<ResetEvent>,
 ) {
-    // F5: Play or Resume
-    if keyboard.just_pressed(KeyCode::F5) {
+    // F4: Play or Resume
+    if keyboard.just_pressed(KeyCode::F4) {
         match game_state.get() {
             GameState::Editing | GameState::Paused => {
                 play_events.write(PlayEvent);

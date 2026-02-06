@@ -11,4 +11,4 @@ serde.workspace = true
 ron.workspace = true
 bevy_modal_editor = { path = "../.." }
 bevy_editor_game.workspace = true
-bevy_locomotion = { git = "https://github.com/Nub/bevy_locomotion.git" }
+bevy_locomotion = { path = "/home/zach/src/bevy_locomotion" }

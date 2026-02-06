@@ -2,10 +2,10 @@
 //!
 //! Demonstrates the editor's play/pause/reset lifecycle:
 //! 1. Design a level in the editor (ground, ramps, obstacles, spawn point, goal zone)
-//! 2. Press F5 to play — marble spawns at SpawnPoint, camera follows
+//! 2. Press F4 to play — marble spawns at SpawnPoint, camera follows
 //! 3. WASD to roll the marble, Space to jump
 //! 4. Reach the GoalZone to complete the level
-//! 5. F6 to pause, F5 to resume, F7 to reset
+//! 5. F6 to pause, F4 to resume, F7 to reset
 
 mod checkerboard;
 mod game_camera;
