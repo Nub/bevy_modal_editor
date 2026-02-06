@@ -3,6 +3,7 @@ use bevy::light::VolumetricLight;
 use bevy::prelude::*;
 use bevy::reflect::TypeInfo;
 use bevy_egui::{egui, EguiPrimaryContextPass};
+use bevy_procedural::{PlacementOrientation, ProceduralPlacer, SamplingMode};
 use bevy_spline_3d::distribution::{DistributionOrientation, DistributionSpacing, SplineDistribution};
 use bevy_spline_3d::path_follow::{FollowerState, LoopMode, SplineFollower};
 use std::any::TypeId;
@@ -309,6 +310,67 @@ struct SplineDistributionResult {
     changed: bool,
     open_spline_picker: bool,
     open_source_picker: bool,
+}
+
+/// Template data for UI editing
+#[derive(Clone)]
+struct TemplateData {
+    entity: Entity,
+    weight: f32,
+    name: Option<String>,
+}
+
+/// Data for ProceduralPlacer editing
+#[derive(Clone)]
+struct ProceduralPlacerData {
+    // Templates
+    templates: Vec<TemplateData>,
+    // Sampling
+    mode: usize, // 0=Uniform, 1=Random
+    count: usize,
+    seed: Option<u64>,
+    // Placement
+    orientation: usize, // 0=Identity, 1=AlignToTangent, 2=AlignToSurface, 3=RandomYaw, 4=RandomFull
+    up_vector: [f32; 3],
+    offset: [f32; 3],
+    projection_enabled: bool,
+    use_bounds_offset: bool,
+    enabled: bool,
+}
+
+impl ProceduralPlacerData {
+    fn from_placer(p: &ProceduralPlacer, world: &World) -> Self {
+        let (mode, seed) = match &p.mode {
+            SamplingMode::Uniform => (0, None),
+            SamplingMode::Random { seed } => (1, *seed),
+        };
+        let (orientation, up_vector) = match &p.orientation {
+            PlacementOrientation::Identity => (0, [0.0, 1.0, 0.0]),
+            PlacementOrientation::AlignToTangent { up } => (1, [up.x, up.y, up.z]),
+            PlacementOrientation::AlignToSurface => (2, [0.0, 1.0, 0.0]),
+            PlacementOrientation::RandomYaw => (3, [0.0, 1.0, 0.0]),
+            PlacementOrientation::RandomFull => (4, [0.0, 1.0, 0.0]),
+        };
+        let templates = p.templates.iter().map(|t| {
+            TemplateData {
+                entity: t.entity,
+                weight: t.weight,
+                name: world.get::<Name>(t.entity).map(|n| n.as_str().to_string()),
+            }
+        }).collect();
+        Self {
+            templates,
+            mode,
+            count: p.count,
+            seed,
+            orientation,
+            up_vector,
+            offset: [p.offset.x, p.offset.y, p.offset.z],
+            projection_enabled: p.projection.enabled,
+            use_bounds_offset: p.use_bounds_offset,
+            enabled: p.enabled,
+        }
+    }
 }
 
 /// Helper: draw an X/Y/Z inline row of DragValues.
@@ -883,6 +945,187 @@ fn draw_spline_distribution_section(
     result
 }
 
+/// Result from drawing the ProceduralPlacer section
+struct ProceduralPlacerResult {
+    changed: bool,
+    open_template_picker: bool,
+    remove_template_index: Option<usize>,
+}
+
+/// Draw a ProceduralPlacer section
+fn draw_procedural_placer_section(ui: &mut egui::Ui, data: &mut ProceduralPlacerData) -> ProceduralPlacerResult {
+    let mut result = ProceduralPlacerResult {
+        changed: false,
+        open_template_picker: false,
+        remove_template_index: None,
+    };
+
+    section_header(ui, "Procedural Placer", true, |ui| {
+        // Templates section
+        ui.label(egui::RichText::new("Templates").color(colors::TEXT_SECONDARY).small());
+        ui.add_space(4.0);
+
+        if data.templates.is_empty() {
+            ui.label(egui::RichText::new("No templates configured").color(colors::TEXT_MUTED).italics());
+        } else {
+            for (i, template) in data.templates.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    // Template name/entity
+                    let name = template.name.as_deref().unwrap_or("Unnamed");
+                    ui.label(egui::RichText::new(name).color(colors::TEXT_PRIMARY));
+
+                    // Weight slider
+                    ui.add_sized(
+                        [60.0, ui.spacing().interact_size.y],
+                        egui::DragValue::new(&mut template.weight)
+                            .speed(0.1)
+                            .range(0.0..=100.0)
+                            .prefix("w: "),
+                    );
+                    if ui.small_button("×").clicked() {
+                        result.remove_template_index = Some(i);
+                        result.changed = true;
+                    }
+                });
+            }
+        }
+
+        if ui.small_button("+ Add Template").clicked() {
+            result.open_template_picker = true;
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        egui::Grid::new("procedural_placer_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                // Sampling mode
+                grid_label(ui, "Mode");
+                egui::ComboBox::from_id_salt("placer_mode")
+                    .selected_text(match data.mode {
+                        0 => "Uniform",
+                        _ => "Random",
+                    })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut data.mode, 0, "Uniform").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.mode, 1, "Random").clicked() {
+                            result.changed = true;
+                        }
+                    });
+                ui.end_row();
+
+                // Count
+                grid_label(ui, "Count");
+                let mut count_i32 = data.count as i32;
+                if ui
+                    .add_sized(
+                        [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                        egui::DragValue::new(&mut count_i32).speed(1).range(1..=10000),
+                    )
+                    .changed()
+                {
+                    data.count = count_i32.max(1) as usize;
+                    result.changed = true;
+                }
+                ui.end_row();
+
+                // Seed (only for random mode)
+                if data.mode == 1 {
+                    grid_label(ui, "Seed");
+                    let mut has_seed = data.seed.is_some();
+                    let mut seed_val = data.seed.unwrap_or(0) as i64;
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut has_seed, "").changed() {
+                            data.seed = if has_seed { Some(seed_val as u64) } else { None };
+                            result.changed = true;
+                        }
+                        if has_seed {
+                            if ui
+                                .add_sized(
+                                    [DRAG_VALUE_WIDTH, ui.spacing().interact_size.y],
+                                    egui::DragValue::new(&mut seed_val).speed(1),
+                                )
+                                .changed()
+                            {
+                                data.seed = Some(seed_val as u64);
+                                result.changed = true;
+                            }
+                        }
+                    });
+                    ui.end_row();
+                }
+
+                ui.separator();
+                ui.end_row();
+
+                // Orientation
+                grid_label(ui, "Orientation");
+                egui::ComboBox::from_id_salt("placer_orientation")
+                    .selected_text(match data.orientation {
+                        0 => "Identity",
+                        1 => "Align to Tangent",
+                        2 => "Align to Surface",
+                        3 => "Random Yaw",
+                        _ => "Random Full",
+                    })
+                    .show_ui(ui, |ui| {
+                        if ui.selectable_value(&mut data.orientation, 0, "Identity").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.orientation, 1, "Align to Tangent").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.orientation, 2, "Align to Surface").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.orientation, 3, "Random Yaw").clicked() {
+                            result.changed = true;
+                        }
+                        if ui.selectable_value(&mut data.orientation, 4, "Random Full").clicked() {
+                            result.changed = true;
+                        }
+                    });
+                ui.end_row();
+
+                // Up vector (only for AlignToTangent)
+                if data.orientation == 1 {
+                    grid_label(ui, "Up Vector");
+                    result.changed |= xyz_row(ui, &mut data.up_vector, 0.01);
+                    ui.end_row();
+                }
+
+                // Offset
+                grid_label(ui, "Offset");
+                result.changed |= xyz_row(ui, &mut data.offset, 0.1);
+                ui.end_row();
+
+                // Projection
+                grid_label(ui, "Projection");
+                result.changed |= ui.checkbox(&mut data.projection_enabled, "").changed();
+                ui.end_row();
+
+                // Bounds Offset (only if projection enabled)
+                if data.projection_enabled {
+                    grid_label(ui, "Bounds Offset");
+                    result.changed |= ui.checkbox(&mut data.use_bounds_offset, "").changed();
+                    ui.end_row();
+                }
+
+                // Enabled
+                grid_label(ui, "Enabled");
+                result.changed |= ui.checkbox(&mut data.enabled, "").changed();
+                ui.end_row();
+            });
+    });
+
+    result
+}
+
 /// Draw a RigidBody type selector with remove button
 /// current_type is None if entities have mixed types
 fn draw_rigidbody_section(ui: &mut egui::Ui, current_type: Option<RigidBodyType>) -> ComponentAction<RigidBodyType> {
@@ -1051,6 +1294,15 @@ fn draw_inspector_panel(world: &mut World) {
         world.get::<Name>(data.source).map(|n| n.as_str().to_string())
     });
 
+    // Get procedural placer component data for single selection
+    let mut procedural_placer_data = single_entity.and_then(|e| {
+        let has_placer = world.get::<ProceduralPlacer>(e).is_some();
+        if has_placer {
+            bevy::log::info!("Entity {:?} has ProceduralPlacer component", e);
+        }
+        world.get::<ProceduralPlacer>(e).map(|p| ProceduralPlacerData::from_placer(p, world))
+    });
+
     // Get egui context
     let ctx = {
         let Some(mut egui_ctx) = world
@@ -1078,6 +1330,11 @@ fn draw_inspector_panel(world: &mut World) {
     let mut open_distribution_spline_picker = false;
     let mut open_distribution_source_picker = false;
     let mut custom_inspector_changed = false;
+
+    // Procedural placer change tracking
+    let mut procedural_placer_changed = false;
+    let mut open_placer_template_picker = false;
+    let mut remove_placer_template_index: Option<usize> = None;
 
     // Check for "N" key to focus name field (only for single selection)
     let focus_name_field = selection_count == 1
@@ -1257,6 +1514,16 @@ fn draw_inspector_panel(world: &mut World) {
                                 ui.add_space(4.0);
                             }
 
+                            // Procedural placer properties
+                            if let Some(ref mut data) = procedural_placer_data {
+                                bevy::log::info!("Drawing ProceduralPlacer section");
+                                let result = draw_procedural_placer_section(ui, data);
+                                procedural_placer_changed = result.changed;
+                                open_placer_template_picker = result.open_template_picker;
+                                remove_placer_template_index = result.remove_template_index;
+                                ui.add_space(4.0);
+                            }
+
                             // Custom entity inspector widgets (filtered by has_component)
                             // Skip zero-field markers here — they appear in the Markers section
                             {
@@ -1418,6 +1685,7 @@ fn draw_inspector_panel(world: &mut World) {
         || lshape_changed
         || spline_follower_changed
         || spline_distribution_changed
+        || procedural_placer_changed
         || custom_inspector_changed;
 
     // Take a snapshot before the first change in an editing session
@@ -1662,6 +1930,49 @@ fn draw_inspector_panel(world: &mut World) {
         }
     }
 
+    // Remove template from procedural placer
+    if let Some(remove_index) = remove_placer_template_index {
+        if let Some(entity) = single_entity {
+            if let Some(mut placer) = world.get_mut::<ProceduralPlacer>(entity) {
+                if remove_index < placer.templates.len() {
+                    placer.templates.remove(remove_index);
+                }
+            }
+        }
+    }
+
+    // Apply procedural placer changes
+    if procedural_placer_changed {
+        if let (Some(entity), Some(data)) = (single_entity, procedural_placer_data.clone()) {
+            if let Some(mut placer) = world.get_mut::<ProceduralPlacer>(entity) {
+                placer.mode = match data.mode {
+                    0 => SamplingMode::Uniform,
+                    _ => SamplingMode::Random { seed: data.seed },
+                };
+                placer.count = data.count;
+                placer.orientation = match data.orientation {
+                    0 => PlacementOrientation::Identity,
+                    1 => PlacementOrientation::AlignToTangent {
+                        up: Vec3::new(data.up_vector[0], data.up_vector[1], data.up_vector[2]),
+                    },
+                    2 => PlacementOrientation::AlignToSurface,
+                    3 => PlacementOrientation::RandomYaw,
+                    _ => PlacementOrientation::RandomFull,
+                };
+                placer.offset = Vec3::new(data.offset[0], data.offset[1], data.offset[2]);
+                placer.projection.enabled = data.projection_enabled;
+                placer.use_bounds_offset = data.use_bounds_offset;
+                placer.enabled = data.enabled;
+                // Update template weights
+                for (i, template_data) in data.templates.iter().enumerate() {
+                    if i < placer.templates.len() {
+                        placer.templates[i].weight = template_data.weight;
+                    }
+                }
+            }
+        }
+    }
+
     // Open entity picker for spline field (SplineFollower)
     if open_spline_picker {
         if let Some(entity) = single_entity {
@@ -1686,6 +1997,15 @@ fn draw_inspector_panel(world: &mut World) {
             let callback_id = make_callback_id(entity, "distribution_source");
             let mut palette_state = world.resource_mut::<CommandPaletteState>();
             palette_state.open_entity_picker(entity, "Distribution Source", callback_id);
+        }
+    }
+
+    // Open entity picker for placer template field
+    if open_placer_template_picker {
+        if let Some(entity) = single_entity {
+            let callback_id = make_callback_id(entity, "placer_template");
+            let mut palette_state = world.resource_mut::<CommandPaletteState>();
+            palette_state.open_entity_picker(entity, "Placer Template", callback_id);
         }
     }
 
@@ -1717,6 +2037,18 @@ fn draw_inspector_panel(world: &mut World) {
                         dist.source = selection.selected_entity;
                     }
                 }
+
+                // Check if this is for adding a placer template
+                let placer_template_callback = make_callback_id(entity, "placer_template");
+                if selection.callback_id == placer_template_callback {
+                    if let Some(mut placer) = world.get_mut::<ProceduralPlacer>(entity) {
+                        placer.templates.push(bevy_procedural::WeightedTemplate::new(
+                            selection.selected_entity,
+                            1.0,
+                        ));
+                    }
+                }
+
             }
             // Clear the pending selection
             world.resource_mut::<PendingEntitySelection>().0 = None;

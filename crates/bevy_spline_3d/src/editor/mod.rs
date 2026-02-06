@@ -1,6 +1,6 @@
 mod gizmos;
 mod input;
-mod selection;
+pub mod selection;
 
 pub use selection::SelectionState;
 
@@ -122,7 +122,7 @@ impl Default for GizmoSizes {
     fn default() -> Self {
         Self {
             point_radius: 0.1,
-            line_width: 3.0,
+            line_width: 5.0,
             point_selected_spline_scale: 1.2,
             point_selected_scale: 1.5,
             endpoint_scale: 1.2,

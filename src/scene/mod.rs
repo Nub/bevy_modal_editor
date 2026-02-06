@@ -26,6 +26,7 @@ use bevy_editor_game::{
 
 use crate::materials::{load_base_textures, MaterialTypeRegistry, resolve_material_ref};
 use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
+use bevy_procedural::{ProceduralEntity, ProceduralPlacer, ProceduralTemplate};
 use bevy_spline_3d::distribution::{
     DistributedInstance, DistributionOrientation, DistributionSource, DistributionSpacing,
     SplineDistribution,
@@ -85,7 +86,11 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         // External sources
         .allow_component::<GltfSource>()
         .allow_component::<SceneSource>()
-        .allow_component::<RecursiveColliderConstructor>();
+        .allow_component::<RecursiveColliderConstructor>()
+        // Procedural placement
+        .allow_component::<ProceduralPlacer>()
+        .allow_component::<ProceduralEntity>()
+        .allow_component::<ProceduralTemplate>();
 
     // Asset references
     let mut builder = builder.allow_component::<AssetRef>();

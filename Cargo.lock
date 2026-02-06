@@ -1211,6 +1211,7 @@ dependencies = [
  "bevy_grid_shader",
  "bevy_infinite_grid",
  "bevy_outliner",
+ "bevy_procedural",
  "bevy_spline_3d",
  "dirs",
  "egui_commonmark",
@@ -1337,6 +1338,17 @@ dependencies = [
  "smallvec",
  "thiserror 2.0.18",
  "tracing",
+]
+
+[[package]]
+name = "bevy_procedural"
+version = "0.1.0"
+dependencies = [
+ "avian3d",
+ "bevy",
+ "bevy_spline_3d",
+ "fastrand",
+ "serde",
 ]
 
 [[package]]

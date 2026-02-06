@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader", "crates/bevy_editor_game", "crates/marble_demo"]
+members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader", "crates/bevy_editor_game", "crates/bevy_procedural", "crates/marble_demo"]
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
@@ -18,6 +18,8 @@ bevy_outliner = { path = "crates/bevy_outliner" }
 bevy_spline_3d = { path = "crates/bevy_spline_3d" }
 bevy_grid_shader = { path = "crates/bevy_grid_shader" }
 bevy_editor_game = { path = "crates/bevy_editor_game" }
+bevy_procedural = { path = "crates/bevy_procedural" }
+fastrand = "2.0"
 
 [package]
 name = "bevy_modal_editor"
@@ -46,6 +48,7 @@ bevy_spline_3d.workspace = true
 bevy_outliner.workspace = true
 bevy_grid_shader.workspace = true
 bevy_editor_game.workspace = true
+bevy_procedural.workspace = true
 serde.workspace = true
 ron.workspace = true
 dirs = "6"

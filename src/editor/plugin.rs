@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy_egui::EguiPlugin;
 use bevy_grid_shader::GridMaterialPlugin;
 use bevy_outliner::prelude::*;
+use bevy_procedural::ProceduralPlugin;
 use bevy_spline_3d::distribution::SplineDistributionPlugin;
 use bevy_spline_3d::path_follow::SplineFollowPlugin;
 
@@ -190,6 +191,7 @@ impl Plugin for EditorPlugin {
             .add_plugins(SceneLoadingPlugin)
             .add_plugins(SplineFollowPlugin)
             .add_plugins(SplineDistributionPlugin)
+            .add_plugins(ProceduralPlugin)
             // Editor systems
             .add_plugins(SelectionPlugin)
             .add_plugins(EditorGizmosPlugin)

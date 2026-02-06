@@ -1,4 +1,4 @@
-use bevy::{prelude::*, window::PrimaryWindow};
+use bevy::{camera::RenderTarget, prelude::*, window::PrimaryWindow};
 
 use crate::spline::{
     get_effective_control_points, ControlPointMarker, ProjectedSplineCache, SelectedControlPoint,
@@ -49,7 +49,7 @@ pub fn clear_all_selections(
 pub fn pick_control_points(
     settings: Res<EditorSettings>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform, Option<&RenderTarget>), With<Camera3d>>,
     splines: Query<(Entity, &Spline, &GlobalTransform, Option<&ProjectedSplineCache>)>,
     mut selection_state: ResMut<SelectionState>,
 ) {
@@ -73,8 +73,11 @@ pub fn pick_control_points(
         return;
     };
 
-    // Find the active camera (handles multiple Camera3d entities)
-    let Some((camera, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) else {
+    // Find the active camera that renders to a window (not an image texture).
+    // This filters out auxiliary cameras like the outliner's silhouette camera.
+    let Some((camera, camera_transform, _)) = cameras.iter().find(|(c, _, target)| {
+        c.is_active && matches!(target, None | Some(RenderTarget::Window(_)))
+    }) else {
         return;
     };
 
@@ -91,8 +94,9 @@ pub fn pick_control_points(
         for (i, &point) in control_points.iter().enumerate() {
             // Transform point to world space
             let world_point = spline_transform.transform_point(point);
-            // Simple sphere-ray intersection
-            let pick_radius = settings.sizes.point_radius * 2.0;
+            // Simple sphere-ray intersection - use larger radius for easier picking
+            let pick_radius = settings.sizes.point_radius * 4.0;
+
             if let Some(dist) = ray_sphere_intersect(ray.origin, ray.direction, world_point, pick_radius) {
                 if closest.is_none() || dist < closest.unwrap().2 {
                     closest = Some((entity, i, dist));
@@ -203,7 +207,7 @@ pub fn handle_point_drag(
     settings: Res<EditorSettings>,
     mut selection_state: ResMut<SelectionState>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform, Option<&RenderTarget>), With<Camera3d>>,
     mut splines: Query<(&mut Spline, &GlobalTransform, Option<&ProjectedSplineCache>)>,
     markers: Query<(Entity, &ControlPointMarker)>,
     selected_points: Query<Entity, With<SelectedControlPoint>>,
@@ -244,7 +248,9 @@ pub fn handle_point_drag(
                 selection_state.dragged_points = vec![(spline_entity, point_index)];
             }
 
-            if let Some((_, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) {
+            if let Some((_, camera_transform, _)) = cameras.iter().find(|(c, _, target)| {
+                c.is_active && matches!(target, None | Some(RenderTarget::Window(_)))
+            }) {
                 selection_state.drag_plane_normal = camera_transform.forward().as_vec3();
 
                 // Store initial plane point for consistent dragging (in world space)
@@ -267,7 +273,9 @@ pub fn handle_point_drag(
         let Some(cursor_pos) = window.cursor_position() else {
             return;
         };
-        let Some((camera, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) else {
+        let Some((camera, camera_transform, _)) = cameras.iter().find(|(c, _, target)| {
+            c.is_active && matches!(target, None | Some(RenderTarget::Window(_)))
+        }) else {
             return;
         };
         let Ok(ray) = camera.viewport_to_world(camera_transform, cursor_pos) else {
@@ -352,7 +360,7 @@ pub fn handle_box_selection(
     mut selection_state: ResMut<SelectionState>,
     keyboard: Res<ButtonInput<KeyCode>>,
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform, Option<&RenderTarget>), With<Camera3d>>,
     splines: Query<(Entity, &Spline, &GlobalTransform, Option<&ProjectedSplineCache>)>,
     markers: Query<(Entity, &ControlPointMarker)>,
     selected_splines: Query<Entity, With<SelectedSpline>>,
@@ -375,8 +383,10 @@ pub fn handle_box_selection(
         return;
     };
 
-    // Find the active camera (handles multiple Camera3d entities)
-    let Some((camera, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) else {
+    // Find the active camera that renders to a window (not an image texture).
+    let Some((camera, camera_transform, _)) = cameras.iter().find(|(c, _, target)| {
+        c.is_active && matches!(target, None | Some(RenderTarget::Window(_)))
+    }) else {
         return;
     };
 
@@ -465,7 +475,7 @@ pub fn render_box_selection(
     settings: Res<EditorSettings>,
     mut gizmos: Gizmos,
     windows: Query<&Window, With<PrimaryWindow>>,
-    cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
+    cameras: Query<(&Camera, &GlobalTransform, Option<&RenderTarget>), With<Camera3d>>,
 ) {
     if !settings.enabled || !settings.show_gizmos || !settings.box_selection_enabled {
         return;
@@ -479,8 +489,10 @@ pub fn render_box_selection(
         return;
     };
 
-    // Find the active camera (handles multiple Camera3d entities)
-    let Some((camera, camera_transform)) = cameras.iter().find(|(c, _)| c.is_active) else {
+    // Find the active camera that renders to a window (not an image texture).
+    let Some((camera, camera_transform, _)) = cameras.iter().find(|(c, _, target)| {
+        c.is_active && matches!(target, None | Some(RenderTarget::Window(_)))
+    }) else {
         return;
     };
 

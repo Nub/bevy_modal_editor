@@ -5,6 +5,8 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::collections::HashSet;
 
+use bevy_procedural::ProceduralEntity;
+
 use crate::commands::TakeSnapshotCommand;
 use crate::editor::{EditorMode, EditorState};
 use crate::scene::{GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
@@ -54,7 +56,7 @@ fn compute_visible_entities(
             Option<&SceneLightMarker>,
             Option<&Locked>,
         ),
-        With<SceneEntity>,
+        (With<SceneEntity>, Without<ProceduralEntity>),
     >,
 ) -> HashSet<Entity> {
     let matcher = SkimMatcherV2::default();
@@ -108,7 +110,7 @@ fn draw_hierarchy_panel(
             Option<&SceneLightMarker>,
             Option<&Locked>,
         ),
-        With<SceneEntity>,
+        (With<SceneEntity>, Without<ProceduralEntity>),
     >,
     selected: Query<Entity, With<Selected>>,
     mut commands: Commands,
@@ -359,7 +361,7 @@ fn draw_entity_row(
             Option<&SceneLightMarker>,
             Option<&Locked>,
         ),
-        With<SceneEntity>,
+        (With<SceneEntity>, Without<ProceduralEntity>),
     >,
     commands: &mut Commands,
     selected_query: &Query<Entity, With<Selected>>,

@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 use bevy_outliner::prelude::*;
+use bevy_procedural::ProceduralEntity;
 use bevy_spline_3d::distribution::{DistributionSource, SplineDistribution};
 use bevy_spline_3d::prelude::{SelectionState as SplineSelectionState, Spline};
 
@@ -55,6 +56,7 @@ fn handle_click_selection(
     mut commands: Commands,
     mut contexts: EguiContexts,
     distribution_sources: Query<Entity, With<DistributionSource>>,
+    procedural_entities: Query<Entity, With<ProceduralEntity>>,
 ) {
     // Only select on left click
     if !mouse_button.just_pressed(MouseButton::Left) {
@@ -116,9 +118,10 @@ fn handle_click_selection(
         }
     }
 
-    // Cast ray against physics colliders, excluding distribution sources
-    // (they're hidden but their colliders still exist)
-    let excluded: Vec<Entity> = distribution_sources.iter().collect();
+    // Cast ray against physics colliders, excluding distribution sources and procedural entities
+    // (they're hidden but their colliders still exist, or shouldn't be selectable)
+    let mut excluded: Vec<Entity> = distribution_sources.iter().collect();
+    excluded.extend(procedural_entities.iter());
     let filter = SpatialQueryFilter::default().with_excluded_entities(excluded);
     let physics_hit = spatial_query.cast_ray(
         ray.origin,

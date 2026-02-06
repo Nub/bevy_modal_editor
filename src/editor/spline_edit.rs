@@ -8,6 +8,7 @@ use bevy::window::PrimaryWindow;
 use bevy_egui::EguiContexts;
 use bevy_spline_3d::prelude::*;
 use bevy_spline_3d::distribution::DistributedInstance;
+use bevy_spline_3d::editor::selection::pick_control_points;
 use bevy_spline_3d::road::{GeneratedRoadMesh, GeneratedIntersectionMesh};
 
 use avian3d::prelude::{SpatialQuery, SpatialQueryFilter};
@@ -34,9 +35,10 @@ impl Plugin for SplineEditPlugin {
             Update,
             (
                 // Sync library's EditorSettings based on our editor state
-                sync_spline_editor_settings,
+                // Must run BEFORE pick_control_points so settings are set before library checks them
+                sync_spline_editor_settings.before(pick_control_points),
                 // Sync the library's SelectedSpline marker with our Selected component
-                sync_spline_selection,
+                sync_spline_selection.before(pick_control_points),
                 // Handle spline-specific hotkeys in Edit mode
                 handle_spline_hotkeys.run_if(in_state(EditorMode::Edit)),
                 // Handle control point dragging in Edit mode
@@ -85,11 +87,13 @@ fn sync_spline_editor_settings(
 
     // Enable control point picking/dragging only in Edit mode with a spline selected
     // Disable during snap-to-object so the library doesn't interfere
-    let in_edit_with_spline = *mode.get() == EditorMode::Edit && !selected_splines.is_empty();
+    let in_edit_mode = *mode.get() == EditorMode::Edit;
+    let has_selected_spline = !selected_splines.is_empty();
+    let in_edit_with_spline = in_edit_mode && has_selected_spline;
     spline_settings.enabled = in_edit_with_spline && !snap_state.active;
 
-    // Only enable x-ray when editing splines (so occluded control points are visible)
-    spline_settings.xray_enabled = in_edit_with_spline;
+    // Always enable x-ray for splines so they're visible through geometry
+    spline_settings.xray_enabled = true;
 
     // Only show handle lines when in Edit mode with a spline selected
     let should_show_handles = should_show_curves && in_edit_with_spline;

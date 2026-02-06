@@ -1,3 +1,10 @@
+//! Spline distribution module.
+//!
+//! **Deprecated:** Use `bevy_procedural` crate instead for more flexible
+//! procedural placement along splines and volumes.
+
+#![allow(deprecated)] // Allow deprecated within this module during migration
+
 mod components;
 mod projection;
 mod systems;
@@ -12,50 +19,28 @@ use crate::spline::SplinePlugin;
 
 /// Plugin for distributing entities along splines.
 ///
-/// This plugin allows you to create copies of a template entity distributed
-/// evenly along a spline curve.
+/// **Deprecated:** Use `bevy_procedural::ProceduralPlugin` instead, which provides
+/// a more flexible and composable API for procedural placement along splines,
+/// as well as support for volume-based placement (boxes, spheres, cylinders).
 ///
-/// # Usage
-///
+/// # Migration
 /// ```ignore
-/// use bevy::prelude::*;
-/// use bevy_spline_3d::prelude::*;
-/// use bevy_spline_3d::distribution::*;
+/// // Old (SplineDistributionPlugin)
+/// app.add_plugins(SplineDistributionPlugin);
+/// commands.spawn(SplineDistribution::new(spline, template, 10)
+///     .with_orientation(DistributionOrientation::align_to_tangent())
+///     .uniform());
 ///
-/// fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-///     // Create a spline
-///     let spline = commands.spawn(Spline::new(
-///         SplineType::CatmullRom,
-///         vec![/* points */],
-///     )).id();
-///
-///     // Create a template entity (this will be hidden)
-///     let template = commands.spawn((
-///         Mesh3d(asset_server.load("tree.glb")),
-///         MeshMaterial3d(/* material */),
-///         DistributionSource,
-///     )).id();
-///
-///     // Create the distribution
-///     commands.spawn(SplineDistribution {
-///         spline,
-///         source: template,
-///         count: 10,
-///         orientation: DistributionOrientation::AlignToTangent { up: Vec3::Y },
-///         offset: Vec3::ZERO,
-///     });
-/// }
+/// // New (bevy_procedural)
+/// app.add_plugins(ProceduralPlugin);
+/// commands.spawn((
+///     Sampler::uniform(10),
+///     Placer::new(spline, template)
+///         .with_orientation(PlacementOrientation::AlignToTangent { up: Vec3::Y }),
+/// ));
 /// ```
-///
-/// # Orientation Modes
-///
-/// - `PositionOnly`: Only position is set, rotation remains at default
-/// - `AlignToTangent`: Forward (negative Z) aligns to spline tangent with specified up vector
-///
-/// # Spacing Modes
-///
-/// - `Uniform`: Even arc-length spacing (default, recommended)
-/// - `Parametric`: Based on spline t parameter (faster but uneven)
+#[deprecated(since = "0.2.0", note = "Use bevy_procedural::ProceduralPlugin instead")]
+#[allow(deprecated)]
 pub struct SplineDistributionPlugin;
 
 impl Plugin for SplineDistributionPlugin {

@@ -1,6 +1,25 @@
 use bevy::prelude::*;
 
 /// Component that defines how entities are distributed along a spline.
+///
+/// **Deprecated:** Use `bevy_procedural::Placer` and `bevy_procedural::Sampler` instead.
+/// The new API provides more flexibility with support for volumes and better composability.
+///
+/// # Migration
+/// ```ignore
+/// // Old (SplineDistribution)
+/// commands.spawn(SplineDistribution::new(spline, template, 10)
+///     .with_orientation(DistributionOrientation::align_to_tangent())
+///     .uniform());
+///
+/// // New (bevy_procedural)
+/// commands.spawn((
+///     Sampler::uniform(10),
+///     Placer::new(spline, template)
+///         .with_orientation(PlacementOrientation::AlignToTangent { up: Vec3::Y }),
+/// ));
+/// ```
+#[deprecated(since = "0.2.0", note = "Use bevy_procedural::Placer and Sampler instead")]
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component)]
 pub struct SplineDistribution {
@@ -72,6 +91,9 @@ impl SplineDistribution {
 }
 
 /// How to orient distributed entities along the spline.
+///
+/// **Deprecated:** Use `bevy_procedural::PlacementOrientation` instead.
+#[deprecated(since = "0.2.0", note = "Use bevy_procedural::PlacementOrientation instead")]
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, Default)]
 pub enum DistributionOrientation {
     /// Only set position, keep default rotation.
@@ -98,6 +120,9 @@ impl DistributionOrientation {
 }
 
 /// How to space distributed entities along the spline.
+///
+/// **Deprecated:** Use `bevy_procedural::SamplerMode` instead.
+#[deprecated(since = "0.2.0", note = "Use bevy_procedural::SamplerMode instead")]
 #[derive(Debug, Clone, Copy, PartialEq, Reflect, Default)]
 pub enum DistributionSpacing {
     /// Uniform spacing based on arc length (even visual distribution).
@@ -115,6 +140,9 @@ pub enum DistributionSpacing {
 ///
 /// Entities with this component will be automatically hidden when used
 /// as a source for `SplineDistribution`.
+///
+/// **Deprecated:** Use `bevy_procedural::PlacementTemplate` instead.
+#[deprecated(since = "0.2.0", note = "Use bevy_procedural::PlacementTemplate instead")]
 #[derive(Component, Debug, Clone, Copy, Default, Reflect)]
 #[reflect(Component)]
 pub struct DistributionSource;
@@ -123,6 +151,9 @@ pub struct DistributionSource;
 ///
 /// This allows tracking which distribution an instance belongs to,
 /// and enables cleanup when the distribution is removed.
+///
+/// **Deprecated:** Use `bevy_procedural::PlacedInstance` instead.
+#[deprecated(since = "0.2.0", note = "Use bevy_procedural::PlacedInstance instead")]
 #[derive(Component, Debug, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub struct DistributedInstance {
