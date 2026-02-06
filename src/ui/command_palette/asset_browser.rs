@@ -113,18 +113,19 @@ fn scan_dir_recursive(
         let path = entry.path();
         if path.is_dir() {
             scan_dir_recursive(base, &path, extensions, out);
-        } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-            let ext_lower = ext.to_ascii_lowercase();
-            if extensions.iter().any(|e| *e == ext_lower) {
+        } else {
+            let fname = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            let fname_lower = fname.to_ascii_lowercase();
+            if extensions.iter().any(|ext| fname_lower.ends_with(ext)) {
                 let relative = path
                     .strip_prefix(base)
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .to_string();
-                let filename = path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_default();
+                let filename = fname.to_string();
                 let directory = path
                     .parent()
                     .and_then(|p| p.strip_prefix(base).ok())
@@ -360,12 +361,14 @@ pub(super) fn draw_asset_browser(
                     let path = if is_save_as {
                         let name = if query.is_empty() {
                             "scene".to_string()
+                        } else if query.ends_with(".scn.ron") {
+                            query[..query.len() - 8].to_string()
                         } else if query.ends_with(".ron") {
                             query[..query.len() - 4].to_string()
                         } else {
                             query
                         };
-                        format!("assets/{}.ron", name)
+                        format!("assets/scenes/{}.scn.ron", name)
                     } else {
                         format!("assets/{}", relative_path)
                     };

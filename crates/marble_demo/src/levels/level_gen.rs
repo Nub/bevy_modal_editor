@@ -81,7 +81,7 @@ pub fn spawn_cylinder(
     ));
 }
 
-/// Exclusive startup system: generate missing `.ron` level files.
+/// Exclusive startup system: generate missing `.scn.ron` level files.
 ///
 /// For each registered level whose file doesn't exist on disk, this system:
 /// 1. Runs the builder function to spawn serializable-only entities

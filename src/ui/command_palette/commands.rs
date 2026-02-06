@@ -27,6 +27,7 @@ use crate::ui::SettingsWindowState;
 
 use super::{
     CommandPaletteState, CustomMarkDialogState, HelpWindowState, PaletteMode,
+    RenameSceneDialog,
 };
 
 /// A command that can be executed from the palette
@@ -101,6 +102,8 @@ pub enum CommandAction {
     SetShadingMode(ViewportShadingMode),
     /// Cycle to the next shading mode
     CycleShadingMode,
+    /// Rename the current scene file
+    RenameScene,
 }
 
 /// Resource containing all available commands
@@ -265,6 +268,13 @@ impl CommandRegistry {
             keywords: vec!["import".into(), "open".into(), "file".into()],
             category: "Scene",
             action: CommandAction::LoadScene,
+            insertable: false,
+        });
+        self.commands.push(Command {
+            name: "Rename Scene".to_string(),
+            keywords: vec!["rename".into(), "file".into(), "name".into()],
+            category: "Scene",
+            action: CommandAction::RenameScene,
             insertable: false,
         });
         self.commands.push(Command {
@@ -651,6 +661,7 @@ pub(super) struct PaletteState2<'w> {
     pub help_state: ResMut<'w, HelpWindowState>,
     pub settings_state: ResMut<'w, SettingsWindowState>,
     pub custom_mark_state: ResMut<'w, CustomMarkDialogState>,
+    pub rename_dialog: ResMut<'w, RenameSceneDialog>,
     pub component_editor_state: ResMut<'w, super::super::inspector::ComponentEditorState>,
     pub component_registry: ResMut<'w, super::components::ComponentRegistry>,
     pub removable_cache: Res<'w, super::RemovableComponentsCache>,
@@ -998,6 +1009,20 @@ fn execute_command(
         }
         CommandAction::CycleShadingMode => {
             events.cycle_shading.write(CycleShadingModeEvent);
+        }
+        CommandAction::RenameScene => {
+            if let Some(path) = scene_file.path.as_ref() {
+                let current_name = std::path::Path::new(path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .trim_end_matches(".scn.ron")
+                    .trim_end_matches(".ron")
+                    .to_string();
+                palette_state2.rename_dialog.open = true;
+                palette_state2.rename_dialog.name = current_name;
+                palette_state2.rename_dialog.just_opened = true;
+            }
         }
     }
 }

@@ -421,7 +421,7 @@ fn save_preset_to_disk(name: &str, def: &MaterialDefinition) {
     }
 
     let filename = sanitize_filename(name);
-    let path = dir.join(format!("{}.ron", filename));
+    let path = dir.join(format!("{}.mat.ron", filename));
 
     let pretty = ron::ser::PrettyConfig::default();
     match ron::ser::to_string_pretty(def, pretty) {
@@ -436,7 +436,7 @@ fn save_preset_to_disk(name: &str, def: &MaterialDefinition) {
     }
 }
 
-/// Load all material presets from `assets/materials/*.ron` into the library.
+/// Load all material presets from `assets/materials/*.mat.ron` into the library.
 /// Disk presets override any existing entry with the same name.
 fn load_presets_from_disk(library: &mut MaterialLibrary) {
     let dir = Path::new(MATERIALS_DIR);
@@ -450,13 +450,18 @@ fn load_presets_from_disk(library: &mut MaterialLibrary) {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("ron") {
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if !fname.ends_with(".mat.ron") {
             continue;
         }
 
-        let Some(name) = path.file_stem().and_then(|s| s.to_str()).map(String::from) else {
+        let name = fname.trim_end_matches(".mat.ron").to_string();
+        if name.is_empty() {
             continue;
-        };
+        }
 
         let Ok(contents) = std::fs::read_to_string(&path) else {
             warn!("Failed to read material preset file: {:?}", path);

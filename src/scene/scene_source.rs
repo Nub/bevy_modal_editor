@@ -57,6 +57,7 @@ fn handle_spawn_scene_source(
             .rsplit('/')
             .next()
             .unwrap_or(&event.path)
+            .trim_end_matches(".scn.ron")
             .trim_end_matches(".ron")
             .to_string();
 

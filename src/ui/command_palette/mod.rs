@@ -191,11 +191,11 @@ impl CommandPaletteState {
     }
 
     pub fn open_load_scene(&mut self) {
-        self.open_asset_browser(asset_browser::BrowseOperation::LoadScene, &["ron"]);
+        self.open_asset_browser(asset_browser::BrowseOperation::LoadScene, &[".scn.ron"]);
     }
 
     pub fn open_save_scene(&mut self, current_path: Option<&str>) {
-        self.open_asset_browser(asset_browser::BrowseOperation::SaveScene, &["ron"]);
+        self.open_asset_browser(asset_browser::BrowseOperation::SaveScene, &[".scn.ron"]);
 
         // Prepend virtual "Save as" item
         self.asset_items.insert(
@@ -211,9 +211,11 @@ impl CommandPaletteState {
         // Pre-populate the query with the current scene filename (without extension)
         if let Some(path) = current_path {
             let name = Path::new(path)
-                .file_stem()
+                .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or("");
+                .unwrap_or("")
+                .trim_end_matches(".scn.ron")
+                .trim_end_matches(".ron");
             self.query = name.to_string();
         }
     }
@@ -223,7 +225,7 @@ impl CommandPaletteState {
     }
 
     pub fn open_insert_scene(&mut self) {
-        self.open_asset_browser(asset_browser::BrowseOperation::InsertScene, &["ron"]);
+        self.open_asset_browser(asset_browser::BrowseOperation::InsertScene, &[".scn.ron"]);
     }
 
     pub fn open_pick_texture(&mut self, slot: TextureSlot, entity: Option<Entity>) {
@@ -265,6 +267,14 @@ pub struct CustomMarkDialogState {
     pub just_opened: bool,
 }
 
+/// Resource to track rename scene dialog state
+#[derive(Resource, Default)]
+pub struct RenameSceneDialog {
+    pub open: bool,
+    pub name: String,
+    pub just_opened: bool,
+}
+
 /// Cached list of removable components for an entity
 #[derive(Resource, Default)]
 pub struct RemovableComponentsCache {
@@ -284,6 +294,7 @@ impl Plugin for CommandPalettePlugin {
         app.init_resource::<CommandPaletteState>()
             .init_resource::<HelpWindowState>()
             .init_resource::<CustomMarkDialogState>()
+            .init_resource::<RenameSceneDialog>()
             .init_resource::<RemovableComponentsCache>()
             .init_resource::<components::ComponentRegistry>()
             .init_resource::<PendingEntitySelection>()
@@ -295,7 +306,7 @@ impl Plugin for CommandPalettePlugin {
             .add_systems(Update, (handle_palette_toggle, components::populate_removable_components))
             .add_systems(
                 EguiPrimaryContextPass,
-                (draw_command_palette, draw_help_window, draw_custom_mark_dialog),
+                (draw_command_palette, draw_help_window, draw_custom_mark_dialog, draw_rename_scene_dialog),
             );
     }
 }
@@ -784,6 +795,113 @@ fn draw_custom_mark_dialog(
         set_mark_events.write(SetCameraMarkEvent {
             name: state.name.trim().to_string(),
         });
+    }
+
+    if should_close {
+        state.open = false;
+    }
+
+    Ok(())
+}
+
+// ── Rename scene dialog ──────────────────────────────────────────────
+
+fn draw_rename_scene_dialog(
+    mut contexts: EguiContexts,
+    mut state: ResMut<RenameSceneDialog>,
+    mut scene_file: ResMut<SceneFile>,
+    editor_state: Res<EditorState>,
+) -> Result {
+    if !editor_state.ui_enabled || !state.open {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+
+    let mut should_close = false;
+    let mut should_rename = false;
+
+    let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+
+    if enter_pressed && !state.name.trim().is_empty() {
+        should_rename = true;
+        should_close = true;
+    }
+
+    if escape_pressed {
+        should_close = true;
+    }
+
+    egui::Window::new("Rename Scene")
+        .collapsible(false)
+        .resizable(false)
+        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(egui::RichText::new("Enter a new name for this scene:").color(colors::TEXT_SECONDARY));
+            ui.add_space(8.0);
+
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut state.name)
+                    .hint_text("Scene name...")
+                    .desired_width(250.0),
+            );
+
+            if state.just_opened {
+                response.request_focus();
+                state.just_opened = false;
+            }
+
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    should_close = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add_enabled(!state.name.trim().is_empty(), egui::Button::new("Rename"))
+                        .clicked()
+                    {
+                        should_rename = true;
+                        should_close = true;
+                    }
+                });
+            });
+        });
+
+    if should_rename {
+        let new_name = state.name.trim().to_string();
+        if let Some(old_path) = scene_file.path.clone() {
+            let parent = Path::new(&old_path)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let new_path = if parent.is_empty() {
+                format!("{}.scn.ron", new_name)
+            } else {
+                format!("{}/{}.scn.ron", parent, new_name)
+            };
+
+            // Rename scene file
+            if let Err(e) = std::fs::rename(&old_path, &new_path) {
+                error!("Failed to rename scene file: {}", e);
+            } else {
+                info!("Renamed scene: {} -> {}", old_path, new_path);
+
+                // Rename metadata sidecar if it exists
+                let old_meta = format!("{}.meta", old_path);
+                let new_meta = format!("{}.meta", new_path);
+                if Path::new(&old_meta).exists() {
+                    if let Err(e) = std::fs::rename(&old_meta, &new_meta) {
+                        warn!("Failed to rename metadata file: {}", e);
+                    }
+                }
+
+                scene_file.path = Some(new_path);
+            }
+        }
     }
 
     if should_close {
