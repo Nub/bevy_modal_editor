@@ -12,6 +12,7 @@ mod entity_picker;
 mod find_object;
 mod insert;
 mod material_preset;
+mod particle_preset;
 
 use std::any::TypeId;
 use std::path::Path;
@@ -22,8 +23,11 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use bevy_editor_game::{CustomEntityRegistry, MaterialLibrary};
 
+use crate::particles::{ParticleEffectMarker, ParticleLibrary};
+
 use crate::editor::{
-    CameraMarks, EditorMode, EditorState, InsertState, SetCameraMarkEvent,
+    CameraMarks, EditorCamera, EditorMode, EditorState, FlyCamera, InsertState,
+    SetCameraMarkEvent,
 };
 use crate::scene::{LoadSceneEvent, SaveSceneEvent, SceneEntity, SceneFile};
 use crate::selection::Selected;
@@ -64,6 +68,8 @@ pub enum PaletteMode {
     EntityPicker,
     /// Browse/apply material library presets
     MaterialPreset,
+    /// Browse/apply/insert particle effect presets
+    ParticlePreset,
     /// Browse asset files (load/save scene, insert GLTF, pick texture)
     AssetBrowser,
 }
@@ -87,7 +93,11 @@ pub struct CommandPaletteState {
 
     // ── MaterialPreset ──
     pub(crate) prev_previewed_name: Option<String>,
-    pub(crate) prev_query: String,
+
+    // ── FindObject ──
+    pub(crate) find_original_selection: Vec<Entity>,
+    pub(crate) find_original_camera: Option<(Transform, find_object::FlyCameraSnapshot)>,
+    pub(crate) find_prev_highlighted: Option<Entity>,
 
     // ── AssetBrowser ──
     pub(crate) browse_operation: Option<asset_browser::BrowseOperation>,
@@ -109,7 +119,9 @@ impl Default for CommandPaletteState {
             picker_field_name: String::new(),
             picker_callback_id: 0,
             prev_previewed_name: None,
-            prev_query: String::new(),
+            find_original_selection: Vec::new(),
+            find_original_camera: None,
+            find_prev_highlighted: None,
             browse_operation: None,
             asset_items: Vec::new(),
             preview_path: None,
@@ -173,10 +185,12 @@ impl CommandPaletteState {
     /// Open the palette in MaterialPreset mode
     pub fn open_material_preset(&mut self) {
         self.open_mode(PaletteMode::MaterialPreset);
-        // Start on first library item (index 1), not "New Preset" (index 0)
-        self.selected_index = 1;
         self.prev_previewed_name = None;
-        self.prev_query.clear();
+    }
+
+    /// Open the palette in ParticlePreset mode
+    pub fn open_particle_preset(&mut self) {
+        self.open_mode(PaletteMode::ParticlePreset);
     }
 
     // ── AssetBrowser open helpers ──
@@ -350,6 +364,10 @@ fn handle_palette_toggle(
             state.open_material_preset();
             return;
         }
+        if mode == EditorMode::Particle {
+            state.open_particle_preset();
+            return;
+        }
         if mode != EditorMode::Hierarchy {
             state.open_find_object();
             return;
@@ -407,6 +425,7 @@ struct ModeParams<'w> {
     pending_selection: ResMut<'w, PendingEntitySelection>,
     editing_preset: ResMut<'w, EditingPreset>,
     library: Res<'w, MaterialLibrary>,
+    particle_library: Res<'w, ParticleLibrary>,
     editor_mode: Res<'w, State<EditorMode>>,
     type_registry: Res<'w, AppTypeRegistry>,
     custom_registry: Res<'w, CustomEntityRegistry>,
@@ -423,7 +442,13 @@ fn draw_command_palette(
     scene_file: Res<SceneFile>,
     registry: Res<CommandRegistry>,
     selected: Query<Entity, With<Selected>>,
+    selected_particles: Query<Entity, (With<Selected>, With<ParticleEffectMarker>)>,
     scene_objects: Query<(Entity, &Name), Or<(With<SceneEntity>, With<bevy_editor_game::GameEntity>)>>,
+    entity_transforms: Query<(&Transform, Option<&avian3d::prelude::Collider>), Without<EditorCamera>>,
+    mut camera_query: Query<
+        (&mut FlyCamera, &mut Transform, &Projection),
+        (With<EditorCamera>, Without<Selected>),
+    >,
     mut ab: AssetBrowserParams,
     mut mp: ModeParams,
     mut events: commands::CommandEvents,
@@ -477,6 +502,7 @@ fn draw_command_palette(
                 &mut mp.insert_preview_state,
                 &mut events,
                 &mut ab.next_mode,
+                &mp.particle_library,
             );
         }
         PaletteMode::FindObject => {
@@ -487,6 +513,8 @@ fn draw_command_palette(
                 &mut bevy_commands,
                 &scene_objects,
                 &selected,
+                &entity_transforms,
+                &mut camera_query,
             );
         }
         PaletteMode::EntityPicker => {
@@ -512,6 +540,21 @@ fn draw_command_palette(
                 &mp.library,
                 &selected,
                 &mut mp.editing_preset,
+                &mut bevy_commands,
+            );
+        }
+        PaletteMode::ParticlePreset => {
+            if *mp.editor_mode.get() != EditorMode::Particle {
+                state.open = false;
+                return Ok(());
+            }
+            let ctx = contexts.ctx_mut()?;
+            let selected_particle = selected_particles.iter().next();
+            return particle_preset::draw_particle_preset_palette(
+                ctx,
+                &mut state,
+                &mp.particle_library,
+                selected_particle,
                 &mut bevy_commands,
             );
         }
@@ -670,6 +713,7 @@ fn draw_help_window(
 
                     ui.add_space(12.0);
                     help_section(ui, "Particle Mode (N)");
+                    shortcut_row(ui, "F", "Browse presets");
                     shortcut_row(ui, "+", "Add modifier");
                     shortcut_row(ui, "×", "Remove modifier");
                     shortcut_row(ui, "Drag", "Adjust values");

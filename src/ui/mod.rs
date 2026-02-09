@@ -1,3 +1,4 @@
+mod ai_editor;
 mod camera_settings;
 mod command_palette;
 mod component_browser;
@@ -75,6 +76,7 @@ impl Plugin for UiPlugin {
                 camera_settings::CameraSettingsPlugin,
                 material_preview::MaterialPreviewPlugin,
                 particle_editor::ParticleEditorPlugin,
+                ai_editor::AIEditorPlugin,
                 insert_preview::InsertPreviewPlugin,
                 gltf_preview::GltfPreviewPlugin,
                 ToolbarPlugin,

@@ -85,11 +85,11 @@ pub(super) fn draw_entity_picker(
     }
 
     // Bridge CommandPaletteState to PaletteState
-    let mut palette_state = PaletteState {
-        query: std::mem::take(&mut state.query),
-        selected_index: state.selected_index,
-        just_opened: state.just_opened,
-    };
+    let mut palette_state = PaletteState::from_bridge(
+        std::mem::take(&mut state.query),
+        state.selected_index,
+        state.just_opened,
+    );
 
     let field_name = state.picker_field_name.clone();
     let config = PaletteConfig {

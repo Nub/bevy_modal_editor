@@ -219,11 +219,11 @@ pub(super) fn draw_asset_browser(
     };
 
     // Bridge CommandPaletteState to PaletteState
-    let mut palette_state = PaletteState {
-        query: std::mem::take(&mut state.query),
-        selected_index: state.selected_index,
-        just_opened: state.just_opened,
-    };
+    let mut palette_state = PaletteState::from_bridge(
+        std::mem::take(&mut state.query),
+        state.selected_index,
+        state.just_opened,
+    );
 
     // ── Texture preview tracking (PickTexture mode only) ────────────
     let is_pick_texture = matches!(&operation, BrowseOperation::PickTexture { .. });

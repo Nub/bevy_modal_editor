@@ -654,7 +654,7 @@ impl MaterialDefinition {
 /// This is the single serializable component for materials on scene entities.
 /// It replaces the old `PrimitiveMaterial` + `MaterialType` pair.
 #[derive(Component, Serialize, Deserialize, Clone, Debug, Reflect)]
-#[reflect(Component)]
+#[reflect(Component, Default)]
 pub enum MaterialRef {
     /// References a named material in the MaterialLibrary
     Library(String),

@@ -22,6 +22,7 @@ use super::spline_edit::SplineEditPlugin;
 use super::state::EditorStatePlugin;
 use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
+use crate::navigation::NavigationPlugin;
 use crate::particles::ParticlePlugin;
 use crate::materials::MaterialsPlugin;
 use crate::prefabs::PrefabsPlugin;
@@ -200,6 +201,8 @@ impl Plugin for EditorPlugin {
             // Particles
             .add_plugins(bevy_hanabi::HanabiPlugin)
             .add_plugins(ParticlePlugin)
+            // Navigation (navmesh + pathfinding)
+            .add_plugins(NavigationPlugin)
             // UI
             .add_plugins(UiPlugin);
 

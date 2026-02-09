@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::editor::{EditorMode, InsertObjectType, StartInsertEvent};
+use crate::particles::ParticleLibrary;
 use crate::ui::fuzzy_palette::{
     draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteItem, PaletteResult, PaletteState,
 };
@@ -49,6 +50,7 @@ fn action_to_preview_kind(action: &CommandAction) -> Option<InsertPreviewKind> {
         CommandAction::SpawnArch => Some(InsertPreviewKind::Arch),
         CommandAction::SpawnLShape => Some(InsertPreviewKind::LShape),
         CommandAction::SpawnParticleEffect => None, // No 3D preview for particles
+        CommandAction::SpawnParticlePreset(_) => None, // No 3D preview for particle presets
         _ => None,
     }
 }
@@ -61,9 +63,10 @@ pub(super) fn draw_insert_palette(
     insert_preview_state: &mut ResMut<InsertPreviewState>,
     events: &mut CommandEvents,
     next_mode: &mut ResMut<NextState<EditorMode>>,
+    particle_library: &Res<ParticleLibrary>,
 ) -> Result {
     // Build insert item list from registry
-    let items: Vec<InsertItem> = registry
+    let mut items: Vec<InsertItem> = registry
         .commands
         .iter()
         .filter(|cmd| cmd.insertable)
@@ -75,12 +78,30 @@ pub(super) fn draw_insert_palette(
         })
         .collect();
 
+    // Add particle presets as insertable items
+    let mut preset_names: Vec<&String> = particle_library.effects.keys().collect();
+    preset_names.sort();
+    for name in preset_names {
+        items.push(InsertItem {
+            name: format!("Particle: {}", name),
+            category: "Effects".to_string(),
+            keywords: vec![
+                "particle".into(),
+                "preset".into(),
+                "vfx".into(),
+                "fx".into(),
+                name.to_lowercase(),
+            ],
+            action: CommandAction::SpawnParticlePreset(name.clone()),
+        });
+    }
+
     // Bridge CommandPaletteState to PaletteState
-    let mut palette_state = PaletteState {
-        query: std::mem::take(&mut state.query),
-        selected_index: state.selected_index,
-        just_opened: state.just_opened,
-    };
+    let mut palette_state = PaletteState::from_bridge(
+        std::mem::take(&mut state.query),
+        state.selected_index,
+        state.just_opened,
+    );
 
     // Determine highlighted item for the preview
     let filtered = fuzzy_filter(&items, &palette_state.query);
@@ -225,6 +246,14 @@ pub(super) fn draw_insert_palette(
                 CommandAction::SpawnParticleEffect => {
                     events.start_insert.write(StartInsertEvent {
                         object_type: InsertObjectType::ParticleEffect,
+                    });
+                }
+                CommandAction::SpawnParticlePreset(preset_name) => {
+                    // Spawn the particle preset directly (no click-to-place preview)
+                    events.spawn_entity.write(crate::scene::SpawnEntityEvent {
+                        kind: crate::scene::SpawnEntityKind::ParticlePreset(preset_name.clone()),
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
                     });
                 }
                 _ => {}

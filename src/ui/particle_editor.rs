@@ -11,7 +11,9 @@ use bevy_egui::{egui, EguiPrimaryContextPass};
 
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::particles::data::*;
+use crate::particles::ParticleLibrary;
 use crate::selection::Selected;
+use crate::ui::command_palette::CommandPaletteState;
 use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame};
 
 pub struct ParticleEditorPlugin;
@@ -365,6 +367,13 @@ fn draw_particle_panel(world: &mut World) {
         .clone();
     let original = marker.clone();
 
+    // Clone entity name for editing
+    let mut entity_name = world
+        .get::<Name>(entity)
+        .map(|n| n.as_str().to_string())
+        .unwrap_or_default();
+    let original_name = entity_name.clone();
+
     // Get egui context
     let ctx = {
         let Some(mut egui_ctx) = world
@@ -391,6 +400,8 @@ fn draw_particle_panel(world: &mut World) {
     };
 
     let mut pin_toggled = false;
+    let mut save_preset_clicked = false;
+    let mut browse_presets_clicked = false;
 
     egui::Window::new("Particle Effect")
         .default_size([panel::DEFAULT_WIDTH, available_height])
@@ -406,9 +417,39 @@ fn draw_particle_panel(world: &mut World) {
         .show(&ctx, |ui| {
             ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
 
-            // Pin button (right-aligned)
+            // Pin button and preset buttons (right-aligned)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 pin_toggled = draw_pin_button(ui, is_pinned);
+                if ui
+                    .button(egui::RichText::new("Save Preset").small().color(colors::ACCENT_GREEN))
+                    .on_hover_text("Save current effect as a named preset")
+                    .clicked()
+                {
+                    save_preset_clicked = true;
+                }
+                if ui
+                    .button(egui::RichText::new("Browse").small().color(colors::ACCENT_ORANGE))
+                    .on_hover_text("Browse particle presets (F)")
+                    .clicked()
+                {
+                    browse_presets_clicked = true;
+                }
+            });
+
+            // Editable entity name (matching inspector name field style)
+            ui.add_space(4.0);
+            ui.add(
+                egui::TextEdit::singleline(&mut entity_name)
+                    .font(egui::FontId::proportional(16.0))
+                    .text_color(colors::TEXT_PRIMARY)
+                    .margin(egui::vec2(8.0, 6.0)),
+            );
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("ID: {:?}", entity))
+                        .small()
+                        .color(colors::TEXT_MUTED),
+                );
             });
 
             egui::ScrollArea::vertical()
@@ -440,7 +481,14 @@ fn draw_particle_panel(world: &mut World) {
     let changed = ron::to_string(&marker).ok() != ron::to_string(&original).ok();
     if changed {
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert(marker);
+            entity_mut.insert(marker.clone());
+        }
+    }
+
+    // Apply name changes back to the entity
+    if entity_name != original_name {
+        if let Some(mut name) = world.get_mut::<Name>(entity) {
+            name.set(entity_name.clone());
         }
     }
 
@@ -450,6 +498,35 @@ fn draw_particle_panel(world: &mut World) {
         if !pinned.0.remove(&EditorMode::Particle) {
             pinned.0.insert(EditorMode::Particle);
         }
+    }
+
+    // Save current effect as a preset (use the current entity name)
+    if save_preset_clicked {
+        let mut library = world.resource_mut::<ParticleLibrary>();
+        let preset_name = {
+            let base = if entity_name.is_empty() { "New Particle".to_string() } else { entity_name };
+            if !library.effects.contains_key(&base) {
+                base
+            } else {
+                let mut candidate = base.clone();
+                for i in 2.. {
+                    candidate = format!("{} {}", base, i);
+                    if !library.effects.contains_key(&candidate) {
+                        break;
+                    }
+                }
+                candidate
+            }
+        };
+        library.effects.insert(preset_name.clone(), marker);
+        info!("Saved particle preset '{}'", preset_name);
+    }
+
+    // Open particle preset palette
+    if browse_presets_clicked {
+        world
+            .resource_mut::<CommandPaletteState>()
+            .open_particle_preset();
     }
 }
 

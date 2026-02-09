@@ -29,6 +29,14 @@ impl PaletteItem for PresetItem {
     fn always_visible(&self) -> bool {
         self.is_new_preset
     }
+
+    fn accent_color(&self) -> Option<egui::Color32> {
+        if self.is_new_preset {
+            Some(colors::ACCENT_GREEN)
+        } else {
+            None
+        }
+    }
 }
 
 /// Draw the material preset palette using the shared fuzzy palette widget.
@@ -42,11 +50,11 @@ pub(super) fn draw_material_preset_palette(
     commands: &mut Commands,
 ) -> Result {
     // Bridge CommandPaletteState to PaletteState
-    let mut palette_state = PaletteState {
-        query: std::mem::take(&mut state.query),
-        selected_index: state.selected_index,
-        just_opened: state.just_opened,
-    };
+    let mut palette_state = PaletteState::from_bridge(
+        std::mem::take(&mut state.query),
+        state.selected_index,
+        state.just_opened,
+    );
 
     // Build items: "New Preset" (always-visible) at index 0, then sorted library presets
     let new_label = if palette_state.query.trim().is_empty() {
@@ -64,18 +72,6 @@ pub(super) fn draw_material_preset_palette(
         name: n.clone(),
         is_new_preset: false,
     }));
-
-    // When the query changes, auto-select the first library match (skip pinned "New Preset")
-    if palette_state.query != state.prev_query {
-        state.prev_query = palette_state.query.clone();
-        let filtered = fuzzy_filter(&items, &palette_state.query);
-        // Find first non-pinned item's display position
-        let first_library = filtered
-            .iter()
-            .position(|fi| !fi.item.is_new_preset)
-            .unwrap_or(0);
-        palette_state.selected_index = first_library;
-    }
 
     // Update preview based on currently highlighted item
     {

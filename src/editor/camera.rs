@@ -66,7 +66,7 @@ impl Plugin for EditorCameraPlugin {
 pub struct EditorCamera;
 
 /// Fly camera state
-#[derive(Component)]
+#[derive(Component, Clone)]
 pub struct FlyCamera {
     pub yaw: f32,
     pub pitch: f32,
@@ -85,7 +85,7 @@ impl Default for FlyCamera {
             pitch: -std::f32::consts::FRAC_PI_6, // Look slightly down
             speed: 10.0,
             sensitivity: 0.003,
-            fov_degrees: 60.0, // Default perspective FOV
+            fov_degrees: 90.0, // Default perspective FOV
             ortho_scale: ORTHO_SCALE,
         }
     }
@@ -159,8 +159,12 @@ fn spawn_editor_camera(mut commands: Commands) {
 
     commands.spawn((
         EditorCamera,
-        fly_cam,
         Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            fov: fly_cam.fov_degrees.to_radians(),
+            ..default()
+        }),
+        fly_cam,
         PrimaryEguiContext,
         Hdr,
         Transform::from_translation(Vec3::new(0.0, 5.0, 10.0)).with_rotation(rotation),

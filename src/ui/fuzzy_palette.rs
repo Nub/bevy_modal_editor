@@ -34,9 +34,17 @@ pub trait PaletteItem {
         None
     }
 
-    /// Whether this item should always appear at the top, regardless of query
+    /// Whether this item should always appear at the top, regardless of query.
+    /// Pinned items are never auto-selected; the palette skips to the first
+    /// non-pinned match on open and when the query changes.
     fn always_visible(&self) -> bool {
         false
+    }
+
+    /// Optional accent color for this item (e.g. green for "+ New Preset").
+    /// When set, the item label is drawn in this color instead of the default.
+    fn accent_color(&self) -> Option<egui::Color32> {
+        None
     }
 }
 
@@ -121,11 +129,28 @@ pub struct PaletteState {
 }
 
 impl PaletteState {
+    /// Create a palette state from the bridge values (query, index, just_opened).
+    pub fn from_bridge(query: String, selected_index: usize, just_opened: bool) -> Self {
+        Self {
+            query,
+            selected_index,
+            just_opened,
+        }
+    }
+
     pub fn reset(&mut self) {
         self.query.clear();
         self.selected_index = 0;
         self.just_opened = true;
     }
+}
+
+/// Find the index of the first non-pinned item in a filtered list.
+fn first_non_pinned_index<T: PaletteItem>(filtered: &[FilteredItem<T>]) -> usize {
+    filtered
+        .iter()
+        .position(|fi| !fi.item.always_visible())
+        .unwrap_or(0)
 }
 
 /// Configuration for the palette appearance
@@ -149,6 +174,10 @@ pub struct PaletteConfig<'a> {
     pub preview_panel: Option<Box<dyn FnOnce(&mut egui::Ui) + 'a>>,
     /// Width of the preview panel (default 230.0)
     pub preview_width: f32,
+    /// Anchor position for the palette window (default CENTER_CENTER)
+    pub anchor: egui::Align2,
+    /// Offset from the anchor position
+    pub anchor_offset: [f32; 2],
 }
 
 impl Default for PaletteConfig<'_> {
@@ -163,6 +192,8 @@ impl Default for PaletteConfig<'_> {
             show_categories: false,
             preview_panel: None,
             preview_width: 230.0,
+            anchor: egui::Align2::CENTER_CENTER,
+            anchor_offset: [0.0, 0.0],
         }
     }
 }
@@ -194,6 +225,11 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
     // Clamp selected index
     if !filtered.is_empty() {
         state.selected_index = state.selected_index.min(filtered.len() - 1);
+    }
+
+    // Auto-skip pinned (always_visible) items on open so they're never the default.
+    if state.just_opened && !filtered.is_empty() {
+        state.selected_index = first_non_pinned_index(&filtered);
     }
 
     // Skip input handling on the first frame to avoid consuming leftover
@@ -243,7 +279,7 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
         .resizable(false)
         .title_bar(false)
         .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
-        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .anchor(config.anchor, config.anchor_offset)
         .fixed_size(effective_size)
         .order(egui::Order::Foreground)
         .show(ctx, |ui| {
@@ -323,9 +359,12 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
 
                         let is_selected = display_idx == state.selected_index;
                         let is_enabled = item.is_enabled();
+                        let accent = item.accent_color();
 
                         let text_color = if !is_enabled {
                             colors::TEXT_MUTED
+                        } else if let Some(c) = accent {
+                            c
                         } else if is_selected {
                             colors::TEXT_PRIMARY
                         } else {

@@ -208,6 +208,8 @@ pub enum SpawnEntityKind {
     LShape,
     /// A particle effect (bevy_hanabi)
     ParticleEffect,
+    /// A particle effect from a named preset
+    ParticlePreset(String),
     /// A custom entity type registered by the game
     Custom(String),
 }
@@ -232,6 +234,7 @@ impl SpawnEntityKind {
             SpawnEntityKind::Arch => "Arch".to_string(),
             SpawnEntityKind::LShape => "L-Shape".to_string(),
             SpawnEntityKind::ParticleEffect => "Particle Effect".to_string(),
+            SpawnEntityKind::ParticlePreset(name) => format!("Particle: {}", name),
             SpawnEntityKind::Custom(name) => name.clone(),
         }
     }
@@ -304,6 +307,7 @@ fn handle_spawn_entity(
     existing_entities: Query<&Name, With<SceneEntity>>,
     selected_entities: Query<Entity, With<Selected>>,
     custom_registry: Res<CustomEntityRegistry>,
+    particle_library: Res<crate::particles::ParticleLibrary>,
 ) {
     for event in events.read() {
         // Deselect all currently selected entities
@@ -334,6 +338,14 @@ fn handle_spawn_entity(
             SpawnEntityKind::Arch => spawn_arch(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::LShape => spawn_lshape(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::ParticleEffect => spawn_particle_effect(&mut commands, event.position, event.rotation, &name),
+            SpawnEntityKind::ParticlePreset(preset_name) => {
+                let marker = particle_library
+                    .effects
+                    .get(preset_name)
+                    .cloned()
+                    .unwrap_or_default();
+                spawn_particle_effect_with_marker(&mut commands, event.position, event.rotation, &name, marker)
+            }
             SpawnEntityKind::Custom(type_name) => {
                 let entry = custom_registry
                     .entries
@@ -519,11 +531,22 @@ pub fn spawn_fog_volume(commands: &mut Commands, position: Vec3, rotation: Quat,
 /// The `ParticleEffectMarker` is serializable; a disposable child entity
 /// holding the actual `ParticleEffect` is spawned by `ParticlePlugin`.
 pub fn spawn_particle_effect(commands: &mut Commands, position: Vec3, rotation: Quat, name: &str) -> Entity {
+    spawn_particle_effect_with_marker(commands, position, rotation, name, ParticleEffectMarker::default())
+}
+
+/// Spawn a particle effect container entity with a specific marker configuration.
+pub fn spawn_particle_effect_with_marker(
+    commands: &mut Commands,
+    position: Vec3,
+    rotation: Quat,
+    name: &str,
+    marker: ParticleEffectMarker,
+) -> Entity {
     commands
         .spawn((
             SceneEntity,
             Name::new(name.to_string()),
-            ParticleEffectMarker::default(),
+            marker,
             Transform::from_translation(position).with_rotation(rotation),
             Visibility::default(),
             Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),

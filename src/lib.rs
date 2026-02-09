@@ -47,6 +47,7 @@ pub mod constants;
 pub mod editor;
 pub mod gizmos;
 pub mod materials;
+pub mod navigation;
 pub mod particles;
 pub mod prefabs;
 pub mod scene;

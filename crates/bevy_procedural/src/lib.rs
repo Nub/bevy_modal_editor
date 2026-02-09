@@ -221,8 +221,20 @@ fn spawn_instances_world(
 
     // Now spawn instances
     for (template_entity, position, rotation, scale, index) in spawn_data {
-        // Clone the template entity with all its components
-        let cloned = world.entity_mut(template_entity).clone_and_spawn();
+        // Guard against despawned templates (can happen after undo/scene reload)
+        if world.get_entity(template_entity).is_err() {
+            warn!("Procedural template entity {template_entity:?} no longer exists, skipping");
+            continue;
+        }
+
+        // Clone the template entity, denying ChildOf to prevent hierarchy
+        // contamination — instance positions are in world space, so inheriting
+        // a parent transform would double-apply it.
+        let cloned = world
+            .entity_mut(template_entity)
+            .clone_and_spawn_with_opt_out(|builder| {
+                builder.deny::<ChildOf>();
+            });
 
         // Override transform with calculated position/rotation
         if let Some(mut transform) = world.get_mut::<Transform>(cloned) {

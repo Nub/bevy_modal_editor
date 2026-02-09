@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader", "crates/bevy_editor_game", "crates/bevy_procedural", "crates/marble_demo", "crates/fp_demo"]
+members = [".", "crates/bevy_outliner", "crates/bevy_spline_3d", "crates/bevy_grid_shader", "crates/bevy_editor_game", "crates/bevy_procedural", "crates/marble_demo", "crates/fp_demo", "crates/ai_demo"]
 
 [workspace.package]
 license = "MIT OR Apache-2.0"
@@ -20,6 +20,10 @@ bevy_grid_shader = { path = "crates/bevy_grid_shader" }
 bevy_editor_game = { path = "crates/bevy_editor_game" }
 bevy_procedural = { path = "crates/bevy_procedural" }
 bevy_hanabi = { version = "0.18", default-features = false, features = ["3d", "serde"] }
+bevy_rerecast = "0.4"
+avian_rerecast = "0.4"
+bevy_landmass = "0.11"
+landmass_rerecast = "0.2"
 fastrand = "2.0"
 
 [package]
@@ -51,6 +55,10 @@ bevy_grid_shader.workspace = true
 bevy_editor_game.workspace = true
 bevy_procedural.workspace = true
 bevy_hanabi.workspace = true
+bevy_rerecast.workspace = true
+avian_rerecast.workspace = true
+bevy_landmass.workspace = true
+landmass_rerecast.workspace = true
 serde.workspace = true
 ron.workspace = true
 dirs = "6"

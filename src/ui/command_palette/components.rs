@@ -156,11 +156,11 @@ pub(super) fn draw_component_search_palette(
     drop(type_registry_guard);
 
     // Bridge CommandPaletteState to PaletteState
-    let mut palette_state = PaletteState {
-        query: std::mem::take(&mut state.query),
-        selected_index: state.selected_index,
-        just_opened: state.just_opened,
-    };
+    let mut palette_state = PaletteState::from_bridge(
+        std::mem::take(&mut state.query),
+        state.selected_index,
+        state.just_opened,
+    );
 
     // Determine highlighted item for the preview
     let filtered = fuzzy_filter(&components, &palette_state.query);
@@ -195,6 +195,7 @@ pub(super) fn draw_component_search_palette(
         show_categories: false,
         preview_panel,
         preview_width: 320.0,
+        ..Default::default()
     };
 
     let result = draw_fuzzy_palette(ctx, &mut palette_state, &components, config);
@@ -287,11 +288,11 @@ pub(super) fn draw_add_component_palette(
         .collect();
 
     // Bridge CommandPaletteState to PaletteState
-    let mut palette_state = PaletteState {
-        query: std::mem::take(&mut state.query),
-        selected_index: state.selected_index,
-        just_opened: state.just_opened,
-    };
+    let mut palette_state = PaletteState::from_bridge(
+        std::mem::take(&mut state.query),
+        state.selected_index,
+        state.just_opened,
+    );
 
     // Determine highlighted item for the preview
     let filtered = fuzzy_filter(&items, &palette_state.query);
@@ -326,6 +327,7 @@ pub(super) fn draw_add_component_palette(
         show_categories: false,
         preview_panel,
         preview_width: 320.0,
+        ..Default::default()
     };
 
     let result = draw_fuzzy_palette(ctx, &mut palette_state, &items, config);
@@ -422,11 +424,11 @@ pub(super) fn draw_remove_component_palette(
     state.target_entity = Some(target_entity);
 
     // Bridge CommandPaletteState to PaletteState
-    let mut palette_state = PaletteState {
-        query: std::mem::take(&mut state.query),
-        selected_index: state.selected_index,
-        just_opened: state.just_opened,
-    };
+    let mut palette_state = PaletteState::from_bridge(
+        std::mem::take(&mut state.query),
+        state.selected_index,
+        state.just_opened,
+    );
 
     // Use the cached component list (populated by populate_removable_components system)
     let items: Vec<RemoveComponentItem> = removable_cache

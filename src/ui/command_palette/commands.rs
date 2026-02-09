@@ -90,6 +90,8 @@ pub enum CommandAction {
     SpawnLShape,
     /// Spawn a particle effect (bevy_hanabi)
     SpawnParticleEffect,
+    /// Spawn a particle effect from a named preset
+    SpawnParticlePreset(String),
     /// Spawn a custom entity type registered by the game
     SpawnCustomEntity(String),
     /// Start simulation (play or resume)
@@ -909,6 +911,13 @@ fn execute_command(
         CommandAction::SpawnParticleEffect => {
             events.spawn_entity.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::ParticleEffect,
+                position: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+            });
+        }
+        CommandAction::SpawnParticlePreset(ref preset_name) => {
+            events.spawn_entity.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::ParticlePreset(preset_name.clone()),
                 position: Vec3::ZERO,
                 rotation: Quat::IDENTITY,
             });

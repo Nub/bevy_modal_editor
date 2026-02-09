@@ -8,6 +8,7 @@ use bevy_editor_game::{MaterialDefinition, MaterialLibrary, MaterialRef};
 
 use super::{MuseumGrid, MuseumGridSection};
 use crate::editor::EditorCamera;
+use crate::particles::ParticleLibrary;
 use crate::scene::gltf_source::GltfSource;
 use crate::scene::primitives::PrimitiveMarker;
 use crate::scene::{regenerate_runtime_components, DirectionalLightMarker, PrimitiveShape, SceneEntity};
@@ -29,6 +30,8 @@ enum MuseumItemKind {
     Gltf { relative_path: String },
     /// A cube displaying a named material preset.
     MaterialPreset { preset_name: String },
+    /// A particle effect from a named preset.
+    ParticlePreset { preset_name: String },
 }
 
 /// A logical section of museum items.
@@ -72,6 +75,9 @@ pub fn generate_museum(world: &mut World) {
                 }
                 MuseumItemKind::MaterialPreset { preset_name } => {
                     spawn_museum_material_cube(world, preset_name, position, &name);
+                }
+                MuseumItemKind::ParticlePreset { preset_name } => {
+                    spawn_museum_particle(world, preset_name, position, &name);
                 }
             }
         }
@@ -172,7 +178,29 @@ fn collect_sections(world: &World) -> Vec<MuseumSection> {
         }
     }
 
-    // 3. Materials section — one cube per library preset
+    // 3. Particle presets section — one emitter per library preset
+    if let Some(library) = world.get_resource::<ParticleLibrary>() {
+        let mut particle_items: Vec<MuseumItem> = library
+            .effects
+            .keys()
+            .map(|name| MuseumItem {
+                display_name: name.clone(),
+                kind: MuseumItemKind::ParticlePreset {
+                    preset_name: name.clone(),
+                },
+            })
+            .collect();
+        particle_items.sort_by(|a, b| a.display_name.cmp(&b.display_name));
+
+        if !particle_items.is_empty() {
+            sections.push(MuseumSection {
+                title: "Particle Effects".to_string(),
+                items: particle_items,
+            });
+        }
+    }
+
+    // 4. Materials section — one cube per library preset
     if let Some(library) = world.get_resource::<MaterialLibrary>() {
         let mut mat_items: Vec<MuseumItem> = library
             .materials
@@ -320,6 +348,28 @@ fn spawn_museum_material_cube(
         MaterialRef::Library(preset_name.to_string()),
         Transform::from_translation(position),
         RigidBody::Static,
+    ));
+}
+
+/// Spawn a particle effect entity from a named preset.
+fn spawn_museum_particle(
+    world: &mut World,
+    preset_name: &str,
+    position: Vec3,
+    name: &str,
+) {
+    let marker = world
+        .get_resource::<ParticleLibrary>()
+        .and_then(|lib| lib.effects.get(preset_name).cloned())
+        .unwrap_or_default();
+
+    world.spawn((
+        SceneEntity,
+        Name::new(name.to_string()),
+        marker,
+        Transform::from_translation(position),
+        Visibility::default(),
+        Collider::sphere(crate::constants::physics::LIGHT_COLLIDER_RADIUS),
     ));
 }
 
