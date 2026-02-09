@@ -46,6 +46,7 @@ impl Plugin for ParticlePlugin {
             .register_type::<LinearDragData>()
             .register_type::<KillAabbData>()
             .register_type::<KillSphereData>()
+            .register_type::<ParticleSampleMapping>()
             .register_type::<RenderModifierData>()
             .init_resource::<ParticleLibrary>()
             .add_systems(PreStartup, init_particle_library)
@@ -185,6 +186,7 @@ fn auto_save_particle_presets(
 fn rebuild_particle_effects(
     mut commands: Commands,
     mut effects: ResMut<Assets<EffectAsset>>,
+    asset_server: Res<AssetServer>,
     query: Query<
         (Entity, &ParticleEffectMarker, Option<&Children>),
         (With<SceneEntity>, Changed<ParticleEffectMarker>),
@@ -202,16 +204,23 @@ fn rebuild_particle_effects(
         }
 
         // Build a fresh asset and spawn a new child
-        let asset = build::build_effect(marker);
-        let handle = effects.add(asset);
+        let built = build::build_effect(marker);
+        let handle = effects.add(built.asset);
 
-        let child = commands
-            .spawn((
-                ParticleEffectChild,
-                ParticleEffect::new(handle),
-            ))
-            .id();
+        let mut child_cmd = commands.spawn((
+            ParticleEffectChild,
+            ParticleEffect::new(handle),
+        ));
 
+        // If the effect uses a texture, attach EffectMaterial with the loaded image
+        if let Some(ref path) = built.texture_path {
+            let image_handle: Handle<Image> = asset_server.load(path.clone());
+            child_cmd.insert(EffectMaterial {
+                images: vec![image_handle],
+            });
+        }
+
+        let child = child_cmd.id();
         commands.entity(container).add_child(child);
     }
 }

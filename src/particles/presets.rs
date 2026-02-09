@@ -44,6 +44,10 @@ fn fire() -> ParticleEffectMarker {
             UpdateModifierData::LinearDrag(LinearDragData { drag: 1.5 }),
         ],
         render_modifiers: vec![
+            RenderModifierData::ParticleTexture {
+                path: Some("textures/particles/soft_circle.png".into()),
+                sample_mapping: ParticleSampleMapping::Modulate,
+            },
             RenderModifierData::ColorOverLifetime {
                 keys: vec![
                     GradientKeyData {
@@ -112,6 +116,10 @@ fn smoke() -> ParticleEffectMarker {
             UpdateModifierData::LinearDrag(LinearDragData { drag: 0.8 }),
         ],
         render_modifiers: vec![
+            RenderModifierData::ParticleTexture {
+                path: Some("textures/particles/smoke_puff.png".into()),
+                sample_mapping: ParticleSampleMapping::Modulate,
+            },
             RenderModifierData::ColorOverLifetime {
                 keys: vec![
                     GradientKeyData {
@@ -176,6 +184,10 @@ fn sparks() -> ParticleEffectMarker {
         }
         .into()],
         render_modifiers: vec![
+            RenderModifierData::ParticleTexture {
+                path: Some("textures/particles/spark.png".into()),
+                sample_mapping: ParticleSampleMapping::Modulate,
+            },
             RenderModifierData::ColorOverLifetime {
                 keys: vec![
                     GradientKeyData {
@@ -234,6 +246,10 @@ fn fountain() -> ParticleEffectMarker {
         }
         .into()],
         render_modifiers: vec![
+            RenderModifierData::ParticleTexture {
+                path: Some("textures/particles/droplet.png".into()),
+                sample_mapping: ParticleSampleMapping::Modulate,
+            },
             RenderModifierData::ColorOverLifetime {
                 keys: vec![
                     GradientKeyData {
@@ -303,6 +319,10 @@ fn magic_orb() -> ParticleEffectMarker {
             }),
         ],
         render_modifiers: vec![
+            RenderModifierData::ParticleTexture {
+                path: Some("textures/particles/soft_circle.png".into()),
+                sample_mapping: ParticleSampleMapping::Modulate,
+            },
             RenderModifierData::ColorOverLifetime {
                 keys: vec![
                     GradientKeyData {
@@ -363,6 +383,10 @@ fn snow() -> ParticleEffectMarker {
             UpdateModifierData::LinearDrag(LinearDragData { drag: 2.0 }),
         ],
         render_modifiers: vec![
+            RenderModifierData::ParticleTexture {
+                path: Some("textures/particles/snowflake.png".into()),
+                sample_mapping: ParticleSampleMapping::Modulate,
+            },
             RenderModifierData::ColorOverLifetime {
                 keys: vec![
                     GradientKeyData {

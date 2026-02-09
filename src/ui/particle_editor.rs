@@ -13,7 +13,7 @@ use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::particles::data::*;
 use crate::particles::ParticleLibrary;
 use crate::selection::Selected;
-use crate::ui::command_palette::CommandPaletteState;
+use crate::ui::command_palette::{CommandPaletteState, TexturePickResult, TextureSlot};
 use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame};
 
 pub struct ParticleEditorPlugin;
@@ -360,6 +360,21 @@ fn draw_particle_panel(world: &mut World) {
         }
     };
 
+    // Check for texture pick result before cloning marker
+    let pick_data = world.resource_mut::<TexturePickResult>().0.take();
+    if let Some(pick) = pick_data {
+        if pick.slot == TextureSlot::ParticleTexture && pick.entity == Some(entity) {
+            if let Some(mut m) = world.get_mut::<ParticleEffectMarker>(entity) {
+                for rm in &mut m.render_modifiers {
+                    if let RenderModifierData::ParticleTexture { path, .. } = rm {
+                        *path = Some(pick.path.clone());
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
     // Clone the marker data for editing
     let mut marker = world
         .get::<ParticleEffectMarker>(entity)
@@ -386,8 +401,7 @@ fn draw_particle_panel(world: &mut World) {
         egui_ctx.get_mut().clone()
     };
 
-    let available_height =
-        ctx.content_rect().height() - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
+    let available_height = panel::available_height(&ctx);
 
     // If pinned and the active mode also uses the right side, move to the left
     let displaced = is_pinned
@@ -404,9 +418,9 @@ fn draw_particle_panel(world: &mut World) {
     let mut browse_presets_clicked = false;
 
     egui::Window::new("Particle Effect")
-        .default_size([panel::DEFAULT_WIDTH, available_height])
+        .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
-        .min_height(panel::MIN_HEIGHT)
+        .min_height(available_height)
         .max_height(available_height)
         .anchor(anchor_align, anchor_offset)
         .resizable(true)
@@ -415,8 +429,6 @@ fn draw_particle_panel(world: &mut World) {
         .scroll(false)
         .frame(panel_frame(&ctx.style()))
         .show(&ctx, |ui| {
-            ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
-
             // Pin button and preset buttons (right-aligned)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 pin_toggled = draw_pin_button(ui, is_pinned);
@@ -476,6 +488,22 @@ fn draw_particle_panel(world: &mut World) {
                     ui.add_space(8.0);
                 });
         });
+
+    // Check if Browse button was clicked in texture card
+    let browse_texture = ctx.memory(|mem| {
+        mem.data
+            .get_temp::<bool>(egui::Id::new("particle_texture_browse"))
+            .unwrap_or(false)
+    });
+    if browse_texture {
+        ctx.memory_mut(|mem| {
+            mem.data
+                .insert_temp(egui::Id::new("particle_texture_browse"), false);
+        });
+        world
+            .resource_mut::<CommandPaletteState>()
+            .open_pick_texture(TextureSlot::ParticleTexture, Some(entity));
+    }
 
     // Write back if changed
     let changed = ron::to_string(&marker).ok() != ron::to_string(&original).ok();
@@ -542,8 +570,7 @@ fn draw_empty_panel(world: &mut World, is_pinned: bool, current_mode: EditorMode
         egui_ctx.get_mut().clone()
     };
 
-    let available_height =
-        ctx.content_rect().height() - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
+    let available_height = panel::available_height(&ctx);
 
     let displaced = is_pinned
         && current_mode != EditorMode::Particle
@@ -557,9 +584,9 @@ fn draw_empty_panel(world: &mut World, is_pinned: bool, current_mode: EditorMode
     let mut pin_toggled = false;
 
     egui::Window::new("Particle Effect")
-        .default_size([panel::DEFAULT_WIDTH, available_height])
+        .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
-        .min_height(panel::MIN_HEIGHT)
+        .min_height(available_height)
         .max_height(available_height)
         .anchor(anchor_align, anchor_offset)
         .resizable(true)
@@ -568,8 +595,6 @@ fn draw_empty_panel(world: &mut World, is_pinned: bool, current_mode: EditorMode
         .scroll(false)
         .frame(panel_frame(&ctx.style()))
         .show(&ctx, |ui| {
-            ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
-
             // Pin button (right-aligned)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 pin_toggled = draw_pin_button(ui, is_pinned);
@@ -1019,6 +1044,66 @@ fn draw_render_modifier_body(ui: &mut egui::Ui, m: &mut RenderModifierData, idx:
                     .color(colors::TEXT_MUTED)
                     .italics(),
             );
+        }
+        RenderModifierData::ParticleTexture { path, sample_mapping } => {
+            // Texture path display
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Texture").color(colors::TEXT_SECONDARY));
+                match path {
+                    Some(p) => {
+                        ui.label(
+                            egui::RichText::new(p.as_str())
+                                .color(colors::TEXT_PRIMARY)
+                                .small(),
+                        );
+                    }
+                    None => {
+                        ui.label(
+                            egui::RichText::new("None")
+                                .color(colors::TEXT_MUTED)
+                                .italics(),
+                        );
+                    }
+                }
+            });
+
+            // Browse / Clear buttons
+            ui.horizontal(|ui| {
+                if ui
+                    .button(egui::RichText::new("Browse").color(colors::ACCENT_PURPLE))
+                    .clicked()
+                {
+                    // Signal to the caller that we need to open the texture picker.
+                    // We set a marker in the UI's memory that the main panel reads.
+                    ui.memory_mut(|mem| {
+                        mem.data
+                            .insert_temp(egui::Id::new("particle_texture_browse"), true);
+                    });
+                }
+                if path.is_some()
+                    && ui
+                        .button(egui::RichText::new("Clear").color(colors::STATUS_ERROR))
+                        .clicked()
+                {
+                    *path = None;
+                }
+            });
+
+            // Sample mapping dropdown
+            egui::Grid::new(format!("ptex_mapping_{idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Mapping");
+                    egui::ComboBox::from_id_salt(format!("ptex_map_{idx}"))
+                        .selected_text(sample_mapping.label())
+                        .show_ui(ui, |ui| {
+                            for m_opt in &ParticleSampleMapping::ALL {
+                                ui.selectable_value(sample_mapping, *m_opt, m_opt.label());
+                            }
+                        });
+                    ui.end_row();
+                });
         }
     }
 }

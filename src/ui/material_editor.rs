@@ -548,6 +548,7 @@ fn draw_material_panel(world: &mut World) {
                     TextureSlot::Emissive => def.base.emissive_texture = Some(pick.path),
                     TextureSlot::Occlusion => def.base.occlusion_texture = Some(pick.path),
                     TextureSlot::DepthMap => def.base.depth_map_texture = Some(pick.path),
+                    TextureSlot::ParticleTexture => {} // Handled by particle editor
                 }
                 if let Some(entity) = first_entity {
                     // Apply immediately to entity
@@ -637,8 +638,7 @@ fn draw_material_panel(world: &mut World) {
     };
 
     // Calculate available height using shared panel settings
-    let available_height =
-        ctx.content_rect().height() - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
+    let available_height = panel::available_height(&ctx);
 
     // If pinned and the active mode also uses the right side, move to the left
     let displaced = is_pinned
@@ -653,9 +653,9 @@ fn draw_material_panel(world: &mut World) {
     let mut pin_toggled = false;
 
     egui::Window::new("Material")
-        .default_size([panel::DEFAULT_WIDTH, available_height])
+        .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
-        .min_height(panel::MIN_HEIGHT)
+        .min_height(available_height)
         .max_height(available_height)
         .anchor(anchor_align, anchor_offset)
         .resizable(true)
@@ -664,10 +664,6 @@ fn draw_material_panel(world: &mut World) {
         .scroll(false)
         .frame(panel_frame(&ctx.style()))
         .show(&ctx, |ui| {
-            ui.set_min_height(
-                available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING,
-            );
-
             // Pin button (right-aligned)
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
                 pin_toggled = draw_pin_button(ui, is_pinned);

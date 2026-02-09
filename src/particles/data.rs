@@ -189,6 +189,29 @@ impl ParticleAlphaMode {
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+pub enum ParticleSampleMapping {
+    /// Multiply full RGBA with particle color.
+    #[default]
+    Modulate,
+    /// Multiply RGB only, keep alpha from particle.
+    ModulateRGB,
+    /// Use red channel to modulate opacity.
+    ModulateOpacityFromR,
+}
+
+impl ParticleSampleMapping {
+    pub const ALL: [Self; 3] = [Self::Modulate, Self::ModulateRGB, Self::ModulateOpacityFromR];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Modulate => "Modulate",
+            Self::ModulateRGB => "Modulate RGB",
+            Self::ModulateOpacityFromR => "Opacity from R",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
 pub enum ParticleOrientMode {
     #[default]
     ParallelCameraDepthPlane,
@@ -457,6 +480,11 @@ pub enum RenderModifierData {
     Orient { mode: ParticleOrientMode },
     /// Render particles as screen-space sized.
     ScreenSpaceSize,
+    /// Apply a texture image to particles.
+    ParticleTexture {
+        path: Option<String>,
+        sample_mapping: ParticleSampleMapping,
+    },
 }
 
 impl RenderModifierData {
@@ -468,6 +496,7 @@ impl RenderModifierData {
             Self::SetSize { .. } => "Set Size",
             Self::Orient { .. } => "Orient",
             Self::ScreenSpaceSize => "Screen Space Size",
+            Self::ParticleTexture { .. } => "Particle Texture",
         }
     }
 
@@ -488,5 +517,9 @@ impl RenderModifierData {
         ("Set Size", || Self::SetSize { size: Vec3::splat(0.1) }),
         ("Orient (Billboard)", || Self::Orient { mode: ParticleOrientMode::ParallelCameraDepthPlane }),
         ("Screen Space Size", || Self::ScreenSpaceSize),
+        ("Particle Texture", || Self::ParticleTexture {
+            path: None,
+            sample_mapping: ParticleSampleMapping::Modulate,
+        }),
     ];
 }

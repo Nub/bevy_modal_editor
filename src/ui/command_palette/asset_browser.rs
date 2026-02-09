@@ -27,6 +27,7 @@ pub enum TextureSlot {
     Emissive,
     Occlusion,
     DepthMap,
+    ParticleTexture,
 }
 
 /// Result of a texture pick operation, consumed by the material editor

@@ -6,11 +6,18 @@ use bevy_hanabi::Gradient as HanabiGradient;
 
 use super::data::*;
 
+/// Result of building an effect, including optional texture info.
+pub struct BuiltEffect {
+    pub asset: EffectAsset,
+    /// Asset path of the particle texture (if any).
+    pub texture_path: Option<String>,
+}
+
 /// Build an `EffectAsset` from a `ParticleEffectMarker`.
 ///
 /// Creates a fresh `Module`, converts all stored values into `ExprHandle`s,
 /// constructs the modifiers, and assembles the final asset.
-pub fn build_effect(marker: &ParticleEffectMarker) -> EffectAsset {
+pub fn build_effect(marker: &ParticleEffectMarker) -> BuiltEffect {
     // --- Spawner ---
     let spawner = match &marker.spawner {
         SpawnerConfig::Rate { rate } => SpawnerSettings::rate((*rate).into()),
@@ -32,6 +39,18 @@ pub fn build_effect(marker: &ParticleEffectMarker) -> EffectAsset {
     let mut update_data: Vec<UpdateModBuilt> = Vec::new();
     for m in &marker.update_modifiers {
         update_data.push(build_update_modifier(&mut module, m));
+    }
+
+    // Check for a ParticleTexture render modifier and register a texture slot
+    let mut texture_slot_expr: Option<ExprHandle> = None;
+    let mut texture_path: Option<String> = None;
+    for m in &marker.render_modifiers {
+        if let RenderModifierData::ParticleTexture { path: Some(p), .. } = m {
+            texture_slot_expr = Some(module.lit(0u32));
+            module.add_texture_slot("color");
+            texture_path = Some(p.clone());
+            break;
+        }
     }
 
     // Now create the effect with the populated module
@@ -72,10 +91,13 @@ pub fn build_effect(marker: &ParticleEffectMarker) -> EffectAsset {
 
     // Apply render modifiers
     for m in &marker.render_modifiers {
-        effect = apply_render_modifier(effect, m);
+        effect = apply_render_modifier(effect, m, texture_slot_expr);
     }
 
-    effect
+    BuiltEffect {
+        asset: effect,
+        texture_path,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -284,7 +306,11 @@ fn apply_update_modifier(effect: EffectAsset, built: UpdateModBuilt) -> EffectAs
 // Render modifiers
 // ---------------------------------------------------------------------------
 
-fn apply_render_modifier(effect: EffectAsset, data: &RenderModifierData) -> EffectAsset {
+fn apply_render_modifier(
+    effect: EffectAsset,
+    data: &RenderModifierData,
+    texture_slot_expr: Option<ExprHandle>,
+) -> EffectAsset {
     match data {
         RenderModifierData::ColorOverLifetime { keys } => {
             let mut gradient = HanabiGradient::<Vec4>::new();
@@ -323,6 +349,28 @@ fn apply_render_modifier(effect: EffectAsset, data: &RenderModifierData) -> Effe
         }
         RenderModifierData::ScreenSpaceSize => {
             effect.render(ScreenSpaceSizeModifier)
+        }
+        RenderModifierData::ParticleTexture { path, sample_mapping } => {
+            // Only apply the modifier if we have a texture path (slot was registered)
+            if path.is_some() {
+                if let Some(slot) = texture_slot_expr {
+                    let mapping = match sample_mapping {
+                        ParticleSampleMapping::Modulate => ImageSampleMapping::Modulate,
+                        ParticleSampleMapping::ModulateRGB => ImageSampleMapping::ModulateRGB,
+                        ParticleSampleMapping::ModulateOpacityFromR => {
+                            ImageSampleMapping::ModulateOpacityFromR
+                        }
+                    };
+                    effect.render(ParticleTextureModifier {
+                        texture_slot: slot,
+                        sample_mapping: mapping,
+                    })
+                } else {
+                    effect
+                }
+            } else {
+                effect
+            }
         }
     }
 }
