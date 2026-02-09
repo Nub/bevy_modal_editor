@@ -13,6 +13,7 @@ use super::SceneEntity;
 use crate::commands::TakeSnapshotCommand;
 use crate::constants::{light_colors, physics, primitive_colors};
 use crate::materials::grid::GridMaterialProps;
+use crate::effects::{EffectLibrary, EffectMarker};
 use crate::particles::ParticleEffectMarker;
 use crate::selection::Selected;
 
@@ -210,6 +211,10 @@ pub enum SpawnEntityKind {
     ParticleEffect,
     /// A particle effect from a named preset
     ParticlePreset(String),
+    /// An effect (effect sequencer)
+    Effect,
+    /// An effect from a named preset
+    EffectPreset(String),
     /// A custom entity type registered by the game
     Custom(String),
 }
@@ -235,6 +240,8 @@ impl SpawnEntityKind {
             SpawnEntityKind::LShape => "L-Shape".to_string(),
             SpawnEntityKind::ParticleEffect => "Particle Effect".to_string(),
             SpawnEntityKind::ParticlePreset(name) => format!("Particle: {}", name),
+            SpawnEntityKind::Effect => "Effect".to_string(),
+            SpawnEntityKind::EffectPreset(name) => format!("Effect: {}", name),
             SpawnEntityKind::Custom(name) => name.clone(),
         }
     }
@@ -308,6 +315,7 @@ fn handle_spawn_entity(
     selected_entities: Query<Entity, With<Selected>>,
     custom_registry: Res<CustomEntityRegistry>,
     particle_library: Res<crate::particles::ParticleLibrary>,
+    effect_library: Res<EffectLibrary>,
 ) {
     for event in events.read() {
         // Deselect all currently selected entities
@@ -345,6 +353,15 @@ fn handle_spawn_entity(
                     .cloned()
                     .unwrap_or_default();
                 spawn_particle_effect_with_marker(&mut commands, event.position, event.rotation, &name, marker)
+            }
+            SpawnEntityKind::Effect => spawn_effect(&mut commands, event.position, event.rotation, &name, EffectMarker::default()),
+            SpawnEntityKind::EffectPreset(preset_name) => {
+                let marker = effect_library
+                    .effects
+                    .get(preset_name)
+                    .cloned()
+                    .unwrap_or_default();
+                spawn_effect(&mut commands, event.position, event.rotation, &name, marker)
             }
             SpawnEntityKind::Custom(type_name) => {
                 let entry = custom_registry
@@ -541,6 +558,26 @@ pub fn spawn_particle_effect_with_marker(
     rotation: Quat,
     name: &str,
     marker: ParticleEffectMarker,
+) -> Entity {
+    commands
+        .spawn((
+            SceneEntity,
+            Name::new(name.to_string()),
+            marker,
+            Transform::from_translation(position).with_rotation(rotation),
+            Visibility::default(),
+            Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
+        ))
+        .id()
+}
+
+/// Spawn an effect container entity with a specific marker configuration.
+pub fn spawn_effect(
+    commands: &mut Commands,
+    position: Vec3,
+    rotation: Quat,
+    name: &str,
+    marker: EffectMarker,
 ) -> Entity {
     commands
         .spawn((

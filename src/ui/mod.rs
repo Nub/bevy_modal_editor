@@ -3,6 +3,7 @@ mod camera_settings;
 mod command_palette;
 mod component_browser;
 mod edit_info;
+mod effect_editor;
 pub mod fuzzy_palette;
 pub mod gltf_preview;
 mod hierarchy;
@@ -76,6 +77,7 @@ impl Plugin for UiPlugin {
                 camera_settings::CameraSettingsPlugin,
                 material_preview::MaterialPreviewPlugin,
                 particle_editor::ParticleEditorPlugin,
+                effect_editor::EffectEditorPlugin,
                 ai_editor::AIEditorPlugin,
                 insert_preview::InsertPreviewPlugin,
                 gltf_preview::GltfPreviewPlugin,

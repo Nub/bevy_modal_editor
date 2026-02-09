@@ -1,0 +1,35 @@
+(
+    steps: [
+        (
+            name: "spawn_anchor",
+            trigger: AtTime(0.0),
+            actions: [
+                SpawnPrimitive(
+                    tag: "anchor",
+                    shape: Cube,
+                    offset: (0.0, 5.0, 0.0),
+                    material: None,
+                    rigid_body: Some(Dynamic),
+                ),
+                SetVelocity(
+                    tag: "anchor",
+                    velocity: (0.0, -8.0, 0.0),
+                ),
+            ],
+        ),
+        (
+            name: "impact",
+            trigger: OnCollision(
+                tag: "anchor",
+            ),
+            actions: [
+                SpawnParticle(
+                    tag: "dust",
+                    preset: "Smoke",
+                    at: CollisionPoint,
+                ),
+                EmitEvent("impact"),
+            ],
+        ),
+    ],
+)

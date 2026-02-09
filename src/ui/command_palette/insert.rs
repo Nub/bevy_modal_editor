@@ -51,6 +51,7 @@ fn action_to_preview_kind(action: &CommandAction) -> Option<InsertPreviewKind> {
         CommandAction::SpawnLShape => Some(InsertPreviewKind::LShape),
         CommandAction::SpawnParticleEffect => None, // No 3D preview for particles
         CommandAction::SpawnParticlePreset(_) => None, // No 3D preview for particle presets
+        CommandAction::SpawnEffectPreset(_) => None,   // No 3D preview for effect presets
         _ => None,
     }
 }
@@ -64,6 +65,7 @@ pub(super) fn draw_insert_palette(
     events: &mut CommandEvents,
     next_mode: &mut ResMut<NextState<EditorMode>>,
     particle_library: &Res<ParticleLibrary>,
+    effect_library: &Res<crate::effects::EffectLibrary>,
 ) -> Result {
     // Build insert item list from registry
     let mut items: Vec<InsertItem> = registry
@@ -93,6 +95,24 @@ pub(super) fn draw_insert_palette(
                 name.to_lowercase(),
             ],
             action: CommandAction::SpawnParticlePreset(name.clone()),
+        });
+    }
+
+    // Add effect presets as insertable items
+    let mut effect_preset_names: Vec<&String> = effect_library.effects.keys().collect();
+    effect_preset_names.sort();
+    for name in effect_preset_names {
+        items.push(InsertItem {
+            name: format!("Effect: {}", name),
+            category: "Effects".to_string(),
+            keywords: vec![
+                "effect".into(),
+                "preset".into(),
+                "sequence".into(),
+                "vfx".into(),
+                name.to_lowercase(),
+            ],
+            action: CommandAction::SpawnEffectPreset(name.clone()),
         });
     }
 
@@ -252,6 +272,13 @@ pub(super) fn draw_insert_palette(
                     // Spawn the particle preset directly (no click-to-place preview)
                     events.spawn_entity.write(crate::scene::SpawnEntityEvent {
                         kind: crate::scene::SpawnEntityKind::ParticlePreset(preset_name.clone()),
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    });
+                }
+                CommandAction::SpawnEffectPreset(preset_name) => {
+                    events.spawn_entity.write(crate::scene::SpawnEntityEvent {
+                        kind: crate::scene::SpawnEntityKind::EffectPreset(preset_name.clone()),
                         position: Vec3::ZERO,
                         rotation: Quat::IDENTITY,
                     });

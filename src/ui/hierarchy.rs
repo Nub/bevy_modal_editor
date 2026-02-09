@@ -166,9 +166,7 @@ fn draw_hierarchy_panel(
     let mut reparent_op: Option<(Entity, Option<Entity>)> = None;
 
     // Calculate available height using shared panel settings
-    let available_height = ctx.content_rect().height()
-        - panel::STATUS_BAR_HEIGHT
-        - panel::WINDOW_PADDING * 2.0;
+    let available_height = panel::available_height(ctx);
 
     // If pinned and the active mode also uses the left side, move to the right
     let displaced = is_pinned
@@ -181,9 +179,9 @@ fn draw_hierarchy_panel(
     };
 
     egui::Window::new("Scene")
-        .default_size([panel::DEFAULT_WIDTH, available_height])
+        .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
-        .min_height(panel::MIN_HEIGHT)
+        .min_height(available_height)
         .max_height(available_height)
         .anchor(anchor_align, anchor_offset)
         .resizable(true)
@@ -192,9 +190,6 @@ fn draw_hierarchy_panel(
         .scroll(false)
         .frame(panel_frame(&ctx.style()))
         .show(ctx, |ui| {
-            // Force the window content to fill available height
-            ui.set_min_height(available_height - panel::TITLE_BAR_HEIGHT - panel::BOTTOM_PADDING);
-
             // Tab bar with pin button
             ui.horizontal(|ui| {
                 if ui.selectable_label(hierarchy_state.tab == HierarchyTab::Scene, "Scene").clicked() {

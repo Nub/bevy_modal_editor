@@ -45,6 +45,7 @@
 pub mod commands;
 pub mod constants;
 pub mod editor;
+pub mod effects;
 pub mod gizmos;
 pub mod materials;
 pub mod navigation;

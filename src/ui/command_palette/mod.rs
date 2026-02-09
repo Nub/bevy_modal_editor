@@ -8,6 +8,7 @@
 mod asset_browser;
 pub(super) mod commands;
 pub(super) mod components;
+mod effect_preset;
 mod entity_picker;
 mod find_object;
 mod insert;
@@ -70,6 +71,8 @@ pub enum PaletteMode {
     MaterialPreset,
     /// Browse/apply/insert particle effect presets
     ParticlePreset,
+    /// Browse/apply/insert effect presets
+    EffectPreset,
     /// Browse asset files (load/save scene, insert GLTF, pick texture)
     AssetBrowser,
 }
@@ -191,6 +194,11 @@ impl CommandPaletteState {
     /// Open the palette in ParticlePreset mode
     pub fn open_particle_preset(&mut self) {
         self.open_mode(PaletteMode::ParticlePreset);
+    }
+
+    /// Open the palette in EffectPreset mode
+    pub fn open_effect_preset(&mut self) {
+        self.open_mode(PaletteMode::EffectPreset);
     }
 
     // ── AssetBrowser open helpers ──
@@ -368,6 +376,10 @@ fn handle_palette_toggle(
             state.open_particle_preset();
             return;
         }
+        if mode == EditorMode::Effect {
+            state.open_effect_preset();
+            return;
+        }
         if mode != EditorMode::Hierarchy {
             state.open_find_object();
             return;
@@ -426,6 +438,7 @@ struct ModeParams<'w> {
     editing_preset: ResMut<'w, EditingPreset>,
     library: Res<'w, MaterialLibrary>,
     particle_library: Res<'w, ParticleLibrary>,
+    effect_library: Res<'w, crate::effects::EffectLibrary>,
     editor_mode: Res<'w, State<EditorMode>>,
     type_registry: Res<'w, AppTypeRegistry>,
     custom_registry: Res<'w, CustomEntityRegistry>,
@@ -443,6 +456,7 @@ fn draw_command_palette(
     registry: Res<CommandRegistry>,
     selected: Query<Entity, With<Selected>>,
     selected_particles: Query<Entity, (With<Selected>, With<ParticleEffectMarker>)>,
+    selected_effects: Query<Entity, (With<Selected>, With<crate::effects::EffectMarker>)>,
     scene_objects: Query<(Entity, &Name), Or<(With<SceneEntity>, With<bevy_editor_game::GameEntity>)>>,
     entity_transforms: Query<(&Transform, Option<&avian3d::prelude::Collider>), Without<EditorCamera>>,
     mut camera_query: Query<
@@ -503,6 +517,7 @@ fn draw_command_palette(
                 &mut events,
                 &mut ab.next_mode,
                 &mp.particle_library,
+                &mp.effect_library,
             );
         }
         PaletteMode::FindObject => {
@@ -555,6 +570,21 @@ fn draw_command_palette(
                 &mut state,
                 &mp.particle_library,
                 selected_particle,
+                &mut bevy_commands,
+            );
+        }
+        PaletteMode::EffectPreset => {
+            if *mp.editor_mode.get() != EditorMode::Effect {
+                state.open = false;
+                return Ok(());
+            }
+            let ctx = contexts.ctx_mut()?;
+            let selected_effect = selected_effects.iter().next();
+            return effect_preset::draw_effect_preset_palette(
+                ctx,
+                &mut state,
+                &mp.effect_library,
+                selected_effect,
                 &mut bevy_commands,
             );
         }

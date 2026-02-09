@@ -10,10 +10,8 @@ use std::path::Path;
 use bevy::prelude::*;
 use bevy_hanabi::prelude::*;
 
-use crate::scene::SceneEntity;
-
 /// Marker on the child entity that holds the actual `ParticleEffect`.
-/// The parent (container) has `ParticleEffectMarker` + `SceneEntity`;
+/// The parent (container) typically has `ParticleEffectMarker`;
 /// this child is disposable and gets destroyed/recreated on every edit.
 #[derive(Component)]
 pub struct ParticleEffectChild;
@@ -189,7 +187,7 @@ fn rebuild_particle_effects(
     asset_server: Res<AssetServer>,
     query: Query<
         (Entity, &ParticleEffectMarker, Option<&Children>),
-        (With<SceneEntity>, Changed<ParticleEffectMarker>),
+        Changed<ParticleEffectMarker>,
     >,
     effect_children: Query<Entity, With<ParticleEffectChild>>,
 ) {

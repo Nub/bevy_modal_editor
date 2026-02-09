@@ -92,6 +92,8 @@ pub enum CommandAction {
     SpawnParticleEffect,
     /// Spawn a particle effect from a named preset
     SpawnParticlePreset(String),
+    /// Spawn an effect from a named preset
+    SpawnEffectPreset(String),
     /// Spawn a custom entity type registered by the game
     SpawnCustomEntity(String),
     /// Start simulation (play or resume)
@@ -918,6 +920,13 @@ fn execute_command(
         CommandAction::SpawnParticlePreset(ref preset_name) => {
             events.spawn_entity.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::ParticlePreset(preset_name.clone()),
+                position: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+            });
+        }
+        CommandAction::SpawnEffectPreset(ref preset_name) => {
+            events.spawn_entity.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::EffectPreset(preset_name.clone()),
                 position: Vec3::ZERO,
                 rotation: Quat::IDENTITY,
             });

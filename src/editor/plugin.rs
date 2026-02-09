@@ -23,6 +23,7 @@ use super::state::EditorStatePlugin;
 use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
 use crate::navigation::NavigationPlugin;
+use crate::effects::EffectPlugin;
 use crate::particles::ParticlePlugin;
 use crate::materials::MaterialsPlugin;
 use crate::prefabs::PrefabsPlugin;
@@ -201,6 +202,8 @@ impl Plugin for EditorPlugin {
             // Particles
             .add_plugins(bevy_hanabi::HanabiPlugin)
             .add_plugins(ParticlePlugin)
+            // Effects
+            .add_plugins(EffectPlugin)
             // Navigation (navmesh + pathfinding)
             .add_plugins(NavigationPlugin)
             // UI

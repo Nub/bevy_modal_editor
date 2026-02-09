@@ -66,8 +66,7 @@ fn draw_camera_settings_panel(world: &mut World) {
     };
 
     // Calculate panel position (left side, offset from top)
-    let available_height = ctx.input(|i: &egui::InputState| i.viewport_rect().height());
-    let panel_height = available_height - panel::STATUS_BAR_HEIGHT - panel::WINDOW_PADDING * 2.0;
+    let panel_height = panel::available_height(&ctx);
 
     // If pinned and the active mode also uses the left side, move to the right
     let displaced = is_pinned
@@ -87,6 +86,7 @@ fn draw_camera_settings_panel(world: &mut World) {
         .anchor(anchor_align, anchor_offset)
         .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
+        .min_height(panel_height)
         .max_height(panel_height)
         .resizable(true)
         .collapsible(false)

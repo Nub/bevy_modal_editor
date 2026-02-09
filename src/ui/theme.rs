@@ -46,6 +46,12 @@ pub mod panel {
     pub const TITLE_BAR_HEIGHT: f32 = 28.0;
     /// Bottom padding inside panel
     pub const BOTTOM_PADDING: f32 = 30.0;
+
+    /// Calculate the available panel height, accounting for the status bar and window padding.
+    /// Uses `screen_rect()` so the result is deterministic regardless of system execution order.
+    pub fn available_height(ctx: &bevy_egui::egui::Context) -> f32 {
+        ctx.input(|i| i.viewport_rect().height()) - STATUS_BAR_HEIGHT - WINDOW_PADDING * 2.0
+    }
 }
 
 /// Draw a pin toggle button. Returns true if clicked.

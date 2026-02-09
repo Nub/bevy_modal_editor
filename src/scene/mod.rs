@@ -73,6 +73,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<FogVolumeMarker>()
         // Particles
         .allow_component::<crate::particles::ParticleEffectMarker>()
+        // Effects
+        .allow_component::<crate::effects::EffectMarker>()
         // Blockout shapes
         .allow_component::<StairsMarker>()
         .allow_component::<RampMarker>()
@@ -527,6 +529,13 @@ impl Plugin for ScenePlugin {
             .register_type::<SplineType>()
             // Fog volume types
             .register_type::<FogVolumeMarker>()
+            // Effect types
+            .register_type::<crate::effects::EffectMarker>()
+            .register_type::<crate::effects::EffectStep>()
+            .register_type::<crate::effects::EffectTrigger>()
+            .register_type::<crate::effects::EffectAction>()
+            .register_type::<crate::effects::RigidBodyKind>()
+            .register_type::<crate::effects::SpawnLocation>()
             // Material types (new system)
             .register_type::<MaterialRef>()
             .register_type::<MaterialDefinition>()
