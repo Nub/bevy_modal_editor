@@ -1,5 +1,5 @@
 use avian3d::prelude::*;
-use bevy::light::FogVolume;
+use bevy::light::{ClusteredDecal, FogVolume};
 use bevy::prelude::*;
 use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
@@ -100,6 +100,34 @@ impl Default for FogVolumeMarker {
             light_intensity: 1.0,
         }
     }
+}
+
+/// Which decal rendering technique to use
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+pub enum DecalType {
+    /// Clustered decal (needs bindless textures; no WebGL2/macOS)
+    #[default]
+    Clustered,
+    /// Forward decal (works everywhere; needs DepthPrepass on camera)
+    Forward,
+}
+
+/// Marker component for decal entities (stores serializable texture paths)
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Default, Reflect)]
+#[reflect(Component)]
+pub struct DecalMarker {
+    pub base_color_path: Option<String>,
+    pub normal_map_path: Option<String>,
+    pub emissive_path: Option<String>,
+    #[serde(default)]
+    pub decal_type: DecalType,
+    /// Depth fade factor for Forward decals (in meters). Default 8.0.
+    #[serde(default = "default_depth_fade")]
+    pub depth_fade_factor: f32,
+}
+
+fn default_depth_fade() -> f32 {
+    8.0
 }
 
 /// Marker indicating the material type for an entity
@@ -218,6 +246,8 @@ pub enum SpawnEntityKind {
     Effect,
     /// An effect from a named preset
     EffectPreset(String),
+    /// A clustered decal (projected texture)
+    Decal,
     /// A custom entity type registered by the game
     Custom(String),
 }
@@ -245,6 +275,7 @@ impl SpawnEntityKind {
             SpawnEntityKind::ParticlePreset(name) => format!("Particle: {}", name),
             SpawnEntityKind::Effect => "Effect".to_string(),
             SpawnEntityKind::EffectPreset(name) => format!("Effect: {}", name),
+            SpawnEntityKind::Decal => "Decal".to_string(),
             SpawnEntityKind::Custom(name) => name.clone(),
         }
     }
@@ -366,6 +397,7 @@ fn handle_spawn_entity(
                     .unwrap_or_default();
                 spawn_effect(&mut commands, event.position, event.rotation, &name, marker)
             }
+            SpawnEntityKind::Decal => spawn_decal(&mut commands, event.position, event.rotation, &name),
             SpawnEntityKind::Custom(type_name) => {
                 let entry = custom_registry
                     .entries
@@ -591,6 +623,21 @@ pub fn spawn_effect(
             Transform::from_translation(position).with_rotation(rotation),
             Visibility::default(),
             Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),
+        ))
+        .id()
+}
+
+/// Spawn a decal entity with default settings
+pub fn spawn_decal(commands: &mut Commands, position: Vec3, rotation: Quat, name: &str) -> Entity {
+    commands
+        .spawn((
+            SceneEntity,
+            Name::new(name.to_string()),
+            DecalMarker::default(),
+            ClusteredDecal::default(),
+            Transform::from_translation(position).with_rotation(rotation),
+            Visibility::default(),
+            Collider::cuboid(0.5, 0.5, 0.5),
         ))
         .id()
 }

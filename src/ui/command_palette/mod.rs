@@ -40,7 +40,7 @@ use crate::ui::theme::colors;
 use crate::utils::should_process_input;
 
 // Re-export public types from submodules
-pub use asset_browser::{TexturePickData, TexturePickResult, TextureSlot};
+pub use asset_browser::{GltfPickData, GltfPickResult, TexturePickData, TexturePickResult, TextureSlot};
 pub use commands::{CommandAction, CommandRegistry};
 pub use entity_picker::{
     CurrentInspectedEntity, EntityPickerSelection, PendingEntityPickerRequest,
@@ -257,6 +257,13 @@ impl CommandPaletteState {
         );
     }
 
+    pub fn open_pick_gltf(&mut self, entity: Option<Entity>) {
+        self.open_asset_browser(
+            asset_browser::BrowseOperation::PickGltf { entity },
+            &["gltf", "glb"],
+        );
+    }
+
     // ── Aliases for backward compat in commands module ──
 
     pub(crate) fn open_asset_browser_insert_gltf(&mut self) {
@@ -323,6 +330,7 @@ impl Plugin for CommandPalettePlugin {
             .init_resource::<CurrentInspectedEntity>()
             .init_resource::<PendingEntityPickerRequest>()
             .init_resource::<TexturePickResult>()
+            .init_resource::<GltfPickResult>()
             .insert_resource(registry)
             .add_systems(PreStartup, commands::register_custom_entity_commands)
             .add_systems(Update, (handle_palette_toggle, components::populate_removable_components))
@@ -425,6 +433,7 @@ struct AssetBrowserParams<'w> {
     insert_state: ResMut<'w, InsertState>,
     next_mode: ResMut<'w, NextState<EditorMode>>,
     texture_pick: ResMut<'w, TexturePickResult>,
+    gltf_pick: ResMut<'w, GltfPickResult>,
     asset_server: Res<'w, AssetServer>,
     gltf_preview_state: ResMut<'w, GltfPreviewState>,
 }
@@ -598,6 +607,7 @@ fn draw_command_palette(
                 &mut ab.insert_state,
                 &mut ab.next_mode,
                 &mut ab.texture_pick,
+                &mut ab.gltf_pick,
                 &ab.asset_server,
                 &mut ab.gltf_preview_state,
             );

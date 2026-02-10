@@ -40,6 +40,7 @@ pub enum InsertPreviewKind {
     Ramp,
     Arch,
     LShape,
+    Decal,
 }
 
 /// State resource for the insert preview system.
@@ -224,6 +225,15 @@ fn sync_insert_preview_mesh(
             let mesh: Mesh = Cuboid::new(1.0, 1.0, 1.0).into();
             let mat = materials.add(StandardMaterial {
                 base_color: Color::srgba(0.7, 0.8, 1.0, 0.4),
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            });
+            (mesh, mat)
+        }
+        InsertPreviewKind::Decal => {
+            let mesh: Mesh = Cuboid::new(1.0, 1.0, 1.0).into();
+            let mat = materials.add(StandardMaterial {
+                base_color: Color::srgba(0.4, 0.9, 0.6, 0.5),
                 alpha_mode: AlphaMode::Blend,
                 ..default()
             });

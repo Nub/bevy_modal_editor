@@ -1,0 +1,92 @@
+(
+  resources: {},
+  entities: {
+    4294967197: (
+      components: {
+        "bevy_ecs::name::Name": "Sun Light",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 0.95,
+            blue: 0.85,
+            alpha: 1.0,
+          )),
+          intensity: 50000.0,
+          range: 50.0,
+          shadows_enabled: true,
+          radius: 0.0,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (5.0, 8.0, 5.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    4294967198: (
+      components: {
+        "bevy_ecs::name::Name": "Wall Decal",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::DecalMarker": (
+          base_color_path: Some("textures/decal_splat.png"),
+          normal_map_path: None,
+          emissive_path: None,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (2.0, 2.0, -4.35),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (2.0, 2.0, 1.0),
+        ),
+      },
+    ),
+    4294967199: (
+      components: {
+        "bevy_ecs::name::Name": "Floor Decal (Forward)",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::DecalMarker": (
+          base_color_path: Some("textures/decal_splat.png"),
+          normal_map_path: None,
+          emissive_path: None,
+          decal_type: Forward,
+          depth_fade_factor: 8.0,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-0.10000002, 0.4, -0.10000002),
+          rotation: (-0.70710677, 0.0, 0.0, 0.70710677),
+          scale: (3.0, 3.0, 1.0),
+        ),
+      },
+    ),
+    4294967200: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Wall",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, 2.0, -5.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (10.0, 4.0, 0.5),
+        ),
+      },
+    ),
+    4294967201: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Ground",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Cube,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (-0.029153146, -0.5212937, 0.022286197),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (20.0, 1.0, 20.0),
+        ),
+      },
+    ),
+  },
+)

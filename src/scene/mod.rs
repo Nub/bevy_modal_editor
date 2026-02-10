@@ -15,7 +15,8 @@ pub use serialization::*;
 
 use avian3d::prelude::*;
 use bevy::ecs::entity::EntityHashMap;
-use bevy::light::FogVolume;
+use bevy::light::{ClusteredDecal, FogVolume};
+use bevy::pbr::decal::{ForwardDecal, ForwardDecalMaterial, ForwardDecalMaterialExt};
 use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
 use bevy_editor_game::{
@@ -71,6 +72,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<Spline>()
         // Fog
         .allow_component::<FogVolumeMarker>()
+        // Decals
+        .allow_component::<DecalMarker>()
         // Particles
         .allow_component::<crate::particles::ParticleEffectMarker>()
         // Effects
@@ -256,6 +259,23 @@ pub fn regenerate_runtime_components(world: &mut World) {
         }
     }
 
+    // Handle decals — collect entities missing either decal runtime component
+    let mut decals_to_update: Vec<(Entity, DecalMarker)> = Vec::new();
+    {
+        let mut query = world.query_filtered::<(Entity, &DecalMarker), (
+            Without<ClusteredDecal>,
+            Without<ForwardDecal>,
+        )>();
+        for (entity, marker) in query.iter(world) {
+            decals_to_update.push((entity, marker.clone()));
+        }
+    }
+
+    let asset_server_for_decals = world.resource::<AssetServer>().clone();
+    for (entity, marker) in decals_to_update {
+        insert_decal_components(world, entity, &marker, &asset_server_for_decals);
+    }
+
     // Regenerate custom entity types
     if let Some(registry) = world.get_resource::<CustomEntityRegistry>() {
         let regen_entries: Vec<(fn(&World, Entity) -> bool, bevy_editor_game::RegenerateFn)> =
@@ -294,6 +314,78 @@ pub fn regenerate_runtime_components(world: &mut World) {
             world.resource::<AssetServer>().load(&asset_ref.path);
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.insert(SceneRoot(handle));
+        }
+    }
+}
+
+/// Insert the correct runtime decal components for the given marker.
+fn insert_decal_components(
+    world: &mut World,
+    entity: Entity,
+    marker: &DecalMarker,
+    asset_server: &AssetServer,
+) {
+    match marker.decal_type {
+        DecalType::Clustered => {
+            if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                entity_mut.insert((
+                    ClusteredDecal {
+                        base_color_texture: marker
+                            .base_color_path
+                            .as_ref()
+                            .map(|p| asset_server.load(p.clone())),
+                        normal_map_texture: marker
+                            .normal_map_path
+                            .as_ref()
+                            .map(|p| asset_server.load(p.clone())),
+                        emissive_texture: marker
+                            .emissive_path
+                            .as_ref()
+                            .map(|p| asset_server.load(p.clone())),
+                        ..default()
+                    },
+                    Visibility::default(),
+                    Collider::cuboid(0.5, 0.5, 0.5),
+                ));
+                // Ensure no stale Forward components
+                entity_mut.remove::<ForwardDecal>();
+                entity_mut.remove::<MeshMaterial3d<ForwardDecalMaterial<StandardMaterial>>>();
+            }
+        }
+        DecalType::Forward => {
+            let base_mat = StandardMaterial {
+                base_color_texture: marker
+                    .base_color_path
+                    .as_ref()
+                    .map(|p| asset_server.load(p.clone())),
+                normal_map_texture: marker
+                    .normal_map_path
+                    .as_ref()
+                    .map(|p| asset_server.load(p.clone())),
+                emissive_texture: marker
+                    .emissive_path
+                    .as_ref()
+                    .map(|p| asset_server.load(p.clone())),
+                ..default()
+            };
+            let handle = world
+                .resource_mut::<Assets<ForwardDecalMaterial<StandardMaterial>>>()
+                .add(ForwardDecalMaterial {
+                    base: base_mat,
+                    extension: ForwardDecalMaterialExt {
+                        depth_fade_factor: marker.depth_fade_factor,
+                    },
+                });
+            if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                entity_mut.insert((
+                    ForwardDecal,
+                    MeshMaterial3d(handle),
+                    Visibility::default(),
+                    Collider::cuboid(0.5, 0.5, 0.5),
+                ));
+                // Ensure no stale Clustered components
+                entity_mut.remove::<ClusteredDecal>();
+            }
         }
     }
 }
@@ -516,7 +608,7 @@ impl Plugin for ScenePlugin {
             .add_plugins(BlockoutPlugin)
             .add_plugins(generators::SceneGeneratorPlugin)
             .add_message::<SpawnDemoSceneEvent>()
-            .add_systems(Update, handle_spawn_demo_scene)
+            .add_systems(Update, (handle_spawn_demo_scene, sync_decal_markers))
             // Register types for scene serialization
             .register_type::<SceneEntity>()
             .register_type::<SceneProceduralObject>()
@@ -537,6 +629,9 @@ impl Plugin for ScenePlugin {
             .register_type::<crate::modeling::marker::EditMeshMarker>()
             // Fog volume types
             .register_type::<FogVolumeMarker>()
+            // Decal types
+            .register_type::<DecalMarker>()
+            .register_type::<DecalType>()
             // Effect types
             .register_type::<crate::effects::EffectMarker>()
             .register_type::<crate::effects::EffectStep>()
@@ -557,6 +652,26 @@ impl Plugin for ScenePlugin {
             // Asset reference types
             .register_type::<AssetRef>()
             .register_type::<bevy_editor_game::AssetType>();
+    }
+}
+
+/// When `DecalMarker` changes (e.g. from inspector edits), rebuild decal runtime components.
+fn sync_decal_markers(world: &mut World) {
+    let changed_decals: Vec<(Entity, DecalMarker)> = {
+        let mut query = world.query_filtered::<(Entity, &DecalMarker), Changed<DecalMarker>>();
+        query
+            .iter(world)
+            .map(|(e, m)| (e, m.clone()))
+            .collect()
+    };
+
+    if changed_decals.is_empty() {
+        return;
+    }
+
+    let asset_server = world.resource::<AssetServer>().clone();
+    for (entity, marker) in changed_decals {
+        insert_decal_components(world, entity, &marker, &asset_server);
     }
 }
 

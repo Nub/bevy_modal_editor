@@ -9,14 +9,14 @@ use std::any::TypeId;
 
 use bevy_editor_game::{CustomEntityRegistry, InspectorWidgetFn, SceneComponentRegistry};
 
-use super::command_palette::{open_add_component_palette, CommandPaletteState, draw_entity_field, make_callback_id, PendingEntitySelection};
+use super::command_palette::{open_add_component_palette, CommandPaletteState, TexturePickResult, TextureSlot, draw_entity_field, make_callback_id, PendingEntitySelection};
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::commands::TakeSnapshotCommand;
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::scene::{
     blockout::{ArchMarker, LShapeMarker, RampMarker, StairsMarker},
-    DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker,
+    DecalMarker, DecalType, DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker,
 };
 use crate::selection::Selected;
 use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame, section_header, value_slider, DRAG_VALUE_WIDTH};
@@ -236,6 +236,33 @@ impl From<&LShapeMarker> for LShapeData {
             height: marker.height,
         }
     }
+}
+
+/// Data for decal editing
+struct DecalData {
+    base_color_path: Option<String>,
+    normal_map_path: Option<String>,
+    emissive_path: Option<String>,
+    decal_type: DecalType,
+    depth_fade_factor: f32,
+}
+
+impl From<&DecalMarker> for DecalData {
+    fn from(marker: &DecalMarker) -> Self {
+        Self {
+            base_color_path: marker.base_color_path.clone(),
+            normal_map_path: marker.normal_map_path.clone(),
+            emissive_path: marker.emissive_path.clone(),
+            decal_type: marker.decal_type,
+            depth_fade_factor: marker.depth_fade_factor,
+        }
+    }
+}
+
+/// Result from drawing decal texture slot UI
+struct DecalTextureResult {
+    changed: bool,
+    browse_requested: Option<TextureSlot>,
 }
 
 /// Data for SplineFollower editing
@@ -695,6 +722,113 @@ fn draw_lshape_section(ui: &mut egui::Ui, data: &mut LShapeData) -> bool {
     });
 
     changed
+}
+
+/// Draw a single decal texture row (label + filename + Browse + Clear)
+fn draw_decal_texture_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    slot: TextureSlot,
+    path: &mut Option<String>,
+    result: &mut DecalTextureResult,
+) {
+    grid_label(ui, label);
+    ui.horizontal(|ui| {
+        let display = path
+            .as_ref()
+            .and_then(|p| p.rsplit('/').next())
+            .unwrap_or("None");
+        ui.label(
+            egui::RichText::new(display)
+                .color(if path.is_some() {
+                    colors::TEXT_PRIMARY
+                } else {
+                    colors::TEXT_MUTED
+                })
+                .small(),
+        );
+
+        if ui
+            .small_button("Browse")
+            .on_hover_text("Pick an image file")
+            .clicked()
+        {
+            result.browse_requested = Some(slot);
+        }
+
+        if path.is_some()
+            && ui
+                .small_button("X")
+                .on_hover_text("Clear texture")
+                .clicked()
+        {
+            *path = None;
+            result.changed = true;
+        }
+    });
+    ui.end_row();
+}
+
+/// Draw decal properties section with texture selectors
+fn draw_decal_section(ui: &mut egui::Ui, data: &mut DecalData) -> DecalTextureResult {
+    let mut result = DecalTextureResult {
+        changed: false,
+        browse_requested: None,
+    };
+
+    section_header(ui, "Decal", true, |ui| {
+        egui::Grid::new("decal_grid")
+            .num_columns(2)
+            .spacing([8.0, 4.0])
+            .show(ui, |ui| {
+                // Decal type selector
+                grid_label(ui, "Type");
+                let mut type_idx: usize = match data.decal_type {
+                    DecalType::Clustered => 0,
+                    DecalType::Forward => 1,
+                };
+                let prev_idx = type_idx;
+                egui::ComboBox::from_id_salt("decal_type")
+                    .selected_text(match data.decal_type {
+                        DecalType::Clustered => "Clustered",
+                        DecalType::Forward => "Forward",
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut type_idx, 0, "Clustered");
+                        ui.selectable_value(&mut type_idx, 1, "Forward");
+                    });
+                if type_idx != prev_idx {
+                    data.decal_type = match type_idx {
+                        1 => DecalType::Forward,
+                        _ => DecalType::Clustered,
+                    };
+                    result.changed = true;
+                }
+                ui.end_row();
+
+                // Depth fade factor (Forward only)
+                if data.decal_type == DecalType::Forward {
+                    grid_label(ui, "Depth Fade");
+                    let prev = data.depth_fade_factor;
+                    ui.add(
+                        egui::DragValue::new(&mut data.depth_fade_factor)
+                            .speed(0.1)
+                            .range(0.01..=100.0)
+                            .suffix(" m"),
+                    );
+                    if data.depth_fade_factor != prev {
+                        result.changed = true;
+                    }
+                    ui.end_row();
+                }
+
+                draw_decal_texture_row(ui, "Base Color", TextureSlot::DecalBaseColor, &mut data.base_color_path, &mut result);
+                draw_decal_texture_row(ui, "Normal Map", TextureSlot::DecalNormalMap, &mut data.normal_map_path, &mut result);
+                draw_decal_texture_row(ui, "Emissive", TextureSlot::DecalEmissive, &mut data.emissive_path, &mut result);
+            });
+    });
+
+    result
 }
 
 /// Draw SplineFollower properties section
@@ -1160,6 +1294,49 @@ fn draw_inspector_panel(world: &mut World) {
         world.get::<FogVolumeMarker>(e).map(|m| FogVolumeData::from(m))
     });
 
+    // Get decal data for single selection
+    let mut decal_data = single_entity.and_then(|e| {
+        world.get::<DecalMarker>(e).map(|m| DecalData::from(m))
+    });
+
+    // Check for texture pick result targeting decal slots
+    if let (Some(entity), Some(data)) = (single_entity, &mut decal_data) {
+        let pick_data = world.resource_mut::<TexturePickResult>().0.take();
+        if let Some(pick) = pick_data {
+            if pick.entity == Some(entity) {
+                let applied = match pick.slot {
+                    TextureSlot::DecalBaseColor => {
+                        data.base_color_path = Some(pick.path.clone());
+                        true
+                    }
+                    TextureSlot::DecalNormalMap => {
+                        data.normal_map_path = Some(pick.path.clone());
+                        true
+                    }
+                    TextureSlot::DecalEmissive => {
+                        data.emissive_path = Some(pick.path.clone());
+                        true
+                    }
+                    _ => false,
+                };
+                if applied {
+                    // Apply immediately to marker so sync_decal_markers picks it up
+                    if let Some(mut marker) = world.get_mut::<DecalMarker>(entity) {
+                        marker.base_color_path = data.base_color_path.clone();
+                        marker.normal_map_path = data.normal_map_path.clone();
+                        marker.emissive_path = data.emissive_path.clone();
+                    }
+                } else {
+                    // Not a decal slot — put it back for other editors
+                    world.resource_mut::<TexturePickResult>().0 = Some(pick);
+                }
+            } else {
+                // Different entity — put it back
+                world.resource_mut::<TexturePickResult>().0 = Some(pick);
+            }
+        }
+    }
+
     // Get blockout shape data for single selection
     let mut stairs_data = single_entity.and_then(|e| {
         world.get::<StairsMarker>(e).map(|m| StairsData::from(m))
@@ -1206,6 +1383,8 @@ fn draw_inspector_panel(world: &mut World) {
     let mut point_light_changed = false;
     let mut directional_light_changed = false;
     let mut fog_volume_changed = false;
+    let mut decal_changed = false;
+    let mut decal_browse_requested: Option<TextureSlot> = None;
     let mut stairs_changed = false;
     let mut ramp_changed = false;
     let mut arch_changed = false;
@@ -1366,6 +1545,14 @@ fn draw_inspector_panel(world: &mut World) {
                             // Fog volume properties
                             if let Some(ref mut data) = fog_volume_data {
                                 fog_volume_changed = draw_fog_volume_section(ui, data);
+                                ui.add_space(4.0);
+                            }
+
+                            // Decal properties
+                            if let Some(ref mut data) = decal_data {
+                                let result = draw_decal_section(ui, data);
+                                decal_changed |= result.changed;
+                                decal_browse_requested = result.browse_requested;
                                 ui.add_space(4.0);
                             }
 
@@ -1631,6 +1818,7 @@ fn draw_inspector_panel(world: &mut World) {
         || point_light_changed
         || directional_light_changed
         || fog_volume_changed
+        || decal_changed
         || stairs_changed
         || ramp_changed
         || arch_changed
@@ -1794,6 +1982,26 @@ fn draw_inspector_panel(world: &mut World) {
                 fog.light_intensity = data.light_intensity;
             }
         }
+    }
+
+    // Apply decal changes (sync_decal_markers handles runtime component rebuild)
+    if decal_changed {
+        if let (Some(entity), Some(data)) = (single_entity, decal_data) {
+            if let Some(mut marker) = world.get_mut::<DecalMarker>(entity) {
+                marker.base_color_path = data.base_color_path;
+                marker.normal_map_path = data.normal_map_path;
+                marker.emissive_path = data.emissive_path;
+                marker.decal_type = data.decal_type;
+                marker.depth_fade_factor = data.depth_fade_factor;
+            }
+        }
+    }
+
+    // Open decal texture picker if requested
+    if let Some(slot) = decal_browse_requested {
+        world
+            .resource_mut::<CommandPaletteState>()
+            .open_pick_texture(slot, single_entity);
     }
 
     // Apply blockout shape changes (mesh regeneration is handled by Changed<T> systems)

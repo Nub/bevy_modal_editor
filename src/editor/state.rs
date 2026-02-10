@@ -252,6 +252,8 @@ pub enum InsertObjectType {
     LShape,
     /// Particle effect (bevy_hanabi)
     ParticleEffect,
+    /// Clustered decal (projected texture)
+    Decal,
 }
 
 /// Marker component for preview entities in Insert mode

@@ -28,6 +28,10 @@ pub enum TextureSlot {
     Occlusion,
     DepthMap,
     ParticleTexture,
+    DecalBaseColor,
+    DecalNormalMap,
+    DecalEmissive,
+    EffectDecalTexture,
 }
 
 /// Result of a texture pick operation, consumed by the material editor
@@ -37,6 +41,16 @@ pub struct TexturePickResult(pub Option<TexturePickData>);
 /// Data for a completed texture pick
 pub struct TexturePickData {
     pub slot: TextureSlot,
+    pub entity: Option<Entity>,
+    pub path: String,
+}
+
+/// Result of a GLTF pick operation (e.g. from effect editor)
+#[derive(Resource, Default)]
+pub struct GltfPickResult(pub Option<GltfPickData>);
+
+/// Data for a completed GLTF pick
+pub struct GltfPickData {
     pub entity: Option<Entity>,
     pub path: String,
 }
@@ -51,6 +65,7 @@ pub(crate) enum BrowseOperation {
     InsertGltf,
     InsertScene,
     PickTexture { slot: TextureSlot, entity: Option<Entity> },
+    PickGltf { entity: Option<Entity> },
 }
 
 // ── Asset file item ──────────────────────────────────────────────────
@@ -167,6 +182,7 @@ pub(super) fn draw_asset_browser(
     insert_state: &mut ResMut<InsertState>,
     next_mode: &mut ResMut<NextState<EditorMode>>,
     texture_pick: &mut ResMut<TexturePickResult>,
+    gltf_pick: &mut ResMut<GltfPickResult>,
     asset_server: &Res<AssetServer>,
     gltf_preview_state: &mut ResMut<GltfPreviewState>,
 ) -> Result {
@@ -215,6 +231,13 @@ pub(super) fn draw_asset_browser(
             colors::ACCENT_PURPLE,
             "Select a texture image",
             "Type to search textures...",
+            "select",
+        ),
+        BrowseOperation::PickGltf { .. } => (
+            "PICK MODEL",
+            colors::ACCENT_ORANGE,
+            "Select a GLTF/GLB model",
+            "Type to search models...",
             "select",
         ),
     };
@@ -280,7 +303,7 @@ pub(super) fn draw_asset_browser(
         } else {
             None
         }
-    } else if matches!(&operation, BrowseOperation::InsertGltf) {
+    } else if matches!(&operation, BrowseOperation::InsertGltf | BrowseOperation::PickGltf { .. }) {
         // Resolve the currently highlighted item's path for GLTF preview
         let filtered = fuzzy_filter(&state.asset_items, &palette_state.query);
         let highlighted_path = filtered
@@ -393,6 +416,12 @@ pub(super) fn draw_asset_browser(
                 BrowseOperation::PickTexture { slot, entity } => {
                     texture_pick.0 = Some(TexturePickData {
                         slot: *slot,
+                        entity: *entity,
+                        path: relative_path,
+                    });
+                }
+                BrowseOperation::PickGltf { entity } => {
+                    gltf_pick.0 = Some(GltfPickData {
                         entity: *entity,
                         path: relative_path,
                     });

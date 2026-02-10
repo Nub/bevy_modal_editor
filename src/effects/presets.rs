@@ -3,15 +3,14 @@
 use bevy::prelude::*;
 
 use super::data::*;
-use crate::scene::PrimitiveShape;
 
 /// Return the built-in default effect presets as `(name, marker)` pairs.
 pub fn default_presets() -> Vec<(&'static str, EffectMarker)> {
     vec![("Falling Impact", falling_impact())]
 }
 
-/// A cube spawned at height falls under gravity; on collision, spawns dust
-/// particles and rock chunks, then emits an "impact" event.
+/// A GLTF model spawned at height falls under gravity; on collision, spawns dust
+/// particles, sparks, a ground crack decal, then emits an "impact" event.
 fn falling_impact() -> EffectMarker {
     EffectMarker {
         steps: vec![
@@ -19,11 +18,11 @@ fn falling_impact() -> EffectMarker {
                 name: "spawn_anchor".into(),
                 trigger: EffectTrigger::AtTime(0.0),
                 actions: vec![
-                    EffectAction::SpawnPrimitive {
+                    EffectAction::SpawnGltf {
                         tag: "anchor".into(),
-                        shape: PrimitiveShape::Cube,
-                        offset: Vec3::new(0.0, 5.0, 0.0),
-                        material: None,
+                        path: "objects/Duck.glb".into(),
+                        at: SpawnLocation::Offset(Vec3::new(0.0, 5.0, 0.0)),
+                        scale: Vec3::splat(1.0),
                         rigid_body: Some(RigidBodyKind::Dynamic),
                     },
                     EffectAction::SetVelocity {
@@ -47,6 +46,12 @@ fn falling_impact() -> EffectMarker {
                         tag: "sparks".into(),
                         preset: "Sparks".into(),
                         at: SpawnLocation::CollisionPoint,
+                    },
+                    EffectAction::SpawnDecal {
+                        tag: "crack".into(),
+                        texture_path: "textures/decal_splat.png".into(),
+                        at: SpawnLocation::CollisionPoint,
+                        scale: Vec3::splat(2.0),
                     },
                     EffectAction::EmitEvent("impact".into()),
                 ],

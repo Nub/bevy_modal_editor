@@ -12,7 +12,7 @@ use bevy_editor_game::CustomEntityRegistry;
 use avian3d::prelude::{Collider, SimpleCollider};
 
 use crate::editor::EditorState;
-use crate::scene::{DirectionalLightMarker, SceneLightMarker, SplineMarker};
+use crate::scene::{DecalMarker, DirectionalLightMarker, SceneLightMarker, SplineMarker};
 use crate::selection::Selected;
 use crate::ui::Settings;
 
@@ -38,7 +38,7 @@ impl Plugin for EditorGizmosPlugin {
             .add_plugins(TransformGizmoPlugin)
             .add_plugins(InfiniteGridPlugin)
             .add_systems(PreStartup, (configure_gizmos, spawn_grid))
-            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos, draw_custom_entity_gizmos, draw_meshless_selection_gizmos));
+            .add_systems(Update, (update_gizmo_settings, draw_directional_light_gizmos, draw_point_light_gizmos, draw_decal_gizmos, draw_custom_entity_gizmos, draw_meshless_selection_gizmos));
     }
 }
 
@@ -199,6 +199,24 @@ fn draw_point_light_gizmos(
             gizmos.circle(Isometry3d::new(position, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)), range, range_color);
             gizmos.circle(Isometry3d::new(position, Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)), range, range_color);
         }
+    }
+}
+
+/// Draw wireframe cube for selected decals showing the projection volume.
+fn draw_decal_gizmos(
+    mut gizmos: Gizmos,
+    decals: Query<&GlobalTransform, (With<DecalMarker>, With<Selected>)>,
+    editor_state: Res<EditorState>,
+) {
+    if !editor_state.gizmos_visible {
+        return;
+    }
+
+    let color = Color::srgba(0.3, 0.9, 0.5, 0.6);
+
+    for global_transform in &decals {
+        let t = global_transform.compute_transform();
+        gizmos.cube(t, color);
     }
 }
 

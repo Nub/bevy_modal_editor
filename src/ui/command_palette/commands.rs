@@ -94,6 +94,8 @@ pub enum CommandAction {
     SpawnParticlePreset(String),
     /// Spawn an effect from a named preset
     SpawnEffectPreset(String),
+    /// Spawn a clustered decal
+    SpawnDecal,
     /// Spawn a custom entity type registered by the game
     SpawnCustomEntity(String),
     /// Start simulation (play or resume)
@@ -265,6 +267,15 @@ impl CommandRegistry {
             keywords: vec!["particle".into(), "emitter".into(), "vfx".into(), "fx".into(), "hanabi".into(), "fire".into(), "smoke".into(), "sparks".into()],
             category: "Effects",
             action: CommandAction::SpawnParticleEffect,
+            insertable: true,
+        });
+
+        // Decals (insertable)
+        self.commands.push(Command {
+            name: "Add Decal".to_string(),
+            keywords: vec!["decal".into(), "sticker".into(), "projected".into(), "texture".into(), "splat".into()],
+            category: "Effects",
+            action: CommandAction::SpawnDecal,
             insertable: true,
         });
 
@@ -927,6 +938,13 @@ fn execute_command(
         CommandAction::SpawnEffectPreset(ref preset_name) => {
             events.spawn_entity.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::EffectPreset(preset_name.clone()),
+                position: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+            });
+        }
+        CommandAction::SpawnDecal => {
+            events.spawn_entity.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Decal,
                 position: Vec3::ZERO,
                 rotation: Quat::IDENTITY,
             });

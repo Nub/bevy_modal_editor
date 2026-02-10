@@ -378,6 +378,21 @@ pub fn spawn_preview_entity(
                 ))
                 .id()
         }
+        InsertObjectType::Decal => {
+            // Show a semi-transparent cube representing the decal projection volume
+            commands
+                .spawn((
+                    InsertPreview,
+                    Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
+                    MeshMaterial3d(materials.add(StandardMaterial {
+                        base_color: Color::srgba(0.4, 0.9, 0.6, 0.3),
+                        alpha_mode: AlphaMode::Blend,
+                        ..default()
+                    })),
+                    Transform::from_translation(Vec3::ZERO),
+                ))
+                .id()
+        }
     }
 }
 
@@ -611,6 +626,7 @@ fn handle_insert_click(
         InsertObjectType::Arch => "Arch".to_string(),
         InsertObjectType::LShape => "L-Shape".to_string(),
         InsertObjectType::ParticleEffect => "Particle Effect".to_string(),
+        InsertObjectType::Decal => "Decal".to_string(),
     };
     commands.queue(TakeSnapshotCommand {
         description: format!("Insert {}", object_name),
@@ -709,6 +725,13 @@ fn handle_insert_click(
         InsertObjectType::ParticleEffect => {
             spawn_entity_events.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::ParticleEffect,
+                position,
+                rotation,
+            });
+        }
+        InsertObjectType::Decal => {
+            spawn_entity_events.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Decal,
                 position,
                 rotation,
             });

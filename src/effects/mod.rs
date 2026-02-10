@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use avian3d::prelude::*;
+use bevy::light::ClusteredDecal;
 use bevy::prelude::*;
 
 use crate::constants::physics;
@@ -225,6 +226,7 @@ fn advance_effects(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     particle_library: Res<ParticleLibrary>,
+    asset_server: Res<AssetServer>,
 ) {
     for (effect_entity, marker, mut playback, effect_transform) in &mut effects {
         if playback.state != PlaybackState::Playing {
@@ -259,6 +261,7 @@ fn advance_effects(
                     &mut meshes,
                     &mut materials,
                     &particle_library,
+                    &asset_server,
                     effect_entity,
                     effect_transform,
                     &mut playback,
@@ -287,6 +290,7 @@ fn execute_action(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     particle_library: &ParticleLibrary,
+    asset_server: &AssetServer,
     effect_entity: Entity,
     effect_transform: &GlobalTransform,
     playback: &mut EffectPlayback,
@@ -392,6 +396,61 @@ fn execute_action(
                         .insert(GravityScale(0.0));
                 }
             }
+        }
+        EffectAction::SpawnGltf { tag, path, at, scale, rigid_body } => {
+            let pos = match at {
+                SpawnLocation::Offset(offset) => effect_transform.translation() + *offset,
+                SpawnLocation::CollisionPoint => playback
+                    .last_collision_point
+                    .unwrap_or_else(|| effect_transform.translation()),
+            };
+
+            let mut entity_cmds = commands.spawn((
+                EffectChild {
+                    effect_entity,
+                    tag: tag.clone(),
+                },
+                crate::scene::GltfSource {
+                    path: path.clone(),
+                    scene_index: 0,
+                },
+                Transform::from_translation(pos).with_scale(*scale),
+            ));
+
+            if let Some(rb_kind) = rigid_body {
+                entity_cmds.insert(rb_kind.to_rigid_body());
+            }
+
+            let child = entity_cmds.id();
+            playback.spawned.insert(tag.clone(), child);
+        }
+        EffectAction::SpawnDecal { tag, texture_path, at, scale } => {
+            let pos = match at {
+                SpawnLocation::Offset(offset) => effect_transform.translation() + *offset,
+                SpawnLocation::CollisionPoint => playback
+                    .last_collision_point
+                    .unwrap_or_else(|| effect_transform.translation()),
+            };
+            let texture = if texture_path.is_empty() {
+                None
+            } else {
+                Some(asset_server.load(texture_path.clone()))
+            };
+
+            let child = commands
+                .spawn((
+                    EffectChild {
+                        effect_entity,
+                        tag: tag.clone(),
+                    },
+                    ClusteredDecal {
+                        base_color_texture: texture,
+                        ..default()
+                    },
+                    Transform::from_translation(pos).with_scale(*scale),
+                ))
+                .id();
+            playback.spawned.insert(tag.clone(), child);
         }
     }
 }

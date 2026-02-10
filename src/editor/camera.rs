@@ -1,4 +1,5 @@
 use avian3d::prelude::*;
+use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll};
 use bevy::light::VolumetricFog;
 use bevy::prelude::*;
@@ -167,6 +168,7 @@ fn spawn_editor_camera(mut commands: Commands) {
         fly_cam,
         PrimaryEguiContext,
         Hdr,
+        DepthPrepass,
         Transform::from_translation(Vec3::new(0.0, 5.0, 10.0)).with_rotation(rotation),
         // Enable volumetric fog system (requires FogVolume entities to be visible)
         VolumetricFog {
@@ -234,9 +236,11 @@ fn camera_movement(
     mut query: Query<&mut Transform, With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
-    // In Edit mode, only allow camera movement when right mouse button is held
-    // (otherwise WASD is used for axis selection)
-    if *mode.get() == EditorMode::Edit && !mouse_button.pressed(MouseButton::Right) {
+    // In Edit/Effect modes, only allow camera movement when right mouse button is held
+    // (Edit: WASD reserved for axis selection; Effect: avoid accidental fly-through)
+    if matches!(*mode.get(), EditorMode::Edit | EditorMode::Effect)
+        && !mouse_button.pressed(MouseButton::Right)
+    {
         return;
     }
 

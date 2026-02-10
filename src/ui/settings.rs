@@ -500,7 +500,8 @@ fn load_custom_fonts(mut contexts: EguiContexts, mut fonts_loaded: ResMut<FontsL
     // Load Arimo Nerd Font Regular
     let font_path = "assets/fonts/ArimoNerdFont-Regular.ttf";
     let Ok(font_data) = fs::read(font_path) else {
-        warn!("Failed to load font from {}", font_path);
+        warn!("Font not found at {}, using default font", font_path);
+        fonts_loaded.0 = true;
         return;
     };
 

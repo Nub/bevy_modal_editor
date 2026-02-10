@@ -130,6 +130,21 @@ pub enum EffectAction {
     EmitEvent(String),
     /// Enable/disable gravity on a tagged entity.
     SetGravity { tag: String, enabled: bool },
+    /// Spawn a clustered decal at a location.
+    SpawnDecal {
+        tag: String,
+        texture_path: String,
+        at: SpawnLocation,
+        scale: Vec3,
+    },
+    /// Spawn a GLTF/GLB model as a child of the effect.
+    SpawnGltf {
+        tag: String,
+        path: String,
+        at: SpawnLocation,
+        scale: Vec3,
+        rigid_body: Option<RigidBodyKind>,
+    },
 }
 
 impl EffectAction {
@@ -142,6 +157,8 @@ impl EffectAction {
             Self::Despawn { .. } => "Despawn",
             Self::EmitEvent(_) => "Emit Event",
             Self::SetGravity { .. } => "Set Gravity",
+            Self::SpawnDecal { .. } => "Spawn Decal",
+            Self::SpawnGltf { .. } => "Spawn GLTF",
         }
     }
 
@@ -154,6 +171,8 @@ impl EffectAction {
             Self::Despawn { .. } => 4,
             Self::EmitEvent(_) => 5,
             Self::SetGravity { .. } => 6,
+            Self::SpawnDecal { .. } => 7,
+            Self::SpawnGltf { .. } => 8,
         }
     }
 
@@ -165,6 +184,8 @@ impl EffectAction {
         "Despawn",
         "Emit Event",
         "Set Gravity",
+        "Spawn Decal",
+        "Spawn GLTF",
     ];
 
     pub fn from_variant_index(idx: usize) -> Self {
@@ -196,6 +217,19 @@ impl EffectAction {
             6 => Self::SetGravity {
                 tag: String::new(),
                 enabled: true,
+            },
+            7 => Self::SpawnDecal {
+                tag: String::new(),
+                texture_path: String::new(),
+                at: SpawnLocation::Offset(Vec3::ZERO),
+                scale: Vec3::ONE,
+            },
+            8 => Self::SpawnGltf {
+                tag: String::new(),
+                path: String::new(),
+                at: SpawnLocation::Offset(Vec3::ZERO),
+                scale: Vec3::ONE,
+                rigid_body: None,
             },
             _ => Self::EmitEvent(String::new()),
         }

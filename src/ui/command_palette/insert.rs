@@ -49,6 +49,7 @@ fn action_to_preview_kind(action: &CommandAction) -> Option<InsertPreviewKind> {
         CommandAction::SpawnRamp => Some(InsertPreviewKind::Ramp),
         CommandAction::SpawnArch => Some(InsertPreviewKind::Arch),
         CommandAction::SpawnLShape => Some(InsertPreviewKind::LShape),
+        CommandAction::SpawnDecal => Some(InsertPreviewKind::Decal),
         CommandAction::SpawnParticleEffect => None, // No 3D preview for particles
         CommandAction::SpawnParticlePreset(_) => None, // No 3D preview for particle presets
         CommandAction::SpawnEffectPreset(_) => None,   // No 3D preview for effect presets
@@ -266,6 +267,11 @@ pub(super) fn draw_insert_palette(
                 CommandAction::SpawnParticleEffect => {
                     events.start_insert.write(StartInsertEvent {
                         object_type: InsertObjectType::ParticleEffect,
+                    });
+                }
+                CommandAction::SpawnDecal => {
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::Decal,
                     });
                 }
                 CommandAction::SpawnParticlePreset(preset_name) => {

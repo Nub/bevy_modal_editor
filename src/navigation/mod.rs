@@ -10,13 +10,18 @@ use avian3d::prelude::*;
 use avian_rerecast::ColliderToTriMesh;
 use bevy::prelude::*;
 use bevy_landmass::prelude::*;
-use bevy_rerecast::debug::{NavmeshGizmoConfig, PolygonNavmeshGizmo};
-use bevy::gizmos::retained::Gizmo;
 use bevy_rerecast::prelude::*;
 use bevy_rerecast::rerecast::TriMesh;
 use landmass_rerecast::LandmassRerecastPlugin;
+use bevy_rerecast::rerecast::PolygonNavmesh;
 
 use crate::editor::EditorMode;
+use crate::scene::SceneEntity;
+
+/// Marker component for the navmesh scene entity (appears in hierarchy).
+#[derive(Component, Default, Reflect)]
+#[reflect(Component)]
+pub struct NavmeshMarker;
 
 /// Tracks navmesh state for the editor UI.
 #[derive(Resource, Clone)]
@@ -39,8 +44,10 @@ pub struct NavmeshState {
     pub archipelago_entity: Option<Entity>,
     /// Entity holding the Island.
     pub island_entity: Option<Entity>,
-    /// Entity holding the PolygonNavmeshGizmo for visualization.
-    pub gizmo_entity: Option<Entity>,
+    /// Scene entity representing the navmesh in the hierarchy.
+    pub navmesh_entity: Option<Entity>,
+    /// Pre-computed wireframe: each polygon as a closed list of world-space vertices.
+    pub wireframe_polygons: Vec<Vec<Vec3>>,
 }
 
 impl Default for NavmeshState {
@@ -55,7 +62,8 @@ impl Default for NavmeshState {
             polygon_count: 0,
             archipelago_entity: None,
             island_entity: None,
-            gizmo_entity: None,
+            navmesh_entity: None,
+            wireframe_polygons: Vec::new(),
         }
     }
 }
@@ -76,9 +84,8 @@ impl Plugin for NavigationPlugin {
             .set_navmesh_backend(gt_collider_backend)
             .add_plugins(Landmass3dPlugin::default())
             .add_plugins(LandmassRerecastPlugin::default())
-            .add_systems(Update, handle_generate_navmesh)
-            .add_observer(on_navmesh_ready)
-            .add_systems(Update, (toggle_navmesh_gizmo, debug_gizmo_entity));
+            .add_systems(Update, (handle_generate_navmesh, draw_navmesh_wireframe))
+            .add_observer(on_navmesh_ready);
     }
 }
 
@@ -137,6 +144,7 @@ fn handle_generate_navmesh(
 
         state.generating = true;
         state.ready = false;
+        state.wireframe_polygons.clear();
         info!(
             "Navmesh generation started (radius={}, height={})",
             state.agent_radius, state.agent_height
@@ -144,23 +152,56 @@ fn handle_generate_navmesh(
     }
 }
 
-/// Toggle the navmesh polygon gizmo visibility based on editor mode and wireframe setting.
-fn toggle_navmesh_gizmo(
-    mode: Res<State<EditorMode>>,
+/// Draw navmesh wireframe using immediate-mode gizmos (runs every frame).
+/// Bypasses bevy_rerecast's retained gizmo pipeline entirely for reliability.
+fn draw_navmesh_wireframe(
+    mut gizmos: Gizmos,
     state: Res<NavmeshState>,
-    mut config: ResMut<NavmeshGizmoConfig>,
+    mode: Res<State<EditorMode>>,
+    editor_state: Res<crate::editor::EditorState>,
 ) {
-    let should_show = *mode.get() == EditorMode::AI && state.show_wireframe && state.ready;
-    if config.polygon_navmesh.enabled != should_show {
-        info!(
-            "Navmesh gizmo: enabled={} (mode={:?}, wireframe={}, ready={}, gizmo_entity={:?})",
-            should_show, mode.get(), state.show_wireframe, state.ready, state.gizmo_entity
-        );
-        config.polygon_navmesh.enabled = should_show;
+    if !state.ready || !state.show_wireframe || !editor_state.editor_active || *mode.get() != EditorMode::AI {
+        return;
+    }
+
+    let color = Color::srgb(0.22, 0.56, 0.84); // Sky blue, similar to tailwind SKY_700
+
+    for polygon in &state.wireframe_polygons {
+        if polygon.len() >= 2 {
+            gizmos.linestrip(polygon.clone(), color);
+        }
     }
 }
 
-/// Observer for when a navmesh is ready — sets up the gizmo, Archipelago + Island.
+/// Extract wireframe polygon data from a navmesh asset into a list of
+/// closed world-space vertex loops suitable for `gizmos.linestrip()`.
+fn extract_wireframe(navmesh: &Navmesh) -> Vec<Vec<Vec3>> {
+    let mesh = &navmesh.polygon;
+    let nvp = mesh.max_vertices_per_polygon as usize;
+    let origin = mesh.aabb.min;
+    let to_local = Vec3::new(mesh.cell_size, mesh.cell_height, mesh.cell_size);
+
+    let mut polygons = Vec::with_capacity(mesh.polygon_count());
+    for i in 0..mesh.polygon_count() {
+        let poly = &mesh.polygons[i * nvp..];
+        let mut verts: Vec<Vec3> = poly[..nvp]
+            .iter()
+            .filter(|idx| **idx != PolygonNavmesh::NO_INDEX)
+            .map(|idx| {
+                let vert_local = mesh.vertices[*idx as usize];
+                origin + vert_local.as_vec3() * to_local
+            })
+            .collect();
+        if !verts.is_empty() {
+            // Close the polygon
+            verts.push(verts[0]);
+            polygons.push(verts);
+        }
+    }
+    polygons
+}
+
+/// Observer for when a navmesh is ready — extracts wireframe, sets up Archipelago + Island.
 fn on_navmesh_ready(
     trigger: On<NavmeshReady>,
     navmeshes: Res<Assets<Navmesh>>,
@@ -178,9 +219,13 @@ fn on_navmesh_ready(
     state.polygon_count = navmesh.polygon.polygons.len()
         / navmesh.polygon.max_vertices_per_polygon as usize;
 
+    // Pre-compute wireframe for immediate-mode gizmo drawing
+    state.wireframe_polygons = extract_wireframe(navmesh);
+
     info!(
-        "Navmesh ready: {} polygons",
+        "Navmesh ready: {} polygons, {} wireframe outlines",
         state.polygon_count,
+        state.wireframe_polygons.len(),
     );
 
     // Clone handle and radius before mutating state
@@ -190,15 +235,22 @@ fn on_navmesh_ready(
     };
     let agent_radius = state.agent_radius;
 
-    // Despawn old gizmo if it exists (it may have been despawned by scene reset)
-    if let Some(old_gizmo) = state.gizmo_entity.take() {
-        commands.entity(old_gizmo).try_despawn();
+    // Ensure a single navmesh entity exists in the scene hierarchy
+    if state.navmesh_entity.is_none()
+        || state
+            .navmesh_entity
+            .is_some_and(|e| commands.get_entity(e).is_err())
+    {
+        let entity = commands
+            .spawn((
+                SceneEntity,
+                NavmeshMarker,
+                Name::new("Navmesh"),
+                Transform::default(),
+            ))
+            .id();
+        state.navmesh_entity = Some(entity);
     }
-    // Spawn fresh PolygonNavmeshGizmo entity for visualization
-    let gizmo_entity = commands
-        .spawn(PolygonNavmeshGizmo::new(asset_id))
-        .id();
-    state.gizmo_entity = Some(gizmo_entity);
 
     // Spawn or update Archipelago entity
     let archipelago_entity = if let Some(entity) = state.archipelago_entity {
@@ -224,26 +276,5 @@ fn on_navmesh_ready(
             })
             .id();
         state.island_entity = Some(island);
-    }
-}
-
-fn debug_gizmo_entity(
-    state: Res<NavmeshState>,
-    gizmos: Query<(Entity, &PolygonNavmeshGizmo, &Visibility, Option<&Gizmo>, Option<&Mesh3d>)>,
-    mut ran: Local<bool>,
-) {
-    if !state.ready || *ran {
-        return;
-    }
-    *ran = true;
-    if let Some(entity) = state.gizmo_entity {
-        if let Ok((e, png, vis, gizmo, mesh)) = gizmos.get(entity) {
-            info!(
-                "Gizmo entity {:?}: navmesh_id={:?}, visibility={:?}, has_gizmo={}, has_mesh3d={}",
-                e, png.0, vis, gizmo.is_some(), mesh.is_some()
-            );
-        } else {
-            warn!("Gizmo entity {:?} not found in query (missing components?)", entity);
-        }
     }
 }

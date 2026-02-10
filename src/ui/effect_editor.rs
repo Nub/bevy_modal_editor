@@ -13,7 +13,7 @@ use crate::effects::EffectLibrary;
 use crate::particles::ParticleLibrary;
 use crate::scene::PrimitiveShape;
 use crate::selection::Selected;
-use crate::ui::command_palette::CommandPaletteState;
+use crate::ui::command_palette::{CommandPaletteState, GltfPickResult, TexturePickResult, TextureSlot};
 use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame, window_frame};
 
 // ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ fn draw_effect_panel(world: &mut World) {
     let mut stop_clicked = false;
 
     // Draw timeline window (bottom)
-    draw_timeline_window(
+    let timeline_height = draw_timeline_window(
         &ctx,
         &mut marker,
         &mut entity_name,
@@ -258,7 +258,86 @@ fn draw_effect_panel(world: &mut World) {
         is_pinned,
         current_mode,
         &mut pin_toggled,
+        timeline_height,
     );
+
+    // Handle deferred texture browse request from SpawnDecal action
+    let browse_decal_texture =
+        ctx.memory(|m| m.data.get_temp::<bool>(egui::Id::new("effect_decal_browse"))) == Some(true);
+    if browse_decal_texture {
+        ctx.memory_mut(|m| m.data.remove::<bool>(egui::Id::new("effect_decal_browse")));
+        world
+            .resource_mut::<CommandPaletteState>()
+            .open_pick_texture(TextureSlot::EffectDecalTexture, Some(entity));
+    }
+
+    // Consume texture pick result for effect decal
+    {
+        let pick_data = world.resource_mut::<TexturePickResult>().0.take();
+        if let Some(pick) = pick_data {
+            if pick.slot == TextureSlot::EffectDecalTexture && pick.entity == Some(entity) {
+                // Find the SpawnDecal action and set its texture_path
+                let mut applied = false;
+                for step in &mut marker.steps {
+                    for action in &mut step.actions {
+                        if let EffectAction::SpawnDecal { texture_path, .. } = action {
+                            *texture_path = pick.path.clone();
+                            applied = true;
+                            break;
+                        }
+                    }
+                    if applied {
+                        break;
+                    }
+                }
+                if !applied {
+                    // No SpawnDecal found — put it back
+                    world.resource_mut::<TexturePickResult>().0 = Some(pick);
+                }
+            } else {
+                // Different slot or entity — put it back
+                world.resource_mut::<TexturePickResult>().0 = Some(pick);
+            }
+        }
+    }
+
+    // Handle deferred GLTF browse request from SpawnGltf action
+    let browse_gltf =
+        ctx.memory(|m| m.data.get_temp::<bool>(egui::Id::new("effect_gltf_browse"))) == Some(true);
+    if browse_gltf {
+        ctx.memory_mut(|m| m.data.remove::<bool>(egui::Id::new("effect_gltf_browse")));
+        world
+            .resource_mut::<CommandPaletteState>()
+            .open_pick_gltf(Some(entity));
+    }
+
+    // Consume GLTF pick result for effect SpawnGltf
+    {
+        let pick_data = world.resource_mut::<GltfPickResult>().0.take();
+        if let Some(pick) = pick_data {
+            if pick.entity == Some(entity) {
+                // Find the first SpawnGltf action and set its path
+                let mut applied = false;
+                for step in &mut marker.steps {
+                    for action in &mut step.actions {
+                        if let EffectAction::SpawnGltf { path, .. } = action {
+                            *path = pick.path.clone();
+                            applied = true;
+                            break;
+                        }
+                    }
+                    if applied {
+                        break;
+                    }
+                }
+                if !applied {
+                    world.resource_mut::<GltfPickResult>().0 = Some(pick);
+                }
+            } else {
+                world.resource_mut::<GltfPickResult>().0 = Some(pick);
+            }
+        }
+    }
 
     // Write back marker if changed
     let changed = ron::to_string(&marker).ok() != ron::to_string(&original).ok();
@@ -389,7 +468,6 @@ fn draw_empty_panel(world: &mut World, is_pinned: bool, current_mode: EditorMode
     egui::Window::new("Effect Sequencer")
         .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
-        .min_height(available_height)
         .max_height(available_height)
         .anchor(anchor_align, anchor_offset)
         .resizable(true)
@@ -437,11 +515,14 @@ fn draw_timeline_window(
     stop_clicked: &mut bool,
     save_preset_clicked: &mut bool,
     browse_presets_clicked: &mut bool,
-) {
+) -> f32 {
     let viewport_width = ctx.input(|i| i.viewport_rect().width());
+    // Leave room for the sequencer panel on the right + padding between them
+    let timeline_width = viewport_width - panel::DEFAULT_WIDTH - panel::WINDOW_PADDING * 3.0;
 
-    egui::Window::new("Effect Timeline")
-        .default_width(viewport_width - panel::WINDOW_PADDING * 2.0)
+    let response = egui::Window::new("Effect Timeline")
+        .default_width(timeline_width)
+        .max_width(timeline_width)
         .default_height(160.0)
         .anchor(
             egui::Align2::LEFT_BOTTOM,
@@ -646,6 +727,10 @@ fn draw_timeline_window(
                 state.selected_step = Some(new_idx);
             }
         });
+
+    response
+        .map(|r| r.response.rect.height())
+        .unwrap_or(160.0)
 }
 
 /// Draw a single lane row with step blocks.
@@ -834,8 +919,9 @@ fn draw_detail_panel(
     is_pinned: bool,
     current_mode: EditorMode,
     pin_toggled: &mut bool,
+    timeline_height: f32,
 ) {
-    let available_height = panel::available_height(ctx);
+    let available_height = panel::available_height(ctx) - timeline_height - panel::WINDOW_PADDING;
 
     let displaced = is_pinned
         && current_mode != EditorMode::Effect
@@ -855,13 +941,12 @@ fn draw_detail_panel(
     egui::Window::new("Effect Sequencer")
         .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
-        .min_height(available_height)
         .max_height(available_height)
         .anchor(anchor_align, anchor_offset)
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
-        .scroll(false)
+        .scroll(true)
         .frame(panel_frame(&ctx.style()))
         .show(ctx, |ui| {
             // Pin button
@@ -1337,6 +1422,195 @@ fn draw_action_editor(
                     grid_label(ui, "Gravity");
                     ui.checkbox(enabled, "Enabled");
                     ui.end_row();
+                });
+        }
+        EffectAction::SpawnDecal { tag, texture_path, at, scale } => {
+            egui::Grid::new(format!("spawn_decal_{id_salt}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Tag");
+                    ui.add(egui::TextEdit::singleline(tag).desired_width(100.0));
+                    ui.end_row();
+
+                    grid_label(ui, "Texture");
+                    ui.horizontal(|ui| {
+                        let display = if texture_path.is_empty() {
+                            "None"
+                        } else {
+                            texture_path.rsplit('/').next().unwrap_or(texture_path.as_str())
+                        };
+                        ui.label(
+                            egui::RichText::new(display)
+                                .color(if texture_path.is_empty() {
+                                    colors::TEXT_MUTED
+                                } else {
+                                    colors::TEXT_PRIMARY
+                                })
+                                .small(),
+                        );
+                        if ui
+                            .small_button("Browse")
+                            .on_hover_text("Pick a texture file")
+                            .clicked()
+                        {
+                            ui.memory_mut(|m| {
+                                m.data.insert_temp(
+                                    egui::Id::new("effect_decal_browse"),
+                                    true,
+                                );
+                            });
+                        }
+                        if !texture_path.is_empty()
+                            && ui
+                                .small_button("X")
+                                .on_hover_text("Clear texture")
+                                .clicked()
+                        {
+                            texture_path.clear();
+                        }
+                    });
+                    ui.end_row();
+
+                    grid_label(ui, "Location");
+                    let is_offset = matches!(at, SpawnLocation::Offset(_));
+                    let mut loc_idx: usize = if is_offset { 0 } else { 1 };
+                    egui::ComboBox::from_id_salt(format!("decal_loc_{id_salt}"))
+                        .selected_text(if is_offset { "Offset" } else { "Collision Point" })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut loc_idx, 0, "Offset");
+                            ui.selectable_value(&mut loc_idx, 1, "Collision Point");
+                        });
+                    if loc_idx == 0 && !is_offset {
+                        *at = SpawnLocation::Offset(Vec3::ZERO);
+                    } else if loc_idx == 1 && is_offset {
+                        *at = SpawnLocation::CollisionPoint;
+                    }
+                    ui.end_row();
+
+                    if let SpawnLocation::Offset(offset) = at {
+                        grid_label(ui, "Offset");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(&mut offset.x).speed(0.1).prefix("x:"));
+                            ui.add(egui::DragValue::new(&mut offset.y).speed(0.1).prefix("y:"));
+                            ui.add(egui::DragValue::new(&mut offset.z).speed(0.1).prefix("z:"));
+                        });
+                        ui.end_row();
+                    }
+
+                    grid_label(ui, "Scale");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut scale.x).speed(0.1).prefix("x:"));
+                        ui.add(egui::DragValue::new(&mut scale.y).speed(0.1).prefix("y:"));
+                        ui.add(egui::DragValue::new(&mut scale.z).speed(0.1).prefix("z:"));
+                    });
+                    ui.end_row();
+                });
+        }
+        EffectAction::SpawnGltf { tag, path, at, scale, rigid_body } => {
+            egui::Grid::new(format!("spawn_gltf_{id_salt}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Tag");
+                    ui.add(egui::TextEdit::singleline(tag).desired_width(100.0));
+                    ui.end_row();
+
+                    grid_label(ui, "Model");
+                    ui.horizontal(|ui| {
+                        let display = if path.is_empty() {
+                            "None"
+                        } else {
+                            path.rsplit('/').next().unwrap_or(path.as_str())
+                        };
+                        ui.label(
+                            egui::RichText::new(display)
+                                .color(if path.is_empty() {
+                                    colors::TEXT_MUTED
+                                } else {
+                                    colors::TEXT_PRIMARY
+                                })
+                                .small(),
+                        );
+                        if ui
+                            .small_button("Browse")
+                            .on_hover_text("Pick a GLTF/GLB model")
+                            .clicked()
+                        {
+                            ui.memory_mut(|m| {
+                                m.data.insert_temp(
+                                    egui::Id::new("effect_gltf_browse"),
+                                    true,
+                                );
+                            });
+                        }
+                        if !path.is_empty()
+                            && ui
+                                .small_button("X")
+                                .on_hover_text("Clear model")
+                                .clicked()
+                        {
+                            path.clear();
+                        }
+                    });
+                    ui.end_row();
+
+                    grid_label(ui, "Location");
+                    let is_offset = matches!(at, SpawnLocation::Offset(_));
+                    let mut loc_idx: usize = if is_offset { 0 } else { 1 };
+                    egui::ComboBox::from_id_salt(format!("gltf_loc_{id_salt}"))
+                        .selected_text(if is_offset { "Offset" } else { "Collision Point" })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut loc_idx, 0, "Offset");
+                            ui.selectable_value(&mut loc_idx, 1, "Collision Point");
+                        });
+                    if loc_idx == 0 && !is_offset {
+                        *at = SpawnLocation::Offset(Vec3::ZERO);
+                    } else if loc_idx == 1 && is_offset {
+                        *at = SpawnLocation::CollisionPoint;
+                    }
+                    ui.end_row();
+
+                    if let SpawnLocation::Offset(offset) = at {
+                        grid_label(ui, "Offset");
+                        ui.horizontal(|ui| {
+                            ui.add(egui::DragValue::new(&mut offset.x).speed(0.1).prefix("x:"));
+                            ui.add(egui::DragValue::new(&mut offset.y).speed(0.1).prefix("y:"));
+                            ui.add(egui::DragValue::new(&mut offset.z).speed(0.1).prefix("z:"));
+                        });
+                        ui.end_row();
+                    }
+
+                    grid_label(ui, "Scale");
+                    ui.horizontal(|ui| {
+                        ui.add(egui::DragValue::new(&mut scale.x).speed(0.1).prefix("x:"));
+                        ui.add(egui::DragValue::new(&mut scale.y).speed(0.1).prefix("y:"));
+                        ui.add(egui::DragValue::new(&mut scale.z).speed(0.1).prefix("z:"));
+                    });
+                    ui.end_row();
+
+                    grid_label(ui, "Physics");
+                    let mut has_rb = rigid_body.is_some();
+                    if ui.checkbox(&mut has_rb, "").changed() {
+                        if has_rb {
+                            *rigid_body = Some(RigidBodyKind::Dynamic);
+                        } else {
+                            *rigid_body = None;
+                        }
+                    }
+                    ui.end_row();
+
+                    if let Some(rb) = rigid_body {
+                        grid_label(ui, "Body");
+                        egui::ComboBox::from_id_salt(format!("gltf_rb_{id_salt}"))
+                            .selected_text(rb.label())
+                            .show_ui(ui, |ui| {
+                                for kind in &RigidBodyKind::ALL {
+                                    ui.selectable_value(rb, *kind, kind.label());
+                                }
+                            });
+                        ui.end_row();
+                    }
                 });
         }
     }

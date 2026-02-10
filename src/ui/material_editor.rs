@@ -549,6 +549,7 @@ fn draw_material_panel(world: &mut World) {
                     TextureSlot::Occlusion => def.base.occlusion_texture = Some(pick.path),
                     TextureSlot::DepthMap => def.base.depth_map_texture = Some(pick.path),
                     TextureSlot::ParticleTexture => {} // Handled by particle editor
+                    TextureSlot::DecalBaseColor | TextureSlot::DecalNormalMap | TextureSlot::DecalEmissive | TextureSlot::EffectDecalTexture => {} // Handled elsewhere
                 }
                 if let Some(entity) = first_entity {
                     // Apply immediately to entity
