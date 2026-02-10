@@ -14,7 +14,9 @@ use crate::particles::ParticleLibrary;
 use crate::scene::PrimitiveShape;
 use crate::selection::Selected;
 use crate::ui::command_palette::{CommandPaletteState, GltfPickResult, TexturePickResult, TextureSlot};
-use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame, window_frame};
+use crate::ui::theme::{
+    colors, draw_pin_button, grid_label, panel, panel_frame, section_header, window_frame,
+};
 
 // ---------------------------------------------------------------------------
 // Plugin + State
@@ -38,12 +40,14 @@ impl Plugin for EffectEditorPlugin {
 // Constants
 // ---------------------------------------------------------------------------
 
+const CARD_ROUNDING: u8 = 4;
 const ACCENT_STRIPE_WIDTH: f32 = 3.0;
-const BLOCK_WIDTH: f32 = 90.0;
-const BLOCK_HEIGHT: f32 = 28.0;
+const BLOCK_WIDTH: f32 = 120.0;
+const BLOCK_HEIGHT: f32 = 32.0;
 const BLOCK_SPACING: f32 = 4.0;
-const LANE_LABEL_WIDTH: f32 = 70.0;
+const LANE_LABEL_WIDTH: f32 = 80.0;
 const TIME_SCALE: f32 = 100.0; // pixels per second
+const PLAYHEAD_WIDTH: f32 = 3.0;
 
 const STEP_COLORS: &[egui::Color32] = &[
     colors::ACCENT_ORANGE,
@@ -57,35 +61,55 @@ fn step_color(idx: usize) -> egui::Color32 {
     STEP_COLORS[idx % STEP_COLORS.len()]
 }
 
+/// Color for a lane label by trigger type.
+fn lane_color(lane_name: &str) -> egui::Color32 {
+    match lane_name {
+        "Time" => colors::ACCENT_GREEN,
+        "Collision" => colors::ACCENT_ORANGE,
+        "Event" => colors::ACCENT_BLUE,
+        _ => colors::TEXT_MUTED,
+    }
+}
+
+/// Color accent for an action by category.
+fn action_accent(action: &EffectAction) -> egui::Color32 {
+    match action {
+        EffectAction::SpawnPrimitive { .. }
+        | EffectAction::SpawnParticle { .. }
+        | EffectAction::SpawnGltf { .. }
+        | EffectAction::SpawnDecal { .. } => colors::ACCENT_GREEN,
+        EffectAction::SetVelocity { .. }
+        | EffectAction::ApplyImpulse { .. }
+        | EffectAction::SetGravity { .. } => colors::ACCENT_ORANGE,
+        EffectAction::Despawn { .. } | EffectAction::EmitEvent(_) => colors::ACCENT_BLUE,
+    }
+}
+
 // ---------------------------------------------------------------------------
-// Action card (reused from original)
+// Action card (modifier_card style matching particle editor)
 // ---------------------------------------------------------------------------
 
 fn action_card(
     ui: &mut egui::Ui,
     label: &str,
+    accent: egui::Color32,
     body: impl FnOnce(&mut egui::Ui),
 ) -> bool {
     let mut removed = false;
 
     let frame = egui::Frame::new()
-        .fill(colors::BG_LIGHT)
-        .corner_radius(egui::CornerRadius::same(2))
-        .inner_margin(egui::Margin::same(4));
+        .fill(colors::BG_MEDIUM)
+        .corner_radius(egui::CornerRadius::same(CARD_ROUNDING))
+        .inner_margin(egui::Margin::same(6));
 
-    frame.show(ui, |ui| {
+    let resp = frame.show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(label)
-                    .small()
-                    .color(colors::TEXT_SECONDARY),
-            );
+            ui.label(egui::RichText::new(label).strong().color(colors::TEXT_PRIMARY));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui
                     .add(
                         egui::Button::new(
                             egui::RichText::new("\u{00d7}")
-                                .small()
                                 .color(colors::STATUS_ERROR),
                         )
                         .frame(false),
@@ -97,11 +121,67 @@ fn action_card(
                 }
             });
         });
+        ui.add_space(2.0);
         body(ui);
     });
 
-    ui.add_space(2.0);
+    // Paint accent stripe over left edge
+    let card_rect = resp.response.rect;
+    let stripe = egui::Rect::from_min_max(
+        card_rect.left_top(),
+        egui::pos2(
+            card_rect.left() + ACCENT_STRIPE_WIDTH,
+            card_rect.bottom(),
+        ),
+    );
+    ui.painter().rect_filled(
+        stripe,
+        egui::CornerRadius {
+            nw: CARD_ROUNDING,
+            sw: CARD_ROUNDING,
+            ne: 0,
+            se: 0,
+        },
+        accent,
+    );
+
+    ui.add_space(4.0);
     removed
+}
+
+// ---------------------------------------------------------------------------
+// Category header for action groups
+// ---------------------------------------------------------------------------
+
+/// Draw a category header (e.g. "SPAWN", "PHYSICS", "EVENTS") with a colored
+/// label on the left and a [+] dropdown menu on the right.
+fn action_category_header(
+    ui: &mut egui::Ui,
+    label: &str,
+    accent: egui::Color32,
+    options: &[(&str, usize)],
+    actions: &mut Vec<EffectAction>,
+) {
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        ui.label(
+            egui::RichText::new(label)
+                .strong()
+                .size(12.0)
+                .color(accent),
+        );
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.menu_button(egui::RichText::new("+").strong().color(accent), |ui| {
+                for (name, variant_idx) in options {
+                    if ui.button(*name).clicked() {
+                        actions.push(EffectAction::from_variant_index(*variant_idx));
+                        ui.close();
+                    }
+                }
+            });
+        });
+    });
+    ui.add_space(4.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +195,8 @@ fn collect_defined_tags(marker: &EffectMarker) -> Vec<String> {
             let tag = match action {
                 EffectAction::SpawnPrimitive { tag, .. } => tag,
                 EffectAction::SpawnParticle { tag, .. } => tag,
+                EffectAction::SpawnGltf { tag, .. } => tag,
+                EffectAction::SpawnDecal { tag, .. } => tag,
                 _ => continue,
             };
             if !tag.is_empty() && !tags.contains(tag) {
@@ -547,30 +629,17 @@ fn draw_timeline_window(
 
                 ui.separator();
 
-                // Playback status
-                match playback_state {
-                    PlaybackState::Playing => {
-                        ui.label(
-                            egui::RichText::new("Playing")
-                                .small()
-                                .color(colors::STATUS_SUCCESS),
-                        );
-                    }
-                    PlaybackState::Paused => {
-                        ui.label(
-                            egui::RichText::new("Paused")
-                                .small()
-                                .color(colors::STATUS_WARNING),
-                        );
-                    }
-                    PlaybackState::Stopped => {
-                        ui.label(
-                            egui::RichText::new("Stopped")
-                                .small()
-                                .color(colors::TEXT_MUTED),
-                        );
-                    }
-                }
+                // Playback status + elapsed time
+                let (status_label, status_color) = match playback_state {
+                    PlaybackState::Playing => ("Playing", colors::STATUS_SUCCESS),
+                    PlaybackState::Paused => ("Paused", colors::STATUS_WARNING),
+                    PlaybackState::Stopped => ("Stopped", colors::TEXT_MUTED),
+                };
+                ui.label(
+                    egui::RichText::new(format!("{} {:.1}s", status_label, playback_elapsed))
+                        .small()
+                        .color(status_color),
+                );
 
                 if ui
                     .button(egui::RichText::new("\u{25b6}").small().color(colors::STATUS_SUCCESS))
@@ -749,15 +818,16 @@ fn draw_lane<T: Clone>(
     let add_id = egui::Id::new(format!("add_{}_step", lane_name.to_lowercase()));
 
     ui.horizontal(|ui| {
-        // Lane label
+        // Lane label (colored by type)
         ui.allocate_ui_with_layout(
             egui::vec2(LANE_LABEL_WIDTH, BLOCK_HEIGHT),
             egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
             |ui| {
                 ui.label(
                     egui::RichText::new(lane_name)
-                        .small()
-                        .color(colors::TEXT_MUTED),
+                        .strong()
+                        .size(12.0)
+                        .color(lane_color(lane_name)),
                 );
             },
         );
@@ -782,7 +852,7 @@ fn draw_lane<T: Clone>(
                         egui::pos2(playhead_x, blocks_rect.top()),
                         egui::pos2(playhead_x, blocks_rect.bottom()),
                     ],
-                    egui::Stroke::new(2.0, colors::STATUS_ERROR),
+                    egui::Stroke::new(PLAYHEAD_WIDTH, colors::STATUS_ERROR),
                 );
             }
         }
@@ -819,7 +889,7 @@ fn draw_lane<T: Clone>(
             } else {
                 colors::BG_MEDIUM
             };
-            painter.rect_filled(block_rect, egui::CornerRadius::same(3), fill);
+            painter.rect_filled(block_rect, egui::CornerRadius::same(CARD_ROUNDING), fill);
 
             // Accent stripe
             let stripe_rect = egui::Rect::from_min_max(
@@ -832,8 +902,8 @@ fn draw_lane<T: Clone>(
             painter.rect_filled(
                 stripe_rect,
                 egui::CornerRadius {
-                    nw: 3,
-                    sw: 3,
+                    nw: CARD_ROUNDING,
+                    sw: CARD_ROUNDING,
                     ne: 0,
                     se: 0,
                 },
@@ -844,19 +914,25 @@ fn draw_lane<T: Clone>(
             if is_selected {
                 painter.rect_stroke(
                     block_rect,
-                    egui::CornerRadius::same(3),
+                    egui::CornerRadius::same(CARD_ROUNDING),
                     egui::Stroke::new(1.5, accent),
                     egui::StrokeKind::Inside,
                 );
             }
 
-            // Block label (clipped)
+            // Block label (clipped) — show name + action count
             let label_text = block_label_fn(marker, data);
             let step_name = &marker.steps[*step_idx].name;
-            let display = if step_name.is_empty() {
+            let action_count = marker.steps[*step_idx].actions.len();
+            let base = if step_name.is_empty() {
                 label_text
             } else {
                 step_name.clone()
+            };
+            let display = if action_count > 0 {
+                format!("{} ({})", base, action_count)
+            } else {
+                base
             };
 
             let text_rect = egui::Rect::from_min_max(
@@ -956,13 +1032,18 @@ fn draw_detail_panel(
 
             match state.selected_step {
                 None => {
-                    // No step selected
                     ui.add_space(20.0);
                     ui.vertical_centered(|ui| {
                         ui.label(
-                            egui::RichText::new("Select a step in the timeline")
+                            egui::RichText::new("Click a step in the timeline to edit it")
                                 .color(colors::TEXT_MUTED)
                                 .italics(),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new("Use [+] to add steps to each lane")
+                                .color(colors::TEXT_MUTED)
+                                .small(),
                         );
                     });
                 }
@@ -1049,58 +1130,129 @@ fn draw_step_detail(
         .show(ui, |ui| {
             ui.set_min_width(230.0);
 
-            // Trigger section
-            ui.label(
-                egui::RichText::new("Trigger")
-                    .strong()
-                    .color(colors::TEXT_SECONDARY),
-            );
-            ui.add_space(2.0);
-
-            {
+            // Trigger section (collapsible)
+            section_header(ui, "Trigger", true, |ui| {
                 let step = &mut marker.steps[step_idx];
                 draw_trigger_editor(ui, &mut step.trigger, step_idx, defined_tags);
-            }
+            });
 
-            ui.add_space(8.0);
+            ui.add_space(4.0);
 
-            // Actions section
-            ui.label(
-                egui::RichText::new("Actions")
-                    .strong()
-                    .color(colors::TEXT_SECONDARY),
-            );
-            ui.add_space(2.0);
-
-            let mut remove_action = None;
-            let action_count = marker.steps[step_idx].actions.len();
-            for action_idx in 0..action_count {
-                let label = marker.steps[step_idx].actions[action_idx].label();
-                let action = &mut marker.steps[step_idx].actions[action_idx];
-                if action_card(ui, label, |ui| {
-                    draw_action_editor(ui, action, step_idx, action_idx, defined_tags, particle_presets);
-                }) {
-                    remove_action = Some(action_idx);
-                }
-            }
-            if let Some(idx) = remove_action {
-                marker.steps[step_idx].actions.remove(idx);
-            }
-
-            // Add action button
-            ui.menu_button(
-                egui::RichText::new("+ Add Action").color(colors::ACCENT_GREEN),
-                |ui| {
-                    for (i, label) in EffectAction::VARIANT_LABELS.iter().enumerate() {
-                        if ui.button(*label).clicked() {
-                            marker.steps[step_idx]
-                                .actions
-                                .push(EffectAction::from_variant_index(i));
-                            ui.close();
+            // Actions section (collapsible, contains category groups)
+            section_header(ui, "Actions", true, |ui| {
+                // Partition actions into categories by index
+                let actions = &marker.steps[step_idx].actions;
+                let mut spawn_indices = Vec::new();
+                let mut physics_indices = Vec::new();
+                let mut event_indices = Vec::new();
+                for (i, action) in actions.iter().enumerate() {
+                    match action {
+                        EffectAction::SpawnPrimitive { .. }
+                        | EffectAction::SpawnParticle { .. }
+                        | EffectAction::SpawnGltf { .. }
+                        | EffectAction::SpawnDecal { .. } => spawn_indices.push(i),
+                        EffectAction::SetVelocity { .. }
+                        | EffectAction::ApplyImpulse { .. }
+                        | EffectAction::SetGravity { .. } => physics_indices.push(i),
+                        EffectAction::Despawn { .. } | EffectAction::EmitEvent(_) => {
+                            event_indices.push(i)
                         }
                     }
-                },
-            );
+                }
+
+                let mut remove_action = None;
+
+                // SPAWN category
+                action_category_header(
+                    ui,
+                    "SPAWN",
+                    colors::ACCENT_GREEN,
+                    &[
+                        ("Spawn Primitive", 0),
+                        ("Spawn Particle", 1),
+                        ("Spawn Decal", 7),
+                        ("Spawn GLTF", 8),
+                    ],
+                    &mut marker.steps[step_idx].actions,
+                );
+                for &action_idx in &spawn_indices {
+                    let label = marker.steps[step_idx].actions[action_idx].label();
+                    let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
+                    let action = &mut marker.steps[step_idx].actions[action_idx];
+                    if action_card(ui, label, accent, |ui| {
+                        draw_action_editor(
+                            ui,
+                            action,
+                            step_idx,
+                            action_idx,
+                            defined_tags,
+                            particle_presets,
+                        );
+                    }) {
+                        remove_action = Some(action_idx);
+                    }
+                }
+
+                // PHYSICS category
+                action_category_header(
+                    ui,
+                    "PHYSICS",
+                    colors::ACCENT_ORANGE,
+                    &[
+                        ("Set Velocity", 2),
+                        ("Apply Impulse", 3),
+                        ("Set Gravity", 6),
+                    ],
+                    &mut marker.steps[step_idx].actions,
+                );
+                for &action_idx in &physics_indices {
+                    let label = marker.steps[step_idx].actions[action_idx].label();
+                    let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
+                    let action = &mut marker.steps[step_idx].actions[action_idx];
+                    if action_card(ui, label, accent, |ui| {
+                        draw_action_editor(
+                            ui,
+                            action,
+                            step_idx,
+                            action_idx,
+                            defined_tags,
+                            particle_presets,
+                        );
+                    }) {
+                        remove_action = Some(action_idx);
+                    }
+                }
+
+                // EVENTS category
+                action_category_header(
+                    ui,
+                    "EVENTS",
+                    colors::ACCENT_BLUE,
+                    &[("Despawn", 4), ("Emit Event", 5)],
+                    &mut marker.steps[step_idx].actions,
+                );
+                for &action_idx in &event_indices {
+                    let label = marker.steps[step_idx].actions[action_idx].label();
+                    let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
+                    let action = &mut marker.steps[step_idx].actions[action_idx];
+                    if action_card(ui, label, accent, |ui| {
+                        draw_action_editor(
+                            ui,
+                            action,
+                            step_idx,
+                            action_idx,
+                            defined_tags,
+                            particle_presets,
+                        );
+                    }) {
+                        remove_action = Some(action_idx);
+                    }
+                }
+
+                if let Some(idx) = remove_action {
+                    marker.steps[step_idx].actions.remove(idx);
+                }
+            });
 
             ui.add_space(8.0);
         });
