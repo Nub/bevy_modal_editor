@@ -92,6 +92,7 @@ struct PointLightData {
     color: [f32; 3],
     intensity: f32,
     range: f32,
+    radius: f32,
     shadows_enabled: bool,
     volumetric: bool,
 }
@@ -103,6 +104,7 @@ impl From<&SceneLightMarker> for PointLightData {
             color: [color.red, color.green, color.blue],
             intensity: marker.intensity,
             range: marker.range,
+            radius: marker.radius,
             shadows_enabled: marker.shadows_enabled,
             volumetric: false, // Set separately based on VolumetricLight component
         }
@@ -460,6 +462,10 @@ fn draw_point_light_section(ui: &mut egui::Ui, data: &mut PointLightData) -> boo
 
                 grid_label(ui, "Range");
                 changed |= value_slider(ui, &mut data.range, 0.0..=1000.0);
+                ui.end_row();
+
+                grid_label(ui, "Radius");
+                changed |= value_slider(ui, &mut data.radius, 0.0..=10.0);
                 ui.end_row();
 
                 grid_label(ui, "Shadows");
@@ -1708,6 +1714,7 @@ fn draw_inspector_panel(world: &mut World) {
                 marker.color = new_color;
                 marker.intensity = data.intensity;
                 marker.range = data.range;
+                marker.radius = data.radius;
                 marker.shadows_enabled = data.shadows_enabled;
             }
 
@@ -1716,6 +1723,7 @@ fn draw_inspector_panel(world: &mut World) {
                 light.color = new_color;
                 light.intensity = data.intensity;
                 light.range = data.range;
+                light.radius = data.radius;
                 light.shadows_enabled = data.shadows_enabled;
             }
 

@@ -56,7 +56,7 @@ impl EditorMode {
     /// Returns the panel side if this mode has a window, None otherwise
     pub fn panel_side(&self) -> Option<PanelSide> {
         match self {
-            Self::ObjectInspector | Self::Material | Self::Particle | Self::AI | Self::Effect => Some(PanelSide::Right),
+            Self::ObjectInspector | Self::Material | Self::Particle | Self::AI | Self::Effect | Self::Blockout => Some(PanelSide::Right),
             Self::Hierarchy | Self::Camera => Some(PanelSide::Left),
             _ => None,
         }

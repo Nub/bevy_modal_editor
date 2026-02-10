@@ -35,6 +35,8 @@ pub struct SceneLightMarker {
     pub intensity: f32,
     pub range: f32,
     pub shadows_enabled: bool,
+    #[serde(default)]
+    pub radius: f32,
 }
 
 impl Default for SceneLightMarker {
@@ -44,6 +46,7 @@ impl Default for SceneLightMarker {
             intensity: light_colors::POINT_DEFAULT_INTENSITY,
             range: light_colors::POINT_DEFAULT_RANGE,
             shadows_enabled: true,
+            radius: 0.0,
         }
     }
 }
@@ -459,6 +462,7 @@ pub fn spawn_point_light(commands: &mut Commands, position: Vec3, rotation: Quat
                 color: light_marker.color,
                 intensity: light_marker.intensity,
                 range: light_marker.range,
+                radius: light_marker.radius,
                 shadows_enabled: light_marker.shadows_enabled,
                 ..default()
             },

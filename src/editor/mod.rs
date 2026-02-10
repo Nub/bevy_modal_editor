@@ -1,4 +1,3 @@
-mod blockout;
 mod camera;
 mod input;
 mod insert;
@@ -9,7 +8,6 @@ pub mod scene_loading;
 mod spline_edit;
 mod state;
 
-pub use blockout::*;
 pub use camera::*;
 pub use input::*;
 pub use insert::*;

@@ -145,20 +145,19 @@ fn draw_directional_light_gizmos(
     }
 }
 
-/// Draw gizmos for point lights showing a light bulb-like widget
+/// Draw gizmos for point lights showing a light bulb-like widget.
+/// When selected, also draws a wireframe sphere showing the light's range.
 fn draw_point_light_gizmos(
     mut gizmos: Gizmos,
-    lights: Query<(&GlobalTransform, &SceneLightMarker)>,
+    lights: Query<(&GlobalTransform, &SceneLightMarker, Has<Selected>)>,
     editor_state: Res<EditorState>,
 ) {
     if !editor_state.gizmos_visible {
         return;
     }
 
-    for (transform, light_marker) in lights.iter() {
+    for (transform, light_marker, is_selected) in lights.iter() {
         let position = transform.translation();
-
-        // Use the light's color for the gizmo, but ensure it's visible
         let light_color = light_marker.color;
 
         // Draw a small sphere outline (3 circles for x, y, z planes)
@@ -169,9 +168,8 @@ fn draw_point_light_gizmos(
 
         // Draw rays emanating from the light (8 rays in a starburst pattern)
         let ray_length = 0.5;
-        let ray_start = radius * 1.1; // Start slightly outside the sphere
+        let ray_start = radius * 1.1;
 
-        // Rays in the XZ plane
         for i in 0..8 {
             let angle = (i as f32) * std::f32::consts::FRAC_PI_4;
             let dir = Vec3::new(angle.cos(), 0.0, angle.sin());
@@ -182,7 +180,6 @@ fn draw_point_light_gizmos(
             );
         }
 
-        // Rays going up and down
         gizmos.line(
             position + Vec3::Y * ray_start,
             position + Vec3::Y * (ray_start + ray_length),
@@ -193,6 +190,15 @@ fn draw_point_light_gizmos(
             position - Vec3::Y * (ray_start + ray_length),
             light_color,
         );
+
+        // When selected, draw range sphere
+        if is_selected {
+            let range = light_marker.range;
+            let range_color = light_color.with_alpha(0.3);
+            gizmos.circle(Isometry3d::new(position, Quat::IDENTITY), range, range_color);
+            gizmos.circle(Isometry3d::new(position, Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)), range, range_color);
+            gizmos.circle(Isometry3d::new(position, Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)), range, range_color);
+        }
     }
 }
 

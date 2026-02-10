@@ -13,6 +13,7 @@ mod inspector;
 mod marks;
 mod material_editor;
 pub mod material_preview;
+mod mesh_model_panel;
 mod panels;
 mod particle_editor;
 mod reflect_editor;
@@ -74,6 +75,7 @@ impl Plugin for UiPlugin {
                 HierarchyPlugin,
                 InspectorPlugin,
                 material_editor::MaterialEditorPlugin,
+                mesh_model_panel::MeshModelPanelPlugin,
                 camera_settings::CameraSettingsPlugin,
                 material_preview::MaterialPreviewPlugin,
                 particle_editor::ParticleEditorPlugin,

@@ -75,6 +75,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<crate::particles::ParticleEffectMarker>()
         // Effects
         .allow_component::<crate::effects::EffectMarker>()
+        // Edited meshes
+        .allow_component::<crate::modeling::marker::EditMeshMarker>()
         // Blockout shapes
         .allow_component::<StairsMarker>()
         .allow_component::<RampMarker>()
@@ -153,6 +155,9 @@ pub fn regenerate_runtime_components(world: &mut World) {
         }
     }
 
+    // Handle edited meshes
+    crate::modeling::marker::regenerate_edit_meshes(world);
+
     // Handle blockout shapes with MaterialRef
     regenerate_blockout_materials(world, &library, &registry_types);
 
@@ -172,6 +177,7 @@ pub fn regenerate_runtime_components(world: &mut World) {
                     color: marker.color,
                     intensity: marker.intensity,
                     range: marker.range,
+                    radius: marker.radius,
                     shadows_enabled: marker.shadows_enabled,
                     ..default()
                 },
@@ -527,6 +533,8 @@ impl Plugin for ScenePlugin {
             .register_type::<SplineMarker>()
             .register_type::<Spline>()
             .register_type::<SplineType>()
+            // Edited mesh types
+            .register_type::<crate::modeling::marker::EditMeshMarker>()
             // Fog volume types
             .register_type::<FogVolumeMarker>()
             // Effect types
@@ -672,6 +680,7 @@ fn handle_spawn_demo_scene(
                 intensity: 80000.0,
                 range: 30.0,
                 shadows_enabled: true,
+                radius: 0.0,
             },
             PointLight {
                 color: Color::srgb(1.0, 0.95, 0.8),
@@ -700,6 +709,7 @@ fn handle_spawn_demo_scene(
                     intensity: 30000.0,
                     range: 15.0,
                     shadows_enabled: true,
+                    radius: 0.0,
                 },
                 PointLight {
                     color,
@@ -729,6 +739,7 @@ fn handle_spawn_demo_scene(
                     intensity: 10000.0,
                     range: 8.0,
                     shadows_enabled: false,
+                    radius: 0.0,
                 },
                 PointLight {
                     color: *color,

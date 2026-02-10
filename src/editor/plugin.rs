@@ -12,7 +12,6 @@ use bevy_spline_3d::path_follow::SplineFollowPlugin;
 
 use super::state::ViewportShadingMode;
 
-use super::blockout::BlockoutPlugin;
 use super::camera::EditorCameraPlugin;
 use super::input::EditorInputPlugin;
 use super::insert::InsertModePlugin;
@@ -188,7 +187,7 @@ impl Plugin for EditorPlugin {
             .add_plugins(EditorCameraPlugin)
             .add_plugins(CameraMarksPlugin)
             .add_plugins(InsertModePlugin)
-            .add_plugins(BlockoutPlugin)
+            .add_plugins(crate::modeling::MeshModelPlugin)
             .add_plugins(SplineEditPlugin)
             .add_plugins(SceneLoadingPlugin)
             .add_plugins(SplineFollowPlugin)
