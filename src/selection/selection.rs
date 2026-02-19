@@ -62,6 +62,12 @@ fn handle_click_selection(
         return;
     }
 
+    // Don't change entity selection in Blockout mode — mesh element selection
+    // is handled by the modeling tool's own click handler
+    if *mode.get() == EditorMode::Blockout {
+        return;
+    }
+
     // In Edit mode with a spline selected, only block entity selection when
     // the spline library has a control point hovered or is actively dragging
     if *mode.get() == EditorMode::Edit && !selected_splines.is_empty()

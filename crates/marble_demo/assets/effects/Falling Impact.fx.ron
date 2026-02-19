@@ -1,0 +1,46 @@
+(
+    steps: [
+        (
+            name: "spawn_anchor",
+            trigger: AtTime(0.0),
+            actions: [
+                SpawnGltf(
+                    tag: "anchor",
+                    path: "objects/Duck.glb",
+                    at: Offset((0.0, 5.0, 0.0)),
+                    scale: (1.0, 1.0, 1.0),
+                    rigid_body: Some(Dynamic),
+                ),
+                SetVelocity(
+                    tag: "anchor",
+                    velocity: (0.0, -8.0, 0.0),
+                ),
+            ],
+        ),
+        (
+            name: "impact",
+            trigger: OnCollision(
+                tag: "anchor",
+            ),
+            actions: [
+                SpawnParticle(
+                    tag: "dust",
+                    preset: "Smoke",
+                    at: CollisionPoint,
+                ),
+                SpawnParticle(
+                    tag: "sparks",
+                    preset: "Sparks",
+                    at: CollisionPoint,
+                ),
+                SpawnDecal(
+                    tag: "crack",
+                    texture_path: "textures/decal_splat.png",
+                    at: CollisionPoint,
+                    scale: (2.0, 2.0, 2.0),
+                ),
+                EmitEvent("impact"),
+            ],
+        ),
+    ],
+)

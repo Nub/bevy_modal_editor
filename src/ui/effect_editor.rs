@@ -1,8 +1,9 @@
-//! Effect editor panel for editing effect sequences on selected entities.
+//! Effect editor panel — card-based rule list for editing effect sequences.
 //!
-//! Two-window layout:
-//! - **Timeline window** (bottom-anchored) — horizontal lanes grouped by trigger type
-//! - **Detail panel** (right side) — shows selected step's trigger fields and action list
+//! Single right-side panel with:
+//! - Header: entity name, playback controls, preset buttons
+//! - Scrollable card list of rules (each rule = trigger + actions)
+//! - Mini timeline strip at bottom for time-triggered rules
 
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiPrimaryContextPass};
@@ -13,9 +14,11 @@ use crate::effects::EffectLibrary;
 use crate::particles::ParticleLibrary;
 use crate::scene::PrimitiveShape;
 use crate::selection::Selected;
-use crate::ui::command_palette::{CommandPaletteState, GltfPickResult, TexturePickResult, TextureSlot};
+use crate::ui::command_palette::{
+    CommandPaletteState, GltfPickResult, TexturePickResult, TextureSlot,
+};
 use crate::ui::theme::{
-    colors, draw_pin_button, grid_label, panel, panel_frame, section_header, window_frame,
+    colors, draw_pin_button, grid_label, panel, panel_frame, section_header,
 };
 
 // ---------------------------------------------------------------------------
@@ -24,7 +27,8 @@ use crate::ui::theme::{
 
 #[derive(Resource, Default)]
 pub struct EffectEditorState {
-    pub selected_step: Option<usize>,
+    /// Which rule card is currently expanded for editing.
+    pub expanded_rule: Option<usize>,
 }
 
 pub struct EffectEditorPlugin;
@@ -42,32 +46,60 @@ impl Plugin for EffectEditorPlugin {
 
 const CARD_ROUNDING: u8 = 4;
 const ACCENT_STRIPE_WIDTH: f32 = 3.0;
-const BLOCK_WIDTH: f32 = 120.0;
-const BLOCK_HEIGHT: f32 = 32.0;
-const BLOCK_SPACING: f32 = 4.0;
-const LANE_LABEL_WIDTH: f32 = 80.0;
-const TIME_SCALE: f32 = 100.0; // pixels per second
-const PLAYHEAD_WIDTH: f32 = 3.0;
 
-const STEP_COLORS: &[egui::Color32] = &[
-    colors::ACCENT_ORANGE,
-    colors::ACCENT_GREEN,
-    colors::ACCENT_BLUE,
-    colors::ACCENT_PURPLE,
-    colors::ACCENT_CYAN,
-];
+const MINI_TIMELINE_HEIGHT: f32 = 24.0;
+const PLAYHEAD_WIDTH: f32 = 2.0;
+const MINI_DOT_RADIUS: f32 = 4.0;
 
-fn step_color(idx: usize) -> egui::Color32 {
-    STEP_COLORS[idx % STEP_COLORS.len()]
+// ---------------------------------------------------------------------------
+// Trigger accent colors
+// ---------------------------------------------------------------------------
+
+fn trigger_accent(trigger: &EffectTrigger) -> egui::Color32 {
+    match trigger {
+        EffectTrigger::AtTime(_) => colors::ACCENT_GREEN,
+        EffectTrigger::OnCollision { .. } => colors::ACCENT_ORANGE,
+        EffectTrigger::OnEffectEvent(_) => colors::ACCENT_BLUE,
+        EffectTrigger::AfterRule { .. } => colors::STATUS_WARNING,
+        EffectTrigger::RepeatingInterval { .. } => colors::ACCENT_CYAN,
+        EffectTrigger::OnSpawn => colors::ACCENT_PURPLE,
+        EffectTrigger::AfterIdleTimeout { .. } => colors::ACCENT_CYAN,
+    }
 }
 
-/// Color for a lane label by trigger type.
-fn lane_color(lane_name: &str) -> egui::Color32 {
-    match lane_name {
-        "Time" => colors::ACCENT_GREEN,
-        "Collision" => colors::ACCENT_ORANGE,
-        "Event" => colors::ACCENT_BLUE,
-        _ => colors::TEXT_MUTED,
+fn trigger_summary(trigger: &EffectTrigger) -> String {
+    match trigger {
+        EffectTrigger::AtTime(t) => format!("at {:.1}s", t),
+        EffectTrigger::OnCollision { tag } => {
+            if tag.is_empty() {
+                "on collision".into()
+            } else {
+                format!("on collision ({})", tag)
+            }
+        }
+        EffectTrigger::OnEffectEvent(name) => {
+            if name.is_empty() {
+                "on event".into()
+            } else {
+                format!("on event \"{}\"", name)
+            }
+        }
+        EffectTrigger::AfterRule { source_rule, delay } => {
+            if *delay > 0.0 {
+                format!("after \"{}\" +{:.1}s", source_rule, delay)
+            } else {
+                format!("after \"{}\"", source_rule)
+            }
+        }
+        EffectTrigger::RepeatingInterval { interval, max_count } => {
+            if let Some(max) = max_count {
+                format!("every {:.1}s (x{})", interval, max)
+            } else {
+                format!("every {:.1}s", interval)
+            }
+        }
+        EffectTrigger::OnSpawn => "on spawn".into(),
+        EffectTrigger::AfterIdleTimeout { timeout } => format!("idle {:.1}s", timeout),
     }
 }
 
@@ -77,11 +109,16 @@ fn action_accent(action: &EffectAction) -> egui::Color32 {
         EffectAction::SpawnPrimitive { .. }
         | EffectAction::SpawnParticle { .. }
         | EffectAction::SpawnGltf { .. }
-        | EffectAction::SpawnDecal { .. } => colors::ACCENT_GREEN,
+        | EffectAction::SpawnDecal { .. }
+        | EffectAction::SpawnEffect { .. } => colors::ACCENT_GREEN,
         EffectAction::SetVelocity { .. }
         | EffectAction::ApplyImpulse { .. }
         | EffectAction::SetGravity { .. } => colors::ACCENT_ORANGE,
         EffectAction::Despawn { .. } | EffectAction::EmitEvent(_) => colors::ACCENT_BLUE,
+        EffectAction::TweenValue { .. } => colors::ACCENT_PURPLE,
+        EffectAction::InsertComponent { .. } | EffectAction::RemoveComponent { .. } => {
+            colors::ACCENT_CYAN
+        }
     }
 }
 
@@ -109,8 +146,7 @@ fn action_card(
                 if ui
                     .add(
                         egui::Button::new(
-                            egui::RichText::new("\u{00d7}")
-                                .color(colors::STATUS_ERROR),
+                            egui::RichText::new("\u{00d7}").color(colors::STATUS_ERROR),
                         )
                         .frame(false),
                     )
@@ -153,8 +189,6 @@ fn action_card(
 // Category header for action groups
 // ---------------------------------------------------------------------------
 
-/// Draw a category header (e.g. "SPAWN", "PHYSICS", "EVENTS") with a colored
-/// label on the left and a [+] dropdown menu on the right.
 fn action_category_header(
     ui: &mut egui::Ui,
     label: &str,
@@ -193,10 +227,11 @@ fn collect_defined_tags(marker: &EffectMarker) -> Vec<String> {
     for step in &marker.steps {
         for action in &step.actions {
             let tag = match action {
-                EffectAction::SpawnPrimitive { tag, .. } => tag,
-                EffectAction::SpawnParticle { tag, .. } => tag,
-                EffectAction::SpawnGltf { tag, .. } => tag,
-                EffectAction::SpawnDecal { tag, .. } => tag,
+                EffectAction::SpawnPrimitive { tag, .. }
+                | EffectAction::SpawnParticle { tag, .. }
+                | EffectAction::SpawnGltf { tag, .. }
+                | EffectAction::SpawnDecal { tag, .. }
+                | EffectAction::SpawnEffect { tag, .. } => tag,
                 _ => continue,
             };
             if !tag.is_empty() && !tags.contains(tag) {
@@ -211,7 +246,11 @@ fn tag_combo(ui: &mut egui::Ui, id: &str, tag: &mut String, defined_tags: &[Stri
     if defined_tags.is_empty() {
         ui.add(egui::TextEdit::singleline(tag).desired_width(100.0));
     } else {
-        let display = if tag.is_empty() { "(none)" } else { tag.as_str() };
+        let display = if tag.is_empty() {
+            "(none)"
+        } else {
+            tag.as_str()
+        };
         egui::ComboBox::from_id_salt(id)
             .selected_text(display)
             .width(100.0)
@@ -221,6 +260,15 @@ fn tag_combo(ui: &mut egui::Ui, id: &str, tag: &mut String, defined_tags: &[Stri
                 }
             });
     }
+}
+
+fn collect_rule_names(marker: &EffectMarker) -> Vec<String> {
+    marker
+        .steps
+        .iter()
+        .filter(|s| !s.name.is_empty())
+        .map(|s| s.name.clone())
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -285,27 +333,33 @@ fn draw_effect_panel(world: &mut World) {
     };
 
     // Extract editor state
-    let mut state = world.remove_resource::<EffectEditorState>().unwrap_or_default();
+    let mut state = world
+        .remove_resource::<EffectEditorState>()
+        .unwrap_or_default();
 
-    // Bounds-check selected_step
-    if let Some(idx) = state.selected_step {
+    // Bounds-check expanded_rule
+    if let Some(idx) = state.expanded_rule {
         if idx >= marker.steps.len() {
-            state.selected_step = if marker.steps.is_empty() {
-                None
-            } else {
-                Some(marker.steps.len() - 1)
-            };
+            state.expanded_rule = None;
         }
     }
 
     let defined_tags = collect_defined_tags(&marker);
+    let rule_names = collect_rule_names(&marker);
 
-    // Collect particle preset names for SpawnParticle action dropdown
+    // Collect particle preset names
     let mut particle_presets: Vec<String> = world
         .get_resource::<ParticleLibrary>()
         .map(|lib| lib.effects.keys().cloned().collect())
         .unwrap_or_default();
     particle_presets.sort();
+
+    // Collect effect preset names
+    let mut effect_presets: Vec<String> = world
+        .get_resource::<EffectLibrary>()
+        .map(|lib| lib.effects.keys().cloned().collect())
+        .unwrap_or_default();
+    effect_presets.sort();
 
     // Collect deferred actions
     let mut pin_toggled = false;
@@ -315,14 +369,21 @@ fn draw_effect_panel(world: &mut World) {
     let mut pause_clicked = false;
     let mut stop_clicked = false;
 
-    // Draw timeline window (bottom)
-    let timeline_height = draw_timeline_window(
+    // Draw the single right-side panel
+    draw_rules_panel(
         &ctx,
         &mut marker,
         &mut entity_name,
         &mut state,
+        &defined_tags,
+        &rule_names,
+        &particle_presets,
+        &effect_presets,
         playback_state,
         playback_elapsed,
+        is_pinned,
+        current_mode,
+        &mut pin_toggled,
         &mut play_clicked,
         &mut pause_clicked,
         &mut stop_clicked,
@@ -330,24 +391,14 @@ fn draw_effect_panel(world: &mut World) {
         &mut browse_presets_clicked,
     );
 
-    // Draw detail panel (right side)
-    draw_detail_panel(
-        &ctx,
-        &mut marker,
-        &mut state,
-        &defined_tags,
-        &particle_presets,
-        is_pinned,
-        current_mode,
-        &mut pin_toggled,
-        timeline_height,
-    );
-
     // Handle deferred texture browse request from SpawnDecal action
-    let browse_decal_texture =
-        ctx.memory(|m| m.data.get_temp::<bool>(egui::Id::new("effect_decal_browse"))) == Some(true);
+    let browse_decal_texture = ctx
+        .memory(|m| m.data.get_temp::<bool>(egui::Id::new("effect_decal_browse")))
+        == Some(true);
     if browse_decal_texture {
-        ctx.memory_mut(|m| m.data.remove::<bool>(egui::Id::new("effect_decal_browse")));
+        ctx.memory_mut(|m| {
+            m.data.remove::<bool>(egui::Id::new("effect_decal_browse"));
+        });
         world
             .resource_mut::<CommandPaletteState>()
             .open_pick_texture(TextureSlot::EffectDecalTexture, Some(entity));
@@ -358,7 +409,6 @@ fn draw_effect_panel(world: &mut World) {
         let pick_data = world.resource_mut::<TexturePickResult>().0.take();
         if let Some(pick) = pick_data {
             if pick.slot == TextureSlot::EffectDecalTexture && pick.entity == Some(entity) {
-                // Find the SpawnDecal action and set its texture_path
                 let mut applied = false;
                 for step in &mut marker.steps {
                     for action in &mut step.actions {
@@ -373,21 +423,22 @@ fn draw_effect_panel(world: &mut World) {
                     }
                 }
                 if !applied {
-                    // No SpawnDecal found — put it back
                     world.resource_mut::<TexturePickResult>().0 = Some(pick);
                 }
             } else {
-                // Different slot or entity — put it back
                 world.resource_mut::<TexturePickResult>().0 = Some(pick);
             }
         }
     }
 
     // Handle deferred GLTF browse request from SpawnGltf action
-    let browse_gltf =
-        ctx.memory(|m| m.data.get_temp::<bool>(egui::Id::new("effect_gltf_browse"))) == Some(true);
+    let browse_gltf = ctx
+        .memory(|m| m.data.get_temp::<bool>(egui::Id::new("effect_gltf_browse")))
+        == Some(true);
     if browse_gltf {
-        ctx.memory_mut(|m| m.data.remove::<bool>(egui::Id::new("effect_gltf_browse")));
+        ctx.memory_mut(|m| {
+            m.data.remove::<bool>(egui::Id::new("effect_gltf_browse"));
+        });
         world
             .resource_mut::<CommandPaletteState>()
             .open_pick_gltf(Some(entity));
@@ -398,7 +449,6 @@ fn draw_effect_panel(world: &mut World) {
         let pick_data = world.resource_mut::<GltfPickResult>().0.take();
         if let Some(pick) = pick_data {
             if pick.entity == Some(entity) {
-                // Find the first SpawnGltf action and set its path
                 let mut applied = false;
                 for step in &mut marker.steps {
                     for action in &mut step.actions {
@@ -461,6 +511,10 @@ fn draw_effect_panel(world: &mut World) {
             pb.pending_events.clear();
             pb.last_collision_point = None;
             pb.spawned.clear();
+            pb.rule_fire_times.clear();
+            pb.last_fire_time = 0.0;
+            pb.active_tweens.clear();
+            pb.repeat_counts.clear();
             pb.state = PlaybackState::Stopped;
         }
     }
@@ -497,7 +551,9 @@ fn draw_effect_panel(world: &mut World) {
                 candidate
             }
         };
-        library.effects.insert(preset_name.clone(), marker_for_save);
+        library
+            .effects
+            .insert(preset_name.clone(), marker_for_save);
         info!("Saved effect preset '{}'", preset_name);
     }
 
@@ -547,7 +603,7 @@ fn draw_empty_panel(world: &mut World, is_pinned: bool, current_mode: EditorMode
 
     let mut pin_toggled = false;
 
-    egui::Window::new("Effect Sequencer")
+    egui::Window::new("Effect Rules")
         .default_width(panel::DEFAULT_WIDTH)
         .min_width(panel::MIN_WIDTH)
         .max_height(available_height)
@@ -581,55 +637,75 @@ fn draw_empty_panel(world: &mut World, is_pinned: bool, current_mode: EditorMode
 }
 
 // ---------------------------------------------------------------------------
-// Timeline Window (bottom-anchored)
+// Rules Panel (single right-side panel)
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_arguments)]
-fn draw_timeline_window(
+fn draw_rules_panel(
     ctx: &egui::Context,
     marker: &mut EffectMarker,
     entity_name: &mut String,
     state: &mut EffectEditorState,
+    defined_tags: &[String],
+    rule_names: &[String],
+    particle_presets: &[String],
+    effect_presets: &[String],
     playback_state: PlaybackState,
     playback_elapsed: f32,
+    is_pinned: bool,
+    current_mode: EditorMode,
+    pin_toggled: &mut bool,
     play_clicked: &mut bool,
     pause_clicked: &mut bool,
     stop_clicked: &mut bool,
     save_preset_clicked: &mut bool,
     browse_presets_clicked: &mut bool,
-) -> f32 {
-    let viewport_width = ctx.input(|i| i.viewport_rect().width());
-    // Leave room for the sequencer panel on the right + padding between them
-    let timeline_width = viewport_width - panel::DEFAULT_WIDTH - panel::WINDOW_PADDING * 3.0;
+) {
+    let available_height = panel::available_height(ctx);
 
-    let response = egui::Window::new("Effect Timeline")
-        .default_width(timeline_width)
-        .max_width(timeline_width)
-        .default_height(160.0)
-        .anchor(
-            egui::Align2::LEFT_BOTTOM,
-            [
-                panel::WINDOW_PADDING,
-                -(panel::STATUS_BAR_HEIGHT + panel::WINDOW_PADDING),
-            ],
+    let displaced = is_pinned
+        && current_mode != EditorMode::Effect
+        && current_mode.panel_side() == Some(PanelSide::Right);
+    let (anchor_align, anchor_offset) = if displaced {
+        (
+            egui::Align2::LEFT_TOP,
+            [panel::WINDOW_PADDING, panel::WINDOW_PADDING],
         )
+    } else {
+        (
+            egui::Align2::RIGHT_TOP,
+            [-panel::WINDOW_PADDING, panel::WINDOW_PADDING],
+        )
+    };
+
+    egui::Window::new("Effect Rules")
+        .default_width(panel::DEFAULT_WIDTH)
+        .min_width(panel::MIN_WIDTH)
+        .max_height(available_height)
+        .anchor(anchor_align, anchor_offset)
         .resizable(true)
         .collapsible(false)
         .title_bar(true)
-        .frame(window_frame(&ctx.style()))
+        .scroll(false)
+        .frame(panel_frame(&ctx.style()))
         .show(ctx, |ui| {
-            // Header row
+            // Pin button
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                *pin_toggled = draw_pin_button(ui, is_pinned);
+            });
+
+            // Header: entity name + playback controls
             ui.horizontal(|ui| {
-                // Entity name (compact)
                 ui.add(
                     egui::TextEdit::singleline(entity_name)
-                        .desired_width(120.0)
-                        .font(egui::FontId::proportional(13.0)),
+                        .font(egui::FontId::proportional(16.0))
+                        .text_color(colors::TEXT_PRIMARY)
+                        .margin(egui::vec2(8.0, 6.0)),
                 );
+            });
 
-                ui.separator();
-
-                // Playback status + elapsed time
+            ui.horizontal(|ui| {
+                // Playback status
                 let (status_label, status_color) = match playback_state {
                     PlaybackState::Playing => ("Playing", colors::STATUS_SUCCESS),
                     PlaybackState::Paused => ("Paused", colors::STATUS_WARNING),
@@ -642,28 +718,39 @@ fn draw_timeline_window(
                 );
 
                 if ui
-                    .button(egui::RichText::new("\u{25b6}").small().color(colors::STATUS_SUCCESS))
+                    .button(
+                        egui::RichText::new("\u{25b6}")
+                            .small()
+                            .color(colors::STATUS_SUCCESS),
+                    )
                     .on_hover_text("Play")
                     .clicked()
                 {
                     *play_clicked = true;
                 }
                 if ui
-                    .button(egui::RichText::new("\u{23f8}").small().color(colors::STATUS_WARNING))
+                    .button(
+                        egui::RichText::new("\u{23f8}")
+                            .small()
+                            .color(colors::STATUS_WARNING),
+                    )
                     .on_hover_text("Pause")
                     .clicked()
                 {
                     *pause_clicked = true;
                 }
                 if ui
-                    .button(egui::RichText::new("\u{25a0}").small().color(colors::STATUS_ERROR))
+                    .button(
+                        egui::RichText::new("\u{25a0}")
+                            .small()
+                            .color(colors::STATUS_ERROR),
+                    )
                     .on_hover_text("Stop")
                     .clicked()
                 {
                     *stop_clicked = true;
                 }
 
-                // Right-aligned preset buttons
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
                         .button(
@@ -692,570 +779,342 @@ fn draw_timeline_window(
 
             ui.separator();
 
-            // Lanes
-            let mut new_step_trigger: Option<EffectTrigger> = None;
+            // Scrollable card list
+            let mini_timeline_space = MINI_TIMELINE_HEIGHT + 16.0;
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .max_height(ui.available_height() - mini_timeline_space)
+                .show(ui, |ui| {
+                    ui.set_min_width(230.0);
 
-            // Collect step indices per lane
-            let mut time_steps: Vec<(usize, f32)> = Vec::new();
-            let mut collision_steps: Vec<(usize, String)> = Vec::new();
-            let mut event_steps: Vec<(usize, String)> = Vec::new();
+                    let mut remove_step = None;
 
-            for (idx, step) in marker.steps.iter().enumerate() {
-                match &step.trigger {
-                    EffectTrigger::AtTime(t) => time_steps.push((idx, *t)),
-                    EffectTrigger::OnCollision { tag } => {
-                        collision_steps.push((idx, tag.clone()))
+                    for step_idx in 0..marker.steps.len() {
+                        let is_expanded = state.expanded_rule == Some(step_idx);
+                        if draw_rule_card(
+                            ui,
+                            marker,
+                            step_idx,
+                            is_expanded,
+                            state,
+                            defined_tags,
+                            rule_names,
+                            particle_presets,
+                            effect_presets,
+                        ) {
+                            remove_step = Some(step_idx);
+                        }
                     }
-                    EffectTrigger::OnEffectEvent(name) => {
-                        event_steps.push((idx, name.clone()))
+
+                    if let Some(idx) = remove_step {
+                        marker.steps.remove(idx);
+                        if state.expanded_rule == Some(idx) {
+                            state.expanded_rule = None;
+                        } else if let Some(expanded) = state.expanded_rule {
+                            if expanded > idx {
+                                state.expanded_rule = Some(expanded - 1);
+                            }
+                        }
                     }
-                }
-            }
 
-            // Sort time steps by time
-            time_steps.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+                    // Add rule button
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        ui.menu_button(
+                            egui::RichText::new("+ Add Rule")
+                                .strong()
+                                .color(colors::ACCENT_GREEN),
+                            |ui| {
+                                for (i, label) in
+                                    EffectTrigger::VARIANT_LABELS.iter().enumerate()
+                                {
+                                    if ui.button(*label).clicked() {
+                                        let new_idx = marker.steps.len();
+                                        marker.steps.push(EffectStep {
+                                            name: format!("rule_{}", new_idx + 1),
+                                            trigger: EffectTrigger::from_variant_index(i),
+                                            actions: Vec::new(),
+                                        });
+                                        state.expanded_rule = Some(new_idx);
+                                        ui.close();
+                                    }
+                                }
+                            },
+                        );
+                    });
 
-            // Time lane
-            draw_lane(
-                ui,
-                "Time",
-                &time_steps,
-                marker,
-                state,
-                playback_state,
-                playback_elapsed,
-                true,
-                |_, t| format!("{:.1}s", t),
-            );
-            if ui.memory(|m| m.data.get_temp::<bool>(egui::Id::new("add_time_step"))) == Some(true)
-            {
-                ui.memory_mut(|m| m.data.remove::<bool>(egui::Id::new("add_time_step")));
-                new_step_trigger = Some(EffectTrigger::AtTime(0.0));
-            }
-
-            // Collision lane
-            draw_lane(
-                ui,
-                "Collision",
-                &collision_steps,
-                marker,
-                state,
-                playback_state,
-                playback_elapsed,
-                false,
-                |_, tag| {
-                    if tag.is_empty() {
-                        "(no tag)".to_string()
-                    } else {
-                        tag.clone()
-                    }
-                },
-            );
-            if ui.memory(|m| m.data.get_temp::<bool>(egui::Id::new("add_collision_step")))
-                == Some(true)
-            {
-                ui.memory_mut(|m| m.data.remove::<bool>(egui::Id::new("add_collision_step")));
-                new_step_trigger = Some(EffectTrigger::OnCollision {
-                    tag: String::new(),
+                    ui.add_space(4.0);
                 });
-            }
 
-            // Event lane
-            draw_lane(
-                ui,
-                "Event",
-                &event_steps,
-                marker,
-                state,
-                playback_state,
-                playback_elapsed,
-                false,
-                |_, name| {
-                    if name.is_empty() {
-                        "(unnamed)".to_string()
-                    } else {
-                        name.clone()
-                    }
-                },
-            );
-            if ui.memory(|m| m.data.get_temp::<bool>(egui::Id::new("add_event_step")))
-                == Some(true)
-            {
-                ui.memory_mut(|m| m.data.remove::<bool>(egui::Id::new("add_event_step")));
-                new_step_trigger = Some(EffectTrigger::OnEffectEvent(String::new()));
-            }
-
-            // Handle adding new steps
-            if let Some(trigger) = new_step_trigger {
-                let new_idx = marker.steps.len();
-                marker.steps.push(EffectStep {
-                    name: format!("step_{}", new_idx + 1),
-                    trigger,
-                    actions: Vec::new(),
-                });
-                state.selected_step = Some(new_idx);
-            }
+            // Mini timeline strip at bottom
+            draw_mini_timeline(ui, marker, playback_state, playback_elapsed);
         });
-
-    response
-        .map(|r| r.response.rect.height())
-        .unwrap_or(160.0)
 }
 
-/// Draw a single lane row with step blocks.
+// ---------------------------------------------------------------------------
+// Rule card
+// ---------------------------------------------------------------------------
+
+/// Draw a single rule as a collapsible card. Returns true if removed.
 #[allow(clippy::too_many_arguments)]
-fn draw_lane<T: Clone>(
+fn draw_rule_card(
     ui: &mut egui::Ui,
-    lane_name: &str,
-    steps: &[(usize, T)],
-    marker: &EffectMarker,
+    marker: &mut EffectMarker,
+    step_idx: usize,
+    is_expanded: bool,
     state: &mut EffectEditorState,
-    playback_state: PlaybackState,
-    playback_elapsed: f32,
-    is_time_lane: bool,
-    block_label_fn: impl Fn(&EffectMarker, &T) -> String,
-) {
-    let add_id = egui::Id::new(format!("add_{}_step", lane_name.to_lowercase()));
+    defined_tags: &[String],
+    rule_names: &[String],
+    particle_presets: &[String],
+    effect_presets: &[String],
+) -> bool {
+    let mut removed = false;
+    let step = &marker.steps[step_idx];
+    let accent = trigger_accent(&step.trigger);
+    let summary = trigger_summary(&step.trigger);
+    let action_count = step.actions.len();
+    let step_name = step.name.clone();
 
-    ui.horizontal(|ui| {
-        // Lane label (colored by type)
-        ui.allocate_ui_with_layout(
-            egui::vec2(LANE_LABEL_WIDTH, BLOCK_HEIGHT),
-            egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
-            |ui| {
-                ui.label(
-                    egui::RichText::new(lane_name)
-                        .strong()
-                        .size(12.0)
-                        .color(lane_color(lane_name)),
-                );
-            },
-        );
+    let frame = egui::Frame::new()
+        .fill(colors::BG_MEDIUM)
+        .corner_radius(egui::CornerRadius::same(CARD_ROUNDING))
+        .inner_margin(egui::Margin::same(6));
 
-        // Step blocks area — use a child UI so we can paint over it
-        let (blocks_rect, _) = ui.allocate_exact_size(
-            egui::vec2(
-                ui.available_width() - 30.0, // leave room for + button
-                BLOCK_HEIGHT,
-            ),
-            egui::Sense::hover(),
-        );
-
-        let painter = ui.painter_at(blocks_rect);
-
-        // Draw playhead for time lane
-        if is_time_lane && playback_state == PlaybackState::Playing {
-            let playhead_x = blocks_rect.left() + playback_elapsed * TIME_SCALE;
-            if playhead_x >= blocks_rect.left() && playhead_x <= blocks_rect.right() {
-                painter.line_segment(
-                    [
-                        egui::pos2(playhead_x, blocks_rect.top()),
-                        egui::pos2(playhead_x, blocks_rect.bottom()),
-                    ],
-                    egui::Stroke::new(PLAYHEAD_WIDTH, colors::STATUS_ERROR),
-                );
-            }
-        }
-
-        // Draw step blocks
-        for (seq_idx, (step_idx, data)) in steps.iter().enumerate() {
-            let block_x = if is_time_lane {
-                // Position proportionally by time
-                if let EffectTrigger::AtTime(t) = &marker.steps[*step_idx].trigger {
-                    blocks_rect.left() + t * TIME_SCALE
-                } else {
-                    blocks_rect.left() + seq_idx as f32 * (BLOCK_WIDTH + BLOCK_SPACING)
-                }
-            } else {
-                blocks_rect.left() + seq_idx as f32 * (BLOCK_WIDTH + BLOCK_SPACING)
-            };
-
-            let block_rect = egui::Rect::from_min_size(
-                egui::pos2(block_x, blocks_rect.top()),
-                egui::vec2(BLOCK_WIDTH, BLOCK_HEIGHT),
-            );
-
-            // Skip if out of bounds
-            if block_rect.left() > blocks_rect.right() {
-                continue;
-            }
-
-            let is_selected = state.selected_step == Some(*step_idx);
-            let accent = step_color(*step_idx);
-
-            // Background
-            let fill = if is_selected {
-                colors::SELECTION_BG
-            } else {
-                colors::BG_MEDIUM
-            };
-            painter.rect_filled(block_rect, egui::CornerRadius::same(CARD_ROUNDING), fill);
-
-            // Accent stripe
-            let stripe_rect = egui::Rect::from_min_max(
-                block_rect.left_top(),
-                egui::pos2(
-                    block_rect.left() + ACCENT_STRIPE_WIDTH,
-                    block_rect.bottom(),
-                ),
-            );
-            painter.rect_filled(
-                stripe_rect,
-                egui::CornerRadius {
-                    nw: CARD_ROUNDING,
-                    sw: CARD_ROUNDING,
-                    ne: 0,
-                    se: 0,
-                },
-                accent,
-            );
-
-            // Selected border
-            if is_selected {
-                painter.rect_stroke(
-                    block_rect,
-                    egui::CornerRadius::same(CARD_ROUNDING),
-                    egui::Stroke::new(1.5, accent),
-                    egui::StrokeKind::Inside,
-                );
-            }
-
-            // Block label (clipped) — show name + action count
-            let label_text = block_label_fn(marker, data);
-            let step_name = &marker.steps[*step_idx].name;
-            let action_count = marker.steps[*step_idx].actions.len();
-            let base = if step_name.is_empty() {
-                label_text
+    let resp = frame.show(ui, |ui| {
+        // Collapsed header: WHEN {summary} THEN {N actions}
+        let header_resp = ui.horizontal(|ui| {
+            // Name
+            let name_display = if step_name.is_empty() {
+                format!("Rule #{}", step_idx + 1)
             } else {
                 step_name.clone()
             };
-            let display = if action_count > 0 {
-                format!("{} ({})", base, action_count)
-            } else {
-                base
-            };
-
-            let text_rect = egui::Rect::from_min_max(
-                egui::pos2(
-                    block_rect.left() + ACCENT_STRIPE_WIDTH + 4.0,
-                    block_rect.top() + 2.0,
-                ),
-                egui::pos2(block_rect.right() - 2.0, block_rect.bottom() - 2.0),
+            ui.label(
+                egui::RichText::new(name_display)
+                    .strong()
+                    .color(colors::TEXT_PRIMARY),
             );
 
-            let galley = painter.layout_no_wrap(
-                display,
-                egui::FontId::proportional(11.0),
-                colors::TEXT_PRIMARY,
-            );
-            painter.with_clip_rect(text_rect).galley(
-                text_rect.left_top(),
-                galley,
-                colors::TEXT_PRIMARY,
+            ui.label(
+                egui::RichText::new(format!("WHEN {} THEN {} action(s)", summary, action_count))
+                    .small()
+                    .color(colors::TEXT_SECONDARY),
             );
 
-            // Click interaction
-            let block_resp = ui.interact(
-                block_rect,
-                egui::Id::new(format!("step_block_{}", step_idx)),
-                egui::Sense::click(),
-            );
-            if block_resp.clicked() {
-                state.selected_step = Some(*step_idx);
-            }
-        }
-
-        // "+" button
-        if ui
-            .add(
-                egui::Button::new(
-                    egui::RichText::new("+")
-                        .color(colors::ACCENT_GREEN),
-                )
-                .min_size(egui::vec2(24.0, BLOCK_HEIGHT)),
-            )
-            .on_hover_text(format!("Add {} step", lane_name.to_lowercase()))
-            .clicked()
-        {
-            ui.memory_mut(|m| m.data.insert_temp(add_id, true));
-        }
-    });
-}
-
-// ---------------------------------------------------------------------------
-// Detail Panel (right side)
-// ---------------------------------------------------------------------------
-
-fn draw_detail_panel(
-    ctx: &egui::Context,
-    marker: &mut EffectMarker,
-    state: &mut EffectEditorState,
-    defined_tags: &[String],
-    particle_presets: &[String],
-    is_pinned: bool,
-    current_mode: EditorMode,
-    pin_toggled: &mut bool,
-    timeline_height: f32,
-) {
-    let available_height = panel::available_height(ctx) - timeline_height - panel::WINDOW_PADDING;
-
-    let displaced = is_pinned
-        && current_mode != EditorMode::Effect
-        && current_mode.panel_side() == Some(PanelSide::Right);
-    let (anchor_align, anchor_offset) = if displaced {
-        (
-            egui::Align2::LEFT_TOP,
-            [panel::WINDOW_PADDING, panel::WINDOW_PADDING],
-        )
-    } else {
-        (
-            egui::Align2::RIGHT_TOP,
-            [-panel::WINDOW_PADDING, panel::WINDOW_PADDING],
-        )
-    };
-
-    egui::Window::new("Effect Sequencer")
-        .default_width(panel::DEFAULT_WIDTH)
-        .min_width(panel::MIN_WIDTH)
-        .max_height(available_height)
-        .anchor(anchor_align, anchor_offset)
-        .resizable(true)
-        .collapsible(false)
-        .title_bar(true)
-        .scroll(true)
-        .frame(panel_frame(&ctx.style()))
-        .show(ctx, |ui| {
-            // Pin button
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                *pin_toggled = draw_pin_button(ui, is_pinned);
-            });
-
-            match state.selected_step {
-                None => {
-                    ui.add_space(20.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label(
-                            egui::RichText::new("Click a step in the timeline to edit it")
-                                .color(colors::TEXT_MUTED)
-                                .italics(),
-                        );
-                        ui.add_space(8.0);
-                        ui.label(
-                            egui::RichText::new("Use [+] to add steps to each lane")
-                                .color(colors::TEXT_MUTED)
-                                .small(),
-                        );
-                    });
-                }
-                Some(step_idx) => {
-                    draw_step_detail(ui, marker, state, step_idx, defined_tags, particle_presets);
-                }
-            }
-        });
-}
-
-fn draw_step_detail(
-    ui: &mut egui::Ui,
-    marker: &mut EffectMarker,
-    state: &mut EffectEditorState,
-    step_idx: usize,
-    defined_tags: &[String],
-    particle_presets: &[String],
-) {
-    let step_count = marker.steps.len();
-    if step_idx >= step_count {
-        return;
-    }
-
-    // Header: step name + index + remove
-    ui.horizontal(|ui| {
-        let step = &mut marker.steps[step_idx];
-        ui.add(
-            egui::TextEdit::singleline(&mut step.name)
-                .font(egui::FontId::proportional(16.0))
-                .text_color(colors::TEXT_PRIMARY)
-                .margin(egui::vec2(8.0, 6.0)),
-        );
-
-        ui.label(
-            egui::RichText::new(format!("#{}", step_idx + 1))
-                .small()
-                .color(colors::TEXT_MUTED),
-        );
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new("Remove")
-                            .small()
-                            .color(colors::STATUS_ERROR),
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new("\u{00d7}").color(colors::STATUS_ERROR),
+                        )
+                        .frame(false),
                     )
-                    .frame(false),
-                )
-                .on_hover_text("Remove this step")
-                .clicked()
-            {
-                // Defer removal until after drawing
-                ui.memory_mut(|m| {
-                    m.data
-                        .insert_temp(egui::Id::new("remove_step_flag"), true);
-                });
-            }
+                    .on_hover_text("Remove rule")
+                    .clicked()
+                {
+                    removed = true;
+                }
+
+                // Expand/collapse toggle
+                let toggle_text = if is_expanded { "\u{25b2}" } else { "\u{25bc}" };
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(toggle_text).color(colors::TEXT_MUTED),
+                        )
+                        .frame(false),
+                    )
+                    .on_hover_text(if is_expanded { "Collapse" } else { "Expand" })
+                    .clicked()
+                {
+                    if is_expanded {
+                        state.expanded_rule = None;
+                    } else {
+                        state.expanded_rule = Some(step_idx);
+                    }
+                }
+            });
         });
-    });
 
-    ui.separator();
-
-    // Check for deferred removal
-    let should_remove =
-        ui.memory(|m| m.data.get_temp::<bool>(egui::Id::new("remove_step_flag"))) == Some(true);
-    if should_remove {
-        ui.memory_mut(|m| m.data.remove::<bool>(egui::Id::new("remove_step_flag")));
-        marker.steps.remove(step_idx);
-        // Adjust selection
-        if marker.steps.is_empty() {
-            state.selected_step = None;
-        } else if step_idx >= marker.steps.len() {
-            state.selected_step = Some(marker.steps.len() - 1);
-        } else {
-            // Keep same index (now points to next step)
-            state.selected_step = Some(step_idx);
+        // Click on header area to toggle
+        if header_resp
+            .response
+            .interact(egui::Sense::click())
+            .clicked()
+            && !removed
+        {
+            if is_expanded {
+                state.expanded_rule = None;
+            } else {
+                state.expanded_rule = Some(step_idx);
+            }
         }
-        return;
-    }
 
-    egui::ScrollArea::vertical()
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.set_min_width(230.0);
+        // Expanded content
+        if is_expanded && !removed {
+            ui.separator();
 
-            // Trigger section (collapsible)
-            section_header(ui, "Trigger", true, |ui| {
-                let step = &mut marker.steps[step_idx];
-                draw_trigger_editor(ui, &mut step.trigger, step_idx, defined_tags);
+            // Name editor
+            let step = &mut marker.steps[step_idx];
+            ui.horizontal(|ui| {
+                grid_label(ui, "Name");
+                ui.add(
+                    egui::TextEdit::singleline(&mut step.name)
+                        .desired_width(140.0)
+                        .font(egui::FontId::proportional(13.0)),
+                );
             });
 
             ui.add_space(4.0);
 
-            // Actions section (collapsible, contains category groups)
-            section_header(ui, "Actions", true, |ui| {
-                // Partition actions into categories by index
-                let actions = &marker.steps[step_idx].actions;
-                let mut spawn_indices = Vec::new();
-                let mut physics_indices = Vec::new();
-                let mut event_indices = Vec::new();
-                for (i, action) in actions.iter().enumerate() {
-                    match action {
-                        EffectAction::SpawnPrimitive { .. }
-                        | EffectAction::SpawnParticle { .. }
-                        | EffectAction::SpawnGltf { .. }
-                        | EffectAction::SpawnDecal { .. } => spawn_indices.push(i),
-                        EffectAction::SetVelocity { .. }
-                        | EffectAction::ApplyImpulse { .. }
-                        | EffectAction::SetGravity { .. } => physics_indices.push(i),
-                        EffectAction::Despawn { .. } | EffectAction::EmitEvent(_) => {
-                            event_indices.push(i)
-                        }
-                    }
-                }
-
-                let mut remove_action = None;
-
-                // SPAWN category
-                action_category_header(
-                    ui,
-                    "SPAWN",
-                    colors::ACCENT_GREEN,
-                    &[
-                        ("Spawn Primitive", 0),
-                        ("Spawn Particle", 1),
-                        ("Spawn Decal", 7),
-                        ("Spawn GLTF", 8),
-                    ],
-                    &mut marker.steps[step_idx].actions,
-                );
-                for &action_idx in &spawn_indices {
-                    let label = marker.steps[step_idx].actions[action_idx].label();
-                    let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
-                    let action = &mut marker.steps[step_idx].actions[action_idx];
-                    if action_card(ui, label, accent, |ui| {
-                        draw_action_editor(
-                            ui,
-                            action,
-                            step_idx,
-                            action_idx,
-                            defined_tags,
-                            particle_presets,
-                        );
-                    }) {
-                        remove_action = Some(action_idx);
-                    }
-                }
-
-                // PHYSICS category
-                action_category_header(
-                    ui,
-                    "PHYSICS",
-                    colors::ACCENT_ORANGE,
-                    &[
-                        ("Set Velocity", 2),
-                        ("Apply Impulse", 3),
-                        ("Set Gravity", 6),
-                    ],
-                    &mut marker.steps[step_idx].actions,
-                );
-                for &action_idx in &physics_indices {
-                    let label = marker.steps[step_idx].actions[action_idx].label();
-                    let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
-                    let action = &mut marker.steps[step_idx].actions[action_idx];
-                    if action_card(ui, label, accent, |ui| {
-                        draw_action_editor(
-                            ui,
-                            action,
-                            step_idx,
-                            action_idx,
-                            defined_tags,
-                            particle_presets,
-                        );
-                    }) {
-                        remove_action = Some(action_idx);
-                    }
-                }
-
-                // EVENTS category
-                action_category_header(
-                    ui,
-                    "EVENTS",
-                    colors::ACCENT_BLUE,
-                    &[("Despawn", 4), ("Emit Event", 5)],
-                    &mut marker.steps[step_idx].actions,
-                );
-                for &action_idx in &event_indices {
-                    let label = marker.steps[step_idx].actions[action_idx].label();
-                    let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
-                    let action = &mut marker.steps[step_idx].actions[action_idx];
-                    if action_card(ui, label, accent, |ui| {
-                        draw_action_editor(
-                            ui,
-                            action,
-                            step_idx,
-                            action_idx,
-                            defined_tags,
-                            particle_presets,
-                        );
-                    }) {
-                        remove_action = Some(action_idx);
-                    }
-                }
-
-                if let Some(idx) = remove_action {
-                    marker.steps[step_idx].actions.remove(idx);
-                }
+            // Trigger editor
+            section_header(ui, "Trigger", true, |ui| {
+                let step = &mut marker.steps[step_idx];
+                draw_trigger_editor(ui, &mut step.trigger, step_idx, defined_tags, rule_names);
             });
 
-            ui.add_space(8.0);
-        });
+            ui.add_space(4.0);
+
+            // Actions editor
+            section_header(ui, "Actions", true, |ui| {
+                draw_actions_list(
+                    ui,
+                    marker,
+                    step_idx,
+                    defined_tags,
+                    rule_names,
+                    particle_presets,
+                    effect_presets,
+                );
+            });
+        }
+    });
+
+    // Paint accent stripe over left edge
+    let card_rect = resp.response.rect;
+    let stripe = egui::Rect::from_min_max(
+        card_rect.left_top(),
+        egui::pos2(
+            card_rect.left() + ACCENT_STRIPE_WIDTH,
+            card_rect.bottom(),
+        ),
+    );
+    ui.painter().rect_filled(
+        stripe,
+        egui::CornerRadius {
+            nw: CARD_ROUNDING,
+            sw: CARD_ROUNDING,
+            ne: 0,
+            se: 0,
+        },
+        accent,
+    );
+
+    ui.add_space(4.0);
+    removed
+}
+
+// ---------------------------------------------------------------------------
+// Mini timeline strip
+// ---------------------------------------------------------------------------
+
+fn draw_mini_timeline(
+    ui: &mut egui::Ui,
+    marker: &EffectMarker,
+    playback_state: PlaybackState,
+    playback_elapsed: f32,
+) {
+    ui.separator();
+
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), MINI_TIMELINE_HEIGHT),
+        egui::Sense::hover(),
+    );
+
+    let painter = ui.painter_at(rect);
+
+    // Background
+    painter.rect_filled(rect, 0.0, colors::BG_DARK);
+
+    // Time markers (every second)
+    let max_time = marker
+        .steps
+        .iter()
+        .filter_map(|s| {
+            if let EffectTrigger::AtTime(t) = &s.trigger {
+                Some(*t)
+            } else {
+                None
+            }
+        })
+        .fold(5.0f32, f32::max)
+        + 1.0;
+
+    let usable_width = rect.width() - 4.0;
+    let time_to_x = |t: f32| rect.left() + 2.0 + (t / max_time) * usable_width;
+
+    // Tick marks
+    let tick_interval = if max_time > 20.0 {
+        5.0
+    } else if max_time > 10.0 {
+        2.0
+    } else {
+        1.0
+    };
+    let mut t = 0.0;
+    while t <= max_time {
+        let x = time_to_x(t);
+        painter.line_segment(
+            [
+                egui::pos2(x, rect.bottom() - 6.0),
+                egui::pos2(x, rect.bottom()),
+            ],
+            egui::Stroke::new(1.0, colors::TEXT_MUTED),
+        );
+        t += tick_interval;
+    }
+
+    // Draw dots for time-triggered rules
+    for (idx, step) in marker.steps.iter().enumerate() {
+        if let EffectTrigger::AtTime(t) = &step.trigger {
+            let x = time_to_x(*t);
+            let y = rect.center().y;
+            let color = trigger_accent(&step.trigger);
+            painter.circle_filled(egui::pos2(x, y), MINI_DOT_RADIUS, color);
+
+            // Tooltip on hover
+            let dot_rect = egui::Rect::from_center_size(
+                egui::pos2(x, y),
+                egui::vec2(MINI_DOT_RADIUS * 3.0, MINI_DOT_RADIUS * 3.0),
+            );
+            let dot_resp = ui.interact(
+                dot_rect,
+                egui::Id::new(format!("mini_dot_{}", idx)),
+                egui::Sense::hover(),
+            );
+            if dot_resp.hovered() {
+                dot_resp.on_hover_ui(|ui| {
+                    let name = if step.name.is_empty() {
+                        format!("Rule #{}", idx + 1)
+                    } else {
+                        step.name.clone()
+                    };
+                    ui.label(format!("{} @ {:.1}s", name, t));
+                });
+            }
+        }
+    }
+
+    // Playhead
+    if playback_state == PlaybackState::Playing {
+        let x = time_to_x(playback_elapsed);
+        if x >= rect.left() && x <= rect.right() {
+            painter.line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(PLAYHEAD_WIDTH, colors::STATUS_ERROR),
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1267,6 +1126,7 @@ fn draw_trigger_editor(
     trigger: &mut EffectTrigger,
     step_idx: usize,
     defined_tags: &[String],
+    rule_names: &[String],
 ) {
     let mut current_variant = trigger.variant_index();
 
@@ -1326,6 +1186,309 @@ fn draw_trigger_editor(
                     ui.end_row();
                 });
         }
+        EffectTrigger::AfterRule { source_rule, delay } => {
+            egui::Grid::new(format!("trigger_after_{step_idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Source Rule");
+                    if rule_names.is_empty() {
+                        ui.add(
+                            egui::TextEdit::singleline(source_rule).desired_width(120.0),
+                        );
+                    } else {
+                        let display = if source_rule.is_empty() {
+                            "(none)"
+                        } else {
+                            source_rule.as_str()
+                        };
+                        egui::ComboBox::from_id_salt(format!("after_rule_{step_idx}"))
+                            .selected_text(display)
+                            .width(120.0)
+                            .show_ui(ui, |ui| {
+                                for name in rule_names {
+                                    ui.selectable_value(
+                                        source_rule,
+                                        name.clone(),
+                                        name.as_str(),
+                                    );
+                                }
+                            });
+                    }
+                    ui.end_row();
+
+                    grid_label(ui, "Delay");
+                    ui.add(
+                        egui::DragValue::new(delay)
+                            .speed(0.1)
+                            .range(0.0..=60.0)
+                            .max_decimals(2)
+                            .suffix(" s"),
+                    );
+                    ui.end_row();
+                });
+        }
+        EffectTrigger::RepeatingInterval { interval, max_count } => {
+            egui::Grid::new(format!("trigger_repeat_{step_idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Interval");
+                    ui.add(
+                        egui::DragValue::new(interval)
+                            .speed(0.1)
+                            .range(0.01..=60.0)
+                            .max_decimals(2)
+                            .suffix(" s"),
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Max Count");
+                    let mut has_max = max_count.is_some();
+                    let mut max_val = max_count.unwrap_or(10);
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut has_max, "").changed() {
+                            if has_max {
+                                *max_count = Some(max_val);
+                            } else {
+                                *max_count = None;
+                            }
+                        }
+                        if has_max {
+                            if ui
+                                .add(egui::DragValue::new(&mut max_val).range(1..=1000))
+                                .changed()
+                            {
+                                *max_count = Some(max_val);
+                            }
+                        } else {
+                            ui.label(
+                                egui::RichText::new("unlimited")
+                                    .small()
+                                    .color(colors::TEXT_MUTED),
+                            );
+                        }
+                    });
+                    ui.end_row();
+                });
+        }
+        EffectTrigger::OnSpawn => {
+            ui.label(
+                egui::RichText::new("Fires once when the effect starts playing")
+                    .small()
+                    .color(colors::TEXT_MUTED),
+            );
+        }
+        EffectTrigger::AfterIdleTimeout { timeout } => {
+            egui::Grid::new(format!("trigger_idle_{step_idx}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Timeout");
+                    ui.add(
+                        egui::DragValue::new(timeout)
+                            .speed(0.1)
+                            .range(0.1..=60.0)
+                            .max_decimals(2)
+                            .suffix(" s"),
+                    );
+                    ui.end_row();
+                });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Actions list within a rule
+// ---------------------------------------------------------------------------
+
+#[allow(clippy::too_many_arguments)]
+fn draw_actions_list(
+    ui: &mut egui::Ui,
+    marker: &mut EffectMarker,
+    step_idx: usize,
+    defined_tags: &[String],
+    _rule_names: &[String],
+    particle_presets: &[String],
+    effect_presets: &[String],
+) {
+    // Partition actions into categories
+    let actions = &marker.steps[step_idx].actions;
+    let mut spawn_indices = Vec::new();
+    let mut physics_indices = Vec::new();
+    let mut event_indices = Vec::new();
+    let mut animation_indices = Vec::new();
+    let mut ecs_indices = Vec::new();
+
+    for (i, action) in actions.iter().enumerate() {
+        match action {
+            EffectAction::SpawnPrimitive { .. }
+            | EffectAction::SpawnParticle { .. }
+            | EffectAction::SpawnGltf { .. }
+            | EffectAction::SpawnDecal { .. }
+            | EffectAction::SpawnEffect { .. } => spawn_indices.push(i),
+            EffectAction::SetVelocity { .. }
+            | EffectAction::ApplyImpulse { .. }
+            | EffectAction::SetGravity { .. } => physics_indices.push(i),
+            EffectAction::Despawn { .. } | EffectAction::EmitEvent(_) => {
+                event_indices.push(i)
+            }
+            EffectAction::TweenValue { .. } => animation_indices.push(i),
+            EffectAction::InsertComponent { .. } | EffectAction::RemoveComponent { .. } => {
+                ecs_indices.push(i)
+            }
+        }
+    }
+
+    let mut remove_action = None;
+
+    // SPAWN category
+    action_category_header(
+        ui,
+        "SPAWN",
+        colors::ACCENT_GREEN,
+        &[
+            ("Spawn Primitive", 0),
+            ("Spawn Particle", 1),
+            ("Spawn Decal", 7),
+            ("Spawn GLTF", 8),
+            ("Spawn Effect", 9),
+        ],
+        &mut marker.steps[step_idx].actions,
+    );
+    for &action_idx in &spawn_indices {
+        let label = marker.steps[step_idx].actions[action_idx].label();
+        let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
+        let action = &mut marker.steps[step_idx].actions[action_idx];
+        if action_card(ui, label, accent, |ui| {
+            draw_action_editor(
+                ui,
+                action,
+                step_idx,
+                action_idx,
+                defined_tags,
+                particle_presets,
+                effect_presets,
+            );
+        }) {
+            remove_action = Some(action_idx);
+        }
+    }
+
+    // PHYSICS category
+    action_category_header(
+        ui,
+        "PHYSICS",
+        colors::ACCENT_ORANGE,
+        &[
+            ("Set Velocity", 2),
+            ("Apply Impulse", 3),
+            ("Set Gravity", 6),
+        ],
+        &mut marker.steps[step_idx].actions,
+    );
+    for &action_idx in &physics_indices {
+        let label = marker.steps[step_idx].actions[action_idx].label();
+        let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
+        let action = &mut marker.steps[step_idx].actions[action_idx];
+        if action_card(ui, label, accent, |ui| {
+            draw_action_editor(
+                ui,
+                action,
+                step_idx,
+                action_idx,
+                defined_tags,
+                particle_presets,
+                effect_presets,
+            );
+        }) {
+            remove_action = Some(action_idx);
+        }
+    }
+
+    // EVENTS category
+    action_category_header(
+        ui,
+        "EVENTS",
+        colors::ACCENT_BLUE,
+        &[("Despawn", 4), ("Emit Event", 5)],
+        &mut marker.steps[step_idx].actions,
+    );
+    for &action_idx in &event_indices {
+        let label = marker.steps[step_idx].actions[action_idx].label();
+        let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
+        let action = &mut marker.steps[step_idx].actions[action_idx];
+        if action_card(ui, label, accent, |ui| {
+            draw_action_editor(
+                ui,
+                action,
+                step_idx,
+                action_idx,
+                defined_tags,
+                particle_presets,
+                effect_presets,
+            );
+        }) {
+            remove_action = Some(action_idx);
+        }
+    }
+
+    // ANIMATION category
+    action_category_header(
+        ui,
+        "ANIMATION",
+        colors::ACCENT_PURPLE,
+        &[("Tween Value", 12)],
+        &mut marker.steps[step_idx].actions,
+    );
+    for &action_idx in &animation_indices {
+        let label = marker.steps[step_idx].actions[action_idx].label();
+        let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
+        let action = &mut marker.steps[step_idx].actions[action_idx];
+        if action_card(ui, label, accent, |ui| {
+            draw_action_editor(
+                ui,
+                action,
+                step_idx,
+                action_idx,
+                defined_tags,
+                particle_presets,
+                effect_presets,
+            );
+        }) {
+            remove_action = Some(action_idx);
+        }
+    }
+
+    // ECS category
+    action_category_header(
+        ui,
+        "ECS",
+        colors::ACCENT_CYAN,
+        &[("Insert Component", 10), ("Remove Component", 11)],
+        &mut marker.steps[step_idx].actions,
+    );
+    for &action_idx in &ecs_indices {
+        let label = marker.steps[step_idx].actions[action_idx].label();
+        let accent = action_accent(&marker.steps[step_idx].actions[action_idx]);
+        let action = &mut marker.steps[step_idx].actions[action_idx];
+        if action_card(ui, label, accent, |ui| {
+            draw_action_editor(
+                ui,
+                action,
+                step_idx,
+                action_idx,
+                defined_tags,
+                particle_presets,
+                effect_presets,
+            );
+        }) {
+            remove_action = Some(action_idx);
+        }
+    }
+
+    if let Some(idx) = remove_action {
+        marker.steps[step_idx].actions.remove(idx);
     }
 }
 
@@ -1333,6 +1496,7 @@ fn draw_trigger_editor(
 // Action editor
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 fn draw_action_editor(
     ui: &mut egui::Ui,
     action: &mut EffectAction,
@@ -1340,6 +1504,7 @@ fn draw_action_editor(
     action_idx: usize,
     defined_tags: &[String],
     particle_presets: &[String],
+    effect_presets: &[String],
 ) {
     let id_salt = format!("action_{step_idx}_{action_idx}");
 
@@ -1396,9 +1561,15 @@ fn draw_action_editor(
 
                     grid_label(ui, "Offset");
                     ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(&mut offset.x).speed(0.1).prefix("x:"));
-                        ui.add(egui::DragValue::new(&mut offset.y).speed(0.1).prefix("y:"));
-                        ui.add(egui::DragValue::new(&mut offset.z).speed(0.1).prefix("z:"));
+                        ui.add(
+                            egui::DragValue::new(&mut offset.x).speed(0.1).prefix("x:"),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut offset.y).speed(0.1).prefix("y:"),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut offset.z).speed(0.1).prefix("z:"),
+                        );
                     });
                     ui.end_row();
 
@@ -1450,7 +1621,8 @@ fn draw_action_editor(
                     ui.end_row();
 
                     grid_label(ui, "Preset");
-                    let selected_text = if preset.is_empty() { "(none)" } else { preset.as_str() };
+                    let selected_text =
+                        if preset.is_empty() { "(none)" } else { preset.as_str() };
                     egui::ComboBox::from_id_salt(format!("preset_{id_salt}"))
                         .selected_text(selected_text)
                         .width(100.0)
@@ -1461,37 +1633,7 @@ fn draw_action_editor(
                         });
                     ui.end_row();
 
-                    grid_label(ui, "Location");
-                    let is_offset = matches!(at, SpawnLocation::Offset(_));
-                    let mut loc_idx: usize = if is_offset { 0 } else { 1 };
-                    egui::ComboBox::from_id_salt(format!("loc_{id_salt}"))
-                        .selected_text(if is_offset { "Offset" } else { "Collision Point" })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut loc_idx, 0, "Offset");
-                            ui.selectable_value(&mut loc_idx, 1, "Collision Point");
-                        });
-                    if loc_idx == 0 && !is_offset {
-                        *at = SpawnLocation::Offset(Vec3::ZERO);
-                    } else if loc_idx == 1 && is_offset {
-                        *at = SpawnLocation::CollisionPoint;
-                    }
-                    ui.end_row();
-
-                    if let SpawnLocation::Offset(offset) = at {
-                        grid_label(ui, "Offset");
-                        ui.horizontal(|ui| {
-                            ui.add(
-                                egui::DragValue::new(&mut offset.x).speed(0.1).prefix("x:"),
-                            );
-                            ui.add(
-                                egui::DragValue::new(&mut offset.y).speed(0.1).prefix("y:"),
-                            );
-                            ui.add(
-                                egui::DragValue::new(&mut offset.z).speed(0.1).prefix("z:"),
-                            );
-                        });
-                        ui.end_row();
-                    }
+                    draw_spawn_location_editor(ui, at, &format!("part_loc_{id_salt}"));
                 });
         }
         EffectAction::SetVelocity { tag, velocity } => {
@@ -1506,13 +1648,19 @@ fn draw_action_editor(
                     grid_label(ui, "Velocity");
                     ui.horizontal(|ui| {
                         ui.add(
-                            egui::DragValue::new(&mut velocity.x).speed(0.1).prefix("x:"),
+                            egui::DragValue::new(&mut velocity.x)
+                                .speed(0.1)
+                                .prefix("x:"),
                         );
                         ui.add(
-                            egui::DragValue::new(&mut velocity.y).speed(0.1).prefix("y:"),
+                            egui::DragValue::new(&mut velocity.y)
+                                .speed(0.1)
+                                .prefix("y:"),
                         );
                         ui.add(
-                            egui::DragValue::new(&mut velocity.z).speed(0.1).prefix("z:"),
+                            egui::DragValue::new(&mut velocity.z)
+                                .speed(0.1)
+                                .prefix("z:"),
                         );
                     });
                     ui.end_row();
@@ -1530,13 +1678,19 @@ fn draw_action_editor(
                     grid_label(ui, "Impulse");
                     ui.horizontal(|ui| {
                         ui.add(
-                            egui::DragValue::new(&mut impulse.x).speed(0.1).prefix("x:"),
+                            egui::DragValue::new(&mut impulse.x)
+                                .speed(0.1)
+                                .prefix("x:"),
                         );
                         ui.add(
-                            egui::DragValue::new(&mut impulse.y).speed(0.1).prefix("y:"),
+                            egui::DragValue::new(&mut impulse.y)
+                                .speed(0.1)
+                                .prefix("y:"),
                         );
                         ui.add(
-                            egui::DragValue::new(&mut impulse.z).speed(0.1).prefix("z:"),
+                            egui::DragValue::new(&mut impulse.z)
+                                .speed(0.1)
+                                .prefix("z:"),
                         );
                     });
                     ui.end_row();
@@ -1576,7 +1730,12 @@ fn draw_action_editor(
                     ui.end_row();
                 });
         }
-        EffectAction::SpawnDecal { tag, texture_path, at, scale } => {
+        EffectAction::SpawnDecal {
+            tag,
+            texture_path,
+            at,
+            scale,
+        } => {
             egui::Grid::new(format!("spawn_decal_{id_salt}"))
                 .num_columns(2)
                 .spacing([8.0, 4.0])
@@ -1590,7 +1749,10 @@ fn draw_action_editor(
                         let display = if texture_path.is_empty() {
                             "None"
                         } else {
-                            texture_path.rsplit('/').next().unwrap_or(texture_path.as_str())
+                            texture_path
+                                .rsplit('/')
+                                .next()
+                                .unwrap_or(texture_path.as_str())
                         };
                         ui.label(
                             egui::RichText::new(display)
@@ -1624,42 +1786,30 @@ fn draw_action_editor(
                     });
                     ui.end_row();
 
-                    grid_label(ui, "Location");
-                    let is_offset = matches!(at, SpawnLocation::Offset(_));
-                    let mut loc_idx: usize = if is_offset { 0 } else { 1 };
-                    egui::ComboBox::from_id_salt(format!("decal_loc_{id_salt}"))
-                        .selected_text(if is_offset { "Offset" } else { "Collision Point" })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut loc_idx, 0, "Offset");
-                            ui.selectable_value(&mut loc_idx, 1, "Collision Point");
-                        });
-                    if loc_idx == 0 && !is_offset {
-                        *at = SpawnLocation::Offset(Vec3::ZERO);
-                    } else if loc_idx == 1 && is_offset {
-                        *at = SpawnLocation::CollisionPoint;
-                    }
-                    ui.end_row();
-
-                    if let SpawnLocation::Offset(offset) = at {
-                        grid_label(ui, "Offset");
-                        ui.horizontal(|ui| {
-                            ui.add(egui::DragValue::new(&mut offset.x).speed(0.1).prefix("x:"));
-                            ui.add(egui::DragValue::new(&mut offset.y).speed(0.1).prefix("y:"));
-                            ui.add(egui::DragValue::new(&mut offset.z).speed(0.1).prefix("z:"));
-                        });
-                        ui.end_row();
-                    }
+                    draw_spawn_location_editor(ui, at, &format!("decal_loc_{id_salt}"));
 
                     grid_label(ui, "Scale");
                     ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(&mut scale.x).speed(0.1).prefix("x:"));
-                        ui.add(egui::DragValue::new(&mut scale.y).speed(0.1).prefix("y:"));
-                        ui.add(egui::DragValue::new(&mut scale.z).speed(0.1).prefix("z:"));
+                        ui.add(
+                            egui::DragValue::new(&mut scale.x).speed(0.1).prefix("x:"),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut scale.y).speed(0.1).prefix("y:"),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut scale.z).speed(0.1).prefix("z:"),
+                        );
                     });
                     ui.end_row();
                 });
         }
-        EffectAction::SpawnGltf { tag, path, at, scale, rigid_body } => {
+        EffectAction::SpawnGltf {
+            tag,
+            path,
+            at,
+            scale,
+            rigid_body,
+        } => {
             egui::Grid::new(format!("spawn_gltf_{id_salt}"))
                 .num_columns(2)
                 .spacing([8.0, 4.0])
@@ -1690,10 +1840,8 @@ fn draw_action_editor(
                             .clicked()
                         {
                             ui.memory_mut(|m| {
-                                m.data.insert_temp(
-                                    egui::Id::new("effect_gltf_browse"),
-                                    true,
-                                );
+                                m.data
+                                    .insert_temp(egui::Id::new("effect_gltf_browse"), true);
                             });
                         }
                         if !path.is_empty()
@@ -1707,37 +1855,19 @@ fn draw_action_editor(
                     });
                     ui.end_row();
 
-                    grid_label(ui, "Location");
-                    let is_offset = matches!(at, SpawnLocation::Offset(_));
-                    let mut loc_idx: usize = if is_offset { 0 } else { 1 };
-                    egui::ComboBox::from_id_salt(format!("gltf_loc_{id_salt}"))
-                        .selected_text(if is_offset { "Offset" } else { "Collision Point" })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(&mut loc_idx, 0, "Offset");
-                            ui.selectable_value(&mut loc_idx, 1, "Collision Point");
-                        });
-                    if loc_idx == 0 && !is_offset {
-                        *at = SpawnLocation::Offset(Vec3::ZERO);
-                    } else if loc_idx == 1 && is_offset {
-                        *at = SpawnLocation::CollisionPoint;
-                    }
-                    ui.end_row();
-
-                    if let SpawnLocation::Offset(offset) = at {
-                        grid_label(ui, "Offset");
-                        ui.horizontal(|ui| {
-                            ui.add(egui::DragValue::new(&mut offset.x).speed(0.1).prefix("x:"));
-                            ui.add(egui::DragValue::new(&mut offset.y).speed(0.1).prefix("y:"));
-                            ui.add(egui::DragValue::new(&mut offset.z).speed(0.1).prefix("z:"));
-                        });
-                        ui.end_row();
-                    }
+                    draw_spawn_location_editor(ui, at, &format!("gltf_loc_{id_salt}"));
 
                     grid_label(ui, "Scale");
                     ui.horizontal(|ui| {
-                        ui.add(egui::DragValue::new(&mut scale.x).speed(0.1).prefix("x:"));
-                        ui.add(egui::DragValue::new(&mut scale.y).speed(0.1).prefix("y:"));
-                        ui.add(egui::DragValue::new(&mut scale.z).speed(0.1).prefix("z:"));
+                        ui.add(
+                            egui::DragValue::new(&mut scale.x).speed(0.1).prefix("x:"),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut scale.y).speed(0.1).prefix("y:"),
+                        );
+                        ui.add(
+                            egui::DragValue::new(&mut scale.z).speed(0.1).prefix("z:"),
+                        );
                     });
                     ui.end_row();
 
@@ -1765,5 +1895,242 @@ fn draw_action_editor(
                     }
                 });
         }
+        EffectAction::SpawnEffect {
+            tag,
+            preset,
+            at,
+            inherit_velocity,
+        } => {
+            egui::Grid::new(format!("spawn_fx_{id_salt}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Tag");
+                    ui.add(egui::TextEdit::singleline(tag).desired_width(100.0));
+                    ui.end_row();
+
+                    grid_label(ui, "Preset");
+                    let selected_text =
+                        if preset.is_empty() { "(none)" } else { preset.as_str() };
+                    egui::ComboBox::from_id_salt(format!("fx_preset_{id_salt}"))
+                        .selected_text(selected_text)
+                        .width(100.0)
+                        .show_ui(ui, |ui| {
+                            for name in effect_presets {
+                                ui.selectable_value(preset, name.clone(), name.as_str());
+                            }
+                        });
+                    ui.end_row();
+
+                    draw_spawn_location_editor(ui, at, &format!("fx_loc_{id_salt}"));
+
+                    grid_label(ui, "Inherit Vel.");
+                    ui.checkbox(inherit_velocity, "");
+                    ui.end_row();
+                });
+        }
+        EffectAction::InsertComponent {
+            target_tag,
+            component_type,
+            field_values,
+        } => {
+            egui::Grid::new(format!("insert_comp_{id_salt}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Target Tag");
+                    tag_combo(
+                        ui,
+                        &format!("tag_ins_{id_salt}"),
+                        target_tag,
+                        defined_tags,
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Component");
+                    ui.add(
+                        egui::TextEdit::singleline(component_type).desired_width(120.0),
+                    );
+                    ui.end_row();
+                });
+
+            // Field overrides
+            if !field_values.is_empty() {
+                ui.add_space(2.0);
+                ui.label(
+                    egui::RichText::new("Field Overrides")
+                        .small()
+                        .color(colors::TEXT_SECONDARY),
+                );
+                let mut remove_key = None;
+                let keys: Vec<String> = field_values.keys().cloned().collect();
+                for key in &keys {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new(key)
+                                .small()
+                                .color(colors::TEXT_SECONDARY),
+                        );
+                        if let Some(val) = field_values.get_mut(key) {
+                            ui.add(egui::TextEdit::singleline(val).desired_width(80.0));
+                        }
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    egui::RichText::new("\u{00d7}")
+                                        .small()
+                                        .color(colors::STATUS_ERROR),
+                                )
+                                .frame(false),
+                            )
+                            .clicked()
+                        {
+                            remove_key = Some(key.clone());
+                        }
+                    });
+                }
+                if let Some(key) = remove_key {
+                    field_values.remove(&key);
+                }
+            }
+
+            // Add field button
+            ui.horizontal(|ui| {
+                if ui
+                    .small_button(
+                        egui::RichText::new("+ Field").color(colors::ACCENT_GREEN),
+                    )
+                    .clicked()
+                {
+                    let key = format!("field_{}", field_values.len());
+                    field_values.insert(key, String::new());
+                }
+            });
+        }
+        EffectAction::RemoveComponent {
+            target_tag,
+            component_type,
+        } => {
+            egui::Grid::new(format!("remove_comp_{id_salt}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Target Tag");
+                    tag_combo(
+                        ui,
+                        &format!("tag_rem_{id_salt}"),
+                        target_tag,
+                        defined_tags,
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Component");
+                    ui.add(
+                        egui::TextEdit::singleline(component_type).desired_width(120.0),
+                    );
+                    ui.end_row();
+                });
+        }
+        EffectAction::TweenValue {
+            target_tag,
+            property,
+            from,
+            to,
+            duration,
+            easing,
+        } => {
+            egui::Grid::new(format!("tween_{id_salt}"))
+                .num_columns(2)
+                .spacing([8.0, 4.0])
+                .show(ui, |ui| {
+                    grid_label(ui, "Target Tag");
+                    tag_combo(
+                        ui,
+                        &format!("tag_tw_{id_salt}"),
+                        target_tag,
+                        defined_tags,
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Property");
+                    let mut prop_idx = property.variant_index();
+                    egui::ComboBox::from_id_salt(format!("tw_prop_{id_salt}"))
+                        .selected_text(TweenProperty::VARIANT_LABELS[prop_idx])
+                        .show_ui(ui, |ui| {
+                            for (i, label) in
+                                TweenProperty::VARIANT_LABELS.iter().enumerate()
+                            {
+                                ui.selectable_value(&mut prop_idx, i, *label);
+                            }
+                        });
+                    if prop_idx != property.variant_index() {
+                        *property = TweenProperty::from_variant_index(prop_idx);
+                    }
+                    ui.end_row();
+
+                    grid_label(ui, "From");
+                    ui.add(egui::DragValue::new(from).speed(0.1));
+                    ui.end_row();
+
+                    grid_label(ui, "To");
+                    ui.add(egui::DragValue::new(to).speed(0.1));
+                    ui.end_row();
+
+                    grid_label(ui, "Duration");
+                    ui.add(
+                        egui::DragValue::new(duration)
+                            .speed(0.1)
+                            .range(0.01..=60.0)
+                            .suffix(" s"),
+                    );
+                    ui.end_row();
+
+                    grid_label(ui, "Easing");
+                    egui::ComboBox::from_id_salt(format!("tw_ease_{id_salt}"))
+                        .selected_text(easing.label())
+                        .show_ui(ui, |ui| {
+                            for e in &EasingType::ALL {
+                                ui.selectable_value(easing, *e, e.label());
+                            }
+                        });
+                    ui.end_row();
+                });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared spawn location editor
+// ---------------------------------------------------------------------------
+
+fn draw_spawn_location_editor(ui: &mut egui::Ui, at: &mut SpawnLocation, id_salt: &str) {
+    grid_label(ui, "Location");
+    let is_offset = matches!(at, SpawnLocation::Offset(_));
+    let mut loc_idx: usize = if is_offset { 0 } else { 1 };
+    egui::ComboBox::from_id_salt(id_salt)
+        .selected_text(if is_offset {
+            "Offset"
+        } else {
+            "Collision Point"
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut loc_idx, 0, "Offset");
+            ui.selectable_value(&mut loc_idx, 1, "Collision Point");
+        });
+    if loc_idx == 0 && !is_offset {
+        *at = SpawnLocation::Offset(Vec3::ZERO);
+    } else if loc_idx == 1 && is_offset {
+        *at = SpawnLocation::CollisionPoint;
+    }
+    ui.end_row();
+
+    if let SpawnLocation::Offset(offset) = at {
+        grid_label(ui, "Offset");
+        ui.horizontal(|ui| {
+            ui.add(egui::DragValue::new(&mut offset.x).speed(0.1).prefix("x:"));
+            ui.add(egui::DragValue::new(&mut offset.y).speed(0.1).prefix("y:"));
+            ui.add(egui::DragValue::new(&mut offset.z).speed(0.1).prefix("z:"));
+        });
+        ui.end_row();
     }
 }

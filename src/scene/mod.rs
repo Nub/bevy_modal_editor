@@ -28,6 +28,7 @@ use bevy_editor_game::{
 use crate::materials::{load_base_textures, MaterialTypeRegistry, resolve_material_ref};
 use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
 use bevy_procedural::{ProceduralEntity, ProceduralPlacer, ProceduralTemplate};
+use bevy_spline_3d::prelude::SplineFollower;
 use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::de::DeserializeSeed;
 
@@ -70,6 +71,7 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         // Splines
         .allow_component::<SplineMarker>()
         .allow_component::<Spline>()
+        .allow_component::<SplineFollower>()
         // Fog
         .allow_component::<FogVolumeMarker>()
         // Decals

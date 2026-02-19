@@ -1,0 +1,59 @@
+(
+    steps: [
+        (
+            name: "spawn_orb",
+            trigger: OnSpawn,
+            actions: [
+                SpawnPrimitive(
+                    tag: "orb",
+                    shape: Sphere,
+                    offset: (0.0, 0.0, 0.0),
+                    material: None,
+                    rigid_body: None,
+                ),
+                TweenValue(
+                    target_tag: "orb",
+                    property: Scale,
+                    from: 0.1,
+                    to: 1.0,
+                    duration: 0.5,
+                    easing: EaseOut,
+                ),
+            ],
+        ),
+        (
+            name: "pulse",
+            trigger: RepeatingInterval(
+                interval: 1.5,
+                max_count: None,
+            ),
+            actions: [
+                TweenValue(
+                    target_tag: "orb",
+                    property: Scale,
+                    from: 1.0,
+                    to: 1.3,
+                    duration: 0.4,
+                    easing: EaseInOut,
+                ),
+            ],
+        ),
+        (
+            name: "pulse_back",
+            trigger: AfterRule(
+                source_rule: "pulse",
+                delay: 0.4,
+            ),
+            actions: [
+                TweenValue(
+                    target_tag: "orb",
+                    property: Scale,
+                    from: 1.3,
+                    to: 1.0,
+                    duration: 0.4,
+                    easing: EaseInOut,
+                ),
+            ],
+        ),
+    ],
+)

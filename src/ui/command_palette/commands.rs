@@ -5,12 +5,11 @@ use bevy::prelude::*;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
-use bevy_procedural::{PlacementOrientation, ProceduralPlacer, ProceduralTemplate, WeightedTemplate};
-use bevy_spline_3d::prelude::{Spline, SplineType};
+use bevy_spline_3d::prelude::SplineType;
 
 use bevy_editor_game::{CustomEntityRegistry, PauseEvent, PlayEvent, ResetEvent};
 
-use crate::commands::{RedoEvent, TakeSnapshotCommand, UndoEvent};
+use crate::commands::{RedoEvent, UndoEvent};
 use crate::editor::{
     CameraMarks, CycleShadingModeEvent, EditorState, JumpToLastPositionEvent,
     JumpToMarkEvent, SetCameraMarkEvent, SetShadingModeEvent, StartInsertEvent, ToggleGridEvent,
@@ -78,8 +77,6 @@ pub enum CommandAction {
     SpawnSpline(SplineType),
     /// Spawn a volumetric fog volume
     SpawnFogVolume,
-    /// Create a distribution from selected entities (requires 1 spline + 1 source selected)
-    CreateDistribution,
     /// Spawn parametric stairs
     SpawnStairs,
     /// Spawn parametric ramp
@@ -245,13 +242,6 @@ impl CommandRegistry {
             category: "Splines",
             action: CommandAction::SpawnSpline(SplineType::BSpline),
             insertable: true,
-        });
-        self.commands.push(Command {
-            name: "Create Distribution".to_string(),
-            keywords: vec!["distribute".into(), "clone".into(), "array".into(), "spline".into(), "copy".into(), "instances".into()],
-            category: "Splines",
-            action: CommandAction::CreateDistribution,
-            insertable: false,
         });
 
         // Effects (insertable)
@@ -587,7 +577,7 @@ pub(super) fn register_custom_entity_commands(
                 .collect(),
             category: entry.entity_type.category,
             action: CommandAction::SpawnCustomEntity(entry.entity_type.name.to_string()),
-            insertable: false,
+            insertable: true,
         });
     }
 }
@@ -1034,14 +1024,6 @@ fn execute_command(
         CommandAction::InsertScene => {
             state.open_asset_browser_insert_scene();
         }
-        CommandAction::CreateDistribution => {
-            // Queue snapshot then deferred command to create the distribution
-            commands.queue(TakeSnapshotCommand {
-                description: "Create spline distribution".to_string(),
-            });
-            let selected_entities: Vec<Entity> = selected.iter().collect();
-            commands.queue(CreateDistributionCommand { selected_entities });
-        }
         CommandAction::Play => {
             events.play.write(PlayEvent);
         }
@@ -1079,48 +1061,3 @@ fn execute_command(
     }
 }
 
-/// Command to create a procedural placement from selected entities (deferred execution)
-struct CreateDistributionCommand {
-    selected_entities: Vec<Entity>,
-}
-
-impl bevy::prelude::Command for CreateDistributionCommand {
-    fn apply(self, world: &mut World) {
-        if self.selected_entities.len() != 2 {
-            info!("Select exactly 2 entities: a spline and a source object");
-            return;
-        }
-
-        // Determine which entity is the spline
-        let has_spline_0 = world.get::<Spline>(self.selected_entities[0]).is_some();
-        let has_spline_1 = world.get::<Spline>(self.selected_entities[1]).is_some();
-
-        let (spline_entity, source_entity) = match (has_spline_0, has_spline_1) {
-            (true, false) => (self.selected_entities[0], self.selected_entities[1]),
-            (false, true) => (self.selected_entities[1], self.selected_entities[0]),
-            (true, true) => {
-                info!("Both selected entities are splines. Select one spline and one source object.");
-                return;
-            }
-            (false, false) => {
-                info!("Neither selected entity is a spline. Select one spline and one source object.");
-                return;
-            }
-        };
-
-        // Add ProceduralPlacer to the spline entity with the source as a template
-        world.entity_mut(spline_entity).insert(ProceduralPlacer {
-            templates: vec![WeightedTemplate::new(source_entity, 1.0)],
-            count: 10,
-            orientation: PlacementOrientation::AlignToTangent {
-                up: Vec3::Y,
-            },
-            ..default()
-        });
-
-        // Mark source as ProceduralTemplate (hides it from rendering)
-        world.entity_mut(source_entity).insert(ProceduralTemplate);
-
-        info!("Added procedural placement to spline with 10 instances");
-    }
-}

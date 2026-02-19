@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use super::edit_mesh::{EditMesh, FaceIndex};
+use super::half_edge::HalfEdgeMesh;
 
 /// Result of a face pick operation.
 #[derive(Debug, Clone, Copy)]
@@ -131,23 +132,45 @@ pub fn build_world_grid(
     grid
 }
 
-/// Select all faces whose world-space center falls in the same grid cell as `point`.
+/// Select all faces whose world-space center falls in the same grid cell as `hit_face`,
+/// filtered to only include faces whose normal is similar to `hit_face`.
+///
+/// Always includes the hit triangle itself, even if its center technically lands in
+/// a neighboring cell (this can happen when clicking near a cell boundary).
 pub fn world_grid_select(
     mesh: &EditMesh,
     transform: &GlobalTransform,
     grid_size: f32,
-    point: Vec3,
+    _point: Vec3,
+    hit_face: FaceIndex,
 ) -> HashSet<FaceIndex> {
+    // Use the hit triangle's center to determine the grid cell — this guarantees
+    // we always find at least the hit triangle in the grid lookup.
+    let hit_center = transform.transform_point(mesh.face_center(hit_face));
     let cell = IVec3::new(
-        (point.x / grid_size).floor() as i32,
-        (point.y / grid_size).floor() as i32,
-        (point.z / grid_size).floor() as i32,
+        (hit_center.x / grid_size).floor() as i32,
+        (hit_center.y / grid_size).floor() as i32,
+        (hit_center.z / grid_size).floor() as i32,
     );
 
+    let hit_normal = mesh.face_normal(hit_face);
+
     let grid = build_world_grid(mesh, transform, grid_size);
-    grid.get(&cell)
-        .map(|faces| faces.iter().copied().collect())
-        .unwrap_or_default()
+    let mut result: HashSet<FaceIndex> = grid
+        .get(&cell)
+        .map(|faces| {
+            faces
+                .iter()
+                .copied()
+                .filter(|&fi| mesh.face_normal(fi).dot(hit_normal) >= COPLANAR_COS)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Always include the hit triangle
+    result.insert(hit_face);
+
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +237,8 @@ pub fn build_uv_grid(
     grid
 }
 
-/// Select all faces whose average UV falls in the same UV grid cell as the hit face.
+/// Select all faces whose average UV falls in the same UV grid cell as the hit face,
+/// filtered to only include faces with a similar normal.
 pub fn uv_grid_select(
     mesh: &EditMesh,
     hit_face: FaceIndex,
@@ -226,9 +250,17 @@ pub fn uv_grid_select(
         (avg_uv.y / uv_grid_size).floor() as i32,
     );
 
+    let hit_normal = mesh.face_normal(hit_face);
+
     let grid = build_uv_grid(mesh, uv_grid_size);
     grid.get(&cell)
-        .map(|faces| faces.iter().copied().collect())
+        .map(|faces| {
+            faces
+                .iter()
+                .copied()
+                .filter(|&fi| mesh.face_normal(fi).dot(hit_normal) >= COPLANAR_COS)
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -298,4 +330,203 @@ fn point_in_polygon(point: Vec2, polygon: &[Vec2]) -> bool {
 /// 2D cross product (z-component of 3D cross).
 fn cross_2d(a: Vec2, b: Vec2) -> f32 {
     a.x * b.y - a.y * b.x
+}
+
+// ---------------------------------------------------------------------------
+// Coplanar Face Groups
+// ---------------------------------------------------------------------------
+
+/// Cosine threshold for considering two triangles coplanar (very tight — ~2.5°).
+const COPLANAR_COS: f32 = 0.999;
+
+/// Flood-fill from a start triangle to find all adjacent coplanar triangles.
+///
+/// Two adjacent triangles are grouped if their normals have a dot product >= COPLANAR_COS.
+/// This identifies "logical faces" — e.g. the two triangles forming one side of a cube.
+pub fn coplanar_flood_fill(mesh: &EditMesh, start_face: FaceIndex) -> HashSet<FaceIndex> {
+    let adj = mesh.build_adjacency();
+    let start_normal = mesh.face_normal(start_face);
+
+    let mut group = HashSet::new();
+    let mut frontier = vec![start_face];
+
+    while let Some(fi) = frontier.pop() {
+        if !group.insert(fi) {
+            continue;
+        }
+        for edge in mesh.face_edges(fi) {
+            if let Some(neighbors) = adj.get(&edge) {
+                for &neighbor in neighbors {
+                    if group.contains(&neighbor) {
+                        continue;
+                    }
+                    let n = mesh.face_normal(neighbor);
+                    if start_normal.dot(n) >= COPLANAR_COS {
+                        frontier.push(neighbor);
+                    }
+                }
+            }
+        }
+    }
+
+    group
+}
+
+/// Expand a selection so every coplanar face group is either fully included or excluded.
+///
+/// For each selected triangle, flood-fills to find its complete coplanar group
+/// and includes all of those triangles.
+pub fn expand_to_face_groups(mesh: &EditMesh, selection: &HashSet<FaceIndex>) -> HashSet<FaceIndex> {
+    let mut expanded = HashSet::new();
+    for &fi in selection {
+        if expanded.contains(&fi) {
+            continue;
+        }
+        let group = coplanar_flood_fill(mesh, fi);
+        expanded.extend(group);
+    }
+    expanded
+}
+
+// ---------------------------------------------------------------------------
+// Vertex Picking (screen-space proximity)
+// ---------------------------------------------------------------------------
+
+/// Result of a vertex pick operation.
+#[derive(Debug, Clone, Copy)]
+pub struct VertexHit {
+    pub vertex: u32,
+    pub screen_distance: f32,
+}
+
+/// Pick the closest vertex to the cursor in screen space.
+///
+/// Projects all mesh vertices to screen space and returns the closest one
+/// within `max_screen_distance` pixels.
+pub fn pick_vertex(
+    mesh: &EditMesh,
+    mesh_transform: &GlobalTransform,
+    cursor_pos: Vec2,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    max_screen_distance: f32,
+) -> Option<VertexHit> {
+    let mut closest: Option<VertexHit> = None;
+
+    for (vi, pos) in mesh.positions.iter().enumerate() {
+        let world_pos = mesh_transform.transform_point(*pos);
+        if let Ok(screen_pos) = camera.world_to_viewport(camera_transform, world_pos) {
+            let dist = screen_pos.distance(cursor_pos);
+            if dist <= max_screen_distance {
+                if closest.is_none() || dist < closest.unwrap().screen_distance {
+                    closest = Some(VertexHit {
+                        vertex: vi as u32,
+                        screen_distance: dist,
+                    });
+                }
+            }
+        }
+    }
+
+    closest
+}
+
+// ---------------------------------------------------------------------------
+// Edge Picking (closest edge to ray)
+// ---------------------------------------------------------------------------
+
+/// Result of an edge pick operation.
+#[derive(Debug, Clone, Copy)]
+pub struct EdgeHit {
+    /// Half-edge index (canonical — the lower of the pair with its twin).
+    pub half_edge: u32,
+    pub screen_distance: f32,
+}
+
+/// Pick the closest edge to the cursor in screen space.
+///
+/// Projects edge midpoints to screen space and returns the closest one
+/// within `max_screen_distance` pixels. Returns the canonical half-edge index.
+pub fn pick_edge(
+    he_mesh: &HalfEdgeMesh,
+    mesh_transform: &GlobalTransform,
+    cursor_pos: Vec2,
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    max_screen_distance: f32,
+    xray: bool,
+) -> Option<EdgeHit> {
+    let mut closest: Option<EdgeHit> = None;
+
+    for he_id in he_mesh.unique_edges() {
+        let (from, to) = he_mesh.edge_vertices(he_id);
+        let p0 = mesh_transform.transform_point(he_mesh.vertices[from as usize].position);
+        let p1 = mesh_transform.transform_point(he_mesh.vertices[to as usize].position);
+
+        // Skip back-facing edges unless xray is enabled
+        if !xray {
+            let face_id = he_mesh.half_edges[he_id as usize].face;
+            if face_id != super::half_edge::INVALID {
+                let face_normal = he_mesh.face_normal(face_id);
+                let world_normal = mesh_transform
+                    .affine()
+                    .transform_vector3(face_normal)
+                    .normalize_or_zero();
+                let mid = (p0 + p1) * 0.5;
+                let view_dir = (mid - camera_transform.translation()).normalize_or_zero();
+                if world_normal.dot(view_dir) >= 0.0 {
+                    // Check twin face too
+                    let twin = he_mesh.half_edges[he_id as usize].twin;
+                    if twin == super::half_edge::INVALID {
+                        continue;
+                    }
+                    let twin_face = he_mesh.half_edges[twin as usize].face;
+                    if twin_face == super::half_edge::INVALID {
+                        continue;
+                    }
+                    let twin_normal = he_mesh.face_normal(twin_face);
+                    let twin_world_normal = mesh_transform
+                        .affine()
+                        .transform_vector3(twin_normal)
+                        .normalize_or_zero();
+                    if twin_world_normal.dot(view_dir) >= 0.0 {
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // Project edge endpoints to screen space and find closest point on segment
+        let Ok(s0) = camera.world_to_viewport(camera_transform, p0) else {
+            continue;
+        };
+        let Ok(s1) = camera.world_to_viewport(camera_transform, p1) else {
+            continue;
+        };
+
+        let dist = point_to_segment_distance(cursor_pos, s0, s1);
+        if dist <= max_screen_distance {
+            if closest.is_none() || dist < closest.unwrap().screen_distance {
+                closest = Some(EdgeHit {
+                    half_edge: he_id,
+                    screen_distance: dist,
+                });
+            }
+        }
+    }
+
+    closest
+}
+
+/// Minimum distance from a point to a line segment in 2D.
+fn point_to_segment_distance(point: Vec2, seg_a: Vec2, seg_b: Vec2) -> f32 {
+    let ab = seg_b - seg_a;
+    let ap = point - seg_a;
+    let len_sq = ab.length_squared();
+    if len_sq < 1e-10 {
+        return ap.length();
+    }
+    let t = (ap.dot(ab) / len_sq).clamp(0.0, 1.0);
+    let closest = seg_a + ab * t;
+    point.distance(closest)
 }

@@ -241,6 +241,8 @@ pub fn sync_outline_meshes(
     mut silhouettes: Query<(Entity, &mut Transform), (With<SilhouetteMesh>, Without<MeshOutline>)>,
     // Only query sources with changed transforms
     changed_sources: Query<(Entity, &GlobalTransform), (With<MeshOutline>, Changed<GlobalTransform>)>,
+    // Sources whose Mesh3d handle changed — update the silhouette mesh
+    changed_meshes: Query<(&Mesh3d, &HasSilhouetteMesh), (With<MeshOutline>, Changed<Mesh3d>)>,
     // Track entities that had MeshOutline removed
     mut removed: RemovedComponents<MeshOutline>,
     // Query to get the silhouette entity from source
@@ -284,6 +286,13 @@ pub fn sync_outline_meshes(
                 sil_transform.scale = scale;
             }
         }
+    }
+
+    // Update silhouette meshes when the source Mesh3d handle changes
+    for (mesh, has_silhouette) in changed_meshes.iter() {
+        commands
+            .entity(has_silhouette.silhouette)
+            .insert(Mesh3d(mesh.0.clone()));
     }
 
     // Remove silhouette meshes for removed outlines

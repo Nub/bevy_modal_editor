@@ -6,7 +6,10 @@ use super::data::*;
 
 /// Return the built-in default effect presets as `(name, marker)` pairs.
 pub fn default_presets() -> Vec<(&'static str, EffectMarker)> {
-    vec![("Falling Impact", falling_impact())]
+    vec![
+        ("Falling Impact", falling_impact()),
+        ("Pulsing Beacon", pulsing_beacon()),
+    ]
 }
 
 /// A GLTF model spawned at height falls under gravity; on collision, spawns dust
@@ -54,6 +57,70 @@ fn falling_impact() -> EffectMarker {
                         scale: Vec3::splat(2.0),
                     },
                     EffectAction::EmitEvent("impact".into()),
+                ],
+            },
+        ],
+    }
+}
+
+/// A sphere spawns on start, scales up, then repeatedly pulses its scale using
+/// tween chaining. Demonstrates OnSpawn, AfterRule, and TweenValue.
+fn pulsing_beacon() -> EffectMarker {
+    EffectMarker {
+        steps: vec![
+            EffectStep {
+                name: "spawn_orb".into(),
+                trigger: EffectTrigger::OnSpawn,
+                actions: vec![
+                    EffectAction::SpawnPrimitive {
+                        tag: "orb".into(),
+                        shape: crate::scene::PrimitiveShape::Sphere,
+                        offset: Vec3::ZERO,
+                        material: None,
+                        rigid_body: None,
+                    },
+                    EffectAction::TweenValue {
+                        target_tag: "orb".into(),
+                        property: TweenProperty::Scale,
+                        from: 0.1,
+                        to: 1.0,
+                        duration: 0.5,
+                        easing: EasingType::EaseOut,
+                    },
+                ],
+            },
+            EffectStep {
+                name: "pulse".into(),
+                trigger: EffectTrigger::RepeatingInterval {
+                    interval: 1.5,
+                    max_count: None,
+                },
+                actions: vec![
+                    EffectAction::TweenValue {
+                        target_tag: "orb".into(),
+                        property: TweenProperty::Scale,
+                        from: 1.0,
+                        to: 1.3,
+                        duration: 0.4,
+                        easing: EasingType::EaseInOut,
+                    },
+                ],
+            },
+            EffectStep {
+                name: "pulse_back".into(),
+                trigger: EffectTrigger::AfterRule {
+                    source_rule: "pulse".into(),
+                    delay: 0.4,
+                },
+                actions: vec![
+                    EffectAction::TweenValue {
+                        target_tag: "orb".into(),
+                        property: TweenProperty::Scale,
+                        from: 1.3,
+                        to: 1.0,
+                        duration: 0.4,
+                        easing: EasingType::EaseInOut,
+                    },
                 ],
             },
         ],

@@ -231,16 +231,13 @@ fn camera_movement(
     mouse_button: Res<ButtonInput<MouseButton>>,
     time: Res<Time>,
     settings: Res<Settings>,
-    mode: Res<State<EditorMode>>,
     editor_state: Res<EditorState>,
     mut query: Query<&mut Transform, With<EditorCamera>>,
     mut contexts: EguiContexts,
 ) {
-    // In Edit/Effect modes, only allow camera movement when right mouse button is held
-    // (Edit: WASD reserved for axis selection; Effect: avoid accidental fly-through)
-    if matches!(*mode.get(), EditorMode::Edit | EditorMode::Effect)
-        && !mouse_button.pressed(MouseButton::Right)
-    {
+    // Camera fly movement requires holding right mouse button in all modes
+    // to avoid conflicts with mode-specific keybindings (WASD, etc.)
+    if !mouse_button.pressed(MouseButton::Right) {
         return;
     }
 

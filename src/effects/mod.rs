@@ -31,6 +31,8 @@ impl Plugin for EffectPlugin {
             .register_type::<EffectAction>()
             .register_type::<RigidBodyKind>()
             .register_type::<SpawnLocation>()
+            .register_type::<TweenProperty>()
+            .register_type::<EasingType>()
             .init_resource::<EffectLibrary>()
             .add_systems(PreStartup, init_effect_library)
             .add_systems(
@@ -41,6 +43,9 @@ impl Plugin for EffectPlugin {
                         .before(advance_effects)
                         .run_if(any_with_component::<EffectPlayback>),
                     advance_effects.run_if(any_with_component::<EffectPlayback>),
+                    advance_tweens
+                        .after(advance_effects)
+                        .run_if(any_with_component::<EffectPlayback>),
                     auto_save_effect_presets,
                 ),
             );
@@ -215,6 +220,23 @@ fn detect_effect_collisions(
 }
 
 // ---------------------------------------------------------------------------
+// Spawn location helper
+// ---------------------------------------------------------------------------
+
+fn resolve_spawn_location(
+    at: &SpawnLocation,
+    effect_transform: &GlobalTransform,
+    playback: &EffectPlayback,
+) -> Vec3 {
+    match at {
+        SpawnLocation::Offset(offset) => effect_transform.translation() + *offset,
+        SpawnLocation::CollisionPoint => playback
+            .last_collision_point
+            .unwrap_or_else(|| effect_transform.translation()),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Playback advance
 // ---------------------------------------------------------------------------
 
@@ -226,6 +248,7 @@ fn advance_effects(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     particle_library: Res<ParticleLibrary>,
+    effect_library: Res<EffectLibrary>,
     asset_server: Res<AssetServer>,
 ) {
     for (effect_entity, marker, mut playback, effect_transform) in &mut effects {
@@ -233,13 +256,19 @@ fn advance_effects(
             continue;
         }
 
-        playback.elapsed += time.delta_secs();
+        let dt = time.delta_secs();
+        playback.elapsed += dt;
 
         // Collect events emitted this frame for cross-step triggering
         let mut new_events: Vec<String> = Vec::new();
 
         for (step_idx, step) in marker.steps.iter().enumerate() {
-            if playback.fired_steps.contains(&step_idx) {
+            // Repeatable triggers can fire multiple times
+            let is_repeatable = matches!(
+                &step.trigger,
+                EffectTrigger::RepeatingInterval { .. } | EffectTrigger::AfterIdleTimeout { .. }
+            );
+            if !is_repeatable && playback.fired_steps.contains(&step_idx) {
                 continue;
             }
 
@@ -247,6 +276,25 @@ fn advance_effects(
                 EffectTrigger::AtTime(t) => playback.elapsed >= *t,
                 EffectTrigger::OnCollision { tag } => playback.collision_tags.contains(tag),
                 EffectTrigger::OnEffectEvent(name) => playback.pending_events.contains(name),
+                EffectTrigger::AfterRule { source_rule, delay } => {
+                    playback
+                        .rule_fire_times
+                        .get(source_rule)
+                        .map(|t| playback.elapsed >= t + delay)
+                        .unwrap_or(false)
+                }
+                EffectTrigger::RepeatingInterval { interval, max_count } => {
+                    let count = playback.repeat_counts.get(&step.name).copied().unwrap_or(0);
+                    let within_max = max_count.map_or(true, |max| count < max);
+                    within_max && playback.elapsed >= (count + 1) as f32 * interval
+                }
+                EffectTrigger::OnSpawn => {
+                    !playback.fired_steps.contains(&step_idx) && playback.elapsed < dt * 2.0
+                }
+                EffectTrigger::AfterIdleTimeout { timeout } => {
+                    playback.last_fire_time > 0.0
+                        && playback.elapsed - playback.last_fire_time >= *timeout
+                }
             };
 
             if !should_fire {
@@ -255,12 +303,28 @@ fn advance_effects(
 
             playback.fired_steps.insert(step_idx);
 
+            // Record fire time for rule chaining
+            let current_elapsed = playback.elapsed;
+            playback
+                .rule_fire_times
+                .insert(step.name.clone(), current_elapsed);
+            playback.last_fire_time = current_elapsed;
+
+            // Increment repeat count for repeating triggers
+            if is_repeatable {
+                *playback
+                    .repeat_counts
+                    .entry(step.name.clone())
+                    .or_insert(0) += 1;
+            }
+
             for action in &step.actions {
                 execute_action(
                     &mut commands,
                     &mut meshes,
                     &mut materials,
                     &particle_library,
+                    &effect_library,
                     &asset_server,
                     effect_entity,
                     effect_transform,
@@ -290,6 +354,7 @@ fn execute_action(
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
     particle_library: &ParticleLibrary,
+    effect_library: &EffectLibrary,
     asset_server: &AssetServer,
     effect_entity: Entity,
     effect_transform: &GlobalTransform,
@@ -329,16 +394,7 @@ fn execute_action(
             playback.spawned.insert(tag.clone(), child);
         }
         EffectAction::SpawnParticle { tag, preset, at } => {
-            let pos = match at {
-                SpawnLocation::Offset(offset) => {
-                    effect_transform.translation() + *offset
-                }
-                SpawnLocation::CollisionPoint => {
-                    playback
-                        .last_collision_point
-                        .unwrap_or_else(|| effect_transform.translation())
-                }
-            };
+            let pos = resolve_spawn_location(at, effect_transform, playback);
 
             let marker = particle_library
                 .effects
@@ -370,7 +426,6 @@ fn execute_action(
         }
         EffectAction::ApplyImpulse { tag, impulse } => {
             if let Some(&child_entity) = playback.spawned.get(tag) {
-                // Avian3D 0.5 has no ExternalImpulse; insert LinearVelocity directly
                 commands
                     .entity(child_entity)
                     .insert(LinearVelocity(*impulse));
@@ -397,13 +452,14 @@ fn execute_action(
                 }
             }
         }
-        EffectAction::SpawnGltf { tag, path, at, scale, rigid_body } => {
-            let pos = match at {
-                SpawnLocation::Offset(offset) => effect_transform.translation() + *offset,
-                SpawnLocation::CollisionPoint => playback
-                    .last_collision_point
-                    .unwrap_or_else(|| effect_transform.translation()),
-            };
+        EffectAction::SpawnGltf {
+            tag,
+            path,
+            at,
+            scale,
+            rigid_body,
+        } => {
+            let pos = resolve_spawn_location(at, effect_transform, playback);
 
             let mut entity_cmds = commands.spawn((
                 EffectChild {
@@ -424,13 +480,13 @@ fn execute_action(
             let child = entity_cmds.id();
             playback.spawned.insert(tag.clone(), child);
         }
-        EffectAction::SpawnDecal { tag, texture_path, at, scale } => {
-            let pos = match at {
-                SpawnLocation::Offset(offset) => effect_transform.translation() + *offset,
-                SpawnLocation::CollisionPoint => playback
-                    .last_collision_point
-                    .unwrap_or_else(|| effect_transform.translation()),
-            };
+        EffectAction::SpawnDecal {
+            tag,
+            texture_path,
+            at,
+            scale,
+        } => {
+            let pos = resolve_spawn_location(at, effect_transform, playback);
             let texture = if texture_path.is_empty() {
                 None
             } else {
@@ -452,6 +508,235 @@ fn execute_action(
                 .id();
             playback.spawned.insert(tag.clone(), child);
         }
+        EffectAction::SpawnEffect {
+            tag,
+            preset,
+            at,
+            inherit_velocity,
+        } => {
+            let pos = resolve_spawn_location(at, effect_transform, playback);
+
+            if let Some(effect_marker) = effect_library.effects.get(preset).cloned() {
+                let mut entity_cmds = commands.spawn((
+                    EffectChild {
+                        effect_entity,
+                        tag: tag.clone(),
+                    },
+                    effect_marker,
+                    EffectPlayback {
+                        state: PlaybackState::Playing,
+                        ..default()
+                    },
+                    Transform::from_translation(pos),
+                    Visibility::default(),
+                ));
+
+                if *inherit_velocity {
+                    // Copy parent's velocity if it has one — deferred, will be
+                    // picked up if the parent had LinearVelocity. For now we
+                    // just mark it; a more complete implementation would query
+                    // the parent's velocity.
+                    entity_cmds.insert(LinearVelocity::ZERO);
+                }
+
+                let child = entity_cmds.id();
+                playback.spawned.insert(tag.clone(), child);
+            } else {
+                warn!("SpawnEffect: preset '{}' not found in effect library", preset);
+            }
+        }
+        EffectAction::InsertComponent {
+            target_tag,
+            component_type,
+            field_values,
+        } => {
+            if let Some(&child_entity) = playback.spawned.get(target_tag) {
+                commands.queue(InsertComponentFromEffect {
+                    entity: child_entity,
+                    component_type: component_type.clone(),
+                    field_values: field_values.clone(),
+                });
+            }
+        }
+        EffectAction::RemoveComponent {
+            target_tag,
+            component_type,
+        } => {
+            if let Some(&child_entity) = playback.spawned.get(target_tag) {
+                commands.queue(RemoveComponentFromEffect {
+                    entity: child_entity,
+                    component_type: component_type.clone(),
+                });
+            }
+        }
+        EffectAction::TweenValue {
+            target_tag,
+            property,
+            from,
+            to,
+            duration,
+            easing,
+        } => {
+            if let Some(&child_entity) = playback.spawned.get(target_tag) {
+                playback.active_tweens.push(ActiveTween {
+                    entity: child_entity,
+                    property: property.clone(),
+                    from: *from,
+                    to: *to,
+                    start_time: playback.elapsed,
+                    duration: *duration,
+                    easing: *easing,
+                });
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Reflection-based component commands
+// ---------------------------------------------------------------------------
+
+struct InsertComponentFromEffect {
+    entity: Entity,
+    component_type: String,
+    #[allow(dead_code)]
+    field_values: HashMap<String, String>,
+}
+
+impl Command for InsertComponentFromEffect {
+    fn apply(self, world: &mut World) {
+        let type_registry_arc = world.resource::<AppTypeRegistry>().clone();
+
+        // Find type and create default instance
+        let result = {
+            let guard = type_registry_arc.read();
+            let mut found = None;
+            for reg in guard.iter() {
+                if reg.type_info().type_path_table().short_path() == self.component_type {
+                    if let Some(rd) = reg.data::<ReflectDefault>() {
+                        found = Some((reg.type_id(), rd.default()));
+                    }
+                    break;
+                }
+            }
+            found
+        };
+
+        let Some((type_id, default_val)) = result else {
+            warn!(
+                "InsertComponentFromEffect: type '{}' not found or has no ReflectDefault",
+                self.component_type
+            );
+            return;
+        };
+
+        // Insert the component using ReflectComponent
+        let reflect_component = {
+            let guard = type_registry_arc.read();
+            let Some(registration) = guard.get(type_id) else {
+                return;
+            };
+            let Some(rc) = registration.data::<ReflectComponent>() else {
+                warn!(
+                    "InsertComponentFromEffect: type '{}' has no ReflectComponent",
+                    self.component_type
+                );
+                return;
+            };
+            rc.clone()
+        };
+        let guard = type_registry_arc.read();
+        reflect_component.insert(
+            &mut world.entity_mut(self.entity),
+            default_val.as_ref(),
+            &guard,
+        );
+    }
+}
+
+struct RemoveComponentFromEffect {
+    entity: Entity,
+    component_type: String,
+}
+
+impl Command for RemoveComponentFromEffect {
+    fn apply(self, world: &mut World) {
+        let type_registry_arc = world.resource::<AppTypeRegistry>().clone();
+
+        let reflect_component = {
+            let guard = type_registry_arc.read();
+            let mut type_id = None;
+            for reg in guard.iter() {
+                if reg.type_info().type_path_table().short_path() == self.component_type {
+                    type_id = Some(reg.type_id());
+                    break;
+                }
+            }
+            let Some(tid) = type_id else {
+                warn!(
+                    "RemoveComponentFromEffect: type '{}' not found in type registry",
+                    self.component_type
+                );
+                return;
+            };
+            let Some(registration) = guard.get(tid) else {
+                return;
+            };
+            let Some(rc) = registration.data::<ReflectComponent>() else {
+                warn!(
+                    "RemoveComponentFromEffect: type '{}' has no ReflectComponent",
+                    self.component_type
+                );
+                return;
+            };
+            rc.clone()
+        };
+
+        let Ok(mut entity_mut) = world.get_entity_mut(self.entity) else {
+            return;
+        };
+        reflect_component.remove(&mut entity_mut);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tween system
+// ---------------------------------------------------------------------------
+
+fn advance_tweens(
+    mut effects: Query<&mut EffectPlayback>,
+    mut transforms: Query<&mut Transform>,
+    mut point_lights: Query<&mut PointLight>,
+) {
+    for mut playback in &mut effects {
+        if playback.state != PlaybackState::Playing {
+            continue;
+        }
+
+        let elapsed = playback.elapsed;
+        playback.active_tweens.retain(|tween| {
+            let t = ((elapsed - tween.start_time) / tween.duration).clamp(0.0, 1.0);
+            let value = tween.from + (tween.to - tween.from) * tween.easing.eval(t);
+
+            match &tween.property {
+                TweenProperty::Scale => {
+                    if let Ok(mut tr) = transforms.get_mut(tween.entity) {
+                        tr.scale = Vec3::splat(value);
+                    }
+                }
+                TweenProperty::LightIntensity => {
+                    if let Ok(mut light) = point_lights.get_mut(tween.entity) {
+                        light.intensity = value;
+                    }
+                }
+                TweenProperty::Opacity | TweenProperty::Custom(_) => {
+                    // Opacity would need material asset access; Custom is future.
+                    // For now these are no-ops at runtime.
+                }
+            }
+
+            t < 1.0
+        });
     }
 }
 
@@ -465,5 +750,9 @@ pub fn cleanup_effect(commands: &mut Commands, playback: &mut EffectPlayback) {
     playback.pending_events.clear();
     playback.collision_tags.clear();
     playback.last_collision_point = None;
+    playback.rule_fire_times.clear();
+    playback.last_fire_time = 0.0;
+    playback.active_tweens.clear();
+    playback.repeat_counts.clear();
     playback.state = PlaybackState::Stopped;
 }

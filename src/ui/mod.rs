@@ -20,6 +20,7 @@ mod reflect_editor;
 mod settings;
 pub mod theme;
 mod toolbar;
+mod uv_editor_panel;
 pub mod validation;
 mod view_gizmo;
 
@@ -92,6 +93,7 @@ impl Plugin for UiPlugin {
                 CommandPalettePlugin,
                 ComponentBrowserPlugin,
                 MarksPlugin,
+                uv_editor_panel::UvEditorPlugin,
             ))
             // Validation
             .add_plugins(validation::ValidationPlugin);

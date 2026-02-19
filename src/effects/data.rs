@@ -60,6 +60,14 @@ pub enum EffectTrigger {
     OnCollision { tag: String },
     /// Fire when another step emits a named event.
     OnEffectEvent(String),
+    /// Fire after another named rule fires, with an optional delay.
+    AfterRule { source_rule: String, delay: f32 },
+    /// Fire repeatedly at a fixed interval.
+    RepeatingInterval { interval: f32, max_count: Option<u32> },
+    /// Fire once immediately when the effect starts playing.
+    OnSpawn,
+    /// Fire after no other rule has fired for the given duration.
+    AfterIdleTimeout { timeout: f32 },
 }
 
 impl Default for EffectTrigger {
@@ -74,6 +82,10 @@ impl EffectTrigger {
             Self::AtTime(_) => "At Time",
             Self::OnCollision { .. } => "On Collision",
             Self::OnEffectEvent(_) => "On Effect Event",
+            Self::AfterRule { .. } => "After Rule",
+            Self::RepeatingInterval { .. } => "Repeating Interval",
+            Self::OnSpawn => "On Spawn",
+            Self::AfterIdleTimeout { .. } => "After Idle Timeout",
         }
     }
 
@@ -82,6 +94,10 @@ impl EffectTrigger {
             Self::AtTime(_) => 0,
             Self::OnCollision { .. } => 1,
             Self::OnEffectEvent(_) => 2,
+            Self::AfterRule { .. } => 3,
+            Self::RepeatingInterval { .. } => 4,
+            Self::OnSpawn => 5,
+            Self::AfterIdleTimeout { .. } => 6,
         }
     }
 
@@ -92,11 +108,29 @@ impl EffectTrigger {
                 tag: String::new(),
             },
             2 => Self::OnEffectEvent(String::new()),
+            3 => Self::AfterRule {
+                source_rule: String::new(),
+                delay: 0.0,
+            },
+            4 => Self::RepeatingInterval {
+                interval: 1.0,
+                max_count: None,
+            },
+            5 => Self::OnSpawn,
+            6 => Self::AfterIdleTimeout { timeout: 2.0 },
             _ => Self::AtTime(0.0),
         }
     }
 
-    pub const VARIANT_LABELS: &[&str] = &["At Time", "On Collision", "On Effect Event"];
+    pub const VARIANT_LABELS: &[&str] = &[
+        "At Time",
+        "On Collision",
+        "On Effect Event",
+        "After Rule",
+        "Repeating Interval",
+        "On Spawn",
+        "After Idle Timeout",
+    ];
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +179,33 @@ pub enum EffectAction {
         scale: Vec3,
         rigid_body: Option<RigidBodyKind>,
     },
+    /// Spawn a child effect from the effect library.
+    SpawnEffect {
+        tag: String,
+        preset: String,
+        at: SpawnLocation,
+        inherit_velocity: bool,
+    },
+    /// Insert a component on a tagged entity via reflection.
+    InsertComponent {
+        target_tag: String,
+        component_type: String,
+        field_values: HashMap<String, String>,
+    },
+    /// Remove a component from a tagged entity via reflection.
+    RemoveComponent {
+        target_tag: String,
+        component_type: String,
+    },
+    /// Animate a property over time with easing.
+    TweenValue {
+        target_tag: String,
+        property: TweenProperty,
+        from: f32,
+        to: f32,
+        duration: f32,
+        easing: EasingType,
+    },
 }
 
 impl EffectAction {
@@ -159,6 +220,10 @@ impl EffectAction {
             Self::SetGravity { .. } => "Set Gravity",
             Self::SpawnDecal { .. } => "Spawn Decal",
             Self::SpawnGltf { .. } => "Spawn GLTF",
+            Self::SpawnEffect { .. } => "Spawn Effect",
+            Self::InsertComponent { .. } => "Insert Component",
+            Self::RemoveComponent { .. } => "Remove Component",
+            Self::TweenValue { .. } => "Tween Value",
         }
     }
 
@@ -173,6 +238,10 @@ impl EffectAction {
             Self::SetGravity { .. } => 6,
             Self::SpawnDecal { .. } => 7,
             Self::SpawnGltf { .. } => 8,
+            Self::SpawnEffect { .. } => 9,
+            Self::InsertComponent { .. } => 10,
+            Self::RemoveComponent { .. } => 11,
+            Self::TweenValue { .. } => 12,
         }
     }
 
@@ -186,6 +255,10 @@ impl EffectAction {
         "Set Gravity",
         "Spawn Decal",
         "Spawn GLTF",
+        "Spawn Effect",
+        "Insert Component",
+        "Remove Component",
+        "Tween Value",
     ];
 
     pub fn from_variant_index(idx: usize) -> Self {
@@ -230,6 +303,29 @@ impl EffectAction {
                 at: SpawnLocation::Offset(Vec3::ZERO),
                 scale: Vec3::ONE,
                 rigid_body: None,
+            },
+            9 => Self::SpawnEffect {
+                tag: String::new(),
+                preset: String::new(),
+                at: SpawnLocation::Offset(Vec3::ZERO),
+                inherit_velocity: false,
+            },
+            10 => Self::InsertComponent {
+                target_tag: String::new(),
+                component_type: String::new(),
+                field_values: HashMap::new(),
+            },
+            11 => Self::RemoveComponent {
+                target_tag: String::new(),
+                component_type: String::new(),
+            },
+            12 => Self::TweenValue {
+                target_tag: String::new(),
+                property: TweenProperty::Scale,
+                from: 1.0,
+                to: 0.0,
+                duration: 1.0,
+                easing: EasingType::Linear,
             },
             _ => Self::EmitEvent(String::new()),
         }
@@ -282,6 +378,106 @@ impl Default for SpawnLocation {
 }
 
 // ---------------------------------------------------------------------------
+// Tween / animation types
+// ---------------------------------------------------------------------------
+
+/// Which property a tween animates.
+#[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
+pub enum TweenProperty {
+    Scale,
+    Opacity,
+    LightIntensity,
+    Custom(String),
+}
+
+impl Default for TweenProperty {
+    fn default() -> Self {
+        Self::Scale
+    }
+}
+
+impl TweenProperty {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Scale => "Scale",
+            Self::Opacity => "Opacity",
+            Self::LightIntensity => "Light Intensity",
+            Self::Custom(_) => "Custom",
+        }
+    }
+
+    pub fn variant_index(&self) -> usize {
+        match self {
+            Self::Scale => 0,
+            Self::Opacity => 1,
+            Self::LightIntensity => 2,
+            Self::Custom(_) => 3,
+        }
+    }
+
+    pub const VARIANT_LABELS: &[&str] = &["Scale", "Opacity", "Light Intensity", "Custom"];
+
+    pub fn from_variant_index(idx: usize) -> Self {
+        match idx {
+            0 => Self::Scale,
+            1 => Self::Opacity,
+            2 => Self::LightIntensity,
+            3 => Self::Custom(String::new()),
+            _ => Self::Scale,
+        }
+    }
+}
+
+/// Easing function for tween animations.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+pub enum EasingType {
+    #[default]
+    Linear,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+}
+
+impl EasingType {
+    pub fn eval(&self, t: f32) -> f32 {
+        match self {
+            Self::Linear => t,
+            Self::EaseIn => t * t,
+            Self::EaseOut => t * (2.0 - t),
+            Self::EaseInOut => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    -1.0 + (4.0 - 2.0 * t) * t
+                }
+            }
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Linear => "Linear",
+            Self::EaseIn => "Ease In",
+            Self::EaseOut => "Ease Out",
+            Self::EaseInOut => "Ease In/Out",
+        }
+    }
+
+    pub const ALL: [Self; 4] = [Self::Linear, Self::EaseIn, Self::EaseOut, Self::EaseInOut];
+}
+
+/// A currently-running tween animation (runtime only, not serialized).
+pub struct ActiveTween {
+    pub entity: Entity,
+    pub property: TweenProperty,
+    pub from: f32,
+    pub to: f32,
+    pub start_time: f32,
+    pub duration: f32,
+    pub easing: EasingType,
+}
+
+// ---------------------------------------------------------------------------
 // Runtime playback state (NOT serialized)
 // ---------------------------------------------------------------------------
 
@@ -300,6 +496,14 @@ pub struct EffectPlayback {
     pub collision_tags: HashSet<String>,
     /// Last known collision point (for SpawnLocation::CollisionPoint).
     pub last_collision_point: Option<Vec3>,
+    /// Rule name → elapsed time when that rule fired.
+    pub rule_fire_times: HashMap<String, f32>,
+    /// When any rule last fired (elapsed time).
+    pub last_fire_time: f32,
+    /// Running tween animations.
+    pub active_tweens: Vec<ActiveTween>,
+    /// Fire count per rule name (for repeating triggers).
+    pub repeat_counts: HashMap<String, u32>,
 }
 
 impl Default for EffectPlayback {
@@ -312,6 +516,10 @@ impl Default for EffectPlayback {
             pending_events: Vec::new(),
             collision_tags: HashSet::new(),
             last_collision_point: None,
+            rule_fire_times: HashMap::new(),
+            last_fire_time: 0.0,
+            active_tweens: Vec::new(),
+            repeat_counts: HashMap::new(),
         }
     }
 }
