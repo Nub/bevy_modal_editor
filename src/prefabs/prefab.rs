@@ -1,40 +1,18 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::scene::{PrimitiveShape, SerializedRigidBody, SerializedTransform};
-
-/// A prefab is a reusable template of entities
-#[derive(Asset, TypePath, Serialize, Deserialize, Clone)]
-pub struct Prefab {
-    pub name: String,
-    pub entities: Vec<PrefabEntity>,
-}
-
-/// A single entity within a prefab
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PrefabEntity {
-    pub name: String,
-    pub transform: SerializedTransform,
-    pub primitive: Option<PrimitiveShape>,
-    pub rigid_body: Option<SerializedRigidBody>,
-    pub children: Vec<PrefabEntity>,
-}
-
-impl Default for Prefab {
-    fn default() -> Self {
-        Self {
-            name: "New Prefab".to_string(),
-            entities: Vec::new(),
-        }
-    }
-}
-
-/// Component to mark an entity as a prefab instance
-#[derive(Component)]
+/// Marker on entities spawned from a prefab instance.
+/// Tracks which prefab directory this entity came from and its unique instance ID.
+#[derive(Component, Reflect, Serialize, Deserialize, Clone, Debug)]
+#[reflect(Component, Serialize, Deserialize)]
 pub struct PrefabInstance {
+    /// Directory name under assets/prefabs/, e.g. "fireball"
     pub prefab_name: String,
+    /// Unique per-instance identifier, e.g. "fireball_1"
+    pub instance_id: String,
 }
 
-/// Component to mark the root of a prefab instance
-#[derive(Component)]
+/// Marker on the root entity of a prefab instance (the group container).
+#[derive(Component, Reflect, Serialize, Deserialize, Clone, Debug, Default)]
+#[reflect(Component, Serialize, Deserialize)]
 pub struct PrefabRoot;

@@ -95,6 +95,12 @@ pub enum CommandAction {
     SpawnDecal,
     /// Spawn a custom entity type registered by the game
     SpawnCustomEntity(String),
+    /// Spawn a prefab from assets/prefabs/
+    SpawnPrefab(String),
+    /// Create a prefab from selected entities
+    CreatePrefab,
+    /// Open a prefab for editing
+    OpenPrefab(String),
     /// Start simulation (play or resume)
     Play,
     /// Pause simulation
@@ -319,6 +325,15 @@ impl CommandRegistry {
             keywords: vec!["detach".into(), "remove".into(), "parent".into()],
             category: "Hierarchy",
             action: CommandAction::UnparentSelected,
+            insertable: false,
+        });
+
+        // Prefabs
+        self.commands.push(Command {
+            name: "Create Prefab from Selection".to_string(),
+            keywords: vec!["prefab".into(), "save".into(), "template".into(), "bundle".into()],
+            category: "Prefabs",
+            action: CommandAction::CreatePrefab,
             insertable: false,
         });
 
@@ -582,6 +597,31 @@ pub(super) fn register_custom_entity_commands(
     }
 }
 
+/// Register prefab entries from the registry into the command palette
+pub(super) fn register_prefab_commands(
+    prefab_registry: Res<crate::prefabs::PrefabRegistry>,
+    mut registry: ResMut<CommandRegistry>,
+) {
+    for (name, _entry) in &prefab_registry.entries {
+        // Insertable: spawn prefab instance
+        registry.commands.push(Command {
+            name: format!("Prefab: {}", name),
+            keywords: vec!["prefab".into(), "instance".into(), "spawn".into()],
+            category: "Prefabs",
+            action: CommandAction::SpawnPrefab(name.clone()),
+            insertable: true,
+        });
+        // Non-insertable: open for editing
+        registry.commands.push(Command {
+            name: format!("Edit Prefab: {}", name),
+            keywords: vec!["prefab".into(), "edit".into(), "open".into()],
+            category: "Prefabs",
+            action: CommandAction::OpenPrefab(name.clone()),
+            insertable: false,
+        });
+    }
+}
+
 /// Get filtered and sorted commands based on query using skim fuzzy matcher.
 ///
 /// - `insert_only`: if true, only show commands marked `insertable`
@@ -667,6 +707,7 @@ pub(super) struct CommandEvents<'w> {
     pub generate_scene: MessageWriter<'w, GenerateSceneEvent>,
     pub set_shading: MessageWriter<'w, SetShadingModeEvent>,
     pub cycle_shading: MessageWriter<'w, CycleShadingModeEvent>,
+    pub open_prefab: MessageWriter<'w, crate::prefabs::OpenPrefabEvent>,
 }
 
 /// System parameter grouping palette UI state resources
@@ -676,6 +717,7 @@ pub(super) struct PaletteState2<'w> {
     pub settings_state: ResMut<'w, SettingsWindowState>,
     pub custom_mark_state: ResMut<'w, CustomMarkDialogState>,
     pub rename_dialog: ResMut<'w, RenameSceneDialog>,
+    pub create_prefab_dialog: ResMut<'w, super::CreatePrefabDialog>,
     pub component_editor_state: ResMut<'w, super::super::inspector::ComponentEditorState>,
     pub component_registry: ResMut<'w, super::components::ComponentRegistry>,
     pub removable_cache: Res<'w, super::RemovableComponentsCache>,
@@ -1057,6 +1099,29 @@ fn execute_command(
                 palette_state2.rename_dialog.name = current_name;
                 palette_state2.rename_dialog.just_opened = true;
             }
+        }
+        CommandAction::SpawnPrefab(ref prefab_name) => {
+            events.spawn_entity.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::Prefab(prefab_name.clone()),
+                position: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+            });
+        }
+        CommandAction::CreatePrefab => {
+            let entities: Vec<Entity> = selected.iter().collect();
+            if entities.is_empty() {
+                warn!("No entities selected to create prefab from");
+            } else {
+                palette_state2.create_prefab_dialog.open = true;
+                palette_state2.create_prefab_dialog.just_opened = true;
+                palette_state2.create_prefab_dialog.name.clear();
+                palette_state2.create_prefab_dialog.entities = entities;
+            }
+        }
+        CommandAction::OpenPrefab(ref prefab_name) => {
+            events.open_prefab.write(crate::prefabs::OpenPrefabEvent {
+                prefab_name: prefab_name.clone(),
+            });
         }
     }
 }

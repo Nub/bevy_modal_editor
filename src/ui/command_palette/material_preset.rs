@@ -19,6 +19,8 @@ use super::CommandPaletteState;
 struct PresetItem {
     name: String,
     is_new_preset: bool,
+    /// If set, this is a read-only prefab material (suffix shows source)
+    prefab_source: Option<String>,
 }
 
 impl PaletteItem for PresetItem {
@@ -28,6 +30,14 @@ impl PaletteItem for PresetItem {
 
     fn always_visible(&self) -> bool {
         self.is_new_preset
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.prefab_source.is_none()
+    }
+
+    fn suffix(&self) -> Option<&str> {
+        self.prefab_source.as_deref()
     }
 
     fn accent_color(&self) -> Option<egui::Color32> {
@@ -48,6 +58,8 @@ pub(super) fn draw_material_preset_palette(
     selected_entities: &Query<Entity, With<Selected>>,
     editing_preset: &mut ResMut<EditingPreset>,
     commands: &mut Commands,
+    prefab_registry: &Res<crate::prefabs::PrefabRegistry>,
+    prefab_context: &Option<Res<crate::prefabs::PrefabEditingContext>>,
 ) -> Result {
     // Bridge CommandPaletteState to PaletteState
     let mut palette_state = PaletteState::from_bridge(
@@ -65,13 +77,34 @@ pub(super) fn draw_material_preset_palette(
     let mut items: Vec<PresetItem> = vec![PresetItem {
         name: new_label,
         is_new_preset: true,
+        prefab_source: None,
     }];
     let mut names: Vec<String> = library.materials.keys().cloned().collect();
     names.sort();
     items.extend(names.iter().map(|n| PresetItem {
         name: n.clone(),
         is_new_preset: false,
+        prefab_source: None,
     }));
+
+    // Add namespaced prefab materials (read-only, only when not editing a prefab)
+    if prefab_context.is_none() {
+        let mut prefab_names: Vec<&String> = prefab_registry.entries.keys().collect();
+        prefab_names.sort();
+        for prefab_name in prefab_names {
+            if let Some(entry) = prefab_registry.entries.get(prefab_name) {
+                let mut mat_names: Vec<&String> = entry.material_library.materials.keys().collect();
+                mat_names.sort();
+                for mat_name in mat_names {
+                    items.push(PresetItem {
+                        name: format!("{}::{}", prefab_name, mat_name),
+                        is_new_preset: false,
+                        prefab_source: Some(format!("prefab: {}", prefab_name)),
+                    });
+                }
+            }
+        }
+    }
 
     // Update preview based on currently highlighted item
     {

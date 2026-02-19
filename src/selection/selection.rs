@@ -10,6 +10,7 @@ use crate::constants::physics;
 use bevy_editor_game::GameEntity;
 
 use crate::editor::{EditorCamera, EditorMode, EditorState};
+use crate::prefabs::{PrefabEditingContext, PrefabInstance, PrefabRoot};
 use crate::scene::{SceneEntity, SplineMarker};
 use crate::ui::Settings;
 
@@ -47,15 +48,15 @@ fn handle_click_selection(
     scene_entities: Query<Entity, Or<(With<SceneEntity>, With<GameEntity>)>>,
     splines: Query<(Entity, &Spline, &GlobalTransform), With<SplineMarker>>,
     parent_query: Query<&ChildOf>,
-    selected: Query<Entity, With<Selected>>,
-    selected_splines: Query<(), (With<Selected>, With<SplineMarker>)>,
+    selected: Query<(Entity, Has<SplineMarker>), With<Selected>>,
     selection_state: Res<SelectionState>,
     spline_selection: Res<SplineSelectionState>,
     mode: Res<State<EditorMode>>,
     mut commands: Commands,
     mut contexts: EguiContexts,
-    template_entities: Query<Entity, With<ProceduralTemplate>>,
-    procedural_entities: Query<Entity, With<ProceduralEntity>>,
+    excluded_entities: Query<Entity, Or<(With<ProceduralTemplate>, With<ProceduralEntity>)>>,
+    prefab_query: Query<(Has<PrefabRoot>, Has<PrefabInstance>)>,
+    prefab_editing: Option<Res<PrefabEditingContext>>,
 ) {
     // Only select on left click
     if !mouse_button.just_pressed(MouseButton::Left) {
@@ -70,7 +71,7 @@ fn handle_click_selection(
 
     // In Edit mode with a spline selected, only block entity selection when
     // the spline library has a control point hovered or is actively dragging
-    if *mode.get() == EditorMode::Edit && !selected_splines.is_empty()
+    if *mode.get() == EditorMode::Edit && selected.iter().any(|(_, is_spline)| is_spline)
         && (spline_selection.hovered_point.is_some() || spline_selection.dragging)
     {
         return;
@@ -125,8 +126,7 @@ fn handle_click_selection(
 
     // Cast ray against physics colliders, excluding template and procedural entities
     // (they're hidden but their colliders still exist, or shouldn't be selectable)
-    let mut excluded: Vec<Entity> = template_entities.iter().collect();
-    excluded.extend(procedural_entities.iter());
+    let excluded: Vec<Entity> = excluded_entities.iter().collect();
     let filter = SpatialQueryFilter::default().with_excluded_entities(excluded);
     let physics_hit = spatial_query.cast_ray(
         ray.origin,
@@ -155,10 +155,25 @@ fn handle_click_selection(
         closest_spline.map(|(e, _)| e)
     };
 
+    // If clicking a prefab child and not in prefab editing mode, redirect to the PrefabRoot
+    let entity_to_select = entity_to_select.map(|entity| {
+        if prefab_editing.is_some() {
+            return entity; // In prefab editor, select individual entities
+        }
+        if let Ok((is_root, has_instance)) = prefab_query.get(entity) {
+            if has_instance && !is_root {
+                // Walk up to find the PrefabRoot ancestor
+                return find_prefab_root(entity, &prefab_query, &parent_query)
+                    .unwrap_or(entity);
+            }
+        }
+        entity
+    });
+
     if let Some(entity_to_select) = entity_to_select {
         if !selection_state.multi_select {
             // Clear previous selection
-            for entity in selected.iter() {
+            for (entity, _) in selected.iter() {
                 commands.entity(entity).remove::<Selected>();
             }
         }
@@ -171,7 +186,7 @@ fn handle_click_selection(
         }
     } else if !selection_state.multi_select && *mode.get() != EditorMode::Edit {
         // Clicked on nothing - clear selection (but not in Edit mode where we're editing control points)
-        for entity in selected.iter() {
+        for (entity, _) in selected.iter() {
             commands.entity(entity).remove::<Selected>();
         }
     }
@@ -261,6 +276,23 @@ fn find_selectable_parent(
     }
 
     // No selectable parent found
+    None
+}
+
+/// Walk up the parent hierarchy to find the PrefabRoot ancestor
+fn find_prefab_root(
+    entity: Entity,
+    prefab_query: &Query<(Has<PrefabRoot>, Has<PrefabInstance>)>,
+    parent_query: &Query<&ChildOf>,
+) -> Option<Entity> {
+    if let Ok((is_root, _)) = prefab_query.get(entity) {
+        if is_root {
+            return Some(entity);
+        }
+    }
+    if let Ok(child_of) = parent_query.get(entity) {
+        return find_prefab_root(child_of.parent(), prefab_query, parent_query);
+    }
     None
 }
 

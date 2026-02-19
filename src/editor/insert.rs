@@ -16,6 +16,7 @@ use crate::scene::{
     GroupMarker, GltfSource, PrimitiveMarker, PrimitiveShape, SceneSource, SpawnEntityEvent,
     SpawnEntityKind, SpawnGltfEvent, SpawnSceneSourceEvent,
 };
+use crate::prefabs::SpawnPrefabEvent;
 use crate::utils::{get_half_height_along_normal, rotation_from_normal};
 
 pub struct InsertModePlugin;
@@ -393,6 +394,36 @@ pub fn spawn_preview_entity(
                 ))
                 .id()
         }
+        InsertObjectType::Prefab => {
+            // Load the prefab's scene file as the preview (scene_path is set by the palette)
+            if let Some(path) = scene_path {
+                commands
+                    .spawn((
+                        InsertPreview,
+                        GroupMarker,
+                        SceneSource {
+                            path: path.to_string(),
+                        },
+                        Transform::from_translation(Vec3::ZERO),
+                    ))
+                    .id()
+            } else {
+                // Fallback to placeholder cube if no scene path
+                commands
+                    .spawn((
+                        InsertPreview,
+                        GroupMarker,
+                        Mesh3d(meshes.add(Cuboid::new(0.5, 0.5, 0.5))),
+                        MeshMaterial3d(materials.add(StandardMaterial {
+                            base_color: Color::srgba(0.6, 0.3, 0.9, 0.5),
+                            alpha_mode: AlphaMode::Blend,
+                            ..default()
+                        })),
+                        Transform::from_translation(Vec3::ZERO),
+                    ))
+                    .id()
+            }
+        }
     }
 }
 
@@ -570,6 +601,7 @@ fn handle_insert_click(
     mut spawn_entity_events: MessageWriter<SpawnEntityEvent>,
     mut spawn_gltf_events: MessageWriter<SpawnGltfEvent>,
     mut spawn_scene_events: MessageWriter<SpawnSceneSourceEvent>,
+    mut spawn_prefab_events: MessageWriter<SpawnPrefabEvent>,
     mut contexts: EguiContexts,
 ) {
     // Only confirm on left click
@@ -627,6 +659,11 @@ fn handle_insert_click(
         InsertObjectType::LShape => "L-Shape".to_string(),
         InsertObjectType::ParticleEffect => "Particle Effect".to_string(),
         InsertObjectType::Decal => "Decal".to_string(),
+        InsertObjectType::Prefab => {
+            insert_state.prefab_name.as_ref()
+                .map(|n| format!("Prefab: {}", n))
+                .unwrap_or_else(|| "Prefab".to_string())
+        }
     };
     commands.queue(TakeSnapshotCommand {
         description: format!("Insert {}", object_name),
@@ -736,6 +773,15 @@ fn handle_insert_click(
                 rotation,
             });
         }
+        InsertObjectType::Prefab => {
+            if let Some(prefab_name) = insert_state.prefab_name.clone() {
+                spawn_prefab_events.write(SpawnPrefabEvent {
+                    prefab_name,
+                    position,
+                    rotation,
+                });
+            }
+        }
     }
 
     // Remove old preview entity
@@ -762,6 +808,7 @@ fn handle_insert_click(
         insert_state.preview_entity = None;
         insert_state.gltf_path = None;
         insert_state.scene_path = None;
+        insert_state.prefab_name = None;
         next_mode.set(EditorMode::View);
         info!("Placed {:?} at {:?}", object_type, position);
     }
@@ -782,6 +829,7 @@ fn cleanup_on_mode_exit(
         insert_state.object_type = None;
         insert_state.gltf_path = None;
         insert_state.scene_path = None;
+        insert_state.prefab_name = None;
     }
 }
 
@@ -800,4 +848,5 @@ fn cleanup_preview(
     insert_state.preview_entity = None;
     insert_state.gltf_path = None;
     insert_state.scene_path = None;
+    insert_state.prefab_name = None;
 }

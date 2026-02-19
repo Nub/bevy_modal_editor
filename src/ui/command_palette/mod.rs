@@ -296,6 +296,15 @@ pub struct CustomMarkDialogState {
     pub just_opened: bool,
 }
 
+/// Resource to track "Create Prefab" dialog state
+#[derive(Resource, Default)]
+pub struct CreatePrefabDialog {
+    pub open: bool,
+    pub name: String,
+    pub just_opened: bool,
+    pub entities: Vec<Entity>,
+}
+
 /// Resource to track rename scene dialog state
 #[derive(Resource, Default)]
 pub struct RenameSceneDialog {
@@ -324,6 +333,7 @@ impl Plugin for CommandPalettePlugin {
             .init_resource::<HelpWindowState>()
             .init_resource::<CustomMarkDialogState>()
             .init_resource::<RenameSceneDialog>()
+            .init_resource::<CreatePrefabDialog>()
             .init_resource::<RemovableComponentsCache>()
             .init_resource::<components::ComponentRegistry>()
             .init_resource::<PendingEntitySelection>()
@@ -332,11 +342,11 @@ impl Plugin for CommandPalettePlugin {
             .init_resource::<TexturePickResult>()
             .init_resource::<GltfPickResult>()
             .insert_resource(registry)
-            .add_systems(PreStartup, commands::register_custom_entity_commands)
+            .add_systems(PreStartup, (commands::register_custom_entity_commands, commands::register_prefab_commands))
             .add_systems(Update, (handle_palette_toggle, components::populate_removable_components))
             .add_systems(
                 EguiPrimaryContextPass,
-                (draw_command_palette, draw_help_window, draw_custom_mark_dialog, draw_rename_scene_dialog),
+                (draw_command_palette, draw_help_window, draw_custom_mark_dialog, draw_rename_scene_dialog, draw_create_prefab_dialog),
             );
     }
 }
@@ -451,6 +461,9 @@ struct ModeParams<'w> {
     editor_mode: Res<'w, State<EditorMode>>,
     type_registry: Res<'w, AppTypeRegistry>,
     custom_registry: Res<'w, CustomEntityRegistry>,
+    prefab_registry: Res<'w, crate::prefabs::PrefabRegistry>,
+    prefab_context: Option<Res<'w, crate::prefabs::PrefabEditingContext>>,
+    prefab_preview_state: ResMut<'w, crate::ui::prefab_preview::PrefabPreviewState>,
 }
 
 // ── Main draw dispatch ───────────────────────────────────────────────
@@ -527,6 +540,9 @@ fn draw_command_palette(
                 &mut ab.next_mode,
                 &mp.particle_library,
                 &mp.effect_library,
+                &mut ab.insert_state,
+                &mp.prefab_registry,
+                &mut mp.prefab_preview_state,
             );
         }
         PaletteMode::FindObject => {
@@ -565,6 +581,8 @@ fn draw_command_palette(
                 &selected,
                 &mut mp.editing_preset,
                 &mut bevy_commands,
+                &mp.prefab_registry,
+                &mp.prefab_context,
             );
         }
         PaletteMode::ParticlePreset => {
@@ -997,6 +1015,102 @@ fn draw_rename_scene_dialog(
 
     if should_close {
         state.open = false;
+    }
+
+    Ok(())
+}
+
+// ── Create prefab dialog ────────────────────────────────────────────
+
+fn draw_create_prefab_dialog(
+    mut contexts: EguiContexts,
+    mut state: ResMut<CreatePrefabDialog>,
+    editor_state: Res<EditorState>,
+    mut commands: Commands,
+) -> Result {
+    if !editor_state.ui_enabled || !state.open {
+        return Ok(());
+    }
+
+    let ctx = contexts.ctx_mut()?;
+
+    let mut should_close = false;
+    let mut should_create = false;
+
+    let enter_pressed = ctx.input(|i| i.key_pressed(egui::Key::Enter));
+    let escape_pressed = ctx.input(|i| i.key_pressed(egui::Key::Escape));
+
+    if enter_pressed && !state.name.trim().is_empty() {
+        should_create = true;
+        should_close = true;
+    }
+
+    if escape_pressed {
+        should_close = true;
+    }
+
+    egui::Window::new("Create Prefab")
+        .collapsible(false)
+        .resizable(false)
+        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .show(ctx, |ui| {
+            ui.label(
+                egui::RichText::new(format!(
+                    "Creating prefab from {} entities",
+                    state.entities.len()
+                ))
+                .color(colors::TEXT_SECONDARY),
+            );
+            ui.add_space(8.0);
+
+            let response = ui.add(
+                egui::TextEdit::singleline(&mut state.name)
+                    .hint_text("Prefab name...")
+                    .desired_width(250.0),
+            );
+
+            if state.just_opened {
+                response.request_focus();
+                state.just_opened = false;
+            }
+
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() {
+                    should_close = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .add_enabled(
+                            !state.name.trim().is_empty(),
+                            egui::Button::new("Create"),
+                        )
+                        .clicked()
+                    {
+                        should_create = true;
+                        should_close = true;
+                    }
+                });
+            });
+        });
+
+    if should_create {
+        let name = state.name.trim().to_string();
+        let entities = std::mem::take(&mut state.entities);
+        commands.queue(move |world: &mut World| {
+            world.write_message(crate::prefabs::CreatePrefabEvent {
+                name,
+                entities,
+            });
+        });
+    }
+
+    if should_close {
+        state.open = false;
+        state.name.clear();
+        state.entities.clear();
     }
 
     Ok(())

@@ -114,6 +114,23 @@ pub struct GamePausedEvent;
 pub struct GameResetEvent;
 
 // ---------------------------------------------------------------------------
+// Prefab spawning
+// ---------------------------------------------------------------------------
+
+/// Games write this message to spawn a prefab at runtime.
+/// The editor's prefab system handles loading the scene file and
+/// stamping entities into the world.
+#[derive(Message)]
+pub struct SpawnPrefabRequest {
+    /// Prefab directory name under assets/prefabs/ (e.g. "fireball")
+    pub prefab_name: String,
+    /// World position to spawn at
+    pub position: Vec3,
+    /// World rotation
+    pub rotation: Quat,
+}
+
+// ---------------------------------------------------------------------------
 // Component registration
 // ---------------------------------------------------------------------------
 

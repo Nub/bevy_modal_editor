@@ -1,15 +1,18 @@
-use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy::scene::serde::SceneDeserializer;
+use serde::de::DeserializeSeed;
+use std::fs;
 
-use super::prefab::{Prefab, PrefabEntity, PrefabInstance, PrefabRoot};
+use super::prefab::{PrefabInstance, PrefabRoot};
 use super::registry::PrefabRegistry;
-use crate::scene::{PrimitiveMarker, PrimitiveShape, SceneEntity, SerializedRigidBody};
+use crate::scene::{regenerate_runtime_components, GroupMarker, SceneEntity};
 
-/// Event to spawn a prefab instance
+/// Event to spawn a prefab instance into the scene
 #[derive(Message)]
 pub struct SpawnPrefabEvent {
     pub prefab_name: String,
     pub position: Vec3,
+    pub rotation: Quat,
 }
 
 /// Event to create a prefab from selected entities
@@ -19,189 +22,157 @@ pub struct CreatePrefabEvent {
     pub entities: Vec<Entity>,
 }
 
-pub struct PrefabSpawnPlugin;
+/// Event to open a prefab for editing in a separate context
+#[derive(Message)]
+pub struct OpenPrefabEvent {
+    pub prefab_name: String,
+}
 
-impl Plugin for PrefabSpawnPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_message::<SpawnPrefabEvent>()
-            .add_message::<CreatePrefabEvent>()
-            .add_systems(Update, (handle_spawn_prefab, handle_create_prefab));
+/// Event to close the current prefab editing context
+#[derive(Message)]
+pub struct ClosePrefabEvent;
+
+/// Command that loads a prefab scene into the world additively
+struct SpawnPrefabCommand {
+    prefab_name: String,
+    scene_content: String,
+    position: Vec3,
+    rotation: Quat,
+    instance_id: String,
+}
+
+impl Command for SpawnPrefabCommand {
+    fn apply(self, world: &mut World) {
+        // Deserialize the prefab scene
+        let type_registry = world.resource::<AppTypeRegistry>().clone();
+        let type_registry = type_registry.read();
+        let scene_deserializer = SceneDeserializer {
+            type_registry: &type_registry,
+        };
+
+        let mut ron_deserializer = match ron::de::Deserializer::from_str(&self.scene_content) {
+            Ok(d) => d,
+            Err(e) => {
+                error!("Failed to parse prefab '{}': {}", self.prefab_name, e);
+                return;
+            }
+        };
+
+        let scene: DynamicScene = match scene_deserializer.deserialize(&mut ron_deserializer) {
+            Ok(s) => s,
+            Err(e) => {
+                error!(
+                    "Failed to deserialize prefab '{}': {:?}",
+                    self.prefab_name, e
+                );
+                return;
+            }
+        };
+
+        drop(type_registry);
+
+        // Write scene entities into the world (additive — doesn't clear existing entities)
+        let mut entity_map = bevy::ecs::entity::EntityHashMap::default();
+        if let Err(e) = scene.write_to_world(world, &mut entity_map) {
+            error!(
+                "Failed to instantiate prefab '{}': {:?}",
+                self.prefab_name, e
+            );
+            return;
+        }
+
+        // Collect the new entities that were created
+        let new_entities: Vec<Entity> = entity_map.values().copied().collect();
+
+        // Tag all new entities with PrefabInstance
+        for &entity in &new_entities {
+            world.entity_mut(entity).insert(PrefabInstance {
+                prefab_name: self.prefab_name.clone(),
+                instance_id: self.instance_id.clone(),
+            });
+        }
+
+        // Find root entities (those without a parent among the new entities)
+        let root_entities: Vec<Entity> = new_entities
+            .iter()
+            .filter(|&&entity| {
+                let parent = world.entity(entity).get::<ChildOf>();
+                match parent {
+                    Some(child_of) => !new_entities.contains(&child_of.parent()),
+                    None => true,
+                }
+            })
+            .copied()
+            .collect();
+
+        // Create a group container for the prefab instance
+        let display_name = format!("[Prefab] {}", self.instance_id);
+        let group_entity = world
+            .spawn((
+                SceneEntity,
+                GroupMarker,
+                PrefabRoot,
+                PrefabInstance {
+                    prefab_name: self.prefab_name.clone(),
+                    instance_id: self.instance_id.clone(),
+                },
+                Name::new(display_name),
+                Transform::from_translation(self.position)
+                    .with_rotation(self.rotation),
+            ))
+            .id();
+
+        // Reparent root entities under the group and zero out their world offset
+        // (since the group provides the position)
+        for &root in &root_entities {
+            world.entity_mut(root).insert(ChildOf(group_entity));
+        }
+
+        // Regenerate runtime components (meshes, materials, colliders, lights)
+        regenerate_runtime_components(world);
+
+        info!(
+            "Spawned prefab '{}' as instance '{}' ({} entities)",
+            self.prefab_name,
+            self.instance_id,
+            new_entities.len()
+        );
     }
 }
 
-fn handle_spawn_prefab(
+pub fn handle_spawn_prefab(
     mut events: MessageReader<SpawnPrefabEvent>,
-    registry: Res<PrefabRegistry>,
     mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut registry: ResMut<PrefabRegistry>,
 ) {
     for event in events.read() {
-        let Some(prefab) = registry.get(&event.prefab_name) else {
+        let Some(entry) = registry.get(&event.prefab_name) else {
             warn!("Prefab not found: {}", event.prefab_name);
             continue;
         };
 
-        spawn_prefab_entities(
-            &mut commands,
-            &mut meshes,
-            &mut materials,
-            prefab,
-            event.position,
-        );
-
-        info!("Spawned prefab: {}", event.prefab_name);
-    }
-}
-
-fn spawn_prefab_entities(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    prefab: &Prefab,
-    offset: Vec3,
-) {
-    for entity_data in &prefab.entities {
-        spawn_prefab_entity_recursive(commands, meshes, materials, entity_data, offset, true, &prefab.name);
-    }
-}
-
-fn spawn_prefab_entity_recursive(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    entity_data: &PrefabEntity,
-    offset: Vec3,
-    is_root: bool,
-    prefab_name: &str,
-) {
-    let mut transform: Transform = (&entity_data.transform).into();
-    if is_root {
-        transform.translation += offset;
-    }
-
-    let mut entity_commands = commands.spawn((
-        SceneEntity,
-        Name::new(entity_data.name.clone()),
-        transform,
-        PrefabInstance {
-            prefab_name: prefab_name.to_string(),
-        },
-    ));
-
-    if is_root {
-        entity_commands.insert(PrefabRoot);
-    }
-
-    // Add primitive mesh and collider
-    if let Some(shape) = entity_data.primitive {
-        entity_commands.insert(PrimitiveMarker { shape });
-        add_primitive_components(&mut entity_commands, meshes, materials, shape);
-    }
-
-    // Add rigid body
-    if let Some(ref rb) = entity_data.rigid_body {
-        entity_commands.insert(RigidBody::from(rb));
-    }
-
-    // Spawn children (for now, spawn as separate entities - proper hierarchy coming later)
-    for child in &entity_data.children {
-        spawn_prefab_entity_recursive(commands, meshes, materials, child, offset, false, prefab_name);
-    }
-}
-
-fn add_primitive_components(
-    entity_commands: &mut bevy::ecs::system::EntityCommands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<StandardMaterial>>,
-    shape: PrimitiveShape,
-) {
-    match shape {
-        PrimitiveShape::Cube => {
-            entity_commands.insert((
-                Mesh3d(meshes.add(Cuboid::new(1.0, 1.0, 1.0))),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.8, 0.7, 0.6),
-                    ..default()
-                })),
-                Collider::cuboid(1.0, 1.0, 1.0),
-            ));
-        }
-        PrimitiveShape::Sphere => {
-            entity_commands.insert((
-                Mesh3d(meshes.add(Sphere::new(0.5))),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.6, 0.7, 0.8),
-                    ..default()
-                })),
-                Collider::sphere(0.5),
-            ));
-        }
-        PrimitiveShape::Cylinder => {
-            entity_commands.insert((
-                Mesh3d(meshes.add(Cylinder::new(0.5, 1.0))),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.7, 0.8, 0.6),
-                    ..default()
-                })),
-                Collider::cylinder(0.5, 0.5),
-            ));
-        }
-        PrimitiveShape::Capsule => {
-            entity_commands.insert((
-                Mesh3d(meshes.add(Capsule3d::new(0.25, 0.5))),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.8, 0.6, 0.7),
-                    ..default()
-                })),
-                Collider::capsule(0.25, 0.5),
-            ));
-        }
-        PrimitiveShape::Plane => {
-            entity_commands.insert((
-                Mesh3d(meshes.add(Plane3d::default().mesh().size(2.0, 2.0))),
-                MeshMaterial3d(materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.6, 0.6, 0.8),
-                    ..default()
-                })),
-                Collider::cuboid(2.0, 0.01, 2.0),
-            ));
-        }
-    }
-}
-
-fn handle_create_prefab(
-    mut events: MessageReader<CreatePrefabEvent>,
-    mut registry: ResMut<PrefabRegistry>,
-    entities: Query<(
-        &Name,
-        &Transform,
-        Option<&PrimitiveMarker>,
-        Option<&RigidBody>,
-    )>,
-) {
-    for event in events.read() {
-        let mut prefab = Prefab {
-            name: event.name.clone(),
-            entities: Vec::new(),
+        // Read the prefab scene file
+        let content = match fs::read_to_string(&entry.scene_path) {
+            Ok(c) => c,
+            Err(e) => {
+                error!(
+                    "Failed to read prefab scene '{}': {}",
+                    event.prefab_name, e
+                );
+                continue;
+            }
         };
 
-        for entity in &event.entities {
-            if let Ok((name, transform, primitive, rigid_body)) = entities.get(*entity) {
-                prefab.entities.push(PrefabEntity {
-                    name: name.as_str().to_string(),
-                    transform: transform.into(),
-                    primitive: primitive.map(|p| p.shape),
-                    rigid_body: rigid_body.map(SerializedRigidBody::from),
-                    children: Vec::new(),
-                });
-            }
-        }
+        let instance_id = registry.next_instance_id(&event.prefab_name);
 
-        if let Err(e) = registry.save_prefab(&prefab) {
-            error!("Failed to save prefab: {}", e);
-        } else {
-            registry.prefabs.insert(prefab.name.clone(), prefab);
-        }
+        commands.queue(SpawnPrefabCommand {
+            prefab_name: event.prefab_name.clone(),
+            scene_content: content,
+            position: event.position,
+            rotation: event.rotation,
+            instance_id,
+        });
+
+        info!("Queued prefab spawn: {}", event.prefab_name);
     }
 }

@@ -87,6 +87,9 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<RampMarker>()
         .allow_component::<ArchMarker>()
         .allow_component::<LShapeMarker>()
+        // Prefabs
+        .allow_component::<crate::prefabs::PrefabInstance>()
+        .allow_component::<crate::prefabs::PrefabRoot>()
         // External sources
         .allow_component::<GltfSource>()
         .allow_component::<SceneSource>()

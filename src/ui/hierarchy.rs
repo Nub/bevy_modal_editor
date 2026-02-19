@@ -9,6 +9,7 @@ use bevy_procedural::ProceduralEntity;
 
 use crate::commands::TakeSnapshotCommand;
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
+use crate::prefabs::{PrefabEditingContext, PrefabRegistry};
 use crate::scene::{GroupMarker, Locked, PrimitiveMarker, PrimitiveShape, SceneEntity, SceneLightMarker};
 use crate::selection::Selected;
 use crate::ui::theme::{colors, draw_pin_button, panel, panel_frame};
@@ -27,6 +28,7 @@ impl Plugin for HierarchyPlugin {
 enum HierarchyTab {
     #[default]
     Scene,
+    Prefabs,
     World,
 }
 
@@ -128,6 +130,10 @@ fn draw_hierarchy_panel(
     mut commands: Commands,
     mut hierarchy_state: ResMut<HierarchyState>,
     mut pinned_window: ResMut<PinnedWindows>,
+    prefab_registry: Res<PrefabRegistry>,
+    prefab_editing: Option<Res<PrefabEditingContext>>,
+    mut spawn_prefab: MessageWriter<crate::prefabs::SpawnPrefabEvent>,
+    mut open_prefab: MessageWriter<crate::prefabs::OpenPrefabEvent>,
 ) -> Result {
     // Don't draw UI when editor is disabled
     if !editor_state.ui_enabled {
@@ -195,6 +201,9 @@ fn draw_hierarchy_panel(
                 if ui.selectable_label(hierarchy_state.tab == HierarchyTab::Scene, "Scene").clicked() {
                     hierarchy_state.tab = HierarchyTab::Scene;
                 }
+                if ui.selectable_label(hierarchy_state.tab == HierarchyTab::Prefabs, "Prefabs").clicked() {
+                    hierarchy_state.tab = HierarchyTab::Prefabs;
+                }
                 if ui.selectable_label(hierarchy_state.tab == HierarchyTab::World, "World").clicked() {
                     hierarchy_state.tab = HierarchyTab::World;
                 }
@@ -210,7 +219,17 @@ fn draw_hierarchy_panel(
 
             if hierarchy_state.tab == HierarchyTab::World {
                 draw_world_browser(ui, &mut hierarchy_state, &all_entities);
-                // Early return from closure — reparent_op stays None
+                return;
+            }
+
+            if hierarchy_state.tab == HierarchyTab::Prefabs {
+                draw_prefab_browser(
+                    ui,
+                    &prefab_registry,
+                    &prefab_editing,
+                    &mut spawn_prefab,
+                    &mut open_prefab,
+                );
                 return;
             }
 
@@ -650,6 +669,95 @@ fn draw_draggable_button(
     }
 
     response
+}
+
+/// Draw the prefab browser — lists discovered prefabs with spawn/edit actions.
+fn draw_prefab_browser(
+    ui: &mut egui::Ui,
+    registry: &Res<PrefabRegistry>,
+    editing: &Option<Res<PrefabEditingContext>>,
+    spawn_events: &mut MessageWriter<crate::prefabs::SpawnPrefabEvent>,
+    open_events: &mut MessageWriter<crate::prefabs::OpenPrefabEvent>,
+) {
+    if let Some(ctx) = editing {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(format!("Editing: {}", ctx.prefab_name))
+                    .strong()
+                    .color(colors::ACCENT_ORANGE),
+            );
+        });
+        ui.add_space(4.0);
+    }
+
+    let mut names: Vec<&str> = registry.names();
+    names.sort();
+
+    if names.is_empty() {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new("No prefabs found")
+                .color(colors::TEXT_MUTED)
+                .italics(),
+        );
+        ui.add_space(4.0);
+        ui.label(
+            egui::RichText::new("Use \"Create Prefab from Selection\"\nin the command palette (C)")
+                .small()
+                .color(colors::TEXT_MUTED),
+        );
+        return;
+    }
+
+    egui::ScrollArea::vertical().show(ui, |ui| {
+        for name in &names {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new(icons::FOLDER)
+                        .color(colors::ACCENT_PURPLE),
+                );
+
+                ui.label(
+                    egui::RichText::new(*name).color(colors::TEXT_PRIMARY),
+                );
+
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .small_button(
+                            egui::RichText::new("Edit").color(colors::TEXT_SECONDARY),
+                        )
+                        .on_hover_text("Open prefab for editing")
+                        .clicked()
+                    {
+                        open_events.write(crate::prefabs::OpenPrefabEvent {
+                            prefab_name: name.to_string(),
+                        });
+                    }
+                    if ui
+                        .small_button(
+                            egui::RichText::new("+").strong().color(colors::ACCENT_GREEN),
+                        )
+                        .on_hover_text("Spawn into scene")
+                        .clicked()
+                    {
+                        spawn_events.write(crate::prefabs::SpawnPrefabEvent {
+                            prefab_name: name.to_string(),
+                            position: Vec3::ZERO,
+                            rotation: Quat::IDENTITY,
+                        });
+                    }
+                });
+            });
+        }
+    });
+
+    ui.add_space(4.0);
+    ui.separator();
+    ui.label(
+        egui::RichText::new(format!("{} prefabs", names.len()))
+            .small()
+            .color(colors::TEXT_MUTED),
+    );
 }
 
 /// Draw the world entity browser — lists ALL entities, not just scene entities.

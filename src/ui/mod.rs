@@ -6,6 +6,7 @@ mod edit_info;
 mod effect_editor;
 pub mod fuzzy_palette;
 pub mod gltf_preview;
+pub mod prefab_preview;
 mod hierarchy;
 pub mod insert_preview;
 pub mod preview_common;
@@ -85,6 +86,9 @@ impl Plugin for UiPlugin {
                 insert_preview::InsertPreviewPlugin,
                 gltf_preview::GltfPreviewPlugin,
                 ToolbarPlugin,
+            ))
+            .add_plugins((
+                prefab_preview::PrefabPreviewPlugin,
                 ViewGizmoPlugin,
                 EditInfoPlugin,
             ))

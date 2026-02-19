@@ -3,12 +3,14 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-use crate::editor::{EditorMode, InsertObjectType, StartInsertEvent};
+use crate::editor::{EditorMode, InsertObjectType, InsertState, StartInsertEvent};
 use crate::particles::ParticleLibrary;
+use crate::prefabs::PrefabRegistry;
 use crate::ui::fuzzy_palette::{
     draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteItem, PaletteResult, PaletteState,
 };
 use crate::ui::insert_preview::{InsertPreviewKind, InsertPreviewState};
+use crate::ui::prefab_preview::PrefabPreviewState;
 use crate::ui::theme::colors;
 
 use super::commands::{CommandAction, CommandEvents, CommandRegistry};
@@ -53,6 +55,7 @@ fn action_to_preview_kind(action: &CommandAction) -> Option<InsertPreviewKind> {
         CommandAction::SpawnParticleEffect => None, // No 3D preview for particles
         CommandAction::SpawnParticlePreset(_) => None, // No 3D preview for particle presets
         CommandAction::SpawnEffectPreset(_) => None,   // No 3D preview for effect presets
+        CommandAction::SpawnPrefab(_) => Some(InsertPreviewKind::Prefab),
         _ => None,
     }
 }
@@ -67,6 +70,9 @@ pub(super) fn draw_insert_palette(
     next_mode: &mut ResMut<NextState<EditorMode>>,
     particle_library: &Res<ParticleLibrary>,
     effect_library: &Res<crate::effects::EffectLibrary>,
+    insert_state: &mut ResMut<InsertState>,
+    prefab_registry: &Res<PrefabRegistry>,
+    prefab_preview_state: &mut ResMut<PrefabPreviewState>,
 ) -> Result {
     // Build insert item list from registry
     let mut items: Vec<InsertItem> = registry
@@ -136,13 +142,36 @@ pub(super) fn draw_insert_palette(
     let preview_kind = filtered
         .get(clamped)
         .and_then(|fi| action_to_preview_kind(&fi.item.action));
-    insert_preview_state.current_kind = preview_kind;
+
+    // Check if highlighted item is a prefab (uses separate preview system)
+    let is_prefab_preview = matches!(preview_kind, Some(InsertPreviewKind::Prefab));
+    if is_prefab_preview {
+        // Drive the prefab preview system
+        let prefab_scene_path = filtered.get(clamped).and_then(|fi| {
+            if let CommandAction::SpawnPrefab(name) = &fi.item.action {
+                prefab_registry
+                    .get(name)
+                    .map(|entry| entry.scene_path.to_string_lossy().to_string())
+            } else {
+                None
+            }
+        });
+        prefab_preview_state.current_path = prefab_scene_path;
+        insert_preview_state.current_kind = None; // Clear the other preview
+    } else {
+        insert_preview_state.current_kind = preview_kind;
+        prefab_preview_state.current_path = None; // Clear the prefab preview
+    }
 
     // Capture preview info for the panel closure
-    let preview_texture_id = insert_preview_state.texture.egui_texture_id;
+    let preview_texture_id = if is_prefab_preview {
+        prefab_preview_state.texture.egui_texture_id
+    } else {
+        insert_preview_state.texture.egui_texture_id
+    };
     let preview_name = filtered.get(clamped).map(|fi| fi.item.name.clone());
 
-    let has_preview = insert_preview_state.current_kind.is_some();
+    let has_preview = is_prefab_preview || insert_preview_state.current_kind.is_some();
     let preview_panel: Option<Box<dyn FnOnce(&mut egui::Ui) + '_>> =
         Some(Box::new(move |ui: &mut egui::Ui| {
             ui.label(
@@ -289,14 +318,26 @@ pub(super) fn draw_insert_palette(
                         rotation: Quat::IDENTITY,
                     });
                 }
+                CommandAction::SpawnPrefab(prefab_name) => {
+                    insert_state.prefab_name = Some(prefab_name.clone());
+                    // Look up the scene path from the registry for preview
+                    if let Some(entry) = prefab_registry.get(prefab_name) {
+                        insert_state.scene_path = Some(entry.scene_path.to_string_lossy().to_string());
+                    }
+                    events.start_insert.write(StartInsertEvent {
+                        object_type: InsertObjectType::Prefab,
+                    });
+                }
                 _ => {}
             }
             state.open = false;
             insert_preview_state.current_kind = None;
+            prefab_preview_state.current_path = None;
         }
         PaletteResult::Closed => {
             state.open = false;
             insert_preview_state.current_kind = None;
+            prefab_preview_state.current_path = None;
         }
         PaletteResult::Open => {}
     }

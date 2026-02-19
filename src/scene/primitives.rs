@@ -29,7 +29,7 @@ pub struct Locked;
 
 /// Marker component for point lights
 #[derive(Component, Serialize, Deserialize, Clone, Reflect)]
-#[reflect(Component)]
+#[reflect(Component, Default)]
 pub struct SceneLightMarker {
     pub color: Color,
     pub intensity: f32,
@@ -250,6 +250,8 @@ pub enum SpawnEntityKind {
     Decal,
     /// A custom entity type registered by the game
     Custom(String),
+    /// A prefab from assets/prefabs/
+    Prefab(String),
 }
 
 impl SpawnEntityKind {
@@ -277,6 +279,7 @@ impl SpawnEntityKind {
             SpawnEntityKind::EffectPreset(name) => format!("Effect: {}", name),
             SpawnEntityKind::Decal => "Decal".to_string(),
             SpawnEntityKind::Custom(name) => name.clone(),
+            SpawnEntityKind::Prefab(name) => format!("Prefab: {}", name),
         }
     }
 }
@@ -350,8 +353,19 @@ fn handle_spawn_entity(
     custom_registry: Res<CustomEntityRegistry>,
     particle_library: Res<crate::particles::ParticleLibrary>,
     effect_library: Res<EffectLibrary>,
+    mut prefab_events: MessageWriter<crate::prefabs::SpawnPrefabEvent>,
 ) {
     for event in events.read() {
+        // Prefab spawning is handled by the prefab system (needs exclusive world access)
+        if let SpawnEntityKind::Prefab(ref prefab_name) = event.kind {
+            prefab_events.write(crate::prefabs::SpawnPrefabEvent {
+                prefab_name: prefab_name.clone(),
+                position: event.position,
+                rotation: event.rotation,
+            });
+            continue;
+        }
+
         // Deselect all currently selected entities
         for entity in selected_entities.iter() {
             commands.entity(entity).remove::<Selected>();
@@ -408,6 +422,7 @@ fn handle_spawn_entity(
                 commands.entity(entity).insert((SceneEntity, Name::new(name.clone())));
                 entity
             }
+            SpawnEntityKind::Prefab(_) => unreachable!("handled above"),
         };
 
         // Select the newly spawned entity

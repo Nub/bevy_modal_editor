@@ -254,6 +254,8 @@ pub enum InsertObjectType {
     ParticleEffect,
     /// Clustered decal (projected texture)
     Decal,
+    /// Prefab instance (name stored in InsertState.prefab_name)
+    Prefab,
 }
 
 /// Marker component for preview entities in Insert mode
@@ -273,6 +275,8 @@ pub struct InsertState {
     pub gltf_path: Option<String>,
     /// Path for Scene objects (used when object_type is Scene)
     pub scene_path: Option<String>,
+    /// Name for prefab objects (used when object_type is Prefab)
+    pub prefab_name: Option<String>,
 }
 
 impl InsertState {
@@ -283,6 +287,7 @@ impl InsertState {
             default_distance: 10.0,
             gltf_path: None,
             scene_path: None,
+            prefab_name: None,
         }
     }
 }
