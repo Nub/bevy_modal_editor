@@ -21,6 +21,79 @@ use bevy_egui::egui;
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
+// GLTF asset library registration
+// ---------------------------------------------------------------------------
+
+/// Configuration resource listing GLTF files to load as asset libraries.
+///
+/// Each path is relative to the `assets/` directory (e.g. `"models/characters.glb"`).
+/// At startup the asset library plugin loads every listed file and indexes its
+/// materials, meshes, animations, and scenes into the corresponding library resources.
+#[derive(Resource, Default)]
+pub struct GltfLibraryConfig {
+    pub paths: Vec<String>,
+}
+
+/// Extension trait for registering GLTF files as asset libraries.
+///
+/// # Example
+/// ```ignore
+/// app.register_gltf_library("models/characters.glb");
+/// ```
+pub trait RegisterGltfLibraryExt {
+    fn register_gltf_library(&mut self, path: &str) -> &mut Self;
+}
+
+impl RegisterGltfLibraryExt for App {
+    fn register_gltf_library(&mut self, path: &str) -> &mut Self {
+        let mut config = self
+            .world_mut()
+            .get_resource_or_insert_with(GltfLibraryConfig::default);
+        config.paths.push(path.to_string());
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Asset libraries
+// ---------------------------------------------------------------------------
+
+/// Named mesh handles extracted from GLTF libraries.
+#[derive(Resource, Default, Clone)]
+pub struct MeshLibrary {
+    pub meshes: HashMap<String, Handle<Mesh>>,
+}
+
+/// Named animation clip handles extracted from GLTF libraries.
+#[derive(Resource, Default, Clone)]
+pub struct AnimationLibrary {
+    pub clips: HashMap<String, Handle<AnimationClip>>,
+}
+
+/// Named scene handles extracted from GLTF libraries.
+#[derive(Resource, Default, Clone)]
+pub struct SceneLibrary {
+    pub scenes: HashMap<String, Handle<Scene>>,
+}
+
+/// Component that references a mesh by library name.
+///
+/// Serialized to scene files. The asset library plugin resolves the name
+/// to a `Handle<Mesh>` during regeneration.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, Reflect)]
+#[reflect(Component, Default)]
+pub enum MeshRef {
+    /// References a named mesh in the MeshLibrary
+    Library(String),
+}
+
+impl Default for MeshRef {
+    fn default() -> Self {
+        MeshRef::Library(String::new())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
@@ -650,6 +723,14 @@ impl MaterialDefinition {
                 base_color: color,
                 ..default()
             },
+            extension: None,
+        }
+    }
+
+    /// Create a standard (no extension) material from full base props
+    pub fn standard_from_props(base: BaseMaterialProps) -> Self {
+        Self {
+            base,
             extension: None,
         }
     }

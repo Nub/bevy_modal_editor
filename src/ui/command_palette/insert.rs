@@ -52,6 +52,7 @@ fn action_to_preview_kind(action: &CommandAction) -> Option<InsertPreviewKind> {
         CommandAction::SpawnArch => Some(InsertPreviewKind::Arch),
         CommandAction::SpawnLShape => Some(InsertPreviewKind::LShape),
         CommandAction::SpawnDecal => Some(InsertPreviewKind::Decal),
+        CommandAction::SpawnLibraryMesh(_) => None, // No 3D preview for library meshes yet
         CommandAction::SpawnParticleEffect => None, // No 3D preview for particles
         CommandAction::SpawnParticlePreset(_) => None, // No 3D preview for particle presets
         CommandAction::SpawnEffectPreset(_) => None,   // No 3D preview for effect presets
@@ -301,6 +302,13 @@ pub(super) fn draw_insert_palette(
                 CommandAction::SpawnDecal => {
                     events.start_insert.write(StartInsertEvent {
                         object_type: InsertObjectType::Decal,
+                    });
+                }
+                CommandAction::SpawnLibraryMesh(mesh_name) => {
+                    events.spawn_entity.write(crate::scene::SpawnEntityEvent {
+                        kind: crate::scene::SpawnEntityKind::LibraryMesh(mesh_name.clone()),
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
                     });
                 }
                 CommandAction::SpawnParticlePreset(preset_name) => {

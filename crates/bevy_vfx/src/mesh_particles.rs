@@ -66,6 +66,7 @@ pub enum MeshShapeKey {
     Sphere,
     Capsule,
     Cylinder,
+    Quad,
     Custom(String),
 }
 
@@ -76,6 +77,7 @@ impl From<&MeshShape> for MeshShapeKey {
             MeshShape::Sphere => Self::Sphere,
             MeshShape::Capsule => Self::Capsule,
             MeshShape::Cylinder => Self::Cylinder,
+            MeshShape::Quad => Self::Quad,
             MeshShape::Custom(path) => Self::Custom(path.clone()),
         }
     }
@@ -169,6 +171,7 @@ pub fn cpu_mesh_particle_spawn(
                     MeshShape::Sphere => Mesh::from(Sphere::new(0.5)),
                     MeshShape::Capsule => Mesh::from(Capsule3d::new(0.25, 0.5)),
                     MeshShape::Cylinder => Mesh::from(Cylinder::new(0.25, 1.0)),
+                    MeshShape::Quad => Mesh::from(Plane3d::new(Vec3::Z, Vec2::splat(0.5))),
                     MeshShape::Custom(_) => Mesh::from(Cuboid::from_size(Vec3::ONE)),
                 };
                 let mesh = mesh
@@ -260,6 +263,7 @@ pub fn cpu_mesh_particle_spawn(
                             }
                             OrientMode::RandomFull => random_quat(),
                             OrientMode::AlignVelocity => Quat::IDENTITY, // deferred
+                            OrientMode::FaceCamera => Quat::IDENTITY,   // deferred
                         };
                     }
                     InitModule::SetUvScale(_) => {} // handled at emitter level
@@ -301,6 +305,9 @@ pub fn cpu_mesh_particle_spawn(
                     MeshShape::Sphere => Collider::sphere(scale.x * 0.5),
                     MeshShape::Capsule => Collider::capsule(scale.x * 0.25, scale.y * 0.5),
                     MeshShape::Cylinder => Collider::cylinder(scale.x * 0.25, scale.y),
+                    MeshShape::Quad => {
+                        Collider::cuboid(scale.x, scale.y, 0.01)
+                    }
                     MeshShape::Custom(_) => {
                         Collider::cuboid(scale.x, scale.y, scale.z)
                     }
@@ -515,7 +522,10 @@ pub fn cpu_mesh_particle_update(
 pub fn cpu_mesh_particle_sync(
     mut query: Query<(&VfxSystem, &mut MeshParticleState)>,
     mut transforms: Query<&mut Transform>,
+    camera: Query<&GlobalTransform, With<Camera3d>>,
 ) {
+    let camera_pos = camera.iter().next().map(|gt| gt.translation());
+
     for (system, mut state) in &mut query {
         let Some(emitter) = system.emitters.get(state.emitter_index) else {
             continue;
@@ -527,6 +537,7 @@ pub fn cpu_mesh_particle_sync(
             _ => None,
         });
         let align_to_velocity = orient_mode == Some(OrientMode::AlignVelocity);
+        let face_camera = orient_mode == Some(OrientMode::FaceCamera);
         let has_rotate_by_vel = emitter
             .update
             .iter()
@@ -544,7 +555,14 @@ pub fn cpu_mesh_particle_sync(
                     transform.translation = p.position;
                     transform.scale = p.scale;
 
-                    if align_to_velocity || has_rotate_by_vel {
+                    if face_camera {
+                        if let Some(cam_pos) = camera_pos {
+                            let dir = (cam_pos - p.position).normalize_or_zero();
+                            if dir.length_squared() > 0.001 {
+                                transform.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
+                            }
+                        }
+                    } else if align_to_velocity || has_rotate_by_vel {
                         let dir = p.velocity.normalize_or_zero();
                         if dir.length_squared() > 0.001 {
                             transform.rotation = Quat::from_rotation_arc(Vec3::Z, dir);

@@ -7,7 +7,7 @@ use fuzzy_matcher::FuzzyMatcher;
 
 use bevy_spline_3d::prelude::SplineType;
 
-use bevy_editor_game::{CustomEntityRegistry, PauseEvent, PlayEvent, ResetEvent};
+use bevy_editor_game::{CustomEntityRegistry, MeshLibrary, PauseEvent, PlayEvent, ResetEvent};
 
 use crate::commands::{RedoEvent, UndoEvent};
 use crate::editor::{
@@ -91,6 +91,8 @@ pub enum CommandAction {
     SpawnParticlePreset(String),
     /// Spawn an effect from a named preset
     SpawnEffectPreset(String),
+    /// Spawn a mesh from the mesh library
+    SpawnLibraryMesh(String),
     /// Spawn a clustered decal
     SpawnDecal,
     /// Spawn a custom entity type registered by the game
@@ -622,6 +624,37 @@ pub(super) fn register_prefab_commands(
     }
 }
 
+/// Register mesh library entries into the command palette as insertable items.
+pub(super) fn register_mesh_library_commands(
+    mesh_library: Res<MeshLibrary>,
+    mut registry: ResMut<CommandRegistry>,
+) {
+    // Remove old mesh library commands
+    registry
+        .commands
+        .retain(|cmd| !matches!(cmd.action, CommandAction::SpawnLibraryMesh(_)));
+
+    let mut names: Vec<&String> = mesh_library.meshes.keys().collect();
+    names.sort();
+    for name in names {
+        // Use the part after "::" as display name
+        let display = name.rsplit("::").next().unwrap_or(name);
+        registry.commands.push(Command {
+            name: format!("Add Mesh: {}", display),
+            keywords: vec![
+                "mesh".into(),
+                "library".into(),
+                "gltf".into(),
+                "model".into(),
+                name.to_lowercase(),
+            ],
+            category: "Meshes",
+            action: CommandAction::SpawnLibraryMesh(name.clone()),
+            insertable: true,
+        });
+    }
+}
+
 /// Get filtered and sorted commands based on query using skim fuzzy matcher.
 ///
 /// - `insert_only`: if true, only show commands marked `insertable`
@@ -970,6 +1003,13 @@ fn execute_command(
         CommandAction::SpawnEffectPreset(ref preset_name) => {
             events.spawn_entity.write(SpawnEntityEvent {
                 kind: SpawnEntityKind::EffectPreset(preset_name.clone()),
+                position: Vec3::ZERO,
+                rotation: Quat::IDENTITY,
+            });
+        }
+        CommandAction::SpawnLibraryMesh(ref mesh_name) => {
+            events.spawn_entity.write(SpawnEntityEvent {
+                kind: SpawnEntityKind::LibraryMesh(mesh_name.clone()),
                 position: Vec3::ZERO,
                 rotation: Quat::IDENTITY,
             });

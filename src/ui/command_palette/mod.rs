@@ -13,6 +13,7 @@ mod entity_picker;
 mod find_object;
 mod insert;
 mod material_preset;
+mod mesh_shape_picker;
 mod particle_preset;
 
 use std::any::TypeId;
@@ -22,7 +23,7 @@ use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
-use bevy_editor_game::{CustomEntityRegistry, MaterialLibrary};
+use bevy_editor_game::{CustomEntityRegistry, MaterialLibrary, MeshLibrary};
 
 use bevy_vfx::{VfxLibrary, VfxSystem};
 
@@ -42,6 +43,7 @@ use crate::utils::should_process_input;
 // Re-export public types from submodules
 pub use asset_browser::{GltfPickData, GltfPickResult, TexturePickData, TexturePickResult, TextureSlot};
 pub use commands::{CommandAction, CommandRegistry};
+pub use mesh_shape_picker::MeshShapePickResult;
 pub use entity_picker::{
     CurrentInspectedEntity, EntityPickerSelection, PendingEntityPickerRequest,
     PendingEntitySelection, draw_entity_field, make_callback_id,
@@ -75,6 +77,8 @@ pub enum PaletteMode {
     EffectPreset,
     /// Browse asset files (load/save scene, insert GLTF, pick texture)
     AssetBrowser,
+    /// Pick a mesh shape for VFX mesh particles
+    MeshShapePicker,
 }
 
 // ── CommandPaletteState ──────────────────────────────────────────────
@@ -199,6 +203,11 @@ impl CommandPaletteState {
     /// Open the palette in EffectPreset mode
     pub fn open_effect_preset(&mut self) {
         self.open_mode(PaletteMode::EffectPreset);
+    }
+
+    /// Open the palette in MeshShapePicker mode
+    pub fn open_mesh_shape_picker(&mut self) {
+        self.open_mode(PaletteMode::MeshShapePicker);
     }
 
     // ── AssetBrowser open helpers ──
@@ -341,9 +350,14 @@ impl Plugin for CommandPalettePlugin {
             .init_resource::<PendingEntityPickerRequest>()
             .init_resource::<TexturePickResult>()
             .init_resource::<GltfPickResult>()
+            .init_resource::<MeshShapePickResult>()
             .insert_resource(registry)
             .add_systems(PreStartup, (commands::register_custom_entity_commands, commands::register_prefab_commands))
-            .add_systems(Update, (handle_palette_toggle, components::populate_removable_components))
+            .add_systems(Update, (
+                handle_palette_toggle,
+                components::populate_removable_components,
+                commands::register_mesh_library_commands.run_if(resource_changed::<bevy_editor_game::MeshLibrary>),
+            ))
             .add_systems(
                 EguiPrimaryContextPass,
                 (draw_command_palette, draw_help_window, draw_custom_mark_dialog, draw_rename_scene_dialog, draw_create_prefab_dialog),
@@ -444,6 +458,7 @@ struct AssetBrowserParams<'w> {
     next_mode: ResMut<'w, NextState<EditorMode>>,
     texture_pick: ResMut<'w, TexturePickResult>,
     gltf_pick: ResMut<'w, GltfPickResult>,
+    mesh_shape_pick: ResMut<'w, MeshShapePickResult>,
     asset_server: Res<'w, AssetServer>,
     gltf_preview_state: ResMut<'w, GltfPreviewState>,
 }
@@ -460,6 +475,7 @@ struct ModeParams<'w> {
     effect_library: Res<'w, crate::effects::EffectLibrary>,
     editor_mode: Res<'w, State<EditorMode>>,
     type_registry: Res<'w, AppTypeRegistry>,
+    mesh_library: Res<'w, MeshLibrary>,
     custom_registry: Res<'w, CustomEntityRegistry>,
     prefab_registry: Res<'w, crate::prefabs::PrefabRegistry>,
     prefab_context: Option<Res<'w, crate::prefabs::PrefabEditingContext>>,
@@ -613,6 +629,15 @@ fn draw_command_palette(
                 &mp.effect_library,
                 selected_effect,
                 &mut bevy_commands,
+            );
+        }
+        PaletteMode::MeshShapePicker => {
+            let ctx = contexts.ctx_mut()?;
+            return mesh_shape_picker::draw_mesh_shape_picker_palette(
+                ctx,
+                &mut state,
+                &mp.mesh_library,
+                &mut ab.mesh_shape_pick,
             );
         }
         PaletteMode::AssetBrowser => {

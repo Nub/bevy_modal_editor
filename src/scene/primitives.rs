@@ -5,7 +5,7 @@ use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::{Deserialize, Serialize};
 
 use bevy::pbr::ExtendedMaterial;
-use bevy_editor_game::{BaseMaterialProps, CustomEntityRegistry, MaterialDefinition, MaterialRef};
+use bevy_editor_game::{BaseMaterialProps, CustomEntityRegistry, MaterialDefinition, MaterialRef, MeshLibrary, MeshRef};
 use bevy_grid_shader::GridMaterial;
 
 use super::blockout::{spawn_arch, spawn_lshape, spawn_ramp, spawn_stairs, GridMat};
@@ -248,6 +248,8 @@ pub enum SpawnEntityKind {
     EffectPreset(String),
     /// A clustered decal (projected texture)
     Decal,
+    /// A mesh from the mesh library (GLTF asset libraries)
+    LibraryMesh(String),
     /// A custom entity type registered by the game
     Custom(String),
     /// A prefab from assets/prefabs/
@@ -278,6 +280,10 @@ impl SpawnEntityKind {
             SpawnEntityKind::Effect => "Effect".to_string(),
             SpawnEntityKind::EffectPreset(name) => format!("Effect: {}", name),
             SpawnEntityKind::Decal => "Decal".to_string(),
+            SpawnEntityKind::LibraryMesh(name) => {
+                // Use the part after "::" as display name, or the full name
+                name.rsplit("::").next().unwrap_or(name).to_string()
+            }
             SpawnEntityKind::Custom(name) => name.clone(),
             SpawnEntityKind::Prefab(name) => format!("Prefab: {}", name),
         }
@@ -348,11 +354,13 @@ fn handle_spawn_entity(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut grid_materials: ResMut<Assets<GridMat>>,
+    mut std_materials: ResMut<Assets<StandardMaterial>>,
     existing_entities: Query<&Name, With<SceneEntity>>,
     selected_entities: Query<Entity, With<Selected>>,
     custom_registry: Res<CustomEntityRegistry>,
     vfx_library: Res<VfxLibrary>,
     effect_library: Res<EffectLibrary>,
+    mesh_library: Res<MeshLibrary>,
     mut prefab_events: MessageWriter<crate::prefabs::SpawnPrefabEvent>,
 ) {
     for event in events.read() {
@@ -412,6 +420,17 @@ fn handle_spawn_entity(
                 spawn_effect(&mut commands, event.position, event.rotation, &name, marker)
             }
             SpawnEntityKind::Decal => spawn_decal(&mut commands, event.position, event.rotation, &name),
+            SpawnEntityKind::LibraryMesh(mesh_name) => {
+                spawn_library_mesh(
+                    &mut commands,
+                    &mut std_materials,
+                    &mesh_library,
+                    mesh_name,
+                    event.position,
+                    event.rotation,
+                    &name,
+                )
+            }
             SpawnEntityKind::Custom(type_name) => {
                 let entry = custom_registry
                     .entries
@@ -651,6 +670,37 @@ pub fn spawn_decal(commands: &mut Commands, position: Vec3, rotation: Quat, name
             Transform::from_translation(position).with_rotation(rotation),
             Visibility::default(),
             Collider::cuboid(0.5, 0.5, 0.5),
+        ))
+        .id()
+}
+
+/// Spawn a library mesh entity by name.
+fn spawn_library_mesh(
+    commands: &mut Commands,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    mesh_library: &MeshLibrary,
+    mesh_name: &str,
+    position: Vec3,
+    rotation: Quat,
+    name: &str,
+) -> Entity {
+    let mesh_handle = mesh_library
+        .meshes
+        .get(mesh_name)
+        .cloned()
+        .unwrap_or_default();
+    let material_handle = materials.add(StandardMaterial::default());
+
+    commands
+        .spawn((
+            SceneEntity,
+            Name::new(name.to_string()),
+            MeshRef::Library(mesh_name.to_string()),
+            MaterialRef::default(),
+            Mesh3d(mesh_handle),
+            MeshMaterial3d(material_handle),
+            Transform::from_translation(position).with_rotation(rotation),
+            RigidBody::Static,
         ))
         .id()
 }

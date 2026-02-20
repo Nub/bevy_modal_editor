@@ -42,6 +42,7 @@
 //!
 //! Press `?` for the full help menu.
 
+pub mod asset_libraries;
 pub mod commands;
 pub mod constants;
 pub mod editor;
@@ -91,6 +92,13 @@ pub use bevy_editor_game::{
 pub use bevy_editor_game::{
     BaseMaterialProps, MaterialDefinition, MaterialLibrary, MaterialRef,
 };
+
+// Re-export asset library types
+pub use bevy_editor_game::{
+    AnimationLibrary, GltfLibraryConfig, MeshLibrary, MeshRef, RegisterGltfLibraryExt,
+    SceneLibrary,
+};
+pub use asset_libraries::AssetLibraryState;
 pub use materials::RegisterMaterialTypeExt;
 
 // Re-export scene loading

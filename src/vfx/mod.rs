@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use bevy::prelude::*;
-use bevy_editor_game::MaterialLibrary;
+use bevy_editor_game::{MaterialLibrary, MeshLibrary};
 use bevy_vfx::data::RenderModule;
-use bevy_vfx::mesh_particles::{MeshParticleAssets, MeshParticleState};
+use bevy_vfx::mesh_particles::{MeshParticleAssets, MeshParticleState, MeshShapeKey};
 use bevy_vfx::{VfxLibrary, VfxSystem};
 
 const VFX_DIR: &str = "assets/vfx";
@@ -19,7 +19,7 @@ impl Plugin for VfxEditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy_vfx::VfxPlugin)
             .add_systems(PreStartup, init_vfx_library)
-            .add_systems(Update, (auto_save_vfx_presets, sync_material_library_to_vfx));
+            .add_systems(Update, (auto_save_vfx_presets, sync_material_library_to_vfx, sync_mesh_library_to_vfx));
     }
 }
 
@@ -172,6 +172,21 @@ fn sync_material_library_to_vfx(
                 }
             }
         }
+    }
+}
+
+/// When MeshLibrary changes, sync mesh handles into MeshParticleAssets
+/// so Custom mesh shapes resolve to the correct mesh.
+fn sync_mesh_library_to_vfx(
+    mesh_library: Res<MeshLibrary>,
+    mut assets: ResMut<MeshParticleAssets>,
+) {
+    if !mesh_library.is_changed() {
+        return;
+    }
+
+    for (name, handle) in &mesh_library.meshes {
+        assets.meshes.insert(MeshShapeKey::Custom(name.clone()), handle.clone());
     }
 }
 

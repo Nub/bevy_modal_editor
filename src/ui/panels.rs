@@ -6,6 +6,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use crate::commands::SnapshotHistory;
 use bevy_editor_game::GameState;
 
+use crate::asset_libraries::AssetLibraryState;
 use crate::editor::{AxisConstraint, EditorCamera, EditorMode, EditorState, FlyCamera, SnapSubMode, TransformOperation};
 use crate::scene::SceneFile;
 use crate::selection::Selected;
@@ -34,6 +35,7 @@ fn draw_status_bar(
     sim_state: Res<State<GameState>>,
     selected_query: Query<&GlobalTransform, With<Selected>>,
     camera_query: Query<&FlyCamera, With<EditorCamera>>,
+    asset_library_state: Res<AssetLibraryState>,
 ) -> Result {
     // Don't draw UI when editor is disabled
     if !editor_state.ui_enabled {
@@ -210,7 +212,7 @@ fn draw_status_bar(
                     GameState::Editing => {}
                 }
 
-                // RIGHT: Physics + Undo/Redo (right-aligned)
+                // RIGHT: Physics + Undo/Redo + Loading (right-aligned)
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Undo/redo counts (appears first due to RTL layout)
                     ui.label(
@@ -234,6 +236,19 @@ fn draw_status_bar(
                         ui.label(
                             egui::RichText::new("Physics: ON")
                                 .color(colors::STATUS_SUCCESS),
+                        );
+                    }
+
+                    // Asset loading progress
+                    if asset_library_state.is_loading() {
+                        ui.separator();
+                        let loaded = asset_library_state.loaded_count;
+                        let total = asset_library_state.total_count;
+                        let fraction = loaded as f32 / total.max(1) as f32;
+                        ui.add(
+                            egui::ProgressBar::new(fraction)
+                                .text(format!("Loading {}/{}", loaded, total))
+                                .desired_width(120.0),
                         );
                     }
                 });

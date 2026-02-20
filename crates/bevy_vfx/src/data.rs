@@ -366,10 +366,12 @@ pub enum OrientMode {
     RandomFull,
     /// Align mesh Z-axis to velocity direction.
     AlignVelocity,
+    /// Billboard: always face the camera.
+    FaceCamera,
 }
 
 impl OrientMode {
-    pub const ALL: [Self; 4] = [Self::Identity, Self::RandomY, Self::RandomFull, Self::AlignVelocity];
+    pub const ALL: [Self; 5] = [Self::Identity, Self::RandomY, Self::RandomFull, Self::AlignVelocity, Self::FaceCamera];
 
     pub fn label(&self) -> &'static str {
         match self {
@@ -377,6 +379,7 @@ impl OrientMode {
             Self::RandomY => "Random Y",
             Self::RandomFull => "Random Full",
             Self::AlignVelocity => "Align Velocity",
+            Self::FaceCamera => "Face Camera",
         }
     }
 }
@@ -740,12 +743,13 @@ pub enum MeshShape {
     Sphere,
     Capsule,
     Cylinder,
+    Quad,
     /// Custom mesh asset path.
     Custom(String),
 }
 
 impl MeshShape {
-    pub const BUILTIN: [Self; 4] = [Self::Cube, Self::Sphere, Self::Capsule, Self::Cylinder];
+    pub const BUILTIN: [Self; 5] = [Self::Cube, Self::Sphere, Self::Capsule, Self::Cylinder, Self::Quad];
 
     pub fn label(&self) -> &str {
         match self {
@@ -753,6 +757,7 @@ impl MeshShape {
             Self::Sphere => "Sphere",
             Self::Capsule => "Capsule",
             Self::Cylinder => "Cylinder",
+            Self::Quad => "Quad",
             Self::Custom(path) => path.as_str(),
         }
     }

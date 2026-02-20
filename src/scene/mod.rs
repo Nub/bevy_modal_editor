@@ -21,8 +21,8 @@ use bevy::prelude::*;
 use bevy::scene::serde::SceneDeserializer;
 use bevy_editor_game::{
     AssetRef, BaseMaterialProps, CustomEntityRegistry, MaterialDefinition,
-    MaterialExtensionData, MaterialLibrary, MaterialRef, SceneComponentRegistry,
-    ValidationRegistry,
+    MaterialExtensionData, MaterialLibrary, MaterialRef, MeshLibrary, MeshRef,
+    SceneComponentRegistry, ValidationRegistry,
 };
 
 use crate::materials::{load_base_textures, MaterialTypeRegistry, resolve_material_ref};
@@ -59,6 +59,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         // Primitives
         .allow_component::<PrimitiveMarker>()
         .allow_component::<MaterialRef>()
+        // Library meshes
+        .allow_component::<MeshRef>()
         // Backwards compat: still extract old types if present on legacy entities
         .allow_component::<PrimitiveMaterial>()
         .allow_component::<MaterialType>()
@@ -162,6 +164,9 @@ pub fn regenerate_runtime_components(world: &mut World) {
             apply_material_def_from_fns(world, entity, def, &registry_types);
         }
     }
+
+    // Handle library mesh entities (MeshRef)
+    regenerate_mesh_refs(world, &library, &registry_types);
 
     // Handle edited meshes
     crate::modeling::marker::regenerate_edit_meshes(world);
@@ -515,6 +520,58 @@ fn regenerate_blockout_materials(
     }
 }
 
+/// Regenerate meshes for entities with `MeshRef` that are missing `Mesh3d`.
+fn regenerate_mesh_refs(
+    world: &mut World,
+    library: &MaterialLibrary,
+    registry_fns: &[(String, ApplyFn)],
+) {
+    let mesh_lib = world
+        .get_resource::<MeshLibrary>()
+        .cloned()
+        .unwrap_or_default();
+
+    let mut to_update: Vec<(Entity, String, Option<MaterialRef>)> = Vec::new();
+    {
+        let mut query = world.query_filtered::<(
+            Entity,
+            &MeshRef,
+            Option<&MaterialRef>,
+        ), Without<Mesh3d>>();
+        for (entity, mesh_ref, mat_ref) in query.iter(world) {
+            let MeshRef::Library(name) = mesh_ref;
+            to_update.push((entity, name.clone(), mat_ref.cloned()));
+        }
+    }
+
+    for (entity, mesh_name, mat_ref) in to_update {
+        if let Some(mesh_handle) = mesh_lib.meshes.get(&mesh_name) {
+            if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                entity_mut.insert((
+                    Mesh3d(mesh_handle.clone()),
+                    Visibility::default(),
+                    RigidBody::Static,
+                ));
+            }
+        }
+
+        // Apply material if present
+        if let Some(mat_ref) = mat_ref {
+            if let Some(def) = resolve_material_ref(&mat_ref, library) {
+                apply_material_def_from_fns(world, entity, def, registry_fns);
+            }
+        } else {
+            // Default standard material
+            let handle = world
+                .resource_mut::<Assets<StandardMaterial>>()
+                .add(StandardMaterial::default());
+            if let Ok(mut e) = world.get_entity_mut(entity) {
+                e.insert(MeshMaterial3d(handle));
+            }
+        }
+    }
+}
+
 /// Restore the scene from serialized RON data.
 ///
 /// This is the shared implementation used by both undo/redo and play/reset.
@@ -651,6 +708,8 @@ impl Plugin for ScenePlugin {
             .register_type::<MaterialExtensionData>()
             .register_type::<bevy_editor_game::AlphaModeValue>()
             .register_type::<bevy_editor_game::ParallaxMappingMethodValue>()
+            // Mesh references
+            .register_type::<MeshRef>()
             // Legacy material types (backwards compat)
             .register_type::<MaterialType>()
             .register_type::<PrimitiveMaterial>()

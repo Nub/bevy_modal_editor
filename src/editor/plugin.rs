@@ -201,6 +201,8 @@ impl Plugin for EditorPlugin {
             .add_systems(Update, update_fps_readout);
 
         app
+            // Asset libraries (GLTF indexing)
+            .add_plugins(crate::asset_libraries::AssetLibraryPlugin)
             // Third-party rendering plugins
             .add_plugins(OutlinePlugin)
             .add_plugins(GridMaterialPlugin)

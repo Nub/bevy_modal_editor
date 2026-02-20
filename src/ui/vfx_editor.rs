@@ -190,6 +190,19 @@ fn draw_vfx_panel(world: &mut World) {
         }
     }
 
+    // Check for mesh shape pick result
+    let shape_pick = world.resource_mut::<crate::ui::command_palette::MeshShapePickResult>().0.take();
+    if let Some(shape) = shape_pick {
+        if let Some(mut system) = world.get_mut::<VfxSystem>(entity) {
+            for emitter in &mut system.emitters {
+                if let RenderModule::Mesh(ref mut config) = emitter.render {
+                    config.shape = shape.clone();
+                    break;
+                }
+            }
+        }
+    }
+
     // Collect material library names for the mesh config ComboBox
     let mut material_names: Vec<String> = world
         .resource::<MaterialLibrary>()
@@ -411,7 +424,11 @@ fn draw_vfx_panel(world: &mut World) {
                         draw_update_section(ui, &mut emitter.update);
 
                         // Render section (purple)
-                        draw_render_section(ui, &mut emitter.render, &material_names);
+                        if draw_render_section(ui, &mut emitter.render, &material_names) {
+                            ui.ctx().memory_mut(|mem| {
+                                mem.data.insert_temp(egui::Id::new("vfx_mesh_shape_browse"), true);
+                            });
+                        }
 
                         ui.add_space(8.0);
                     });
@@ -434,6 +451,19 @@ fn draw_vfx_panel(world: &mut World) {
         world
             .resource_mut::<CommandPaletteState>()
             .open_pick_texture(TextureSlot::ParticleTexture, Some(entity));
+    }
+
+    // Check for mesh shape browse request
+    let browse_mesh_shape = ctx.memory(|mem| {
+        mem.data.get_temp::<bool>(egui::Id::new("vfx_mesh_shape_browse")).unwrap_or(false)
+    });
+    if browse_mesh_shape {
+        ctx.memory_mut(|mem| {
+            mem.data.insert_temp(egui::Id::new("vfx_mesh_shape_browse"), false);
+        });
+        world
+            .resource_mut::<CommandPaletteState>()
+            .open_mesh_shape_picker();
     }
 
     // Write back if changed
@@ -1123,7 +1153,7 @@ fn draw_update_body(ui: &mut egui::Ui, m: &mut UpdateModule, idx: usize) {
 // Render section (purple)
 // ---------------------------------------------------------------------------
 
-fn draw_render_section(ui: &mut egui::Ui, render: &mut RenderModule, material_names: &[String]) {
+fn draw_render_section(ui: &mut egui::Ui, render: &mut RenderModule, material_names: &[String]) -> bool {
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.label(egui::RichText::new("RENDER").strong().size(12.0).color(colors::ACCENT_PURPLE));
@@ -1164,13 +1194,13 @@ fn draw_render_section(ui: &mut egui::Ui, render: &mut RenderModule, material_na
     match render {
         RenderModule::Billboard(config) => {
             draw_billboard_config(ui, config);
+            false
         }
         RenderModule::Ribbon(config) => {
             draw_ribbon_config(ui, config);
+            false
         }
-        RenderModule::Mesh(config) => {
-            draw_mesh_config(ui, config, material_names);
-        }
+        RenderModule::Mesh(config) => draw_mesh_config(ui, config, material_names),
     }
 }
 
@@ -1241,30 +1271,25 @@ fn draw_ribbon_config(ui: &mut egui::Ui, config: &mut RibbonConfig) {
         });
 }
 
-fn draw_mesh_config(ui: &mut egui::Ui, config: &mut MeshParticleConfig, material_names: &[String]) {
+fn draw_mesh_config(
+    ui: &mut egui::Ui,
+    config: &mut MeshParticleConfig,
+    material_names: &[String],
+) -> bool {
+    let mut open_shape_picker = false;
     egui::Grid::new("mesh_config")
         .num_columns(2)
         .spacing([8.0, 4.0])
         .show(ui, |ui| {
-            // Shape selector
+            // Shape selector — opens fuzzy palette
             grid_label(ui, "Shape");
             let current_label = config.shape.label().to_string();
-            egui::ComboBox::from_id_salt("mesh_shape")
-                .selected_text(&current_label)
-                .show_ui(ui, |ui| {
-                    for shape in &MeshShape::BUILTIN {
-                        if ui
-                            .selectable_label(
-                                std::mem::discriminant(&config.shape)
-                                    == std::mem::discriminant(shape),
-                                shape.label(),
-                            )
-                            .clicked()
-                        {
-                            config.shape = shape.clone();
-                        }
-                    }
-                });
+            if ui
+                .add(egui::Button::new(&current_label).min_size(egui::vec2(120.0, 0.0)))
+                .clicked()
+            {
+                open_shape_picker = true;
+            }
             ui.end_row();
 
             // Material selector
@@ -1327,6 +1352,7 @@ fn draw_mesh_config(ui: &mut egui::Ui, config: &mut MeshParticleConfig, material
                 ui.end_row();
             }
         });
+    open_shape_picker
 }
 
 // ---------------------------------------------------------------------------
