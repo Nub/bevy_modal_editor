@@ -1265,10 +1265,24 @@ fn apply_and_update_entity(world: &mut World, entity: Entity, def: MaterialDefin
     // Remove old material components
     remove_all_material_components(world, entity);
 
-    // Write new MaterialRef
-    let mat_ref = MaterialRef::Inline(def.clone());
-    if let Ok(mut e) = world.get_entity_mut(entity) {
-        e.insert(mat_ref);
+    // If the entity has a Library reference, update the library entry and keep it;
+    // otherwise write an Inline reference.
+    let library_name = world
+        .get::<MaterialRef>(entity)
+        .and_then(|mr| match mr {
+            MaterialRef::Library(n) => Some(n.clone()),
+            _ => None,
+        });
+
+    if let Some(ref name) = library_name {
+        world
+            .resource_mut::<MaterialLibrary>()
+            .materials
+            .insert(name.clone(), def.clone());
+    } else {
+        if let Ok(mut e) = world.get_entity_mut(entity) {
+            e.insert(MaterialRef::Inline(def.clone()));
+        }
     }
 
     // Apply material (registry lookup + world mutation in one step)

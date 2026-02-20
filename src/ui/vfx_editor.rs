@@ -11,7 +11,7 @@ use bevy_editor_game::MaterialLibrary;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_vfx::curve::{Curve, CurveKey, Gradient, GradientKey, Interp};
 use bevy_vfx::data::*;
-use bevy_vfx::mesh_particles::MeshParticleAssets;
+use bevy_vfx::mesh_particles::{MeshParticleAssets, MeshParticleState};
 
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::selection::Selected;
@@ -443,29 +443,38 @@ fn draw_vfx_panel(world: &mut World) {
             entity_mut.insert(system.clone());
         }
 
-        // Ensure named materials are created for any library material references
-        for emitter in &system.emitters {
+        // Create/refresh material handles for library material references and
+        // update existing particle children so material changes apply immediately.
+        for (emitter_idx, emitter) in system.emitters.iter().enumerate() {
             if let RenderModule::Mesh(ref config) = emitter.render {
                 if let Some(ref mat_name) = config.material_path {
-                    let has_handle = world
-                        .resource::<MeshParticleAssets>()
-                        .named_materials
-                        .contains_key(mat_name);
-                    if !has_handle {
-                        let def = world
-                            .resource::<MaterialLibrary>()
-                            .materials
-                            .get(mat_name)
-                            .cloned();
-                        if let Some(def) = def {
-                            let std_mat = def.base.to_standard_material();
-                            let handle = world
-                                .resource_mut::<Assets<StandardMaterial>>()
-                                .add(std_mat);
-                            world
-                                .resource_mut::<MeshParticleAssets>()
-                                .named_materials
-                                .insert(mat_name.clone(), handle);
+                    let base = world
+                        .resource::<MaterialLibrary>()
+                        .materials
+                        .get(mat_name)
+                        .map(|def| def.base.clone());
+                    if let Some(base) = base {
+                        let handle =
+                            crate::materials::create_standard_material(world, &base);
+                        world
+                            .resource_mut::<MeshParticleAssets>()
+                            .named_materials
+                            .insert(mat_name.clone(), handle.clone());
+
+                        // Update existing particle children with the new material
+                        if let Some(mut state) =
+                            world.get_mut::<MeshParticleState>(entity)
+                        {
+                            if state.emitter_index == emitter_idx {
+                                state.material_handle = Some(handle.clone());
+                                let entities: Vec<Entity> =
+                                    state.particles.iter().map(|p| p.entity).collect();
+                                for child in entities {
+                                    if let Ok(mut e) = world.get_entity_mut(child) {
+                                        e.insert(MeshMaterial3d(handle.clone()));
+                                    }
+                                }
+                            }
                         }
                     }
                 }

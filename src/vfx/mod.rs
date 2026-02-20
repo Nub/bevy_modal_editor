@@ -6,6 +6,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use bevy::prelude::*;
+use bevy_editor_game::MaterialLibrary;
+use bevy_vfx::data::RenderModule;
+use bevy_vfx::mesh_particles::{MeshParticleAssets, MeshParticleState};
 use bevy_vfx::{VfxLibrary, VfxSystem};
 
 const VFX_DIR: &str = "assets/vfx";
@@ -16,7 +19,7 @@ impl Plugin for VfxEditorPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy_vfx::VfxPlugin)
             .add_systems(PreStartup, init_vfx_library)
-            .add_systems(Update, auto_save_vfx_presets);
+            .add_systems(Update, (auto_save_vfx_presets, sync_material_library_to_vfx));
     }
 }
 
@@ -107,6 +110,66 @@ fn load_presets_from_disk(library: &mut VfxLibrary) {
             }
             Err(e) => {
                 warn!("Failed to parse VFX preset '{:?}': {}", path, e);
+            }
+        }
+    }
+}
+
+/// When MaterialLibrary changes, refresh cached material handles for mesh particles
+/// and update all live particle children.
+fn sync_material_library_to_vfx(
+    library: Res<MaterialLibrary>,
+    mut assets: ResMut<MeshParticleAssets>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
+    mut particles: Query<(Entity, &mut MeshParticleState, &VfxSystem)>,
+    mut commands: Commands,
+) {
+    if !library.is_changed() {
+        return;
+    }
+
+    // Collect which named materials are in use by active mesh emitters
+    let mut names_in_use: Vec<String> = Vec::new();
+    for (_, _, system) in particles.iter() {
+        for emitter in &system.emitters {
+            if let RenderModule::Mesh(ref config) = emitter.render {
+                if let Some(ref name) = config.material_path {
+                    if !names_in_use.contains(name) {
+                        names_in_use.push(name.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    if names_in_use.is_empty() {
+        return;
+    }
+
+    // Recreate handles for each in-use material
+    for mat_name in &names_in_use {
+        let Some(def) = library.materials.get(mat_name) else {
+            continue;
+        };
+
+        let mut mat = def.base.to_standard_material();
+        crate::materials::load_base_textures(&mut mat, &def.base, &asset_server);
+        let handle = materials.add(mat);
+        assets.named_materials.insert(mat_name.clone(), handle.clone());
+
+        // Update all MeshParticleState instances that reference this material
+        for (_, mut state, sys) in particles.iter_mut() {
+            let Some(emitter) = sys.emitters.get(state.emitter_index) else {
+                continue;
+            };
+            if let RenderModule::Mesh(ref config) = emitter.render {
+                if config.material_path.as_deref() == Some(mat_name.as_str()) {
+                    state.material_handle = Some(handle.clone());
+                    for p in &state.particles {
+                        commands.entity(p.entity).insert(MeshMaterial3d(handle.clone()));
+                    }
+                }
             }
         }
     }

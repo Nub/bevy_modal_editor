@@ -115,13 +115,19 @@ impl MaterialTypeRegistry {
 // Standard material (no extension) — built-in first entry
 // ---------------------------------------------------------------------------
 
-fn apply_standard(world: &mut World, entity: Entity, base: &BaseMaterialProps, _ext: Option<&str>) {
-    // Remove any extended material components that might be present
-    // (We can't enumerate all extension types, but the caller should handle removal)
+/// Create a `Handle<StandardMaterial>` from base material properties, loading all textures.
+pub fn create_standard_material(
+    world: &mut World,
+    base: &BaseMaterialProps,
+) -> Handle<StandardMaterial> {
     let mut mat = base.to_standard_material();
     let asset_server = world.resource::<AssetServer>().clone();
     load_base_textures(&mut mat, base, &asset_server);
-    let handle = world.resource_mut::<Assets<StandardMaterial>>().add(mat);
+    world.resource_mut::<Assets<StandardMaterial>>().add(mat)
+}
+
+fn apply_standard(world: &mut World, entity: Entity, base: &BaseMaterialProps, _ext: Option<&str>) {
+    let handle = create_standard_material(world, base);
     if let Ok(mut e) = world.get_entity_mut(entity) {
         e.insert(MeshMaterial3d(handle));
     }

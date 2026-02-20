@@ -171,6 +171,9 @@ pub fn cpu_mesh_particle_spawn(
                     MeshShape::Cylinder => Mesh::from(Cylinder::new(0.25, 1.0)),
                     MeshShape::Custom(_) => Mesh::from(Cuboid::from_size(Vec3::ONE)),
                 };
+                let mesh = mesh
+                    .with_generated_tangents()
+                    .expect("particle mesh should support tangent generation");
                 meshes.add(mesh)
             })
             .clone();
