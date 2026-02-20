@@ -148,6 +148,17 @@ impl VfxAlphaMode {
             Self::Opaque => "Opaque",
         }
     }
+
+    /// Convert to Bevy's `AlphaMode` for use with `StandardMaterial`.
+    pub fn to_bevy(self) -> AlphaMode {
+        match self {
+            Self::Blend => AlphaMode::Blend,
+            Self::Additive => AlphaMode::Add,
+            Self::Premultiply => AlphaMode::Premultiplied,
+            Self::Multiply => AlphaMode::Multiply,
+            Self::Opaque => AlphaMode::Opaque,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -526,6 +537,14 @@ pub enum UpdateModule {
         y: Curve<f32>,
         z: Curve<f32>,
     },
+    /// Per-axis position offset over normalized lifetime.
+    OffsetByLife {
+        x: Curve<f32>,
+        y: Curve<f32>,
+        z: Curve<f32>,
+    },
+    /// Emissive color over normalized lifetime (mesh particles only).
+    EmissiveOverLife(Gradient),
 }
 
 impl UpdateModule {
@@ -547,6 +566,8 @@ impl UpdateModule {
             Self::Spin { .. } => "Spin",
             Self::UvScroll { .. } => "UV Scroll",
             Self::Scale3dByLife { .. } => "Scale 3D Over Life",
+            Self::OffsetByLife { .. } => "Offset Over Life",
+            Self::EmissiveOverLife(_) => "Emissive Over Life",
         }
     }
 
@@ -606,6 +627,12 @@ impl UpdateModule {
             y: Curve::constant(1.0),
             z: Curve::constant(1.0),
         }),
+        ("Offset Over Life", || Self::OffsetByLife {
+            x: Curve::constant(0.0),
+            y: Curve::linear(0.0, 1.0),
+            z: Curve::constant(0.0),
+        }),
+        ("Emissive Over Life", || Self::EmissiveOverLife(Gradient::constant(LinearRgba::BLACK))),
     ];
 }
 
@@ -778,6 +805,9 @@ pub struct MeshParticleConfig {
     /// Bounciness (coefficient of restitution) when `collide` is true.
     #[serde(default = "default_restitution")]
     pub restitution: f32,
+    /// Whether mesh particles cast shadows.
+    #[serde(default)]
+    pub cast_shadows: bool,
 }
 
 fn default_restitution() -> f32 {
@@ -792,6 +822,7 @@ impl Default for MeshParticleConfig {
             base_color: LinearRgba::new(0.5, 0.5, 0.5, 1.0),
             collide: false,
             restitution: 0.3,
+            cast_shadows: false,
         }
     }
 }

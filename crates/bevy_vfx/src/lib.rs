@@ -105,6 +105,7 @@ impl Plugin for VfxPlugin {
                     mesh_particles::cpu_mesh_particle_update,
                     mesh_particles::cpu_mesh_particle_sync,
                     mesh_particles::cpu_mesh_particle_uv_scroll,
+                    mesh_particles::cpu_mesh_particle_color_sync,
                     mesh_particles::cpu_mesh_particle_cleanup,
                 )
                     .chain(),

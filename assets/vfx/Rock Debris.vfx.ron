@@ -55,6 +55,7 @@
                 ),
                 collide: true,
                 restitution: 0.3,
+                cast_shadows: true,
             )),
             sim_space: Local,
             alpha_mode: Opaque,

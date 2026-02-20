@@ -1,9 +1,11 @@
+pub mod channel_threshold;
 pub mod grid;
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
+use bevy::math::Affine2;
 use bevy::pbr::{ExtendedMaterial, MaterialExtension, StandardMaterial};
 use bevy::prelude::*;
 use bevy::render::render_resource::AsBindGroup;
@@ -13,6 +15,10 @@ use serde::{de::DeserializeOwned, Serialize};
 
 /// Type alias for the extended grid material
 pub type GridMat = ExtendedMaterial<StandardMaterial, bevy_grid_shader::GridMaterial>;
+
+/// Type alias for the extended channel threshold material
+pub type ChannelThresholdMat =
+    ExtendedMaterial<StandardMaterial, bevy_channel_mat::ChannelThresholdMaterial>;
 
 /// Load a texture with repeat wrapping enabled.
 ///
@@ -77,6 +83,10 @@ pub trait EditorMaterialDef: Send + Sync + 'static {
     fn from_extension(ext: &Self::Extension) -> Self::Props;
     /// Draw the extension-specific UI fields. Returns true if any value changed.
     fn draw_ui(ui: &mut egui::Ui, props: &mut Self::Props) -> bool;
+
+    /// Optionally modify the base `StandardMaterial` before it is combined with
+    /// the extension. Default is a no-op. Override to force alpha mode, etc.
+    fn adjust_base(_base: &mut StandardMaterial, _props: &Self::Props) {}
 }
 
 /// Type-erased entry for a registered material type.
@@ -96,6 +106,12 @@ pub struct MaterialTypeEntry {
     pub draw_extension_ui: fn(&mut egui::Ui, &str) -> (bool, String),
     /// Default extension data as RON, or None for standard material
     pub default_extension_data: Option<String>,
+    /// Set the UV transform on an entity's material. Returns true if successful.
+    pub set_uv_transform: fn(&mut World, Entity, Affine2) -> bool,
+    /// Set the base color on an entity's material. Returns true if successful.
+    pub set_base_color: fn(&mut World, Entity, Color) -> bool,
+    /// Set the emissive color on an entity's material. Returns true if successful.
+    pub set_emissive: fn(&mut World, Entity, LinearRgba) -> bool,
 }
 
 /// Registry of all material types available in the editor.
@@ -154,6 +170,45 @@ fn draw_extension_ui_standard(_ui: &mut egui::Ui, data: &str) -> (bool, String) 
     (false, data.to_string())
 }
 
+fn set_uv_transform_standard(world: &mut World, entity: Entity, uv: Affine2) -> bool {
+    let Some(mat_handle) = world.get::<MeshMaterial3d<StandardMaterial>>(entity) else {
+        return false;
+    };
+    let handle = mat_handle.0.clone();
+    let mut assets = world.resource_mut::<Assets<StandardMaterial>>();
+    let Some(mat) = assets.get_mut(&handle) else {
+        return false;
+    };
+    mat.uv_transform = uv;
+    true
+}
+
+fn set_base_color_standard(world: &mut World, entity: Entity, color: Color) -> bool {
+    let Some(mat_handle) = world.get::<MeshMaterial3d<StandardMaterial>>(entity) else {
+        return false;
+    };
+    let handle = mat_handle.0.clone();
+    let mut assets = world.resource_mut::<Assets<StandardMaterial>>();
+    let Some(mat) = assets.get_mut(&handle) else {
+        return false;
+    };
+    mat.base_color = color;
+    true
+}
+
+fn set_emissive_standard(world: &mut World, entity: Entity, emissive: LinearRgba) -> bool {
+    let Some(mat_handle) = world.get::<MeshMaterial3d<StandardMaterial>>(entity) else {
+        return false;
+    };
+    let handle = mat_handle.0.clone();
+    let mut assets = world.resource_mut::<Assets<StandardMaterial>>();
+    let Some(mat) = assets.get_mut(&handle) else {
+        return false;
+    };
+    mat.emissive = emissive;
+    true
+}
+
 fn standard_entry() -> MaterialTypeEntry {
     MaterialTypeEntry {
         type_name: "standard",
@@ -164,6 +219,9 @@ fn standard_entry() -> MaterialTypeEntry {
         read_extension: read_extension_standard,
         draw_extension_ui: draw_extension_ui_standard,
         default_extension_data: None,
+        set_uv_transform: set_uv_transform_standard,
+        set_base_color: set_base_color_standard,
+        set_emissive: set_emissive_standard,
     }
 }
 
@@ -182,6 +240,7 @@ fn apply_material<D: EditorMaterialDef>(
         .unwrap_or_default();
     let extension = D::to_extension(&props);
     let mut base_mat = base.to_standard_material();
+    D::adjust_base(&mut base_mat, &props);
     let asset_server = world.resource::<AssetServer>().clone();
     load_base_textures(&mut base_mat, base, &asset_server);
     let extended = ExtendedMaterial {
@@ -229,6 +288,66 @@ fn draw_extension_ui_ext<D: EditorMaterialDef>(
     (changed, new_data)
 }
 
+fn set_uv_transform_ext<D: EditorMaterialDef>(
+    world: &mut World,
+    entity: Entity,
+    uv: Affine2,
+) -> bool {
+    let Some(mat_handle) =
+        world.get::<MeshMaterial3d<ExtendedMaterial<StandardMaterial, D::Extension>>>(entity)
+    else {
+        return false;
+    };
+    let handle = mat_handle.0.clone();
+    let mut assets =
+        world.resource_mut::<Assets<ExtendedMaterial<StandardMaterial, D::Extension>>>();
+    let Some(mat) = assets.get_mut(&handle) else {
+        return false;
+    };
+    mat.base.uv_transform = uv;
+    true
+}
+
+fn set_base_color_ext<D: EditorMaterialDef>(
+    world: &mut World,
+    entity: Entity,
+    color: Color,
+) -> bool {
+    let Some(mat_handle) =
+        world.get::<MeshMaterial3d<ExtendedMaterial<StandardMaterial, D::Extension>>>(entity)
+    else {
+        return false;
+    };
+    let handle = mat_handle.0.clone();
+    let mut assets =
+        world.resource_mut::<Assets<ExtendedMaterial<StandardMaterial, D::Extension>>>();
+    let Some(mat) = assets.get_mut(&handle) else {
+        return false;
+    };
+    mat.base.base_color = color;
+    true
+}
+
+fn set_emissive_ext<D: EditorMaterialDef>(
+    world: &mut World,
+    entity: Entity,
+    emissive: LinearRgba,
+) -> bool {
+    let Some(mat_handle) =
+        world.get::<MeshMaterial3d<ExtendedMaterial<StandardMaterial, D::Extension>>>(entity)
+    else {
+        return false;
+    };
+    let handle = mat_handle.0.clone();
+    let mut assets =
+        world.resource_mut::<Assets<ExtendedMaterial<StandardMaterial, D::Extension>>>();
+    let Some(mat) = assets.get_mut(&handle) else {
+        return false;
+    };
+    mat.base.emissive = emissive;
+    true
+}
+
 fn entry_for<D: EditorMaterialDef>() -> MaterialTypeEntry {
     let default_props = D::Props::default();
     let default_data = ron::to_string(&default_props).unwrap_or_default();
@@ -241,6 +360,9 @@ fn entry_for<D: EditorMaterialDef>() -> MaterialTypeEntry {
         read_extension: read_extension_ext::<D>,
         draw_extension_ui: draw_extension_ui_ext::<D>,
         default_extension_data: Some(default_data),
+        set_uv_transform: set_uv_transform_ext::<D>,
+        set_base_color: set_base_color_ext::<D>,
+        set_emissive: set_emissive_ext::<D>,
     }
 }
 
@@ -336,6 +458,58 @@ pub fn apply_material_def_standalone(
     }
 }
 
+/// Set the UV transform on an entity's material, regardless of which material
+/// type it uses. Tries each registered type until one succeeds.
+pub fn set_entity_uv_transform(world: &mut World, entity: Entity, uv: Affine2) {
+    // Collect fn pointers first to avoid borrowing World while iterating
+    let fns: Vec<fn(&mut World, Entity, Affine2) -> bool> = world
+        .resource::<MaterialTypeRegistry>()
+        .types
+        .iter()
+        .map(|e| e.set_uv_transform)
+        .collect();
+
+    for f in fns {
+        if f(world, entity, uv) {
+            return;
+        }
+    }
+}
+
+/// Set the base color on an entity's material, regardless of which material
+/// type it uses. Tries each registered type until one succeeds.
+pub fn set_entity_base_color(world: &mut World, entity: Entity, color: Color) {
+    let fns: Vec<fn(&mut World, Entity, Color) -> bool> = world
+        .resource::<MaterialTypeRegistry>()
+        .types
+        .iter()
+        .map(|e| e.set_base_color)
+        .collect();
+
+    for f in fns {
+        if f(world, entity, color) {
+            return;
+        }
+    }
+}
+
+/// Set the emissive color on an entity's material, regardless of which material
+/// type it uses. Tries each registered type until one succeeds.
+pub fn set_entity_emissive(world: &mut World, entity: Entity, emissive: LinearRgba) {
+    let fns: Vec<fn(&mut World, Entity, LinearRgba) -> bool> = world
+        .resource::<MaterialTypeRegistry>()
+        .types
+        .iter()
+        .map(|e| e.set_emissive)
+        .collect();
+
+    for f in fns {
+        if f(world, entity, emissive) {
+            return;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Default library presets
 // ---------------------------------------------------------------------------
@@ -399,6 +573,7 @@ pub fn remove_all_material_components(world: &mut World, entity: Entity) {
     if let Ok(mut e) = world.get_entity_mut(entity) {
         e.remove::<MeshMaterial3d<StandardMaterial>>();
         e.remove::<MeshMaterial3d<GridMat>>();
+        e.remove::<MeshMaterial3d<ChannelThresholdMat>>();
     }
 }
 
@@ -524,8 +699,9 @@ impl Plugin for MaterialsPlugin {
         // Init empty library (populated after all game plugins register)
         app.init_resource::<MaterialLibrary>();
 
-        // Register grid material type (built-in)
+        // Register built-in material types
         app.register_material_type::<grid::GridMaterialDef>();
+        app.register_material_type::<channel_threshold::ChannelThresholdDef>();
 
         // Populate default library at PreStartup, then load disk overrides
         app.add_systems(PreStartup, init_default_library);

@@ -4,6 +4,7 @@
 //! Each particle is a real `Mesh3d` child entity. No GPU readback needed.
 
 use avian3d::prelude::*;
+use bevy::light::NotShadowCaster;
 use bevy::math::Affine2;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
@@ -14,8 +15,14 @@ use crate::data::*;
 // Components & resources
 // ---------------------------------------------------------------------------
 
-/// Per-emitter CPU particle state. Auto-inserted on entities with mesh emitters.
-#[derive(Component)]
+/// Container for all mesh emitter states on a VfxSystem entity.
+/// One entry per mesh-mode emitter (supports compound effects with multiple mesh emitters).
+#[derive(Component, Default)]
+pub struct MeshParticleStates {
+    pub entries: Vec<MeshParticleState>,
+}
+
+/// Per-emitter CPU particle state.
 pub struct MeshParticleState {
     /// Which emitter index within the parent VfxSystem this tracks.
     pub emitter_index: usize,
@@ -29,10 +36,10 @@ pub struct MeshParticleState {
     pub burst_timer: f32,
     /// Whether a Once burst has already fired.
     pub once_fired: bool,
-    /// Shared material handle for UV scroll updates.
+    /// Template material for this emitter (cloned per particle on spawn).
     pub material_handle: Option<Handle<StandardMaterial>>,
-    /// Accumulated UV scroll offset.
-    pub uv_scroll_offset: Vec2,
+    /// Per-emitter mesh handle.
+    pub mesh_handle: Option<Handle<Mesh>>,
 }
 
 /// A single CPU-simulated particle.
@@ -45,18 +52,17 @@ pub struct CpuParticle {
     pub scale: Vec3,
     pub initial_scale: Vec3,
     pub color: LinearRgba,
+    pub emissive: LinearRgba,
     pub orientation: Quat,
     /// When true, physics engine drives position/velocity — skip manual integration.
     pub physics: bool,
 }
 
-/// Cached mesh and material handles for mesh particles.
+/// Cached mesh handles for mesh particles.
+/// Materials are per-emitter (stored in `MeshParticleState`), not shared.
 #[derive(Resource, Default)]
 pub struct MeshParticleAssets {
     pub meshes: HashMap<MeshShapeKey, Handle<Mesh>>,
-    pub materials: HashMap<u64, Handle<StandardMaterial>>,
-    /// Materials created from the editor's material library, keyed by name.
-    pub named_materials: HashMap<String, Handle<StandardMaterial>>,
 }
 
 /// Hashable key for built-in mesh shapes.
@@ -87,15 +93,21 @@ impl From<&MeshShape> for MeshShapeKey {
 #[derive(Component)]
 pub struct MeshParticleChild;
 
+/// Marker for mesh particle children that need a library material applied.
+/// The editor resolves this using `apply_material_def_standalone` and removes it.
+#[derive(Component)]
+pub struct VfxMaterialPending(pub String);
+
 // ---------------------------------------------------------------------------
 // Systems
 // ---------------------------------------------------------------------------
 
-/// Auto-insert `MeshParticleState` for VfxSystem entities with mesh emitters.
+/// Auto-insert/update `MeshParticleStates` for VfxSystem entities with mesh emitters.
+/// Adds entries for new mesh emitters, invalidates cached handles when config changes.
 pub fn auto_insert_mesh_particle_state(
     mut commands: Commands,
     query: Query<(Entity, &VfxSystem), Changed<VfxSystem>>,
-    existing: Query<&MeshParticleState>,
+    mut existing: Query<&mut MeshParticleStates>,
 ) {
     for (entity, system) in &query {
         // Collect which emitter indices need mesh state
@@ -107,27 +119,46 @@ pub fn auto_insert_mesh_particle_state(
             .map(|(i, _)| i)
             .collect();
 
-        // Check which ones already have state
-        let has_state: Vec<usize> = existing
-            .iter_many(std::iter::once(entity))
-            .map(|s| s.emitter_index)
-            .collect();
-
-        for idx in needed {
-            if !has_state.contains(&idx) {
-                if existing.get(entity).is_err() {
-                    commands.entity(entity).insert(MeshParticleState {
-                        emitter_index: idx,
+        if let Ok(mut states) = existing.get_mut(entity) {
+            // Invalidate cached handles on existing entries so next spawn picks up new config
+            for state in &mut states.entries {
+                if needed.contains(&state.emitter_index) {
+                    state.material_handle = None;
+                    state.mesh_handle = None;
+                }
+            }
+            // Add entries for newly needed emitters
+            for idx in &needed {
+                if !states.entries.iter().any(|s| s.emitter_index == *idx) {
+                    states.entries.push(MeshParticleState {
+                        emitter_index: *idx,
                         particles: Vec::new(),
                         spawn_accumulator: 0.0,
                         burst_cycle: 0,
                         burst_timer: 0.0,
                         once_fired: false,
                         material_handle: None,
-                        uv_scroll_offset: Vec2::ZERO,
+                        mesh_handle: None,
                     });
                 }
             }
+        } else if !needed.is_empty() {
+            let entries = needed
+                .iter()
+                .map(|&idx| MeshParticleState {
+                    emitter_index: idx,
+                    particles: Vec::new(),
+                    spawn_accumulator: 0.0,
+                    burst_cycle: 0,
+                    burst_timer: 0.0,
+                    once_fired: false,
+                    material_handle: None,
+                    mesh_handle: None,
+                })
+                .collect();
+            commands
+                .entity(entity)
+                .insert(MeshParticleStates { entries });
         }
     }
 }
@@ -139,206 +170,228 @@ pub fn cpu_mesh_particle_spawn(
     mut assets: ResMut<MeshParticleAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut query: Query<(Entity, &VfxSystem, &GlobalTransform, &mut MeshParticleState)>,
+    mut query: Query<(Entity, &VfxSystem, &GlobalTransform, &mut MeshParticleStates)>,
 ) {
     let dt = time.delta_secs();
 
-    for (parent_entity, system, global_transform, mut state) in &mut query {
-        let Some(emitter) = system.emitters.get(state.emitter_index) else {
-            continue;
-        };
-        if !emitter.enabled {
-            continue;
-        }
-        let RenderModule::Mesh(ref mesh_config) = emitter.render else {
-            continue;
-        };
-
-        // Compute how many to spawn this frame
-        let spawn_count = compute_spawn_count(&emitter.spawn, &mut state, dt);
-        if spawn_count == 0 {
-            continue;
-        }
-
-        // Get or create mesh handle
-        let mesh_key = MeshShapeKey::from(&mesh_config.shape);
-        let mesh_handle = assets
-            .meshes
-            .entry(mesh_key.clone())
-            .or_insert_with(|| {
-                let mesh = match &mesh_config.shape {
-                    MeshShape::Cube => Mesh::from(Cuboid::from_size(Vec3::ONE)),
-                    MeshShape::Sphere => Mesh::from(Sphere::new(0.5)),
-                    MeshShape::Capsule => Mesh::from(Capsule3d::new(0.25, 0.5)),
-                    MeshShape::Cylinder => Mesh::from(Cylinder::new(0.25, 1.0)),
-                    MeshShape::Quad => Mesh::from(Plane3d::new(Vec3::Z, Vec2::splat(0.5))),
-                    MeshShape::Custom(_) => Mesh::from(Cuboid::from_size(Vec3::ONE)),
-                };
-                let mesh = mesh
-                    .with_generated_tangents()
-                    .expect("particle mesh should support tangent generation");
-                meshes.add(mesh)
-            })
-            .clone();
-
-        // Extract UV scale from init modules (emitter-level)
-        let uv_scale = emitter
-            .init
-            .iter()
-            .find_map(|m| match m {
-                InitModule::SetUvScale(s) => Some(Vec2::new(s[0], s[1])),
-                _ => None,
-            })
-            .unwrap_or(Vec2::ONE);
-
-        // Get material handle — check named library materials first
-        let mat_handle = if let Some(ref mat_name) = mesh_config.material_path {
-            if let Some(handle) = assets.named_materials.get(mat_name) {
-                handle.clone()
-            } else {
-                // Fallback to base_color material
-                get_or_create_color_material(
-                    &mut assets,
-                    &mut materials,
-                    mesh_config.base_color,
-                    uv_scale,
-                )
+    for (parent_entity, system, global_transform, mut states) in &mut query {
+        for state in &mut states.entries {
+            let Some(emitter) = system.emitters.get(state.emitter_index) else {
+                continue;
+            };
+            if !emitter.enabled {
+                continue;
             }
-        } else {
-            get_or_create_color_material(
-                &mut assets,
-                &mut materials,
-                mesh_config.base_color,
-                uv_scale,
-            )
-        };
-
-        // Store material handle for UV scroll updates
-        state.material_handle = Some(mat_handle.clone());
-
-        let emitter_pos = global_transform.translation();
-
-        for _ in 0..spawn_count {
-            // Check capacity
-            if state.particles.len() >= emitter.capacity as usize {
-                break;
-            }
-
-            // Sample init modules
-            let mut lifetime = 5.0f32;
-            let mut position = Vec3::ZERO;
-            let mut velocity = Vec3::ZERO;
-            let mut color = mesh_config.base_color;
-            let mut scale = Vec3::ONE;
-            let mut orientation = Quat::IDENTITY;
-            let mut orient_mode = None;
-
-            for init in &emitter.init {
-                match init {
-                    InitModule::SetLifetime(range) => lifetime = range.sample(),
-                    InitModule::SetPosition(shape) => position = sample_shape(shape),
-                    InitModule::SetVelocity(mode) => velocity = sample_velocity(mode, position),
-                    InitModule::SetColor(source) => {
-                        color = match source {
-                            ColorSource::Constant(c) => *c,
-                            ColorSource::RandomFromGradient(g) => g.sample(fastrand::f32()),
-                        };
-                    }
-                    InitModule::SetSize(range) => {
-                        let s = range.sample();
-                        scale = Vec3::splat(s);
-                    }
-                    InitModule::SetScale3d { x, y, z } => {
-                        scale = Vec3::new(x.sample(), y.sample(), z.sample());
-                    }
-                    InitModule::SetRotation(range) => {
-                        orientation = Quat::from_rotation_y(range.sample());
-                    }
-                    InitModule::SetOrientation(mode) => {
-                        orient_mode = Some(*mode);
-                        orientation = match mode {
-                            OrientMode::Identity => Quat::IDENTITY,
-                            OrientMode::RandomY => {
-                                Quat::from_rotation_y(fastrand::f32() * std::f32::consts::TAU)
-                            }
-                            OrientMode::RandomFull => random_quat(),
-                            OrientMode::AlignVelocity => Quat::IDENTITY, // deferred
-                            OrientMode::FaceCamera => Quat::IDENTITY,   // deferred
-                        };
-                    }
-                    InitModule::SetUvScale(_) => {} // handled at emitter level
-                    InitModule::InheritVelocity { .. } => {}
-                }
-            }
-
-            // Deferred: align to velocity after velocity is sampled
-            if orient_mode == Some(OrientMode::AlignVelocity) {
-                let dir = velocity.normalize_or_zero();
-                if dir.length_squared() > 0.001 {
-                    orientation = Quat::from_rotation_arc(Vec3::Z, dir);
-                }
-            }
-
-            // World-space position
-            let world_pos = if emitter.sim_space == SimSpace::World {
-                emitter_pos + position
-            } else {
-                position
+            let RenderModule::Mesh(ref mesh_config) = emitter.render else {
+                continue;
             };
 
-            // Spawn child entity
-            let use_physics = mesh_config.collide;
-            let mut child_cmd = commands.spawn((
-                MeshParticleChild,
-                Mesh3d(mesh_handle.clone()),
-                MeshMaterial3d(mat_handle.clone()),
-                Transform::from_translation(world_pos)
-                    .with_scale(scale)
-                    .with_rotation(orientation),
-            ));
+            // Compute how many to spawn this frame
+            let spawn_count = compute_spawn_count(&emitter.spawn, state, dt);
+            if spawn_count == 0 {
+                continue;
+            }
 
-            if use_physics {
-                let collider = match &mesh_config.shape {
-                    MeshShape::Cube => {
-                        Collider::cuboid(scale.x, scale.y, scale.z)
+            // Per-emitter mesh: reuse from state or create a new one
+            let mesh_handle = if let Some(ref h) = state.mesh_handle {
+                h.clone()
+            } else {
+                let mesh_key = MeshShapeKey::from(&mesh_config.shape);
+                let h = assets
+                    .meshes
+                    .entry(mesh_key)
+                    .or_insert_with(|| {
+                        let mesh = match &mesh_config.shape {
+                            MeshShape::Cube => Mesh::from(Cuboid::from_size(Vec3::ONE)),
+                            MeshShape::Sphere => Mesh::from(Sphere::new(0.5)),
+                            MeshShape::Capsule => Mesh::from(Capsule3d::new(0.25, 0.5)),
+                            MeshShape::Cylinder => Mesh::from(Cylinder::new(0.25, 1.0)),
+                            MeshShape::Quad => {
+                                Mesh::from(Plane3d::new(Vec3::Z, Vec2::splat(0.5)))
+                            }
+                            MeshShape::Custom(_) => Mesh::from(Cuboid::from_size(Vec3::ONE)),
+                        };
+                        let mesh = mesh
+                            .with_generated_tangents()
+                            .expect("particle mesh should support tangent generation");
+                        meshes.add(mesh)
+                    })
+                    .clone();
+                state.mesh_handle = Some(h.clone());
+                h
+            };
+
+            // Extract UV scale from init modules (emitter-level)
+            let uv_scale = emitter
+                .init
+                .iter()
+                .find_map(|m| match m {
+                    InitModule::SetUvScale(s) => Some(Vec2::new(s[0], s[1])),
+                    _ => None,
+                })
+                .unwrap_or(Vec2::ONE);
+
+            // Per-emitter material: each emitter gets its own unique material instance
+            // so UV scroll and other per-emitter modifications don't bleed across emitters.
+            let use_library_material = mesh_config.material_path.is_some();
+            let mat_handle = if let Some(ref h) = state.material_handle {
+                h.clone()
+            } else if !use_library_material {
+                let bevy_alpha = emitter.alpha_mode.to_bevy();
+                let h = materials.add(StandardMaterial {
+                    base_color: Color::LinearRgba(mesh_config.base_color),
+                    uv_transform: Affine2::from_scale(uv_scale),
+                    alpha_mode: bevy_alpha,
+                    ..default()
+                });
+                state.material_handle = Some(h.clone());
+                h
+            } else {
+                // Library material: placeholder for UV scroll tracking.
+                // Real material applied by VfxMaterialPending system.
+                let h = materials.add(StandardMaterial {
+                    base_color: Color::LinearRgba(mesh_config.base_color),
+                    ..default()
+                });
+                state.material_handle = Some(h.clone());
+                h
+            };
+
+            let emitter_pos = global_transform.translation();
+
+            for _ in 0..spawn_count {
+                if state.particles.len() >= emitter.capacity as usize {
+                    break;
+                }
+
+                // Sample init modules
+                let mut lifetime = 5.0f32;
+                let mut position = Vec3::ZERO;
+                let mut velocity = Vec3::ZERO;
+                let mut color = mesh_config.base_color;
+                let mut scale = Vec3::ONE;
+                let mut orientation = Quat::IDENTITY;
+                let mut orient_mode = None;
+
+                for init in &emitter.init {
+                    match init {
+                        InitModule::SetLifetime(range) => lifetime = range.sample(),
+                        InitModule::SetPosition(shape) => position = sample_shape(shape),
+                        InitModule::SetVelocity(mode) => {
+                            velocity = sample_velocity(mode, position)
+                        }
+                        InitModule::SetColor(source) => {
+                            color = match source {
+                                ColorSource::Constant(c) => *c,
+                                ColorSource::RandomFromGradient(g) => g.sample(fastrand::f32()),
+                            };
+                        }
+                        InitModule::SetSize(range) => {
+                            let s = range.sample();
+                            scale = Vec3::splat(s);
+                        }
+                        InitModule::SetScale3d { x, y, z } => {
+                            scale = Vec3::new(x.sample(), y.sample(), z.sample());
+                        }
+                        InitModule::SetRotation(range) => {
+                            orientation = Quat::from_rotation_y(range.sample());
+                        }
+                        InitModule::SetOrientation(mode) => {
+                            orient_mode = Some(*mode);
+                            orientation = match mode {
+                                OrientMode::Identity => Quat::IDENTITY,
+                                OrientMode::RandomY => {
+                                    Quat::from_rotation_y(
+                                        fastrand::f32() * std::f32::consts::TAU,
+                                    )
+                                }
+                                OrientMode::RandomFull => random_quat(),
+                                OrientMode::AlignVelocity => Quat::IDENTITY,
+                                OrientMode::FaceCamera => Quat::IDENTITY,
+                            };
+                        }
+                        InitModule::SetUvScale(_) => {}
+                        InitModule::InheritVelocity { .. } => {}
                     }
-                    MeshShape::Sphere => Collider::sphere(scale.x * 0.5),
-                    MeshShape::Capsule => Collider::capsule(scale.x * 0.25, scale.y * 0.5),
-                    MeshShape::Cylinder => Collider::cylinder(scale.x * 0.25, scale.y),
-                    MeshShape::Quad => {
-                        Collider::cuboid(scale.x, scale.y, 0.01)
+                }
+
+                // Deferred: align to velocity after velocity is sampled
+                if orient_mode == Some(OrientMode::AlignVelocity) {
+                    let dir = velocity.normalize_or_zero();
+                    if dir.length_squared() > 0.001 {
+                        orientation = Quat::from_rotation_arc(Vec3::Z, dir);
                     }
-                    MeshShape::Custom(_) => {
-                        Collider::cuboid(scale.x, scale.y, scale.z)
-                    }
+                }
+
+                // World-space position
+                let world_pos = if emitter.sim_space == SimSpace::World {
+                    emitter_pos + position
+                } else {
+                    position
                 };
-                child_cmd.insert((
-                    RigidBody::Dynamic,
-                    collider,
-                    LinearVelocity(velocity),
-                    Restitution::new(mesh_config.restitution),
+
+                // Spawn child entity
+                let use_physics = mesh_config.collide;
+                let mut child_cmd = commands.spawn((
+                    MeshParticleChild,
+                    Mesh3d(mesh_handle.clone()),
+                    Transform::from_translation(world_pos)
+                        .with_scale(scale)
+                        .with_rotation(orientation),
                 ));
+
+                // Each particle gets its own material clone so per-particle UV scroll
+                // (based on spawn time) doesn't bleed across particles.
+                if let Some(ref mat_name) = mesh_config.material_path {
+                    child_cmd.insert(VfxMaterialPending(mat_name.clone()));
+                } else {
+                    let particle_mat =
+                        materials.get(&mat_handle).cloned().unwrap_or_default();
+                    let particle_mat_handle = materials.add(particle_mat);
+                    child_cmd.insert(MeshMaterial3d(particle_mat_handle));
+                }
+
+                if !mesh_config.cast_shadows {
+                    child_cmd.insert(NotShadowCaster);
+                }
+
+                if use_physics {
+                    let collider = match &mesh_config.shape {
+                        MeshShape::Cube => Collider::cuboid(scale.x, scale.y, scale.z),
+                        MeshShape::Sphere => Collider::sphere(scale.x * 0.5),
+                        MeshShape::Capsule => Collider::capsule(scale.x * 0.25, scale.y * 0.5),
+                        MeshShape::Cylinder => Collider::cylinder(scale.x * 0.25, scale.y),
+                        MeshShape::Quad => Collider::cuboid(scale.x, scale.y, 0.01),
+                        MeshShape::Custom(_) => Collider::cuboid(scale.x, scale.y, scale.z),
+                    };
+                    child_cmd.insert((
+                        RigidBody::Dynamic,
+                        collider,
+                        LinearVelocity(velocity),
+                        Restitution::new(mesh_config.restitution),
+                    ));
+                }
+
+                let child = child_cmd.id();
+
+                if emitter.sim_space == SimSpace::Local {
+                    commands.entity(parent_entity).add_child(child);
+                }
+
+                state.particles.push(CpuParticle {
+                    entity: child,
+                    position: world_pos,
+                    velocity,
+                    age: 0.0,
+                    lifetime,
+                    scale,
+                    initial_scale: scale,
+                    color,
+                    emissive: LinearRgba::BLACK,
+                    orientation,
+                    physics: use_physics,
+                });
             }
-
-            let child = child_cmd.id();
-
-            // Parent for local-space sim
-            if emitter.sim_space == SimSpace::Local {
-                commands.entity(parent_entity).add_child(child);
-            }
-
-            state.particles.push(CpuParticle {
-                entity: child,
-                position: world_pos,
-                velocity,
-                age: 0.0,
-                lifetime,
-                scale,
-                initial_scale: scale,
-                color,
-                orientation,
-                physics: use_physics,
-            });
         }
     }
 }
@@ -347,228 +400,225 @@ pub fn cpu_mesh_particle_spawn(
 pub fn cpu_mesh_particle_update(
     mut commands: Commands,
     time: Res<Time>,
-    mut query: Query<(&VfxSystem, &mut MeshParticleState)>,
+    mut query: Query<(&VfxSystem, &mut MeshParticleStates)>,
 ) {
     let dt = time.delta_secs();
 
-    for (system, mut state) in &mut query {
-        let Some(emitter) = system.emitters.get(state.emitter_index) else {
-            continue;
-        };
-
-        let mut dead = Vec::new();
-
-        for (i, p) in state.particles.iter_mut().enumerate() {
-            p.age += dt;
-
-            if p.age >= p.lifetime {
-                dead.push(i);
+    for (system, mut states) in &mut query {
+        for state in &mut states.entries {
+            let Some(emitter) = system.emitters.get(state.emitter_index) else {
                 continue;
-            }
+            };
 
-            let t = p.age / p.lifetime; // normalized lifetime [0..1]
+            let mut dead = Vec::new();
 
-            // Apply update modules
-            for update in &emitter.update {
-                match update {
-                    // Physics-driven particles: engine handles gravity, forces, drag
-                    UpdateModule::Gravity(g) if !p.physics => {
-                        p.velocity += *g * dt;
-                    }
-                    UpdateModule::ConstantForce(f) if !p.physics => {
-                        p.velocity += *f * dt;
-                    }
-                    UpdateModule::Drag(d) if !p.physics => {
-                        p.velocity *= (1.0 - d * dt).max(0.0);
-                    }
-                    UpdateModule::Noise {
-                        strength,
-                        frequency,
-                        scroll,
-                    } if !p.physics => {
-                        let phase = p.position * *frequency + *scroll * p.age;
-                        let noise = Vec3::new(
-                            (phase.x * 12.9898 + phase.y * 78.233).sin(),
-                            (phase.y * 12.9898 + phase.z * 78.233).sin(),
-                            (phase.z * 12.9898 + phase.x * 78.233).sin(),
-                        );
-                        p.velocity += noise * *strength * dt;
-                    }
-                    UpdateModule::OrbitAround {
-                        axis,
-                        speed,
-                        radius_decay,
-                    } if !p.physics => {
-                        let to_center = -p.position;
-                        let r = to_center.length();
-                        if r > 0.001 {
-                            let tangent = axis.cross(to_center).normalize_or_zero();
-                            p.velocity += tangent * *speed * dt;
-                            if *radius_decay > 0.0 {
-                                p.velocity += to_center.normalize() * *radius_decay * dt;
+            for (i, p) in state.particles.iter_mut().enumerate() {
+                p.age += dt;
+
+                if p.age >= p.lifetime {
+                    dead.push(i);
+                    continue;
+                }
+
+                let t = p.age / p.lifetime;
+
+                for update in &emitter.update {
+                    match update {
+                        UpdateModule::Gravity(g) if !p.physics => {
+                            p.velocity += *g * dt;
+                        }
+                        UpdateModule::ConstantForce(f) if !p.physics => {
+                            p.velocity += *f * dt;
+                        }
+                        UpdateModule::Drag(d) if !p.physics => {
+                            p.velocity *= (1.0 - d * dt).max(0.0);
+                        }
+                        UpdateModule::Noise {
+                            strength,
+                            frequency,
+                            scroll,
+                        } if !p.physics => {
+                            let phase = p.position * *frequency + *scroll * p.age;
+                            let noise = Vec3::new(
+                                (phase.x * 12.9898 + phase.y * 78.233).sin(),
+                                (phase.y * 12.9898 + phase.z * 78.233).sin(),
+                                (phase.z * 12.9898 + phase.x * 78.233).sin(),
+                            );
+                            p.velocity += noise * *strength * dt;
+                        }
+                        UpdateModule::OrbitAround {
+                            axis,
+                            speed,
+                            radius_decay,
+                        } if !p.physics => {
+                            let to_center = -p.position;
+                            let r = to_center.length();
+                            if r > 0.001 {
+                                let tangent = axis.cross(to_center).normalize_or_zero();
+                                p.velocity += tangent * *speed * dt;
+                                if *radius_decay > 0.0 {
+                                    p.velocity +=
+                                        to_center.normalize() * *radius_decay * dt;
+                                }
                             }
                         }
-                    }
-                    UpdateModule::Attract {
-                        target,
-                        strength,
-                        falloff,
-                    } if !p.physics => {
-                        let dir = *target - p.position;
-                        let dist = dir.length();
-                        if dist > 0.001 {
-                            let force = *strength / (1.0 + dist.powf(*falloff));
-                            p.velocity += dir.normalize() * force * dt;
-                        }
-                    }
-                    UpdateModule::TangentAccel {
-                        origin,
-                        axis,
-                        accel,
-                    } if !p.physics => {
-                        let to_origin = *origin - p.position;
-                        let tangent = axis.cross(to_origin).normalize_or_zero();
-                        p.velocity += tangent * *accel * dt;
-                    }
-                    UpdateModule::RadialAccel { origin, accel } if !p.physics => {
-                        let dir = (p.position - *origin).normalize_or_zero();
-                        p.velocity += dir * *accel * dt;
-                    }
-                    // Visual modules apply to all particles (physics or not)
-                    UpdateModule::KillZone { shape, invert } => {
-                        let inside = match shape {
-                            KillShape::Sphere { center, radius } => {
-                                p.position.distance(*center) < *radius
+                        UpdateModule::Attract {
+                            target,
+                            strength,
+                            falloff,
+                        } if !p.physics => {
+                            let dir = *target - p.position;
+                            let dist = dir.length();
+                            if dist > 0.001 {
+                                let force = *strength / (1.0 + dist.powf(*falloff));
+                                p.velocity += dir.normalize() * force * dt;
                             }
-                            KillShape::Box {
-                                center,
-                                half_extents,
-                            } => {
-                                let d = (p.position - *center).abs();
-                                d.x < half_extents.x
-                                    && d.y < half_extents.y
-                                    && d.z < half_extents.z
+                        }
+                        UpdateModule::TangentAccel {
+                            origin,
+                            axis,
+                            accel,
+                        } if !p.physics => {
+                            let to_origin = *origin - p.position;
+                            let tangent = axis.cross(to_origin).normalize_or_zero();
+                            p.velocity += tangent * *accel * dt;
+                        }
+                        UpdateModule::RadialAccel { origin, accel } if !p.physics => {
+                            let dir = (p.position - *origin).normalize_or_zero();
+                            p.velocity += dir * *accel * dt;
+                        }
+                        UpdateModule::KillZone { shape, invert } => {
+                            let inside = match shape {
+                                KillShape::Sphere { center, radius } => {
+                                    p.position.distance(*center) < *radius
+                                }
+                                KillShape::Box {
+                                    center,
+                                    half_extents,
+                                } => {
+                                    let d = (p.position - *center).abs();
+                                    d.x < half_extents.x
+                                        && d.y < half_extents.y
+                                        && d.z < half_extents.z
+                                }
+                            };
+                            let should_kill = if *invert { !inside } else { inside };
+                            if should_kill {
+                                p.age = p.lifetime;
+                                dead.push(i);
                             }
-                        };
-                        let should_kill = if *invert { !inside } else { inside };
-                        if should_kill {
-                            p.age = p.lifetime;
-                            dead.push(i);
                         }
-                    }
-                    UpdateModule::SizeByLife(curve) => {
-                        let factor = curve.sample(t);
-                        p.scale = p.initial_scale * factor;
-                    }
-                    UpdateModule::Scale3dByLife { x, y, z } => {
-                        p.scale = Vec3::new(
-                            p.initial_scale.x * x.sample(t),
-                            p.initial_scale.y * y.sample(t),
-                            p.initial_scale.z * z.sample(t),
-                        );
-                    }
-                    UpdateModule::ColorByLife(gradient) => {
-                        p.color = gradient.sample(t);
-                    }
-                    UpdateModule::SizeBySpeed {
-                        min_speed,
-                        max_speed,
-                        min_size,
-                        max_size,
-                    } => {
-                        let speed = p.velocity.length();
-                        let frac =
-                            ((speed - min_speed) / (max_speed - min_speed)).clamp(0.0, 1.0);
-                        let s = *min_size + (*max_size - *min_size) * frac;
-                        p.scale = Vec3::splat(s);
-                    }
-                    UpdateModule::RotateByVelocity => {
-                        // orientation updated in sync
-                    }
-                    UpdateModule::Spin { axis, speed } => {
-                        let norm = axis.normalize_or_zero();
-                        if norm.length_squared() > 0.001 {
-                            p.orientation =
-                                Quat::from_axis_angle(norm, *speed * dt) * p.orientation;
+                        UpdateModule::SizeByLife(curve) => {
+                            let factor = curve.sample(t);
+                            p.scale = p.initial_scale * factor;
                         }
+                        UpdateModule::Scale3dByLife { x, y, z } => {
+                            p.scale = Vec3::new(
+                                p.initial_scale.x * x.sample(t),
+                                p.initial_scale.y * y.sample(t),
+                                p.initial_scale.z * z.sample(t),
+                            );
+                        }
+                        UpdateModule::OffsetByLife { x, y, z } if !p.physics => {
+                            let offset = Vec3::new(x.sample(t), y.sample(t), z.sample(t));
+                            p.position += offset * dt;
+                        }
+                        UpdateModule::ColorByLife(gradient) => {
+                            p.color = gradient.sample(t);
+                        }
+                        UpdateModule::EmissiveOverLife(gradient) => {
+                            p.emissive = gradient.sample(t);
+                        }
+                        UpdateModule::SizeBySpeed {
+                            min_speed,
+                            max_speed,
+                            min_size,
+                            max_size,
+                        } => {
+                            let speed = p.velocity.length();
+                            let frac = ((speed - min_speed) / (max_speed - min_speed))
+                                .clamp(0.0, 1.0);
+                            let s = *min_size + (*max_size - *min_size) * frac;
+                            p.scale = Vec3::splat(s);
+                        }
+                        UpdateModule::RotateByVelocity => {}
+                        UpdateModule::Spin { axis, speed } => {
+                            let norm = axis.normalize_or_zero();
+                            if norm.length_squared() > 0.001 {
+                                p.orientation =
+                                    Quat::from_axis_angle(norm, *speed * dt) * p.orientation;
+                            }
+                        }
+                        UpdateModule::UvScroll { .. } => {}
+                        _ => {}
                     }
-                    UpdateModule::UvScroll { .. } => {
-                        // handled at emitter level in cpu_mesh_particle_uv_scroll
-                    }
-                    // Skip physics-handled modules for physics particles
-                    _ => {}
+                }
+
+                if !p.physics {
+                    p.position += p.velocity * dt;
                 }
             }
 
-            // Integrate position (only for non-physics particles)
-            if !p.physics {
-                p.position += p.velocity * dt;
+            dead.sort_unstable();
+            dead.dedup();
+            for &i in dead.iter().rev() {
+                let p = state.particles.remove(i);
+                commands.entity(p.entity).try_despawn();
             }
-        }
-
-        // Remove dead particles (reverse order to preserve indices)
-        dead.sort_unstable();
-        dead.dedup();
-        for &i in dead.iter().rev() {
-            let p = state.particles.remove(i);
-            commands.entity(p.entity).try_despawn();
         }
     }
 }
 
 /// Sync particle state to Transform and material on child entities.
-/// For physics particles, reads Transform back to update position tracking.
-/// For non-physics particles, writes our simulated position to Transform.
 pub fn cpu_mesh_particle_sync(
-    mut query: Query<(&VfxSystem, &mut MeshParticleState)>,
+    mut query: Query<(&VfxSystem, &mut MeshParticleStates)>,
     mut transforms: Query<&mut Transform>,
     camera: Query<&GlobalTransform, With<Camera3d>>,
 ) {
     let camera_pos = camera.iter().next().map(|gt| gt.translation());
 
-    for (system, mut state) in &mut query {
-        let Some(emitter) = system.emitters.get(state.emitter_index) else {
-            continue;
-        };
+    for (system, mut states) in &mut query {
+        for state in &mut states.entries {
+            let Some(emitter) = system.emitters.get(state.emitter_index) else {
+                continue;
+            };
 
-        // Check orient mode from init modules
-        let orient_mode = emitter.init.iter().find_map(|m| match m {
-            InitModule::SetOrientation(mode) => Some(*mode),
-            _ => None,
-        });
-        let align_to_velocity = orient_mode == Some(OrientMode::AlignVelocity);
-        let face_camera = orient_mode == Some(OrientMode::FaceCamera);
-        let has_rotate_by_vel = emitter
-            .update
-            .iter()
-            .any(|u| matches!(u, UpdateModule::RotateByVelocity));
+            let orient_mode = emitter.init.iter().find_map(|m| match m {
+                InitModule::SetOrientation(mode) => Some(*mode),
+                _ => None,
+            });
+            let align_to_velocity = orient_mode == Some(OrientMode::AlignVelocity);
+            let face_camera = orient_mode == Some(OrientMode::FaceCamera);
+            let has_rotate_by_vel = emitter
+                .update
+                .iter()
+                .any(|u| matches!(u, UpdateModule::RotateByVelocity));
 
-        for p in state.particles.iter_mut() {
-            if let Ok(mut transform) = transforms.get_mut(p.entity) {
-                if p.physics {
-                    // Physics engine owns position/rotation — read back for tracking
-                    p.position = transform.translation;
-                    // Only update scale (size-over-life still applies)
-                    transform.scale = p.scale;
-                } else {
-                    // We own position — write to transform
-                    transform.translation = p.position;
-                    transform.scale = p.scale;
+            for p in state.particles.iter_mut() {
+                if let Ok(mut transform) = transforms.get_mut(p.entity) {
+                    if p.physics {
+                        p.position = transform.translation;
+                        transform.scale = p.scale;
+                    } else {
+                        transform.translation = p.position;
+                        transform.scale = p.scale;
 
-                    if face_camera {
-                        if let Some(cam_pos) = camera_pos {
-                            let dir = (cam_pos - p.position).normalize_or_zero();
+                        if face_camera {
+                            if let Some(cam_pos) = camera_pos {
+                                let dir = (cam_pos - p.position).normalize_or_zero();
+                                if dir.length_squared() > 0.001 {
+                                    transform.rotation =
+                                        Quat::from_rotation_arc(Vec3::Z, dir);
+                                }
+                            }
+                        } else if align_to_velocity || has_rotate_by_vel {
+                            let dir = p.velocity.normalize_or_zero();
                             if dir.length_squared() > 0.001 {
                                 transform.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
                             }
+                        } else {
+                            transform.rotation = p.orientation;
                         }
-                    } else if align_to_velocity || has_rotate_by_vel {
-                        let dir = p.velocity.normalize_or_zero();
-                        if dir.length_squared() > 0.001 {
-                            transform.rotation = Quat::from_rotation_arc(Vec3::Z, dir);
-                        }
-                    } else {
-                        transform.rotation = p.orientation;
                     }
                 }
             }
@@ -576,56 +626,102 @@ pub fn cpu_mesh_particle_sync(
     }
 }
 
-/// Animate UV scrolling on mesh particle materials.
-/// Reads scroll speed from UpdateModule::UvScroll and UV scale from InitModule::SetUvScale.
+/// Animate UV scrolling on mesh particle materials (non-library StandardMaterial).
+/// Each particle's UV offset is based on its age (time since spawn).
 pub fn cpu_mesh_particle_uv_scroll(
-    time: Res<Time>,
-    mut query: Query<(&VfxSystem, &mut MeshParticleState)>,
+    query: Query<(&VfxSystem, &MeshParticleStates)>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    particle_mats: Query<&MeshMaterial3d<StandardMaterial>, With<MeshParticleChild>>,
 ) {
-    let dt = time.delta_secs();
+    for (system, states) in &query {
+        for state in &states.entries {
+            let Some(emitter) = system.emitters.get(state.emitter_index) else {
+                continue;
+            };
+            if let RenderModule::Mesh(ref config) = emitter.render {
+                if config.material_path.is_some() {
+                    continue;
+                }
+            }
 
-    for (system, mut state) in &mut query {
-        let Some(emitter) = system.emitters.get(state.emitter_index) else {
-            continue;
-        };
+            let scroll_speed = emitter
+                .update
+                .iter()
+                .find_map(|m| match m {
+                    UpdateModule::UvScroll { speed } => Some(Vec2::new(speed[0], speed[1])),
+                    _ => None,
+                })
+                .unwrap_or(Vec2::ZERO);
 
-        // Extract UV scroll speed from update modules
-        let scroll_speed = emitter
-            .update
-            .iter()
-            .find_map(|m| match m {
-                UpdateModule::UvScroll { speed } => Some(Vec2::new(speed[0], speed[1])),
-                _ => None,
-            })
-            .unwrap_or(Vec2::ZERO);
+            if scroll_speed == Vec2::ZERO {
+                continue;
+            }
 
-        if scroll_speed == Vec2::ZERO {
-            continue;
+            let uv_scale = emitter
+                .init
+                .iter()
+                .find_map(|m| match m {
+                    InitModule::SetUvScale(s) => Some(Vec2::new(s[0], s[1])),
+                    _ => None,
+                })
+                .unwrap_or(Vec2::ONE);
+
+            for p in &state.particles {
+                let offset = scroll_speed * p.age;
+                if let Ok(mat_comp) = particle_mats.get(p.entity) {
+                    if let Some(mat) = materials.get_mut(&mat_comp.0) {
+                        mat.uv_transform = Affine2::from_scale_angle_translation(
+                            uv_scale, 0.0, offset,
+                        );
+                    }
+                }
+            }
         }
+    }
+}
 
-        // Extract UV scale from init modules
-        let uv_scale = emitter
-            .init
-            .iter()
-            .find_map(|m| match m {
-                InitModule::SetUvScale(s) => Some(Vec2::new(s[0], s[1])),
-                _ => None,
-            })
-            .unwrap_or(Vec2::ONE);
+/// Sync particle color and emissive to mesh particle materials.
+/// Applies ColorByLife → base_color and EmissiveOverLife → emissive on each particle's material.
+pub fn cpu_mesh_particle_color_sync(
+    query: Query<(&VfxSystem, &MeshParticleStates)>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    particle_mats: Query<&MeshMaterial3d<StandardMaterial>, With<MeshParticleChild>>,
+) {
+    for (system, states) in &query {
+        for state in &states.entries {
+            let Some(emitter) = system.emitters.get(state.emitter_index) else {
+                continue;
+            };
+            if let RenderModule::Mesh(ref config) = emitter.render {
+                if config.material_path.is_some() {
+                    continue;
+                }
+            }
 
-        state.uv_scroll_offset += scroll_speed * dt;
-        // Wrap to prevent floating point issues
-        state.uv_scroll_offset.x %= 1000.0;
-        state.uv_scroll_offset.y %= 1000.0;
+            let has_color_by_life = emitter
+                .update
+                .iter()
+                .any(|m| matches!(m, UpdateModule::ColorByLife(_)));
+            let has_emissive_by_life = emitter
+                .update
+                .iter()
+                .any(|m| matches!(m, UpdateModule::EmissiveOverLife(_)));
 
-        if let Some(ref handle) = state.material_handle {
-            if let Some(mat) = materials.get_mut(handle) {
-                mat.uv_transform = Affine2::from_scale_angle_translation(
-                    uv_scale,
-                    0.0,
-                    state.uv_scroll_offset,
-                );
+            if !has_color_by_life && !has_emissive_by_life {
+                continue;
+            }
+
+            for p in &state.particles {
+                if let Ok(mat_comp) = particle_mats.get(p.entity) {
+                    if let Some(mat) = materials.get_mut(&mat_comp.0) {
+                        if has_color_by_life {
+                            mat.base_color = Color::LinearRgba(p.color);
+                        }
+                        if has_emissive_by_life {
+                            mat.emissive = p.emissive;
+                        }
+                    }
+                }
             }
         }
     }
@@ -636,27 +732,34 @@ pub fn cpu_mesh_particle_uv_scroll(
 pub fn cpu_mesh_particle_cleanup(
     mut commands: Commands,
     mut removed: RemovedComponents<VfxSystem>,
-    mut query: Query<(Entity, &VfxSystem, &mut MeshParticleState)>,
+    mut query: Query<(Entity, &VfxSystem, &mut MeshParticleStates)>,
 ) {
     // Handle removed VfxSystem entities
     for entity in removed.read() {
-        commands.entity(entity).remove::<MeshParticleState>();
+        commands.entity(entity).remove::<MeshParticleStates>();
     }
 
     // Handle emitters that are no longer mesh mode
-    for (entity, system, mut state) in &mut query {
-        let still_mesh = system
-            .emitters
-            .get(state.emitter_index)
-            .map(|e| matches!(e.render, RenderModule::Mesh(_)))
-            .unwrap_or(false);
+    for (entity, system, mut states) in &mut query {
+        states.entries.retain_mut(|state| {
+            let still_mesh = system
+                .emitters
+                .get(state.emitter_index)
+                .map(|e| matches!(e.render, RenderModule::Mesh(_)))
+                .unwrap_or(false);
 
-        if !still_mesh {
-            // Despawn all child particles
-            for p in state.particles.drain(..) {
-                commands.entity(p.entity).try_despawn();
+            if !still_mesh {
+                for p in state.particles.drain(..) {
+                    commands.entity(p.entity).try_despawn();
+                }
+                false // remove this entry
+            } else {
+                true
             }
-            commands.entity(entity).remove::<MeshParticleState>();
+        });
+
+        if states.entries.is_empty() {
+            commands.entity(entity).remove::<MeshParticleStates>();
         }
     }
 }
@@ -664,33 +767,6 @@ pub fn cpu_mesh_particle_cleanup(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn get_or_create_color_material(
-    assets: &mut MeshParticleAssets,
-    materials: &mut Assets<StandardMaterial>,
-    color: LinearRgba,
-    uv_scale: Vec2,
-) -> Handle<StandardMaterial> {
-    let color_bits = color.red.to_bits() as u64
-        ^ (color.green.to_bits() as u64).rotate_left(16)
-        ^ (color.blue.to_bits() as u64).rotate_left(32)
-        ^ (color.alpha.to_bits() as u64).rotate_left(48);
-    let uv_bits =
-        (uv_scale.x.to_bits() as u64) ^ (uv_scale.y.to_bits() as u64).rotate_left(32);
-    let mat_key = color_bits ^ uv_bits.rotate_left(7);
-
-    assets
-        .materials
-        .entry(mat_key)
-        .or_insert_with(|| {
-            materials.add(StandardMaterial {
-                base_color: Color::LinearRgba(color),
-                uv_transform: Affine2::from_scale(uv_scale),
-                ..default()
-            })
-        })
-        .clone()
-}
 
 fn compute_spawn_count(spawn: &SpawnModule, state: &mut MeshParticleState, dt: f32) -> u32 {
     match spawn {
@@ -831,7 +907,6 @@ fn random_unit_sphere() -> Vec3 {
 }
 
 fn random_quat() -> Quat {
-    // Uniform random quaternion via rejection sampling
     loop {
         let q = Quat::from_xyzw(
             fastrand::f32() * 2.0 - 1.0,

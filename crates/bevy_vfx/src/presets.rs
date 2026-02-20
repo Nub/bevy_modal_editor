@@ -1446,6 +1446,7 @@ fn rock_debris() -> VfxSystem {
                 base_color: LinearRgba::new(0.35, 0.3, 0.25, 1.0),
                 collide: true,
                 restitution: 0.3,
+                cast_shadows: false,
             }),
             sim_space: SimSpace::Local,
             alpha_mode: VfxAlphaMode::Opaque,

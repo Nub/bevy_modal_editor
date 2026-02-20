@@ -1,0 +1,19 @@
+[package]
+name = "bevy_channel_mat"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "A Bevy plugin providing a channel threshold material extension for PBR"
+repository.workspace = true
+keywords = ["bevy", "shader", "material", "pbr", "threshold"]
+categories = ["game-development", "graphics", "rendering"]
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+bevy.workspace = true
+
+[lints.clippy]
+too_many_arguments = "allow"
+type_complexity = "allow"

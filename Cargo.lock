@@ -679,6 +679,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_channel_mat"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+]
+
+[[package]]
 name = "bevy_color"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1321,6 +1328,7 @@ dependencies = [
  "avian3d",
  "avian_rerecast",
  "bevy",
+ "bevy_channel_mat",
  "bevy_editor_game",
  "bevy_egui",
  "bevy_grid_shader",

@@ -11,7 +11,7 @@ use bevy_editor_game::MaterialLibrary;
 use bevy_egui::{egui, EguiPrimaryContextPass};
 use bevy_vfx::curve::{Curve, CurveKey, Gradient, GradientKey, Interp};
 use bevy_vfx::data::*;
-use bevy_vfx::mesh_particles::{MeshParticleAssets, MeshParticleState};
+use bevy_vfx::mesh_particles::MeshParticleStates;
 
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::selection::Selected;
@@ -174,30 +174,47 @@ fn draw_vfx_panel(world: &mut World) {
         }
     };
 
-    // Check for texture pick result
+    // Read which emitter tab is selected (stored in egui memory)
+    let target_emitter_idx = {
+        let ctx = world
+            .query::<&mut bevy_egui::EguiContext>()
+            .iter_mut(world)
+            .next()
+            .map(|mut c| c.get_mut().clone());
+        ctx.map(|c| {
+            c.memory(|mem| {
+                mem.data
+                    .get_temp::<usize>(egui::Id::new("vfx_selected_emitter"))
+                    .unwrap_or(0)
+            })
+        })
+        .unwrap_or(0)
+    };
+
+    // Check for texture pick result — apply to the selected emitter
     let pick_data = world.resource_mut::<TexturePickResult>().0.take();
     if let Some(pick) = pick_data {
         if pick.slot == TextureSlot::ParticleTexture && pick.entity == Some(entity) {
             if let Some(mut system) = world.get_mut::<VfxSystem>(entity) {
-                // Apply texture to the first emitter's billboard config
-                for emitter in &mut system.emitters {
+                if let Some(emitter) = system.emitters.get_mut(target_emitter_idx) {
                     if let RenderModule::Billboard(ref mut config) = emitter.render {
                         config.texture = Some(pick.path.clone());
-                        break;
                     }
                 }
             }
         }
     }
 
-    // Check for mesh shape pick result
-    let shape_pick = world.resource_mut::<crate::ui::command_palette::MeshShapePickResult>().0.take();
+    // Check for mesh shape pick result — apply to the selected emitter
+    let shape_pick = world
+        .resource_mut::<crate::ui::command_palette::MeshShapePickResult>()
+        .0
+        .take();
     if let Some(shape) = shape_pick {
         if let Some(mut system) = world.get_mut::<VfxSystem>(entity) {
-            for emitter in &mut system.emitters {
+            if let Some(emitter) = system.emitters.get_mut(target_emitter_idx) {
                 if let RenderModule::Mesh(ref mut config) = emitter.render {
-                    config.shape = shape.clone();
-                    break;
+                    config.shape = shape;
                 }
             }
         }
@@ -473,37 +490,30 @@ fn draw_vfx_panel(world: &mut World) {
             entity_mut.insert(system.clone());
         }
 
-        // Create/refresh material handles for library material references and
-        // update existing particle children so material changes apply immediately.
+        // Apply library materials to existing particle children using the full
+        // material pipeline (supports custom shader extensions).
         for (emitter_idx, emitter) in system.emitters.iter().enumerate() {
             if let RenderModule::Mesh(ref config) = emitter.render {
                 if let Some(ref mat_name) = config.material_path {
-                    let base = world
-                        .resource::<MaterialLibrary>()
-                        .materials
-                        .get(mat_name)
-                        .map(|def| def.base.clone());
-                    if let Some(base) = base {
-                        let handle =
-                            crate::materials::create_standard_material(world, &base);
-                        world
-                            .resource_mut::<MeshParticleAssets>()
-                            .named_materials
-                            .insert(mat_name.clone(), handle.clone());
+                    let mat_ref = bevy_editor_game::MaterialRef::Library(mat_name.clone());
+                    let def = {
+                        let library = world.resource::<MaterialLibrary>();
+                        crate::materials::resolve_material_ref(&mat_ref, library).cloned()
+                    };
 
-                        // Update existing particle children with the new material
-                        if let Some(mut state) =
-                            world.get_mut::<MeshParticleState>(entity)
-                        {
-                            if state.emitter_index == emitter_idx {
-                                state.material_handle = Some(handle.clone());
-                                let entities: Vec<Entity> =
-                                    state.particles.iter().map(|p| p.entity).collect();
-                                for child in entities {
-                                    if let Ok(mut e) = world.get_entity_mut(child) {
-                                        e.insert(MeshMaterial3d(handle.clone()));
-                                    }
-                                }
+                    if let Some(def) = def {
+                        // Update existing particle children with the full material
+                        if let Some(states) = world.get::<MeshParticleStates>(entity) {
+                            let entities: Vec<Entity> = states
+                                .entries
+                                .iter()
+                                .filter(|s| s.emitter_index == emitter_idx)
+                                .flat_map(|s| s.particles.iter().map(|p| p.entity))
+                                .collect();
+                            for child in entities {
+                                crate::materials::apply_material_def_standalone(
+                                    world, child, &def,
+                                );
                             }
                         }
                     }
@@ -1146,6 +1156,19 @@ fn draw_update_body(ui: &mut egui::Ui, m: &mut UpdateModule, idx: usize) {
             ui.label(egui::RichText::new("Z").color(colors::AXIS_Z));
             draw_curve_editor(ui, z, idx, "s3d_z");
         }
+        UpdateModule::OffsetByLife { x, y, z } => {
+            ui.label(egui::RichText::new("X").color(colors::AXIS_X));
+            draw_curve_editor(ui, x, idx, "off_x");
+            ui.label(egui::RichText::new("Y").color(colors::AXIS_Y));
+            draw_curve_editor(ui, y, idx, "off_y");
+            ui.label(egui::RichText::new("Z").color(colors::AXIS_Z));
+            draw_curve_editor(ui, z, idx, "off_z");
+        }
+        UpdateModule::EmissiveOverLife(gradient) => {
+            gradient_preview_bar(ui, gradient);
+            ui.add_space(4.0);
+            draw_gradient_keys(ui, &mut gradient.keys, idx);
+        }
     }
 }
 
@@ -1351,6 +1374,10 @@ fn draw_mesh_config(
                 );
                 ui.end_row();
             }
+
+            grid_label(ui, "Shadows");
+            ui.checkbox(&mut config.cast_shadows, "");
+            ui.end_row();
         });
     open_shape_picker
 }

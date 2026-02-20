@@ -1,12 +1,13 @@
 use avian3d::debug_render::PhysicsDebugPlugin;
 use avian3d::prelude::{Physics, PhysicsPlugins};
 use avian3d::schedule::PhysicsTime;
-use bevy::image::{ImageFilterMode, ImagePlugin, ImageSamplerDescriptor};
+use bevy::image::{ImageAddressMode, ImageFilterMode, ImagePlugin, ImageSamplerDescriptor};
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::remote::{RemotePlugin, http::RemoteHttpPlugin};
 use bevy_egui::EguiPlugin;
+use bevy_channel_mat::ChannelThresholdPlugin;
 use bevy_grid_shader::GridMaterialPlugin;
 use bevy_outliner::prelude::*;
 use bevy_procedural::ProceduralPlugin;
@@ -161,6 +162,9 @@ pub fn recommended_image_plugin() -> ImagePlugin {
             min_filter: ImageFilterMode::Linear,
             mipmap_filter: ImageFilterMode::Linear,
             anisotropy_clamp: 16,
+            address_mode_u: ImageAddressMode::Repeat,
+            address_mode_v: ImageAddressMode::Repeat,
+            address_mode_w: ImageAddressMode::Repeat,
             ..default()
         },
     }
@@ -206,6 +210,7 @@ impl Plugin for EditorPlugin {
             // Third-party rendering plugins
             .add_plugins(OutlinePlugin)
             .add_plugins(GridMaterialPlugin)
+            .add_plugins(ChannelThresholdPlugin)
             .add_plugins(WireframePlugin::default())
             // Material system
             .add_plugins(MaterialsPlugin)

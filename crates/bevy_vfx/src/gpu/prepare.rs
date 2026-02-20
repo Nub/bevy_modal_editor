@@ -531,7 +531,9 @@ fn pack_emitter_params(
             // CPU-only modules (mesh particles)
             UpdateModule::Spin { .. }
             | UpdateModule::UvScroll { .. }
-            | UpdateModule::Scale3dByLife { .. } => {}
+            | UpdateModule::Scale3dByLife { .. }
+            | UpdateModule::OffsetByLife { .. }
+            | UpdateModule::EmissiveOverLife(_) => {}
         }
     }
 

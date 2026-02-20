@@ -1,386 +1,629 @@
 (
   resources: {},
   entities: {
-    4294967201: (
+    4294967174: (
+      components: {
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Plane 1",
+        "bevy_editor_game::MaterialRef": Library("Arch Default"),
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Plane,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (0.0, -1.0689087, 0.0),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (10.0, 1.0, 10.0),
+        ),
+      },
+    ),
+    4294967175: (
+      components: {
+        "bevy_ecs::name::Name": "Sun 1",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_modal_editor::scene::primitives::DirectionalLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 0.98,
+            blue: 0.9,
+            alpha: 1.0,
+          )),
+          illuminance: 8000.0,
+          shadows_enabled: true,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (6.203185, 0.5050001, 3.3428369),
+          rotation: (-0.12607865, 0.25660488, -0.033782676, 0.95766246),
+          scale: (1.0, 1.0, 1.0),
+        ),
+      },
+    ),
+    725849472901: (
+      components: {
+        "bevy_ecs::hierarchy::Children": ([
+          1112396529440,
+          506806140699,
+          545460846315,
+          515396075123,
+          18399639895924,
+          536870911790,
+          528280977171,
+          631360191888,
+          14877766713202,
+          536870911842,
+          807453851017,
+        ]),
+        "bevy_ecs::name::Name": "BEST PART",
+        "bevy_modal_editor::scene::SceneEntity": (),
+        "bevy_spline_3d::path_follow::components::SplineFollower": (
+          spline: 4685809319807,
+          speed: 1.0,
+          t: 0.87298673,
+          loop_mode: Loop,
+          state: Playing,
+          align_to_tangent: false,
+          up_vector: (0.0, 1.0, 0.0),
+          direction: 1.0,
+          offset: (0.0, 0.0, 0.0),
+          constant_speed: true,
+        ),
+        "bevy_transform::components::transform::Transform": (
+          translation: (3.5726871, 0.0077477694, -3.0261703),
+          rotation: (0.0, 0.0, 0.0, 1.0),
+          scale: (1.0, 1.0, 1.0),
+        ),
+        "bevy_vfx::data::VfxSystem": (
+          emitters: [
+            (
+              name: "Pillar",
+              enabled: true,
+              capacity: 6,
+              spawn: Rate(0.5),
+              init: [
+                SetLifetime(Constant(5.0)),
+                SetUvScale((1.1, -1.4)),
+                SetScale3d(
+                  x: Constant(1.0),
+                  y: Constant(5.0),
+                  z: Constant(1.0),
+                ),
+                SetPosition(Point((0.0, 5.0, 0.0))),
+              ],
+              update: [
+                UvScroll(
+                  speed: (0.0, -0.16),
+                ),
+                Spin(
+                  axis: (0.0, 1.0, 0.0),
+                  speed: 0.8,
+                ),
+                Scale3dByLife(
+                  x: (
+                    keys: [
+                      (
+                        time: 0.0,
+                        value: 1.0,
+                        interp: Linear,
+                      ),
+                      (
+                        time: 1.0,
+                        value: 0.5,
+                        interp: Linear,
+                      ),
+                    ],
+                  ),
+                  y: (
+                    keys: [
+                      (
+                        time: 0.0,
+                        value: 1.0,
+                        interp: Linear,
+                      ),
+                    ],
+                  ),
+                  z: (
+                    keys: [
+                      (
+                        time: 0.0,
+                        value: 1.0,
+                        interp: Linear,
+                      ),
+                      (
+                        time: 1.0,
+                        value: 0.5,
+                        interp: Linear,
+                      ),
+                    ],
+                  ),
+                ),
+                ColorByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                    (
+                      time: 0.1,
+                      color: (
+                        red: 0.056402523,
+                        green: 0.90600884,
+                        blue: 0.6372726,
+                        alpha: 1.0,
+                      ),
+                    ),
+                    (
+                      time: 1.0,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                  ],
+                )),
+              ],
+              render: Mesh((
+                shape: Custom("particle_meshes::Hourglass"),
+                material_path: Some("Effect1"),
+                base_color: (
+                  red: 0.5,
+                  green: 0.5,
+                  blue: 0.5,
+                  alpha: 1.0,
+                ),
+                collide: false,
+                restitution: 0.3,
+                cast_shadows: false,
+              )),
+              sim_space: Local,
+              alpha_mode: Blend,
+            ),
+            (
+              name: "Particles",
+              enabled: true,
+              capacity: 256,
+              spawn: Rate(25.0),
+              init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Circle(
+                  center: (0.0, 0.0, 0.0),
+                  axis: (0.0, 1.0, 0.0),
+                  radius: Constant(0.8),
+                )),
+                SetVelocity(Directional(
+                  direction: (0.0, 1.0, 0.0),
+                  speed: Random(1.0, 3.0),
+                )),
+                SetSize(Random(0.05, 0.15)),
+              ],
+              update: [
+                SizeByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      value: 0.2,
+                      interp: Linear,
+                    ),
+                    (
+                      time: 0.25,
+                      value: 1.0,
+                      interp: Linear,
+                    ),
+                    (
+                      time: 0.8,
+                      value: 0.0,
+                      interp: Linear,
+                    ),
+                  ],
+                )),
+                ColorByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      color: (
+                        red: 0.22312498,
+                        green: 1.0,
+                        blue: 0.8338553,
+                        alpha: 1.0,
+                      ),
+                    ),
+                    (
+                      time: 0.25,
+                      color: (
+                        red: 0.4322807,
+                        green: 0.9331897,
+                        blue: 0.7519515,
+                        alpha: 1.0,
+                      ),
+                    ),
+                    (
+                      time: 0.5,
+                      color: (
+                        red: 0.15201358,
+                        green: 0.47544843,
+                        blue: 0.8339897,
+                        alpha: 1.0,
+                      ),
+                    ),
+                    (
+                      time: 1.0,
+                      color: (
+                        red: 0.1418983,
+                        green: 0.79543775,
+                        blue: 0.58296305,
+                        alpha: 1.0,
+                      ),
+                    ),
+                  ],
+                )),
+                TangentAccel(
+                  origin: (0.0, 0.0, 0.0),
+                  axis: (0.0, 1.0, 0.0),
+                  accel: -0.3,
+                ),
+              ],
+              render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/trace_01.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+              )),
+              sim_space: Local,
+              alpha_mode: Blend,
+            ),
+            (
+              name: "splash",
+              enabled: true,
+              capacity: 10,
+              spawn: Rate(2.0),
+              init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Point((0.0, -5.0, 0.0))),
+                SetScale3d(
+                  x: Constant(1.5),
+                  y: Constant(9.24),
+                  z: Constant(1.5),
+                ),
+                SetUvScale((-0.1, 0.8)),
+                SetVelocity(Directional(
+                  direction: (0.0, 1.0, 0.0),
+                  speed: Random(1.0, 3.0),
+                )),
+              ],
+              update: [
+                UvScroll(
+                  speed: (-0.03, 0.0),
+                ),
+                ColorByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                    (
+                      time: 0.3,
+                      color: (
+                        red: 0.024615377,
+                        green: 0.1865649,
+                        blue: 0.20654617,
+                        alpha: 0.30467805,
+                      ),
+                    ),
+                    (
+                      time: 1.0,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                  ],
+                )),
+                SizeByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      value: 0.5,
+                      interp: Linear,
+                    ),
+                    (
+                      time: 1.0,
+                      value: 1.5,
+                      interp: Linear,
+                    ),
+                  ],
+                )),
+              ],
+              render: Mesh((
+                shape: Custom("particle_meshes::Cone"),
+                material_path: Some("Effe"),
+                base_color: (
+                  red: 0.5,
+                  green: 0.5,
+                  blue: 0.5,
+                  alpha: 1.0,
+                ),
+                collide: false,
+                restitution: 0.3,
+                cast_shadows: false,
+              )),
+              sim_space: Local,
+              alpha_mode: Blend,
+            ),
+            (
+              name: "rocks",
+              enabled: true,
+              capacity: 256,
+              spawn: Rate(15.0),
+              init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Circle(
+                  center: (0.0, 0.0, 0.0),
+                  axis: (0.0, 1.0, 0.0),
+                  radius: Random(1.0, 1.2),
+                )),
+                SetVelocity(Cone(
+                  direction: (0.0, 1.0, 0.0),
+                  angle: 1.8,
+                  speed: Random(2.0, 5.0),
+                )),
+                SetSize(Random(0.05, 0.15)),
+              ],
+              update: [],
+              render: Mesh((
+                shape: Custom("particle_meshes::Rock"),
+                material_path: None,
+                base_color: (
+                  red: 0.5,
+                  green: 0.5,
+                  blue: 0.5,
+                  alpha: 1.0,
+                ),
+                collide: true,
+                restitution: 0.3,
+                cast_shadows: false,
+              )),
+              sim_space: World,
+              alpha_mode: Blend,
+            ),
+            (
+              name: "ground effect",
+              enabled: true,
+              capacity: 20,
+              spawn: Burst(
+                count: 2,
+                interval: 0.5,
+                max_cycles: None,
+              ),
+              init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Sphere(
+                  center: (0.0, 0.0, 0.0),
+                  radius: Constant(0.1),
+                )),
+                SetSize(Constant(1.2)),
+              ],
+              update: [
+                ColorByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                    (
+                      time: 0.2,
+                      color: (
+                        red: 0.02843542,
+                        green: 0.017723681,
+                        blue: 0.012226422,
+                        alpha: 1.0,
+                      ),
+                    ),
+                    (
+                      time: 1.0,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                  ],
+                )),
+              ],
+              render: Billboard((
+                orient: FaceCamera,
+                texture: None,
+                flipbook: None,
+                soft_particle_distance: 0.0,
+              )),
+              sim_space: Local,
+              alpha_mode: Premultiply,
+            ),
+            (
+              name: "smoke",
+              enabled: true,
+              capacity: 30,
+              spawn: Rate(2.0),
+              init: [
+                SetLifetime(Random(1.0, 3.0)),
+                SetPosition(Sphere(
+                  center: (0.0, 0.0, 0.0),
+                  radius: Constant(0.1),
+                )),
+                SetVelocity(Radial(
+                  center: (0.0, 1.0, 0.0),
+                  speed: Random(0.1, 0.3),
+                )),
+              ],
+              update: [
+                ColorByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                    (
+                      time: 0.2,
+                      color: (
+                        red: 1.0,
+                        green: 1.0,
+                        blue: 1.0,
+                        alpha: 0.18186568,
+                      ),
+                    ),
+                    (
+                      time: 1.0,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                  ],
+                )),
+                SizeByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      value: 0.0,
+                      interp: Linear,
+                    ),
+                    (
+                      time: 1.0,
+                      value: 5.0,
+                      interp: Linear,
+                    ),
+                  ],
+                )),
+                Noise(
+                  strength: 1.0,
+                  frequency: 1.0,
+                  scroll: (0.0, 1.0, 0.0),
+                ),
+              ],
+              render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/smoke_07.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+              )),
+              sim_space: Local,
+              alpha_mode: Additive,
+            ),
+          ],
+          params: [],
+          duration: 5.0,
+          looping: true,
+        ),
+      },
+    ),
+    2044404432764: (
       components: {
         "avian3d::dynamics::rigid_body::RigidBody": Static,
         "bevy_ecs::name::Name": "Cube 1",
+        "bevy_editor_game::MaterialRef": Inline((
+          base: (
+            base_color: Srgba((
+              red: 0.8,
+              green: 0.7,
+              blue: 0.6,
+              alpha: 1.0,
+            )),
+            emissive: (
+              red: 0.0,
+              green: 0.0,
+              blue: 0.0,
+              alpha: 1.0,
+            ),
+            metallic: 0.0,
+            perceptual_roughness: 0.5,
+            reflectance: 0.5,
+            alpha_cutoff: 0.5,
+            double_sided: false,
+            unlit: false,
+            alpha_mode: Opaque,
+            ior: 1.5,
+            specular_transmission: 0.0,
+            specular_tint: LinearRgba((
+              red: 1.0,
+              green: 1.0,
+              blue: 1.0,
+              alpha: 1.0,
+            )),
+            clearcoat: 0.0,
+            clearcoat_perceptual_roughness: 0.5,
+            anisotropy_strength: 0.0,
+            anisotropy_rotation: 0.0,
+            diffuse_transmission: 0.0,
+            thickness: 0.5,
+            uv_scale: (1.0, 1.0),
+            base_color_texture: None,
+            normal_map_texture: None,
+            metallic_roughness_texture: None,
+            emissive_texture: None,
+            occlusion_texture: None,
+            depth_map_texture: None,
+            parallax_depth_scale: 0.1,
+            parallax_mapping_method: Occlusion,
+            max_parallax_layer_count: 16.0,
+          ),
+          extension: Some((
+            type_name: "grid",
+            data: "(line_color:(0.0,0.0,0.0,0.5),major_line_color:(0.0,0.0,0.0,0.5),line_width:1.0,major_line_width:3.0,grid_scale:1.0,major_line_every:10,axes_xz:true,axes_xy:true,axes_yz:true,fade_distance:0.0,fade_strength:1.0)",
+          )),
+        )),
         "bevy_modal_editor::scene::SceneEntity": (),
         "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
           shape: Cube,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (-1.9282684, 0.5, 2.6744308),
+          translation: (4.530133, 0.50499964, 1.1237726),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4294967202: (
+    4685809319807: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Ground",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cube,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, -0.5, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (20.0, 1.0, 20.0),
-        ),
-      },
-    ),
-    4294967203: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Central Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 2.0, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.5, 4.0, 1.5),
-        ),
-      },
-    ),
-    4294967204: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 1.5, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967205: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 1.5, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967206: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 1.5, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967207: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Corner Pillar",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cylinder,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 1.5, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 3.0, 1.0),
-        ),
-      },
-    ),
-    4294967208: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_ecs::name::Name": "Bouncy Sphere 1",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Sphere,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (2.261058, 0.4999731, 1.7627234),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967209: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_ecs::name::Name": "Bouncy Sphere 2",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Sphere,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-2.0, 0.4999731, -2.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967210: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_ecs::name::Name": "Bouncy Sphere 3",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Sphere,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.4999731, 3.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967211: (
-      components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Dynamic,
-        "bevy_ecs::name::Name": "Falling Cube",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cube,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-2.529221, 0.4999731, -0.090653814),
-          rotation: (0.000000022100238, 0.05301782, 0.0000000002139866, 0.99859357),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967212: (
-      components: {
-        "bevy_ecs::name::Name": "Central Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.95,
-            blue: 0.8,
-            alpha: 1.0,
-          )),
-          intensity: 80000.0,
-          range: 30.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 8.0, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967213: (
-      components: {
-        "bevy_ecs::name::Name": "Red Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.2,
-            blue: 0.2,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 4.0, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967214: (
-      components: {
-        "bevy_ecs::name::Name": "Blue Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.2,
-            green: 0.4,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-6.0, 4.0, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967215: (
-      components: {
-        "bevy_ecs::name::Name": "Green Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.2,
-            green: 1.0,
-            blue: 0.3,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 4.0, -6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967216: (
-      components: {
-        "bevy_ecs::name::Name": "Purple Light",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.9,
-            green: 0.2,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 30000.0,
-          range: 15.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.0, 4.0, 6.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967217: (
-      components: {
-        "bevy_ecs::name::Name": "Accent Light 1",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.5,
-            green: 0.8,
-            blue: 1.0,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (3.0, 0.5, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967218: (
-      components: {
-        "bevy_ecs::name::Name": "Accent Light 2",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.5,
-            blue: 0.8,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (-3.0, 0.5, 0.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967219: (
-      components: {
-        "bevy_ecs::name::Name": "Accent Light 3",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 0.8,
-            green: 1.0,
-            blue: 0.5,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.5, 3.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967220: (
-      components: {
-        "bevy_ecs::name::Name": "Accent Light 4",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SceneLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.8,
-            blue: 0.5,
-            alpha: 1.0,
-          )),
-          intensity: 10000.0,
-          range: 8.0,
-          shadows_enabled: false,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (0.0, 0.5, -3.0),
-          rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
-        ),
-      },
-    ),
-    4294967221: (
-      components: {
-        "bevy_ecs::name::Name": "Bezier Spline 1",
+        "bevy_ecs::name::Name": "Catmull-Rom Spline 1",
         "bevy_modal_editor::scene::SceneEntity": (),
         "bevy_modal_editor::scene::primitives::SplineMarker": (),
         "bevy_spline_3d::spline::components::Spline": (
-          spline_type: CubicBezier,
+          spline_type: CatmullRom,
           control_points: [
-            (-2.3252485, 0.3027134, -3.2470727),
-            (-0.5, 1.0, 0.0),
-            (0.21868087, 1.2241821, 2.8521228),
-            (6.7766786, 0.30171013, -3.796658),
+            (-1.7853955, -0.64232254, -0.09278345),
+            (-3.4723158, -0.923383, -4.3047433),
+            (-0.025379896, -0.35009718, -5.2755504),
+            (1.3866506, -0.38716912, -0.704226),
           ],
-          closed: false,
+          closed: true,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (-0.17286088, 0.5, 4.780234),
+          translation: (3.546773, 0.5050001, -3.1706853),
           rotation: (0.0, 0.0, 0.0, 1.0),
           scale: (1.0, 1.0, 1.0),
         ),
