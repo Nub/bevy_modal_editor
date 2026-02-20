@@ -1,0 +1,79 @@
+(
+    emitters: [
+        (
+            name: "Dust",
+            enabled: true,
+            capacity: 128,
+            spawn: Rate(5.0),
+            init: [
+                SetLifetime(Random(5.0, 10.0)),
+                SetPosition(Box(
+                    center: (0.0, 0.0, 0.0),
+                    half_extents: (3.0, 2.0, 3.0),
+                )),
+                SetVelocity(Random(
+                    speed: Random(0.02, 0.08),
+                )),
+                SetSize(Random(0.01, 0.03)),
+            ],
+            update: [
+                Noise(
+                    strength: 0.3,
+                    frequency: 0.3,
+                    scroll: (0.1, 0.05, 0.1),
+                ),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 1.0,
+                                green: 0.95,
+                                blue: 0.8,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.15,
+                            color: (
+                                red: 1.0,
+                                green: 0.95,
+                                blue: 0.8,
+                                alpha: 0.3,
+                            ),
+                        ),
+                        (
+                            time: 0.85,
+                            color: (
+                                red: 0.9,
+                                green: 0.85,
+                                blue: 0.7,
+                                alpha: 0.2,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.8,
+                                green: 0.75,
+                                blue: 0.6,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/circle_05.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Blend,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

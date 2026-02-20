@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use crate::particles::ParticleEffectMarker;
+use bevy_vfx::VfxSystem;
 
 /// Cached metadata about a discovered prefab directory.
 #[derive(Clone, Debug)]
@@ -19,7 +19,7 @@ pub struct PrefabEntry {
     /// Material library loaded from prefab.meta
     pub material_library: MaterialLibrary,
     /// Particle library loaded from prefab.meta
-    pub particle_presets: HashMap<String, ParticleEffectMarker>,
+    pub particle_presets: HashMap<String, VfxSystem>,
 }
 
 /// Sidecar metadata stored alongside prefab.scene (same format as scene metadata).
@@ -28,7 +28,7 @@ struct PrefabMetadata {
     #[serde(default)]
     material_library: MaterialLibrary,
     #[serde(default)]
-    particle_presets: HashMap<String, ParticleEffectMarker>,
+    particle_presets: HashMap<String, VfxSystem>,
 }
 
 /// Resource containing all discovered prefab directories from assets/prefabs/.
@@ -135,7 +135,7 @@ impl PrefabRegistry {
         prefab_dir: &std::path::Path,
         prefab_name: &str,
         material_library: &MaterialLibrary,
-        particle_presets: &HashMap<String, ParticleEffectMarker>,
+        particle_presets: &HashMap<String, VfxSystem>,
     ) -> Result<(), String> {
         let metadata = PrefabMetadata {
             material_library: material_library.clone(),

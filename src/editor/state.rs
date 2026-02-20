@@ -37,7 +37,7 @@ pub enum EditorMode {
     Material,
     /// Camera mode: configure render settings (AA, bloom, color grading, etc.)
     Camera,
-    /// Particle mode: edit bevy_hanabi particle effects on selected entity
+    /// Particle mode: edit VFX particle effects on selected entity
     Particle,
     /// AI mode: navmesh generation and visualization
     AI,
@@ -250,7 +250,7 @@ pub enum InsertObjectType {
     Arch,
     /// Parametric L-shape corner
     LShape,
-    /// Particle effect (bevy_hanabi)
+    /// VFX particle effect
     ParticleEffect,
     /// Clustered decal (projected texture)
     Decal,
@@ -413,6 +413,7 @@ impl Plugin for EditorStatePlugin {
                     handle_toggle_editor,
                     handle_set_shading_mode,
                     handle_cycle_shading_mode,
+                    suppress_physics_debug_in_particle_mode,
                 ),
             )
             .add_systems(PostUpdate, keep_spatial_query_updated);
@@ -428,6 +429,27 @@ fn handle_toggle_physics_debug(
         let config = gizmo_config.config_mut::<PhysicsGizmos>().0;
         config.enabled = !config.enabled;
         info!("Physics debug: {}", if config.enabled { "ON" } else { "OFF" });
+    }
+}
+
+/// Suppress physics debug gizmos while in Particle mode, restoring on exit.
+fn suppress_physics_debug_in_particle_mode(
+    mode: Res<State<EditorMode>>,
+    mut gizmo_config: ResMut<GizmoConfigStore>,
+    mut saved: Local<Option<bool>>,
+) {
+    let in_particle = *mode.get() == EditorMode::Particle;
+    let config = gizmo_config.config_mut::<PhysicsGizmos>().0;
+
+    if in_particle {
+        if saved.is_none() {
+            // Save user's setting and disable
+            *saved = Some(config.enabled);
+            config.enabled = false;
+        }
+    } else if let Some(was_enabled) = saved.take() {
+        // Restore user's setting
+        config.enabled = was_enabled;
     }
 }
 

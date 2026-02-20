@@ -14,7 +14,7 @@ use crate::commands::TakeSnapshotCommand;
 use crate::constants::{light_colors, physics, primitive_colors};
 use crate::materials::grid::GridMaterialProps;
 use crate::effects::{EffectLibrary, EffectMarker};
-use crate::particles::ParticleEffectMarker;
+use bevy_vfx::{VfxLibrary, VfxSystem};
 use crate::selection::Selected;
 
 /// Marker component for group entities (containers for nesting)
@@ -238,9 +238,9 @@ pub enum SpawnEntityKind {
     Arch,
     /// Parametric L-shape corner
     LShape,
-    /// A particle effect (bevy_hanabi)
+    /// A VFX particle effect
     ParticleEffect,
-    /// A particle effect from a named preset
+    /// A VFX effect from a named preset
     ParticlePreset(String),
     /// An effect (effect sequencer)
     Effect,
@@ -351,7 +351,7 @@ fn handle_spawn_entity(
     existing_entities: Query<&Name, With<SceneEntity>>,
     selected_entities: Query<Entity, With<Selected>>,
     custom_registry: Res<CustomEntityRegistry>,
-    particle_library: Res<crate::particles::ParticleLibrary>,
+    vfx_library: Res<VfxLibrary>,
     effect_library: Res<EffectLibrary>,
     mut prefab_events: MessageWriter<crate::prefabs::SpawnPrefabEvent>,
 ) {
@@ -393,14 +393,14 @@ fn handle_spawn_entity(
             SpawnEntityKind::Ramp => spawn_ramp(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::Arch => spawn_arch(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
             SpawnEntityKind::LShape => spawn_lshape(&mut commands, &mut meshes, &mut grid_materials, event.position, event.rotation, &name),
-            SpawnEntityKind::ParticleEffect => spawn_particle_effect(&mut commands, event.position, event.rotation, &name),
+            SpawnEntityKind::ParticleEffect => spawn_vfx_effect(&mut commands, event.position, event.rotation, &name),
             SpawnEntityKind::ParticlePreset(preset_name) => {
-                let marker = particle_library
+                let system = vfx_library
                     .effects
                     .get(preset_name)
                     .cloned()
                     .unwrap_or_default();
-                spawn_particle_effect_with_marker(&mut commands, event.position, event.rotation, &name, marker)
+                spawn_vfx_effect_with_system(&mut commands, event.position, event.rotation, &name, system)
             }
             SpawnEntityKind::Effect => spawn_effect(&mut commands, event.position, event.rotation, &name, EffectMarker::default()),
             SpawnEntityKind::EffectPreset(preset_name) => {
@@ -595,26 +595,24 @@ pub fn spawn_fog_volume(commands: &mut Commands, position: Vec3, rotation: Quat,
         .id()
 }
 
-/// Spawn a particle effect container entity with default settings.
-/// The `ParticleEffectMarker` is serializable; a disposable child entity
-/// holding the actual `ParticleEffect` is spawned by `ParticlePlugin`.
-pub fn spawn_particle_effect(commands: &mut Commands, position: Vec3, rotation: Quat, name: &str) -> Entity {
-    spawn_particle_effect_with_marker(commands, position, rotation, name, ParticleEffectMarker::default())
+/// Spawn a VFX effect entity with default settings.
+pub fn spawn_vfx_effect(commands: &mut Commands, position: Vec3, rotation: Quat, name: &str) -> Entity {
+    spawn_vfx_effect_with_system(commands, position, rotation, name, VfxSystem::default())
 }
 
-/// Spawn a particle effect container entity with a specific marker configuration.
-pub fn spawn_particle_effect_with_marker(
+/// Spawn a VFX effect entity with a specific system configuration.
+pub fn spawn_vfx_effect_with_system(
     commands: &mut Commands,
     position: Vec3,
     rotation: Quat,
     name: &str,
-    marker: ParticleEffectMarker,
+    system: VfxSystem,
 ) -> Entity {
     commands
         .spawn((
             SceneEntity,
             Name::new(name.to_string()),
-            marker,
+            system,
             Transform::from_translation(position).with_rotation(rotation),
             Visibility::default(),
             Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),

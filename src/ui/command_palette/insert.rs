@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use bevy_egui::egui;
 
 use crate::editor::{EditorMode, InsertObjectType, InsertState, StartInsertEvent};
-use crate::particles::ParticleLibrary;
+use bevy_vfx::VfxLibrary;
 use crate::prefabs::PrefabRegistry;
 use crate::ui::fuzzy_palette::{
     draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteItem, PaletteResult, PaletteState,
@@ -68,7 +68,7 @@ pub(super) fn draw_insert_palette(
     insert_preview_state: &mut ResMut<InsertPreviewState>,
     events: &mut CommandEvents,
     next_mode: &mut ResMut<NextState<EditorMode>>,
-    particle_library: &Res<ParticleLibrary>,
+    vfx_library: &Res<VfxLibrary>,
     effect_library: &Res<crate::effects::EffectLibrary>,
     insert_state: &mut ResMut<InsertState>,
     prefab_registry: &Res<PrefabRegistry>,
@@ -87,8 +87,8 @@ pub(super) fn draw_insert_palette(
         })
         .collect();
 
-    // Add particle presets as insertable items
-    let mut preset_names: Vec<&String> = particle_library.effects.keys().collect();
+    // Add VFX presets as insertable items
+    let mut preset_names: Vec<&String> = vfx_library.effects.keys().collect();
     preset_names.sort();
     for name in preset_names {
         items.push(InsertItem {

@@ -1,0 +1,21 @@
+[package]
+name = "bevy_vfx"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+description = "GPU-driven Niagara-style VFX system for Bevy"
+repository.workspace = true
+keywords = ["bevy", "vfx", "particles", "gpu", "compute"]
+categories = ["game-development", "graphics", "rendering"]
+
+[dependencies]
+avian3d.workspace = true
+bevy.workspace = true
+bytemuck.workspace = true
+fastrand.workspace = true
+serde.workspace = true
+ron.workspace = true
+
+[lints.clippy]
+type_complexity = "allow"
+too_many_arguments = "allow"

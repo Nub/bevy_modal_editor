@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use bevy_egui::egui;
 
-use crate::particles::{ParticleEffectMarker, ParticleLibrary};
+use bevy_vfx::{VfxLibrary, VfxSystem};
 use crate::scene::SceneEntity;
 use crate::selection::Selected;
 use crate::ui::fuzzy_palette::{
@@ -41,7 +41,7 @@ impl PaletteItem for PresetItem {
 pub(super) fn draw_particle_preset_palette(
     ctx: &egui::Context,
     state: &mut ResMut<CommandPaletteState>,
-    library: &Res<ParticleLibrary>,
+    library: &Res<VfxLibrary>,
     selected_particle: Option<Entity>,
     commands: &mut Commands,
 ) -> Result {
@@ -94,25 +94,25 @@ pub(super) fn draw_particle_preset_palette(
                 // "New Preset" — create a default particle effect in the library
                 let query_text = state.query.trim().to_string();
                 let new_name = new_preset_name(&query_text, library);
-                let marker = ParticleEffectMarker::default();
+                let system = VfxSystem::default();
                 let spawn_name = new_name.clone();
                 let selected = selected_particle;
                 commands.queue(move |world: &mut World| {
                     world
-                        .resource_mut::<ParticleLibrary>()
+                        .resource_mut::<VfxLibrary>()
                         .effects
-                        .insert(new_name.clone(), marker.clone());
+                        .insert(new_name.clone(), system.clone());
                     if let Some(entity) = selected {
                         // Apply to selected particle entity
                         if let Ok(mut e) = world.get_entity_mut(entity) {
-                            e.insert(marker);
+                            e.insert(system);
                         }
                     } else {
                         // No selection — spawn a new entity with the preset
                         world.spawn((
                             SceneEntity,
                             Name::new(spawn_name),
-                            marker,
+                            system,
                             Transform::default(),
                             Visibility::default(),
                             avian3d::prelude::Collider::sphere(
@@ -125,22 +125,22 @@ pub(super) fn draw_particle_preset_palette(
             } else {
                 // Existing preset selected
                 let preset_name = items[index].name.clone();
-                if let Some(marker) = library.effects.get(&preset_name) {
-                    let marker = marker.clone();
+                if let Some(system) = library.effects.get(&preset_name) {
+                    let system = system.clone();
                     let selected = selected_particle;
                     let name = preset_name.clone();
                     commands.queue(move |world: &mut World| {
                         if let Some(entity) = selected {
                             // Apply preset to selected particle entity
                             if let Ok(mut e) = world.get_entity_mut(entity) {
-                                e.insert(marker);
+                                e.insert(system);
                             }
                         } else {
                             // No selection — spawn a new entity with the preset
                             world.spawn((
                                 SceneEntity,
                                 Name::new(name),
-                                marker,
+                                system,
                                 Transform::default(),
                                 Visibility::default(),
                                 avian3d::prelude::Collider::sphere(
@@ -164,7 +164,7 @@ pub(super) fn draw_particle_preset_palette(
 }
 
 /// Generate a unique preset name.
-fn new_preset_name(query: &str, library: &ParticleLibrary) -> String {
+fn new_preset_name(query: &str, library: &VfxLibrary) -> String {
     let base = if query.is_empty() {
         "New Particle".to_string()
     } else {

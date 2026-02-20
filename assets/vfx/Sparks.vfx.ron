@@ -1,0 +1,84 @@
+(
+    emitters: [
+        (
+            name: "Sparks",
+            enabled: true,
+            capacity: 512,
+            spawn: Burst(
+                count: 30,
+                interval: 0.5,
+                max_cycles: None,
+            ),
+            init: [
+                SetLifetime(Random(0.3, 0.8)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Constant(0.05),
+                )),
+                SetVelocity(Radial(
+                    center: (0.0, 0.0, 0.0),
+                    speed: Random(3.0, 8.0),
+                )),
+            ],
+            update: [
+                Gravity((0.0, -9.8, 0.0)),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 1.0,
+                                green: 1.0,
+                                blue: 0.8,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.5,
+                            color: (
+                                red: 1.0,
+                                green: 0.7,
+                                blue: 0.2,
+                                alpha: 0.8,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.8,
+                                green: 0.2,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.04,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.01,
+                            interp: Linear,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/spark_02.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

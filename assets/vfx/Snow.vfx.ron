@@ -1,0 +1,90 @@
+(
+    emitters: [
+        (
+            name: "Snowflakes",
+            enabled: true,
+            capacity: 1024,
+            spawn: Rate(40.0),
+            init: [
+                SetLifetime(Random(4.0, 8.0)),
+                SetPosition(Sphere(
+                    center: (0.0, 5.0, 0.0),
+                    radius: Random(2.0, 5.0),
+                )),
+                SetVelocity(Radial(
+                    center: (0.0, 0.0, 0.0),
+                    speed: Random(0.1, 0.3),
+                )),
+            ],
+            update: [
+                Gravity((0.0, -0.8, 0.0)),
+                Drag(2.0),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 1.0,
+                                green: 1.0,
+                                blue: 1.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.1,
+                            color: (
+                                red: 1.0,
+                                green: 1.0,
+                                blue: 1.0,
+                                alpha: 0.8,
+                            ),
+                        ),
+                        (
+                            time: 0.8,
+                            color: (
+                                red: 0.9,
+                                green: 0.95,
+                                blue: 1.0,
+                                alpha: 0.6,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.8,
+                                green: 0.9,
+                                blue: 1.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.04,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.03,
+                            interp: Linear,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/star_01.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Blend,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

@@ -4,6 +4,8 @@ use avian3d::schedule::PhysicsTime;
 use bevy::image::{ImageFilterMode, ImagePlugin, ImageSamplerDescriptor};
 use bevy::pbr::wireframe::{WireframeConfig, WireframePlugin};
 use bevy::prelude::*;
+use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
+use bevy::remote::{RemotePlugin, http::RemoteHttpPlugin};
 use bevy_egui::EguiPlugin;
 use bevy_grid_shader::GridMaterialPlugin;
 use bevy_outliner::prelude::*;
@@ -23,12 +25,20 @@ use crate::commands::CommandsPlugin;
 use crate::gizmos::EditorGizmosPlugin;
 use crate::navigation::NavigationPlugin;
 use crate::effects::EffectPlugin;
-use crate::particles::ParticlePlugin;
+use crate::vfx::VfxEditorPlugin;
 use crate::materials::MaterialsPlugin;
 use crate::prefabs::PrefabsPlugin;
 use crate::scene::ScenePlugin;
 use crate::selection::SelectionPlugin;
 use crate::ui::UiPlugin;
+
+/// Current FPS reading, queryable via BRP for stress testing.
+#[derive(Resource, Default, Reflect)]
+#[reflect(Resource, Default)]
+pub struct FpsReadout {
+    pub fps: f32,
+    pub frame_time_ms: f32,
+}
 
 /// Configuration for the editor plugin
 #[derive(Clone)]
@@ -174,6 +184,22 @@ impl Plugin for EditorPlugin {
             }
         }
 
+        // Bevy Remote Protocol for live inspection/manipulation
+        if !app.is_plugin_added::<RemotePlugin>() {
+            app.add_plugins(RemotePlugin::default());
+        }
+        if !app.is_plugin_added::<RemoteHttpPlugin>() {
+            app.add_plugins(RemoteHttpPlugin::default());
+        }
+
+        // Frame diagnostics + FPS readout resource (queryable via BRP)
+        if !app.is_plugin_added::<FrameTimeDiagnosticsPlugin>() {
+            app.add_plugins(FrameTimeDiagnosticsPlugin::default());
+        }
+        app.init_resource::<FpsReadout>()
+            .register_type::<FpsReadout>()
+            .add_systems(Update, update_fps_readout);
+
         app
             // Third-party rendering plugins
             .add_plugins(OutlinePlugin)
@@ -198,9 +224,8 @@ impl Plugin for EditorPlugin {
             .add_plugins(ScenePlugin)
             .add_plugins(PrefabsPlugin)
             .add_plugins(CommandsPlugin)
-            // Particles
-            .add_plugins(bevy_hanabi::HanabiPlugin)
-            .add_plugins(ParticlePlugin)
+            // VFX
+            .add_plugins(VfxEditorPlugin)
             // Effects
             .add_plugins(EffectPlugin)
             // Navigation (navmesh + pathfinding)
@@ -273,5 +298,19 @@ fn apply_shading_mode(
         _ => {
             wireframe_config.global = false;
         }
+    }
+}
+
+/// Update FPS readout from frame time diagnostics.
+fn update_fps_readout(diagnostics: Res<DiagnosticsStore>, mut fps: ResMut<FpsReadout>) {
+    use bevy::diagnostic::FrameTimeDiagnosticsPlugin as Diag;
+    if let Some(value) = diagnostics.get(&Diag::FPS).and_then(|d| d.smoothed()) {
+        fps.fps = value as f32;
+    }
+    if let Some(value) = diagnostics
+        .get(&Diag::FRAME_TIME)
+        .and_then(|d| d.smoothed())
+    {
+        fps.frame_time_ms = value as f32;
     }
 }

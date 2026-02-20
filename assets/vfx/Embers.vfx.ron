@@ -1,0 +1,100 @@
+(
+    emitters: [
+        (
+            name: "Embers",
+            enabled: true,
+            capacity: 256,
+            spawn: Rate(15.0),
+            init: [
+                SetLifetime(Random(2.0, 5.0)),
+                SetPosition(Box(
+                    center: (0.0, 0.0, 0.0),
+                    half_extents: (0.5, 0.1, 0.5),
+                )),
+                SetVelocity(Directional(
+                    direction: (0.0, 1.0, 0.0),
+                    speed: Random(0.3, 1.0),
+                )),
+            ],
+            update: [
+                Gravity((0.0, 0.4, 0.0)),
+                Noise(
+                    strength: 0.8,
+                    frequency: 0.5,
+                    scroll: (0.2, 0.3, 0.1),
+                ),
+                Drag(0.3),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 1.0,
+                                green: 0.6,
+                                blue: 0.1,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.3,
+                            color: (
+                                red: 1.0,
+                                green: 0.3,
+                                blue: 0.0,
+                                alpha: 0.8,
+                            ),
+                        ),
+                        (
+                            time: 0.7,
+                            color: (
+                                red: 0.6,
+                                green: 0.1,
+                                blue: 0.0,
+                                alpha: 0.4,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.2,
+                                green: 0.02,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.04,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 0.5,
+                            value: 0.03,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.01,
+                            interp: Linear,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/spark_04.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

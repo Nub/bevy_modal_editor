@@ -16,6 +16,7 @@ pub mod timer;
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
+use bevy::remote::{RemotePlugin, http::RemoteHttpPlugin};
 use bevy_editor_game::{
     AlphaModeValue, BaseMaterialProps, CustomEntityType, MaterialDefinition, MaterialRef,
     RegisterCustomEntityExt, RegisterValidationExt, ValidationMessage, ValidationRule,
@@ -41,6 +42,8 @@ pub struct GoalZone;
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(recommended_image_plugin()))
+        .add_plugins(RemotePlugin::default())
+        .add_plugins(RemoteHttpPlugin::default())
         .add_plugins(EditorPlugin::new(EditorPluginConfig {
             pause_physics_on_startup: true,
             ..default()

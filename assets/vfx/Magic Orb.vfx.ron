@@ -1,0 +1,88 @@
+(
+    emitters: [
+        (
+            name: "Orb Particles",
+            enabled: true,
+            capacity: 512,
+            spawn: Rate(60.0),
+            init: [
+                SetLifetime(Random(1.0, 2.5)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Random(0.3, 0.6),
+                )),
+                SetVelocity(Tangent(
+                    axis: (0.0, 1.0, 0.0),
+                    speed: Random(1.0, 2.0),
+                )),
+            ],
+            update: [
+                RadialAccel(
+                    origin: (0.0, 0.0, 0.0),
+                    accel: -2.0,
+                ),
+                TangentAccel(
+                    origin: (0.0, 0.0, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    accel: 3.0,
+                ),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.8,
+                                green: 0.4,
+                                blue: 1.0,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.5,
+                            color: (
+                                red: 0.4,
+                                green: 0.2,
+                                blue: 1.0,
+                                alpha: 0.7,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.2,
+                                green: 0.05,
+                                blue: 0.6,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.08,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.02,
+                            interp: Linear,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/magic_01.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

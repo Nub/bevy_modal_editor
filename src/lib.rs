@@ -50,7 +50,7 @@ pub mod gizmos;
 pub mod materials;
 pub mod modeling;
 pub mod navigation;
-pub mod particles;
+pub mod vfx;
 pub mod prefabs;
 pub mod scene;
 pub mod selection;

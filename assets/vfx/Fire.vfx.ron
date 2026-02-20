@@ -1,0 +1,268 @@
+(
+    emitters: [
+        (
+            name: "Hot Core",
+            enabled: true,
+            capacity: 128,
+            spawn: Rate(25.0),
+            init: [
+                SetLifetime(Random(0.2, 0.5)),
+                SetPosition(Circle(
+                    center: (0.0, 0.0, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    radius: Random(0.02, 0.1),
+                )),
+                SetVelocity(Cone(
+                    direction: (0.0, 1.0, 0.0),
+                    angle: 0.15,
+                    speed: Random(0.5, 1.2),
+                )),
+            ],
+            update: [
+                Drag(2.0),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 3.0,
+                                green: 2.5,
+                                blue: 1.0,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.4,
+                            color: (
+                                red: 2.0,
+                                green: 1.2,
+                                blue: 0.3,
+                                alpha: 0.8,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 1.0,
+                                green: 0.4,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.15,
+                            interp: EaseOut,
+                        ),
+                        (
+                            time: 0.5,
+                            value: 0.25,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.1,
+                            interp: EaseIn,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/fire_01.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+        (
+            name: "Flame Body",
+            enabled: true,
+            capacity: 256,
+            spawn: Rate(50.0),
+            init: [
+                SetLifetime(Random(0.3, 0.8)),
+                SetPosition(Circle(
+                    center: (0.0, 0.0, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    radius: Random(0.05, 0.2),
+                )),
+                SetVelocity(Cone(
+                    direction: (0.0, 1.0, 0.0),
+                    angle: 0.25,
+                    speed: Random(1.0, 2.5),
+                )),
+            ],
+            update: [
+                Gravity((0.0, 2.0, 0.0)),
+                Drag(2.5),
+                Noise(
+                    strength: 1.2,
+                    frequency: 3.0,
+                    scroll: (0.0, 2.5, 0.0),
+                ),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 1.5,
+                                green: 1.0,
+                                blue: 0.3,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.25,
+                            color: (
+                                red: 1.2,
+                                green: 0.6,
+                                blue: 0.1,
+                                alpha: 0.9,
+                            ),
+                        ),
+                        (
+                            time: 0.6,
+                            color: (
+                                red: 0.8,
+                                green: 0.2,
+                                blue: 0.0,
+                                alpha: 0.5,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.3,
+                                green: 0.05,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.12,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 0.3,
+                            value: 0.22,
+                            interp: EaseOut,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.06,
+                            interp: EaseIn,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/flame_01.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+        (
+            name: "Flame Tips",
+            enabled: true,
+            capacity: 128,
+            spawn: Rate(20.0),
+            init: [
+                SetLifetime(Random(0.4, 0.9)),
+                SetPosition(Circle(
+                    center: (0.0, 0.1, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    radius: Random(0.03, 0.15),
+                )),
+                SetVelocity(Cone(
+                    direction: (0.0, 1.0, 0.0),
+                    angle: 0.2,
+                    speed: Random(1.5, 3.0),
+                )),
+            ],
+            update: [
+                Gravity((0.0, 1.5, 0.0)),
+                Drag(2.0),
+                Noise(
+                    strength: 0.8,
+                    frequency: 2.5,
+                    scroll: (0.3, 3.0, 0.3),
+                ),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 1.5,
+                                green: 0.8,
+                                blue: 0.15,
+                                alpha: 0.9,
+                            ),
+                        ),
+                        (
+                            time: 0.4,
+                            color: (
+                                red: 1.0,
+                                green: 0.35,
+                                blue: 0.02,
+                                alpha: 0.6,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.4,
+                                green: 0.08,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.1,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 0.4,
+                            value: 0.18,
+                            interp: EaseOut,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.04,
+                            interp: EaseIn,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/flame_05.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

@@ -1,0 +1,35 @@
+(
+    emitters: [
+        (
+            name: "Emitter",
+            enabled: true,
+            capacity: 1024,
+            spawn: Rate(50.0),
+            init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Constant(0.1),
+                )),
+                SetVelocity(Radial(
+                    center: (0.0, 0.0, 0.0),
+                    speed: Constant(2.0),
+                )),
+            ],
+            update: [
+                Gravity((0.0, -9.8, 0.0)),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: None,
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Blend,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

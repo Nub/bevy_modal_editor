@@ -1,0 +1,66 @@
+(
+    emitters: [
+        (
+            name: "Debris",
+            enabled: true,
+            capacity: 64,
+            spawn: Burst(
+                count: 15,
+                interval: 1.5,
+                max_cycles: None,
+            ),
+            init: [
+                SetLifetime(Random(1.0, 2.5)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Constant(0.2),
+                )),
+                SetVelocity(Radial(
+                    center: (0.0, 0.0, 0.0),
+                    speed: Random(3.0, 8.0),
+                )),
+                SetSize(Random(0.08, 0.2)),
+                SetOrientation(RandomFull),
+            ],
+            update: [
+                Gravity((0.0, -9.8, 0.0)),
+                Drag(0.3),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 1.0,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.6,
+                            interp: EaseIn,
+                        ),
+                    ],
+                )),
+                Spin(
+                    axis: (1.0, 0.5, 0.2),
+                    speed: 3.0,
+                ),
+            ],
+            render: Mesh((
+                shape: Cube,
+                material_path: None,
+                base_color: (
+                    red: 0.35,
+                    green: 0.3,
+                    blue: 0.25,
+                    alpha: 1.0,
+                ),
+                collide: true,
+                restitution: 0.3,
+            )),
+            sim_space: Local,
+            alpha_mode: Opaque,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

@@ -24,7 +24,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use bevy_editor_game::{CustomEntityRegistry, MaterialLibrary};
 
-use crate::particles::{ParticleEffectMarker, ParticleLibrary};
+use bevy_vfx::{VfxLibrary, VfxSystem};
 
 use crate::editor::{
     CameraMarks, EditorCamera, EditorMode, EditorState, FlyCamera, InsertState,
@@ -456,7 +456,7 @@ struct ModeParams<'w> {
     pending_selection: ResMut<'w, PendingEntitySelection>,
     editing_preset: ResMut<'w, EditingPreset>,
     library: Res<'w, MaterialLibrary>,
-    particle_library: Res<'w, ParticleLibrary>,
+    vfx_library: Res<'w, VfxLibrary>,
     effect_library: Res<'w, crate::effects::EffectLibrary>,
     editor_mode: Res<'w, State<EditorMode>>,
     type_registry: Res<'w, AppTypeRegistry>,
@@ -477,7 +477,7 @@ fn draw_command_palette(
     scene_file: Res<SceneFile>,
     registry: Res<CommandRegistry>,
     selected: Query<Entity, With<Selected>>,
-    selected_particles: Query<Entity, (With<Selected>, With<ParticleEffectMarker>)>,
+    selected_particles: Query<Entity, (With<Selected>, With<VfxSystem>)>,
     selected_effects: Query<Entity, (With<Selected>, With<crate::effects::EffectMarker>)>,
     scene_objects: Query<(Entity, &Name), Or<(With<SceneEntity>, With<bevy_editor_game::GameEntity>)>>,
     entity_transforms: Query<(&Transform, Option<&avian3d::prelude::Collider>), Without<EditorCamera>>,
@@ -538,7 +538,7 @@ fn draw_command_palette(
                 &mut mp.insert_preview_state,
                 &mut events,
                 &mut ab.next_mode,
-                &mp.particle_library,
+                &mp.vfx_library,
                 &mp.effect_library,
                 &mut ab.insert_state,
                 &mp.prefab_registry,
@@ -595,7 +595,7 @@ fn draw_command_palette(
             return particle_preset::draw_particle_preset_palette(
                 ctx,
                 &mut state,
-                &mp.particle_library,
+                &mp.vfx_library,
                 selected_particle,
                 &mut bevy_commands,
             );

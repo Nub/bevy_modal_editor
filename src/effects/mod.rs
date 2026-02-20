@@ -11,7 +11,7 @@ use bevy::light::ClusteredDecal;
 use bevy::prelude::*;
 
 use crate::constants::physics;
-use crate::particles::ParticleLibrary;
+use bevy_vfx::VfxLibrary;
 
 /// Library of named effect presets.
 #[derive(Resource, Default)]
@@ -247,7 +247,7 @@ fn advance_effects(
     mut effects: Query<(Entity, &EffectMarker, &mut EffectPlayback, &GlobalTransform)>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    particle_library: Res<ParticleLibrary>,
+    vfx_library: Res<VfxLibrary>,
     effect_library: Res<EffectLibrary>,
     asset_server: Res<AssetServer>,
 ) {
@@ -323,7 +323,7 @@ fn advance_effects(
                     &mut commands,
                     &mut meshes,
                     &mut materials,
-                    &particle_library,
+                    &vfx_library,
                     &effect_library,
                     &asset_server,
                     effect_entity,
@@ -353,7 +353,7 @@ fn execute_action(
     commands: &mut Commands,
     meshes: &mut ResMut<Assets<Mesh>>,
     materials: &mut ResMut<Assets<StandardMaterial>>,
-    particle_library: &ParticleLibrary,
+    vfx_library: &VfxLibrary,
     effect_library: &EffectLibrary,
     asset_server: &AssetServer,
     effect_entity: Entity,
@@ -396,7 +396,7 @@ fn execute_action(
         EffectAction::SpawnParticle { tag, preset, at } => {
             let pos = resolve_spawn_location(at, effect_transform, playback);
 
-            let marker = particle_library
+            let system = vfx_library
                 .effects
                 .get(preset)
                 .cloned()
@@ -408,7 +408,7 @@ fn execute_action(
                         effect_entity,
                         tag: tag.clone(),
                     },
-                    marker,
+                    system,
                     Transform::from_translation(pos),
                     Visibility::default(),
                     Collider::sphere(physics::LIGHT_COLLIDER_RADIUS),

@@ -16,7 +16,7 @@ mod material_editor;
 pub mod material_preview;
 mod mesh_model_panel;
 mod panels;
-mod particle_editor;
+mod vfx_editor;
 mod reflect_editor;
 mod settings;
 pub mod theme;
@@ -80,7 +80,7 @@ impl Plugin for UiPlugin {
                 mesh_model_panel::MeshModelPanelPlugin,
                 camera_settings::CameraSettingsPlugin,
                 material_preview::MaterialPreviewPlugin,
-                particle_editor::ParticleEditorPlugin,
+                vfx_editor::VfxEditorPlugin,
                 effect_editor::EffectEditorPlugin,
                 ai_editor::AIEditorPlugin,
                 insert_preview::InsertPreviewPlugin,

@@ -11,7 +11,7 @@ use bevy_egui::{egui, EguiPrimaryContextPass};
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::effects::data::*;
 use crate::effects::EffectLibrary;
-use crate::particles::ParticleLibrary;
+use bevy_vfx::VfxLibrary;
 use crate::scene::PrimitiveShape;
 use crate::selection::Selected;
 use crate::ui::command_palette::{
@@ -349,7 +349,7 @@ fn draw_effect_panel(world: &mut World) {
 
     // Collect particle preset names
     let mut particle_presets: Vec<String> = world
-        .get_resource::<ParticleLibrary>()
+        .get_resource::<VfxLibrary>()
         .map(|lib| lib.effects.keys().cloned().collect())
         .unwrap_or_default();
     particle_presets.sort();

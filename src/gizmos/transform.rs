@@ -161,7 +161,7 @@ fn draw_selection_gizmos(
     editor_state: Res<EditorState>,
     settings: Res<Settings>,
 ) {
-    if !editor_state.gizmos_visible {
+    if !editor_state.gizmos_visible || *mode.get() == EditorMode::Particle {
         return;
     }
 

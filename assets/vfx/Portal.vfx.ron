@@ -1,0 +1,154 @@
+(
+    emitters: [
+        (
+            name: "Ring",
+            enabled: true,
+            capacity: 512,
+            spawn: Rate(60.0),
+            init: [
+                SetLifetime(Random(1.5, 3.0)),
+                SetPosition(Circle(
+                    center: (0.0, 0.0, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    radius: Random(0.8, 1.2),
+                )),
+                SetVelocity(Tangent(
+                    axis: (0.0, 1.0, 0.0),
+                    speed: Random(1.5, 3.0),
+                )),
+            ],
+            update: [
+                RadialAccel(
+                    origin: (0.0, 0.0, 0.0),
+                    accel: -1.5,
+                ),
+                Drag(0.3),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.2,
+                                green: 0.6,
+                                blue: 1.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.1,
+                            color: (
+                                red: 0.3,
+                                green: 0.7,
+                                blue: 1.0,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.5,
+                            color: (
+                                red: 0.5,
+                                green: 0.3,
+                                blue: 1.0,
+                                alpha: 0.8,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.8,
+                                green: 0.2,
+                                blue: 1.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.06,
+                            interp: EaseIn,
+                        ),
+                        (
+                            time: 0.3,
+                            value: 0.1,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.02,
+                            interp: EaseOut,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/magic_03.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+        (
+            name: "Core Glow",
+            enabled: true,
+            capacity: 32,
+            spawn: Rate(6.0),
+            init: [
+                SetLifetime(Random(0.5, 1.0)),
+                SetPosition(Point((0.0, 0.0, 0.0))),
+                SetVelocity(Random(
+                    speed: Random(0.05, 0.1),
+                )),
+                SetSize(Random(0.5, 0.9)),
+            ],
+            update: [
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.6,
+                                green: 0.4,
+                                blue: 1.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.3,
+                            color: (
+                                red: 0.4,
+                                green: 0.5,
+                                blue: 1.0,
+                                alpha: 0.3,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.3,
+                                green: 0.2,
+                                blue: 0.8,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/light_01.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

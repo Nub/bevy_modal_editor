@@ -184,8 +184,8 @@ fn handle_click_selection(
         } else {
             commands.entity(entity_to_select).insert(Selected);
         }
-    } else if !selection_state.multi_select && *mode.get() != EditorMode::Edit {
-        // Clicked on nothing - clear selection (but not in Edit mode where we're editing control points)
+    } else if !selection_state.multi_select && !matches!(*mode.get(), EditorMode::Edit | EditorMode::Particle) {
+        // Clicked on nothing - clear selection (but not in Edit or Particle mode where we're editing)
         for (entity, _) in selected.iter() {
             commands.entity(entity).remove::<Selected>();
         }
@@ -305,6 +305,7 @@ fn sync_selection_outlines(
     mut commands: Commands,
     editor_state: Res<EditorState>,
     settings: Res<Settings>,
+    mode: Res<State<EditorMode>>,
     // Entities that are selected and have a mesh but no outline yet
     needs_outline: Query<Entity, (With<Selected>, With<Mesh3d>, Without<MeshOutline>)>,
     // Entities that have an outline but are no longer selected
@@ -318,9 +319,9 @@ fn sync_selection_outlines(
 ) {
     let outline_width = settings.gizmos.outline_width;
 
-    // Don't show outlines when gizmos are hidden (preview mode)
-    if !editor_state.gizmos_visible {
-        // Remove ALL outlines when in preview mode (including selected entities)
+    // Don't show outlines when gizmos are hidden (preview mode) or in Particle mode
+    if !editor_state.gizmos_visible || *mode.get() == EditorMode::Particle {
+        // Remove ALL outlines
         for (entity, _) in all_with_outline.iter() {
             commands.entity(entity).remove::<MeshOutline>();
         }

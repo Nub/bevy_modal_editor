@@ -85,7 +85,7 @@ pub enum CommandAction {
     SpawnArch,
     /// Spawn parametric L-shape
     SpawnLShape,
-    /// Spawn a particle effect (bevy_hanabi)
+    /// Spawn a VFX particle effect
     SpawnParticleEffect,
     /// Spawn a particle effect from a named preset
     SpawnParticlePreset(String),
@@ -260,7 +260,7 @@ impl CommandRegistry {
         });
         self.commands.push(Command {
             name: "Add Particle Effect".to_string(),
-            keywords: vec!["particle".into(), "emitter".into(), "vfx".into(), "fx".into(), "hanabi".into(), "fire".into(), "smoke".into(), "sparks".into()],
+            keywords: vec!["particle".into(), "emitter".into(), "vfx".into(), "fx".into(), "fire".into(), "smoke".into(), "sparks".into()],
             category: "Effects",
             action: CommandAction::SpawnParticleEffect,
             insertable: true,

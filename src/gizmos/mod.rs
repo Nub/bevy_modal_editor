@@ -11,7 +11,7 @@ use bevy_editor_game::CustomEntityRegistry;
 
 use avian3d::prelude::{Collider, SimpleCollider};
 
-use crate::editor::EditorState;
+use crate::editor::{EditorMode, EditorState};
 use crate::scene::{DecalMarker, DirectionalLightMarker, SceneLightMarker, SplineMarker};
 use crate::selection::Selected;
 use crate::ui::Settings;
@@ -151,10 +151,12 @@ fn draw_point_light_gizmos(
     mut gizmos: Gizmos,
     lights: Query<(&GlobalTransform, &SceneLightMarker, Has<Selected>)>,
     editor_state: Res<EditorState>,
+    mode: Res<State<EditorMode>>,
 ) {
     if !editor_state.gizmos_visible {
         return;
     }
+    let hide_selection = *mode.get() == EditorMode::Particle;
 
     for (transform, light_marker, is_selected) in lights.iter() {
         let position = transform.translation();
@@ -191,8 +193,8 @@ fn draw_point_light_gizmos(
             light_color,
         );
 
-        // When selected, draw range sphere
-        if is_selected {
+        // When selected, draw range sphere (but not in Particle mode)
+        if is_selected && !hide_selection {
             let range = light_marker.range;
             let range_color = light_color.with_alpha(0.3);
             gizmos.circle(Isometry3d::new(position, Quat::IDENTITY), range, range_color);
@@ -207,8 +209,9 @@ fn draw_decal_gizmos(
     mut gizmos: Gizmos,
     decals: Query<&GlobalTransform, (With<DecalMarker>, With<Selected>)>,
     editor_state: Res<EditorState>,
+    mode: Res<State<EditorMode>>,
 ) {
-    if !editor_state.gizmos_visible {
+    if !editor_state.gizmos_visible || *mode.get() == EditorMode::Particle {
         return;
     }
 
@@ -228,8 +231,9 @@ fn draw_meshless_selection_gizmos(
     mut gizmos: Gizmos<SelectionCircleGizmo>,
     selected: Query<(&GlobalTransform, Option<&Collider>), (With<Selected>, Without<Mesh3d>, Without<SplineMarker>)>,
     editor_state: Res<EditorState>,
+    mode: Res<State<EditorMode>>,
 ) {
-    if !editor_state.gizmos_visible {
+    if !editor_state.gizmos_visible || *mode.get() == EditorMode::Particle {
         return;
     }
 

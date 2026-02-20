@@ -1,0 +1,110 @@
+(
+    emitters: [
+        (
+            name: "Flame Jet",
+            enabled: true,
+            capacity: 1024,
+            spawn: Rate(150.0),
+            init: [
+                SetLifetime(Random(0.3, 0.7)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Random(0.02, 0.08),
+                )),
+                SetVelocity(Cone(
+                    direction: (0.0, 0.0, 1.0),
+                    angle: 0.2,
+                    speed: Random(6.0, 10.0),
+                )),
+            ],
+            update: [
+                Gravity((0.0, 2.0, 0.0)),
+                Drag(1.0),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 2.0,
+                                green: 1.8,
+                                blue: 1.0,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.2,
+                            color: (
+                                red: 1.5,
+                                green: 0.8,
+                                blue: 0.2,
+                                alpha: 0.9,
+                            ),
+                        ),
+                        (
+                            time: 0.5,
+                            color: (
+                                red: 1.0,
+                                green: 0.3,
+                                blue: 0.0,
+                                alpha: 0.6,
+                            ),
+                        ),
+                        (
+                            time: 0.8,
+                            color: (
+                                red: 0.4,
+                                green: 0.1,
+                                blue: 0.0,
+                                alpha: 0.3,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.15,
+                                green: 0.05,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.05,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 0.3,
+                            value: 0.2,
+                            interp: EaseOut,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.4,
+                            interp: Linear,
+                        ),
+                    ],
+                )),
+                Noise(
+                    strength: 2.0,
+                    frequency: 2.0,
+                    scroll: (0.0, 3.0, 0.0),
+                ),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/flame_02.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

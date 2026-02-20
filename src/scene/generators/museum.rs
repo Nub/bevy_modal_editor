@@ -8,7 +8,7 @@ use bevy_editor_game::{MaterialDefinition, MaterialLibrary, MaterialRef};
 
 use super::{MuseumGrid, MuseumGridSection};
 use crate::editor::EditorCamera;
-use crate::particles::ParticleLibrary;
+use bevy_vfx::VfxLibrary;
 use crate::scene::gltf_source::GltfSource;
 use crate::scene::primitives::PrimitiveMarker;
 use crate::scene::{regenerate_runtime_components, DirectionalLightMarker, PrimitiveShape, SceneEntity};
@@ -179,7 +179,7 @@ fn collect_sections(world: &World) -> Vec<MuseumSection> {
     }
 
     // 3. Particle presets section — one emitter per library preset
-    if let Some(library) = world.get_resource::<ParticleLibrary>() {
+    if let Some(library) = world.get_resource::<VfxLibrary>() {
         let mut particle_items: Vec<MuseumItem> = library
             .effects
             .keys()
@@ -358,15 +358,15 @@ fn spawn_museum_particle(
     position: Vec3,
     name: &str,
 ) {
-    let marker = world
-        .get_resource::<ParticleLibrary>()
+    let system = world
+        .get_resource::<VfxLibrary>()
         .and_then(|lib| lib.effects.get(preset_name).cloned())
         .unwrap_or_default();
 
     world.spawn((
         SceneEntity,
         Name::new(name.to_string()),
-        marker,
+        system,
         Transform::from_translation(position),
         Visibility::default(),
         Collider::sphere(crate::constants::physics::LIGHT_COLLIDER_RADIUS),

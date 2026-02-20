@@ -1,0 +1,90 @@
+(
+    emitters: [
+        (
+            name: "Smoke Puff",
+            enabled: true,
+            capacity: 256,
+            spawn: Rate(20.0),
+            init: [
+                SetLifetime(Random(2.0, 4.0)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Random(0.1, 0.4),
+                )),
+                SetVelocity(Radial(
+                    center: (0.0, 0.0, 0.0),
+                    speed: Random(0.3, 0.8),
+                )),
+            ],
+            update: [
+                Gravity((0.0, 1.2, 0.0)),
+                Drag(0.8),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.5,
+                                green: 0.5,
+                                blue: 0.5,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.1,
+                            color: (
+                                red: 0.45,
+                                green: 0.45,
+                                blue: 0.45,
+                                alpha: 0.4,
+                            ),
+                        ),
+                        (
+                            time: 0.6,
+                            color: (
+                                red: 0.35,
+                                green: 0.35,
+                                blue: 0.35,
+                                alpha: 0.25,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.25,
+                                green: 0.25,
+                                blue: 0.25,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.2,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 1.0,
+                            value: 0.8,
+                            interp: Linear,
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/smoke_01.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Blend,
+        ),
+    ],
+    params: [],
+    duration: 0.0,
+    looping: true,
+)

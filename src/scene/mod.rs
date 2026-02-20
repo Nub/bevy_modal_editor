@@ -76,8 +76,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         .allow_component::<FogVolumeMarker>()
         // Decals
         .allow_component::<DecalMarker>()
-        // Particles
-        .allow_component::<crate::particles::ParticleEffectMarker>()
+        // VFX
+        .allow_component::<bevy_vfx::VfxSystem>()
         // Effects
         .allow_component::<crate::effects::EffectMarker>()
         // Edited meshes
