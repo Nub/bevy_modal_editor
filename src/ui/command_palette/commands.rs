@@ -21,7 +21,7 @@ use crate::scene::{
     generators::{GenerateSceneEvent, SceneGenerator},
 };
 use crate::selection::Selected;
-use crate::ui::theme::colors;
+use crate::ui::theme::{colors, window_frame};
 use crate::ui::SettingsWindowState;
 
 use super::{
@@ -813,7 +813,7 @@ pub(super) fn draw_commands_palette(
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .frame(window_frame(&ctx.style()))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .fixed_size([400.0, 300.0])
         .show(ctx, |ui| {

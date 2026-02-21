@@ -8,6 +8,7 @@
                 count: 15,
                 interval: 1.5,
                 max_cycles: None,
+                offset: 0.0,
             ),
             init: [
                 SetLifetime(Random(1.0, 2.5)),

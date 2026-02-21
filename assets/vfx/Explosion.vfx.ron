@@ -4,7 +4,10 @@
             name: "Flash",
             enabled: true,
             capacity: 8,
-            spawn: Once(4),
+            spawn: Once(
+                count: 4,
+                offset: 0.0,
+            ),
             init: [
                 SetLifetime(Random(0.1, 0.25)),
                 SetPosition(Point((0.0, 0.0, 0.0))),
@@ -74,7 +77,10 @@
             name: "Fireball",
             enabled: true,
             capacity: 64,
-            spawn: Once(20),
+            spawn: Once(
+                count: 20,
+                offset: 0.0,
+            ),
             init: [
                 SetLifetime(Random(0.3, 0.8)),
                 SetPosition(Sphere(
@@ -161,7 +167,10 @@
             name: "Debris",
             enabled: true,
             capacity: 256,
-            spawn: Once(80),
+            spawn: Once(
+                count: 80,
+                offset: 0.0,
+            ),
             init: [
                 SetLifetime(Random(0.5, 1.5)),
                 SetPosition(Sphere(
@@ -244,7 +253,10 @@
             name: "Smoke",
             enabled: true,
             capacity: 64,
-            spawn: Once(20),
+            spawn: Once(
+                count: 20,
+                offset: 0.0,
+            ),
             init: [
                 SetLifetime(Random(1.0, 3.0)),
                 SetPosition(Sphere(

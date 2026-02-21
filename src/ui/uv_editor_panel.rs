@@ -9,6 +9,7 @@ use bevy_egui::{egui, EguiPrimaryContextPass};
 
 use crate::editor::{EditorMode, EditorState};
 use crate::modeling::MeshModelState;
+use crate::ui::theme::colors;
 
 pub struct UvEditorPlugin;
 
@@ -42,8 +43,6 @@ const UV_GRID_MAJOR: egui::Color32 = egui::Color32::from_rgb(60, 60, 70);
 const UV_GRID_MINOR: egui::Color32 = egui::Color32::from_rgb(42, 42, 48);
 const UV_BORDER: egui::Color32 = egui::Color32::from_rgb(100, 100, 120);
 const UV_WIRE: egui::Color32 = egui::Color32::from_rgb(140, 140, 160);
-const UV_SELECTED: egui::Color32 = egui::Color32::from_rgb(206, 145, 87);
-const UV_SEAM: egui::Color32 = egui::Color32::from_rgb(220, 60, 60);
 
 fn draw_uv_editor_panel(world: &mut World) {
     if !world.resource::<EditorState>().ui_enabled {
@@ -169,7 +168,7 @@ fn draw_uv_editor_panel(world: &mut World) {
                             let uv_b = edit_mesh.uvs[b];
                             let pa = to_screen(egui::pos2(uv_a.x, 1.0 - uv_a.y));
                             let pb = to_screen(egui::pos2(uv_b.x, 1.0 - uv_b.y));
-                            painter.line_segment([pa, pb], egui::Stroke::new(1.5, UV_SELECTED));
+                            painter.line_segment([pa, pb], egui::Stroke::new(1.5, colors::ACCENT_ORANGE));
                         }
                     }
                 }
@@ -184,7 +183,7 @@ fn draw_uv_editor_panel(world: &mut World) {
                     let uv_b = edit_mesh.uvs[b];
                     let pa = to_screen(egui::pos2(uv_a.x, 1.0 - uv_a.y));
                     let pb = to_screen(egui::pos2(uv_b.x, 1.0 - uv_b.y));
-                    painter.line_segment([pa, pb], egui::Stroke::new(2.0, UV_SEAM));
+                    painter.line_segment([pa, pb], egui::Stroke::new(2.0, colors::STATUS_ERROR));
                 }
             }
         });

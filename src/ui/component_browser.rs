@@ -5,7 +5,7 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::any::TypeId;
 
-use super::theme::colors;
+use super::theme::{colors, window_frame};
 
 /// Resource to track component browser state
 #[derive(Resource, Default)]
@@ -259,7 +259,7 @@ pub fn draw_component_browser(
         .collapsible(false)
         .resizable(false)
         .title_bar(true)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .frame(window_frame(&ctx.style()))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .fixed_size([400.0, 350.0])
         .show(ctx, |ui| {

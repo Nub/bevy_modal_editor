@@ -5,6 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use crate::editor::EditorState;
+use crate::ui::theme::{grid_label, section_header, window_frame, GRID_SPACING};
 
 /// Resource to track if fonts have been loaded
 #[derive(Resource, Default)]
@@ -239,14 +240,15 @@ fn draw_settings_window(
     egui::Window::new("Settings")
         .open(&mut window_state.open)
         .resizable(false)
+        .frame(window_frame(&ctx.style()))
         .show(ctx, |ui| {
             // UI Section
-            ui.heading("Interface");
+            section_header(ui, "Interface", true, |ui| {
             egui::Grid::new("settings_ui_grid")
                 .num_columns(2)
-                .spacing([10.0, 8.0])
+                .spacing(GRID_SPACING)
                 .show(ui, |ui| {
-                    ui.label("UI Scale:");
+                    grid_label(ui, "UI Scale");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.ui_scale, 0.75..=3.0)
                             .step_by(0.25)
@@ -257,13 +259,13 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Show Hints:");
+                    grid_label(ui, "Show Hints");
                     if ui.checkbox(&mut settings.show_hints, "").changed() {
                         settings.save();
                     }
                     ui.end_row();
 
-                    ui.label("Gizmo Width:");
+                    grid_label(ui, "Gizmo Width");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.gizmos.line_width, 1.0..=20.0)
                             .step_by(1.0)
@@ -274,7 +276,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Gizmo Scale:");
+                    grid_label(ui, "Gizmo Scale");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.gizmos.transform_scale, 0.5..=3.0)
                             .step_by(0.25)
@@ -285,7 +287,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Outline Width:");
+                    grid_label(ui, "Outline Width");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.gizmos.outline_width, 1.0..=10.0)
                             .step_by(0.5)
@@ -296,18 +298,15 @@ fn draw_settings_window(
                     }
                     ui.end_row();
                 });
-
-            ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(4.0);
+            });
 
             // Font Sizes Section
-            ui.heading("Font Sizes");
+            section_header(ui, "Font Sizes", true, |ui| {
             egui::Grid::new("settings_fonts_grid")
                 .num_columns(2)
-                .spacing([10.0, 8.0])
+                .spacing(GRID_SPACING)
                 .show(ui, |ui| {
-                    ui.label("Body:");
+                    grid_label(ui, "Body");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.fonts.body, 10.0..=20.0)
                             .step_by(1.0)
@@ -319,7 +318,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Heading:");
+                    grid_label(ui, "Heading");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.fonts.heading, 12.0..=24.0)
                             .step_by(1.0)
@@ -331,7 +330,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Small:");
+                    grid_label(ui, "Small");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.fonts.small, 8.0..=16.0)
                             .step_by(1.0)
@@ -343,7 +342,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Button:");
+                    grid_label(ui, "Button");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.fonts.button, 10.0..=20.0)
                             .step_by(1.0)
@@ -355,7 +354,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Monospace:");
+                    grid_label(ui, "Monospace");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.fonts.monospace, 10.0..=18.0)
                             .step_by(1.0)
@@ -367,18 +366,15 @@ fn draw_settings_window(
                     }
                     ui.end_row();
                 });
-
-            ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(4.0);
+            });
 
             // Camera Section
-            ui.heading("Camera");
+            section_header(ui, "Camera", true, |ui| {
             egui::Grid::new("settings_camera_grid")
                 .num_columns(2)
-                .spacing([10.0, 8.0])
+                .spacing(GRID_SPACING)
                 .show(ui, |ui| {
-                    ui.label("Movement Speed:");
+                    grid_label(ui, "Movement Speed");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.camera_speed, 1.0..=50.0)
                             .step_by(1.0),
@@ -388,7 +384,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Mouse Sensitivity:");
+                    grid_label(ui, "Mouse Sensitivity");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.camera_sensitivity, 0.001..=0.01)
                             .step_by(0.001),
@@ -398,18 +394,15 @@ fn draw_settings_window(
                     }
                     ui.end_row();
                 });
-
-            ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(4.0);
+            });
 
             // Snapping Section
-            ui.heading("Snapping");
+            section_header(ui, "Snapping", true, |ui| {
             egui::Grid::new("settings_snap_grid")
                 .num_columns(2)
-                .spacing([10.0, 8.0])
+                .spacing(GRID_SPACING)
                 .show(ui, |ui| {
-                    ui.label("Grid Snap:");
+                    grid_label(ui, "Grid Snap");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.grid_snap, 0.0..=2.0)
                             .step_by(0.25)
@@ -427,7 +420,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
 
-                    ui.label("Rotation Snap:");
+                    grid_label(ui, "Rotation Snap");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.rotation_snap, 0.0..=90.0)
                             .step_by(15.0)
@@ -446,18 +439,15 @@ fn draw_settings_window(
                     }
                     ui.end_row();
                 });
-
-            ui.add_space(8.0);
-            ui.separator();
-            ui.add_space(4.0);
+            });
 
             // History Section
-            ui.heading("History");
+            section_header(ui, "History", true, |ui| {
             egui::Grid::new("settings_history_grid")
                 .num_columns(2)
-                .spacing([10.0, 8.0])
+                .spacing(GRID_SPACING)
                 .show(ui, |ui| {
-                    ui.label("Undo History Size:");
+                    grid_label(ui, "Undo History Size");
                     let response = ui.add(
                         egui::Slider::new(&mut settings.undo_history_size, 10..=200)
                             .step_by(10.0),
@@ -467,6 +457,7 @@ fn draw_settings_window(
                     }
                     ui.end_row();
                 });
+            });
 
             ui.add_space(8.0);
             ui.separator();

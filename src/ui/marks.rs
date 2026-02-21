@@ -4,6 +4,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use crate::editor::{
     CameraMarks, EditorState, JumpToLastPositionEvent, JumpToMarkEvent, SetCameraMarkEvent,
 };
+use crate::ui::theme::window_frame;
 
 /// Resource to track if marks window is open
 #[derive(Resource, Default)]
@@ -48,6 +49,7 @@ fn draw_marks_window(
         .open(&mut open)
         .default_width(200.0)
         .resizable(true)
+        .frame(window_frame(&ctx.style()))
         .show(ctx, |ui| {
             // Quick jump to last position
             ui.horizontal(|ui| {

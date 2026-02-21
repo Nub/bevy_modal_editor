@@ -237,7 +237,7 @@ fn draw_hierarchy_panel(
             let show_filter = hierarchy_state.filter_active || !hierarchy_state.filter.is_empty();
             if show_filter {
                 ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("🔍").color(colors::TEXT_MUTED));
+                    ui.label(egui::RichText::new(icons::SEARCH).color(colors::TEXT_MUTED));
                     let response = ui.add(
                         egui::TextEdit::singleline(&mut hierarchy_state.filter)
                             .hint_text("Filter...")
@@ -376,6 +376,7 @@ pub mod icons {
     pub const RULER: &str = "\u{f546}";       //
     pub const DOT: &str = "\u{f111}";         //  (filled circle)
     pub const SUN: &str = "\u{f185}";         //  (directional light)
+    pub const SEARCH: &str = "\u{f002}";      //  (magnifying glass)
 }
 
 /// Get icon for entity based on its type

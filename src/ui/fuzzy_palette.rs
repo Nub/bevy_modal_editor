@@ -7,7 +7,7 @@ use bevy_egui::egui;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
-use super::theme::colors;
+use super::theme::{colors, window_frame};
 
 /// An item that can be displayed in a fuzzy palette
 pub trait PaletteItem {
@@ -278,7 +278,7 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
         .collapsible(false)
         .resizable(false)
         .title_bar(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .frame(window_frame(&ctx.style()))
         .anchor(config.anchor, config.anchor_offset)
         .fixed_size(effective_size)
         .order(egui::Order::Foreground)

@@ -16,7 +16,7 @@ use crate::selection::Selected;
 use crate::ui::fuzzy_palette::{
     draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteItem, PaletteResult, PaletteState,
 };
-use crate::ui::theme::colors;
+use crate::ui::theme::{colors, window_frame};
 
 use super::CommandPaletteState;
 
@@ -73,7 +73,7 @@ pub(super) fn draw_find_palette(
             .collapsible(false)
             .resizable(false)
             .title_bar(false)
-            .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+            .frame(window_frame(&ctx.style()))
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .fixed_size([400.0, 100.0])
             .show(ctx, |ui| {

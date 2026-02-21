@@ -37,7 +37,7 @@ use crate::ui::gltf_preview::GltfPreviewState;
 use crate::ui::insert_preview::InsertPreviewState;
 use crate::ui::material_editor::EditingPreset;
 use crate::ui::material_preview::PresetPreviewState;
-use crate::ui::theme::colors;
+use crate::ui::theme::{colors, window_frame};
 use crate::utils::should_process_input;
 
 // Re-export public types from submodules
@@ -695,7 +695,7 @@ fn draw_help_window(
     egui::Window::new("Keyboard Shortcuts")
         .collapsible(false)
         .resizable(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .frame(window_frame(&ctx.style()))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -890,7 +890,7 @@ fn draw_custom_mark_dialog(
     egui::Window::new("Set Camera Mark")
         .collapsible(false)
         .resizable(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .frame(window_frame(&ctx.style()))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.label(egui::RichText::new("Enter a name for this camera mark:").color(colors::TEXT_SECONDARY));
@@ -970,7 +970,7 @@ fn draw_rename_scene_dialog(
     egui::Window::new("Rename Scene")
         .collapsible(false)
         .resizable(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .frame(window_frame(&ctx.style()))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.label(egui::RichText::new("Enter a new name for this scene:").color(colors::TEXT_SECONDARY));
@@ -1077,7 +1077,7 @@ fn draw_create_prefab_dialog(
     egui::Window::new("Create Prefab")
         .collapsible(false)
         .resizable(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .frame(window_frame(&ctx.style()))
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.label(

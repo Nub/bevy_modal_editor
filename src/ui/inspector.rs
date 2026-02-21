@@ -1486,7 +1486,8 @@ fn draw_inspector_panel(world: &mut World) {
                                 .color(colors::TEXT_MUTED),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.checkbox(&mut is_locked, "Locked");
+                            ui.checkbox(&mut is_locked, "");
+                            grid_label(ui, "Locked");
                         });
                     });
 

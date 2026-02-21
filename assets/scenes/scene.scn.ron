@@ -1,59 +1,57 @@
 (
   resources: {},
   entities: {
-    4294967174: (
+    4294967172: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Plane 1",
-        "bevy_editor_game::MaterialRef": Library("Arch Default"),
+        "bevy_ecs::name::Name": "Catmull-Rom Spline 1",
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Plane,
+        "bevy_modal_editor::scene::primitives::SplineMarker": (),
+        "bevy_spline_3d::spline::components::Spline": (
+          spline_type: CatmullRom,
+          control_points: [
+            (-1.7853955, -0.64232254, -0.09278345),
+            (-3.4723158, -0.923383, -4.3047433),
+            (-0.025379896, -0.35009718, -5.2755504),
+            (1.3866506, -0.38716912, -0.704226),
+          ],
+          closed: true,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (0.0, -1.0689087, 0.0),
+          translation: (3.546773, 0.5050001, -3.1706853),
           rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (10.0, 1.0, 10.0),
-        ),
-      },
-    ),
-    4294967175: (
-      components: {
-        "bevy_ecs::name::Name": "Sun 1",
-        "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::DirectionalLightMarker": (
-          color: Srgba((
-            red: 1.0,
-            green: 0.98,
-            blue: 0.9,
-            alpha: 1.0,
-          )),
-          illuminance: 8000.0,
-          shadows_enabled: true,
-        ),
-        "bevy_transform::components::transform::Transform": (
-          translation: (6.203185, 0.5050001, 3.3428369),
-          rotation: (-0.12607865, 0.25660488, -0.033782676, 0.95766246),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    725849472901: (
+    4294967174: (
       components: {
         "bevy_ecs::hierarchy::Children": ([
-          1112396529440,
-          506806140699,
-          545460846315,
-          515396075123,
-          18399639895924,
-          536870911790,
-          528280977171,
-          631360191888,
-          14877766713202,
-          536870911842,
-          807453851017,
+          4294967171,
+          8589934467,
+          12884901763,
+          17179869059,
+          21474836355,
+          25769803651,
+          30064770947,
+          34359738243,
+          38654705539,
+          42949672835,
+          47244640131,
+          51539607427,
+          55834574723,
+          60129542019,
+          64424509315,
+          68719476611,
+          73014443907,
+          77309411203,
+          81604378499,
+          85899345795,
+          90194313091,
+          94489280387,
+          98784247683,
         ]),
         "bevy_ecs::name::Name": "BEST PART",
+        "bevy_editor_game::MaterialRef": Library("Effe"),
         "bevy_modal_editor::scene::SceneEntity": (),
         "bevy_spline_3d::path_follow::components::SplineFollower": (
           spline: 4685809319807,
@@ -77,8 +75,11 @@
             (
               name: "Pillar",
               enabled: true,
-              capacity: 6,
-              spawn: Rate(0.5),
+              capacity: 2,
+              spawn: Once(
+                count: 1,
+                offset: 0.0,
+              ),
               init: [
                 SetLifetime(Constant(5.0)),
                 SetUvScale((1.1, -1.4)),
@@ -88,6 +89,7 @@
                   z: Constant(1.0),
                 ),
                 SetPosition(Point((0.0, 5.0, 0.0))),
+                SetOrientation(RandomY),
               ],
               update: [
                 UvScroll(
@@ -102,13 +104,28 @@
                     keys: [
                       (
                         time: 0.0,
-                        value: 1.0,
-                        interp: Linear,
+                        value: 0.0,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.24804688,
+                        value: 0.13854218,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.3997294,
+                        value: 0.862761,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.95571876,
+                        value: 0.94785166,
+                        interp: EaseInOut,
                       ),
                       (
                         time: 1.0,
-                        value: 0.5,
-                        interp: Linear,
+                        value: 0.0,
+                        interp: EaseInOut,
                       ),
                     ],
                   ),
@@ -119,19 +136,39 @@
                         value: 1.0,
                         interp: Linear,
                       ),
+                      (
+                        time: 1.0,
+                        value: 1.0,
+                        interp: Linear,
+                      ),
                     ],
                   ),
                   z: (
                     keys: [
                       (
                         time: 0.0,
-                        value: 1.0,
-                        interp: Linear,
+                        value: 0.0,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.24804688,
+                        value: 0.13854218,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.3997294,
+                        value: 0.862761,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.95571876,
+                        value: 0.94785166,
+                        interp: EaseInOut,
                       ),
                       (
                         time: 1.0,
-                        value: 0.5,
-                        interp: Linear,
+                        value: 0.0,
+                        interp: EaseInOut,
                       ),
                     ],
                   ),
@@ -157,7 +194,16 @@
                       ),
                     ),
                     (
-                      time: 1.0,
+                      time: 0.48666382,
+                      color: (
+                        red: 0.25394395,
+                        green: 0.8022067,
+                        blue: 0.9345351,
+                        alpha: 1.0,
+                      ),
+                    ),
+                    (
+                      time: 0.7154136,
                       color: (
                         red: 0.0,
                         green: 0.0,
@@ -169,7 +215,7 @@
                 )),
               ],
               render: Mesh((
-                shape: Custom("particle_meshes::Hourglass"),
+                shape: Custom("particle_meshes::Cylinder"),
                 material_path: Some("Effect1"),
                 base_color: (
                   red: 0.5,
@@ -188,19 +234,22 @@
               name: "Particles",
               enabled: true,
               capacity: 256,
-              spawn: Rate(25.0),
+              spawn: Once(
+                count: 100,
+                offset: 0.0,
+              ),
               init: [
                 SetLifetime(Constant(5.0)),
                 SetPosition(Circle(
                   center: (0.0, 0.0, 0.0),
                   axis: (0.0, 1.0, 0.0),
-                  radius: Constant(0.8),
-                )),
-                SetVelocity(Directional(
-                  direction: (0.0, 1.0, 0.0),
-                  speed: Random(1.0, 3.0),
+                  radius: Constant(0.1),
                 )),
                 SetSize(Random(0.05, 0.15)),
+                SetVelocity(Directional(
+                  direction: (0.0, 1.0, 0.0),
+                  speed: Random(0.0, 3.0),
+                )),
               ],
               update: [
                 SizeByLife((
@@ -265,8 +314,9 @@
                 TangentAccel(
                   origin: (0.0, 0.0, 0.0),
                   axis: (0.0, 1.0, 0.0),
-                  accel: -0.3,
+                  accel: -0.6,
                 ),
+                Gravity((0.0, 1.0, 0.0)),
               ],
               render: Billboard((
                 orient: FaceCamera,
@@ -280,25 +330,29 @@
             (
               name: "splash",
               enabled: true,
-              capacity: 10,
-              spawn: Rate(2.0),
+              capacity: 5,
+              spawn: Once(
+                count: 5,
+                offset: 1.3,
+              ),
               init: [
                 SetLifetime(Constant(5.0)),
-                SetPosition(Point((0.0, -5.0, 0.0))),
+                SetPosition(Circle(
+                  center: (0.0, 0.0, 0.0),
+                  axis: (0.0, 1.0, 0.0),
+                  radius: Random(0.3, 0.5),
+                )),
                 SetScale3d(
-                  x: Constant(1.5),
-                  y: Constant(9.24),
-                  z: Constant(1.5),
+                  x: Constant(0.3),
+                  y: Constant(1.5),
+                  z: Constant(0.3),
                 ),
                 SetUvScale((-0.1, 0.8)),
-                SetVelocity(Directional(
-                  direction: (0.0, 1.0, 0.0),
-                  speed: Random(1.0, 3.0),
-                )),
+                SetOrientation(RandomY),
               ],
               update: [
                 UvScroll(
-                  speed: (-0.03, 0.0),
+                  speed: (-0.12, -0.18),
                 ),
                 ColorByLife((
                   keys: [
@@ -312,12 +366,21 @@
                       ),
                     ),
                     (
-                      time: 0.3,
+                      time: 0.1,
                       color: (
-                        red: 0.024615377,
-                        green: 0.1865649,
-                        blue: 0.20654617,
-                        alpha: 0.30467805,
+                        red: 0.4935526,
+                        green: 0.9038529,
+                        blue: 0.9544756,
+                        alpha: 1.0,
+                      ),
+                    ),
+                    (
+                      time: 0.3442688,
+                      color: (
+                        red: 0.046041716,
+                        green: 0.2167373,
+                        blue: 0.50519603,
+                        alpha: 0.72859025,
                       ),
                     ),
                     (
@@ -331,24 +394,58 @@
                     ),
                   ],
                 )),
-                SizeByLife((
-                  keys: [
-                    (
-                      time: 0.0,
-                      value: 0.5,
-                      interp: Linear,
-                    ),
-                    (
-                      time: 1.0,
-                      value: 1.5,
-                      interp: Linear,
-                    ),
-                  ],
-                )),
+                Spin(
+                  axis: (0.0, 1.0, 0.0),
+                  speed: 2.0,
+                ),
+                Scale3dByLife(
+                  x: (
+                    keys: [
+                      (
+                        time: 0.0,
+                        value: 0.540364,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.16223338,
+                        value: 1.0078781,
+                        interp: EaseInOut,
+                      ),
+                    ],
+                  ),
+                  y: (
+                    keys: [
+                      (
+                        time: 0.00036160907,
+                        value: 0.0,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.26445735,
+                        value: 1.0391922,
+                        interp: EaseInOut,
+                      ),
+                    ],
+                  ),
+                  z: (
+                    keys: [
+                      (
+                        time: 0.0,
+                        value: 0.540364,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.16223338,
+                        value: 1.0078781,
+                        interp: EaseInOut,
+                      ),
+                    ],
+                  ),
+                ),
               ],
               render: Mesh((
-                shape: Custom("particle_meshes::Cone"),
-                material_path: Some("Effe"),
+                shape: Custom("particle_meshes::Tendril"),
+                material_path: Some("Effect1"),
                 base_color: (
                   red: 0.5,
                   green: 0.5,
@@ -366,7 +463,10 @@
               name: "rocks",
               enabled: true,
               capacity: 256,
-              spawn: Rate(15.0),
+              spawn: Once(
+                count: 100,
+                offset: 1.5,
+              ),
               init: [
                 SetLifetime(Constant(5.0)),
                 SetPosition(Circle(
@@ -400,12 +500,11 @@
             ),
             (
               name: "ground effect",
-              enabled: true,
+              enabled: false,
               capacity: 20,
-              spawn: Burst(
-                count: 2,
-                interval: 0.5,
-                max_cycles: None,
+              spawn: Once(
+                count: 100,
+                offset: 0.0,
               ),
               init: [
                 SetLifetime(Constant(5.0)),
@@ -461,7 +560,10 @@
               name: "smoke",
               enabled: true,
               capacity: 30,
-              spawn: Rate(2.0),
+              spawn: Once(
+                count: 20,
+                offset: 1.5,
+              ),
               init: [
                 SetLifetime(Random(1.0, 3.0)),
                 SetPosition(Sphere(
@@ -534,6 +636,215 @@
               sim_space: Local,
               alpha_mode: Additive,
             ),
+            (
+              name: "Emitter 7",
+              enabled: true,
+              capacity: 3,
+              spawn: Once(
+                count: 3,
+                offset: 1.2,
+              ),
+              init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Sphere(
+                  center: (0.0, 0.0, 0.0),
+                  radius: Random(0.0, 0.2),
+                )),
+              ],
+              update: [
+                Scale3dByLife(
+                  x: (
+                    keys: [
+                      (
+                        time: 0.0082567,
+                        value: 0.07487035,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.11907862,
+                        value: 2.5,
+                        interp: EaseInOut,
+                      ),
+                    ],
+                  ),
+                  y: (
+                    keys: [
+                      (
+                        time: 0.0082567,
+                        value: 0.07487035,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.11907862,
+                        value: 2.5,
+                        interp: EaseInOut,
+                      ),
+                    ],
+                  ),
+                  z: (
+                    keys: [
+                      (
+                        time: 0.0082567,
+                        value: 0.07487035,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.11907862,
+                        value: 2.5,
+                        interp: EaseInOut,
+                      ),
+                    ],
+                  ),
+                ),
+                ColorByLife((
+                  keys: [
+                    (
+                      time: 0.0,
+                      color: (
+                        red: 0.05250001,
+                        green: 1.0,
+                        blue: 0.8823152,
+                        alpha: 1.0,
+                      ),
+                    ),
+                    (
+                      time: 0.17865992,
+                      color: (
+                        red: 0.0,
+                        green: 0.0,
+                        blue: 0.0,
+                        alpha: 0.0,
+                      ),
+                    ),
+                  ],
+                )),
+              ],
+              render: Mesh((
+                shape: Sphere,
+                material_path: None,
+                base_color: (
+                  red: 0.5,
+                  green: 0.5,
+                  blue: 0.5,
+                  alpha: 1.0,
+                ),
+                collide: false,
+                restitution: 0.3,
+                cast_shadows: false,
+              )),
+              sim_space: Local,
+              alpha_mode: Additive,
+            ),
+            (
+              name: "skirt",
+              enabled: true,
+              capacity: 3,
+              spawn: Once(
+                count: 3,
+                offset: 0.0,
+              ),
+              init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Point((0.0, 0.0, 0.0))),
+                SetScale3d(
+                  x: Constant(1.0),
+                  y: Constant(0.7),
+                  z: Constant(1.0),
+                ),
+                SetUvScale((1.0, 1.0)),
+                SetOrientation(RandomY),
+              ],
+              update: [
+                Scale3dByLife(
+                  x: (
+                    keys: [
+                      (
+                        time: 0.011501736,
+                        value: 0.13216102,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.24804688,
+                        value: 0.25,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.3997294,
+                        value: 1.6,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.95571876,
+                        value: 2.0,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 1.0,
+                        value: 0.0,
+                        interp: EaseInOut,
+                      ),
+                    ],
+                  ),
+                  y: (
+                    keys: [
+                      (
+                        time: 0.0,
+                        value: 1.0,
+                        interp: Linear,
+                      ),
+                    ],
+                  ),
+                  z: (
+                    keys: [
+                      (
+                        time: 0.011501736,
+                        value: 0.13216102,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.24804688,
+                        value: 0.25,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.3997294,
+                        value: 1.6,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 0.95571876,
+                        value: 2.0,
+                        interp: EaseInOut,
+                      ),
+                      (
+                        time: 1.0,
+                        value: 0.0,
+                        interp: EaseInOut,
+                      ),
+                    ],
+                  ),
+                ),
+                Spin(
+                  axis: (0.0, 1.0, 0.0),
+                  speed: 2.0,
+                ),
+              ],
+              render: Mesh((
+                shape: Custom("particle_meshes::ConeHalf"),
+                material_path: Some("Effe"),
+                base_color: (
+                  red: 0.5,
+                  green: 0.5,
+                  blue: 0.5,
+                  alpha: 1.0,
+                ),
+                collide: false,
+                restitution: 0.3,
+                cast_shadows: false,
+              )),
+              sim_space: Local,
+              alpha_mode: Blend,
+            ),
           ],
           params: [],
           duration: 5.0,
@@ -541,91 +852,40 @@
         ),
       },
     ),
-    2044404432764: (
+    4294967175: (
       components: {
-        "avian3d::dynamics::rigid_body::RigidBody": Static,
-        "bevy_ecs::name::Name": "Cube 1",
-        "bevy_editor_game::MaterialRef": Inline((
-          base: (
-            base_color: Srgba((
-              red: 0.8,
-              green: 0.7,
-              blue: 0.6,
-              alpha: 1.0,
-            )),
-            emissive: (
-              red: 0.0,
-              green: 0.0,
-              blue: 0.0,
-              alpha: 1.0,
-            ),
-            metallic: 0.0,
-            perceptual_roughness: 0.5,
-            reflectance: 0.5,
-            alpha_cutoff: 0.5,
-            double_sided: false,
-            unlit: false,
-            alpha_mode: Opaque,
-            ior: 1.5,
-            specular_transmission: 0.0,
-            specular_tint: LinearRgba((
-              red: 1.0,
-              green: 1.0,
-              blue: 1.0,
-              alpha: 1.0,
-            )),
-            clearcoat: 0.0,
-            clearcoat_perceptual_roughness: 0.5,
-            anisotropy_strength: 0.0,
-            anisotropy_rotation: 0.0,
-            diffuse_transmission: 0.0,
-            thickness: 0.5,
-            uv_scale: (1.0, 1.0),
-            base_color_texture: None,
-            normal_map_texture: None,
-            metallic_roughness_texture: None,
-            emissive_texture: None,
-            occlusion_texture: None,
-            depth_map_texture: None,
-            parallax_depth_scale: 0.1,
-            parallax_mapping_method: Occlusion,
-            max_parallax_layer_count: 16.0,
-          ),
-          extension: Some((
-            type_name: "grid",
-            data: "(line_color:(0.0,0.0,0.0,0.5),major_line_color:(0.0,0.0,0.0,0.5),line_width:1.0,major_line_width:3.0,grid_scale:1.0,major_line_every:10,axes_xz:true,axes_xy:true,axes_yz:true,fade_distance:0.0,fade_strength:1.0)",
-          )),
-        )),
+        "bevy_ecs::name::Name": "Sun 1",
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
-          shape: Cube,
+        "bevy_modal_editor::scene::primitives::DirectionalLightMarker": (
+          color: Srgba((
+            red: 1.0,
+            green: 0.98,
+            blue: 0.9,
+            alpha: 1.0,
+          )),
+          illuminance: 8000.0,
+          shadows_enabled: true,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (4.530133, 0.50499964, 1.1237726),
-          rotation: (0.0, 0.0, 0.0, 1.0),
+          translation: (6.203185, 0.5050001, 3.3428369),
+          rotation: (-0.12607865, 0.25660488, -0.033782676, 0.95766246),
           scale: (1.0, 1.0, 1.0),
         ),
       },
     ),
-    4685809319807: (
+    4294967176: (
       components: {
-        "bevy_ecs::name::Name": "Catmull-Rom Spline 1",
+        "avian3d::dynamics::rigid_body::RigidBody": Static,
+        "bevy_ecs::name::Name": "Plane 1",
+        "bevy_editor_game::MaterialRef": Library("Arch Default"),
         "bevy_modal_editor::scene::SceneEntity": (),
-        "bevy_modal_editor::scene::primitives::SplineMarker": (),
-        "bevy_spline_3d::spline::components::Spline": (
-          spline_type: CatmullRom,
-          control_points: [
-            (-1.7853955, -0.64232254, -0.09278345),
-            (-3.4723158, -0.923383, -4.3047433),
-            (-0.025379896, -0.35009718, -5.2755504),
-            (1.3866506, -0.38716912, -0.704226),
-          ],
-          closed: true,
+        "bevy_modal_editor::scene::primitives::PrimitiveMarker": (
+          shape: Plane,
         ),
         "bevy_transform::components::transform::Transform": (
-          translation: (3.546773, 0.5050001, -3.1706853),
+          translation: (0.0, -1.0689087, 0.0),
           rotation: (0.0, 0.0, 0.0, 1.0),
-          scale: (1.0, 1.0, 1.0),
+          scale: (10.0, 1.0, 10.0),
         ),
       },
     ),

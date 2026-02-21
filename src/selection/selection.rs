@@ -63,9 +63,8 @@ fn handle_click_selection(
         return;
     }
 
-    // Don't change entity selection in Blockout mode — mesh element selection
-    // is handled by the modeling tool's own click handler
-    if *mode.get() == EditorMode::Blockout {
+    // Don't change entity selection in Blockout or Particle mode
+    if matches!(*mode.get(), EditorMode::Blockout | EditorMode::Particle) {
         return;
     }
 

@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use crate::editor::{AxisConstraint, EditStepAmount, EditorMode, EditorState, SnapSubMode, TransformOperation};
-use crate::ui::theme::colors;
+use crate::ui::theme::{colors, panel, window_frame};
 
 pub struct EditInfoPlugin;
 
@@ -39,15 +39,14 @@ fn draw_edit_info_window(
     let ctx = contexts.ctx_mut()?;
 
     // Position inside viewport: offset from left to avoid hierarchy panel, from bottom to avoid status bar
-    // Hierarchy panel is ~200px, status bar is ~25px
-    let hierarchy_offset = 210.0;
-    let status_bar_offset = 35.0;
+    let hierarchy_offset = panel::DEFAULT_WIDTH + panel::WINDOW_PADDING + 2.0;
+    let status_bar_offset = panel::STATUS_BAR_HEIGHT + panel::WINDOW_PADDING;
 
     egui::Window::new("Edit")
         .resizable(false)
         .collapsible(false)
         .title_bar(false)
-        .frame(egui::Frame::window(&ctx.style()).fill(colors::BG_DARK))
+        .frame(window_frame(&ctx.style()))
         .anchor(egui::Align2::LEFT_BOTTOM, [hierarchy_offset, -status_bar_offset])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {

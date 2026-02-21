@@ -3,6 +3,7 @@ use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 
 use super::InspectorPanelState;
 use crate::editor::{AxisConstraint, CameraPreset, EditorCamera, EditorMode, EditorState, FlyCamera, SetCameraPresetEvent};
+use crate::ui::theme::colors;
 
 pub struct ViewGizmoPlugin;
 
@@ -69,13 +70,13 @@ fn draw_view_gizmo(
 
             // Background circle
             painter.circle_filled(center, gizmo_size / 2.0 - 2.0, egui::Color32::from_rgba_unmultiplied(40, 40, 40, 200));
-            painter.circle_stroke(center, gizmo_size / 2.0 - 2.0, egui::Stroke::new(1.0, egui::Color32::from_gray(80)));
+            painter.circle_stroke(center, gizmo_size / 2.0 - 2.0, egui::Stroke::new(1.0, colors::TEXT_MUTED));
 
             // Define world axes with positive and negative labels
             let axes = [
-                (Vec3::X, egui::Color32::from_rgb(230, 80, 80), "X", "-X", CameraPreset::Right, CameraPreset::Left, AxisConstraint::X),
-                (Vec3::Y, egui::Color32::from_rgb(80, 200, 80), "Y", "-Y", CameraPreset::Top, CameraPreset::Bottom, AxisConstraint::Y),
-                (Vec3::Z, egui::Color32::from_rgb(80, 130, 230), "Z", "-Z", CameraPreset::Front, CameraPreset::Back, AxisConstraint::Z),
+                (Vec3::X, colors::AXIS_X, "X", "-X", CameraPreset::Right, CameraPreset::Left, AxisConstraint::X),
+                (Vec3::Y, colors::AXIS_Y, "Y", "-Y", CameraPreset::Top, CameraPreset::Bottom, AxisConstraint::Y),
+                (Vec3::Z, colors::AXIS_Z, "Z", "-Z", CameraPreset::Front, CameraPreset::Back, AxisConstraint::Z),
             ];
 
             // Current axis constraint for highlighting
@@ -134,16 +135,16 @@ fn draw_view_gizmo(
 
                 // Draw highlight ring for active axis in edit mode
                 if is_active && in_edit_mode {
-                    painter.circle_stroke(*pos_2d, sphere_size + 2.0, egui::Stroke::new(2.0, egui::Color32::WHITE));
+                    painter.circle_stroke(*pos_2d, sphere_size + 2.0, egui::Stroke::new(2.0, colors::TEXT_PRIMARY));
                 }
 
                 // Draw label
                 if *is_positive {
                     let font_size = if rotated.z < 0.0 { 12.0 } else { 14.0 };
                     let text_color = if rotated.z < 0.0 {
-                        egui::Color32::from_gray(150)
+                        colors::TEXT_SECONDARY
                     } else {
-                        egui::Color32::WHITE
+                        colors::TEXT_PRIMARY
                     };
                     painter.text(
                         *pos_2d,
@@ -190,7 +191,7 @@ fn draw_view_gizmo(
                 egui::Align2::CENTER_TOP,
                 view_name,
                 egui::FontId::proportional(12.0),
-                egui::Color32::from_gray(180),
+                colors::TEXT_SECONDARY,
             );
         });
 

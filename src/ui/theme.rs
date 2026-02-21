@@ -30,6 +30,9 @@ pub const PANEL_SHADOW: egui::Shadow = egui::Shadow {
     color: egui::Color32::from_black_alpha(40),
 };
 
+/// Standard grid spacing used across all panel grids.
+pub const GRID_SPACING: [f32; 2] = [8.0, 4.0];
+
 /// Shared configuration for side panels (Inspector, Material, Hierarchy)
 pub mod panel {
     /// Padding from window edges
@@ -226,6 +229,16 @@ pub fn section_header(
     .default_open(default_open)
     .show(ui, add_body);
     ui.add_space(2.0);
+}
+
+/// Convert a Bevy `LinearRgba` color to an egui `Color32`.
+pub fn linear_rgba_to_color32(c: bevy::color::LinearRgba) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(
+        (c.red * 255.0).clamp(0.0, 255.0) as u8,
+        (c.green * 255.0).clamp(0.0, 255.0) as u8,
+        (c.blue * 255.0).clamp(0.0, 255.0) as u8,
+        (c.alpha * 255.0).clamp(0.0, 255.0) as u8,
+    )
 }
 
 /// Color palette matching Bevy editor style

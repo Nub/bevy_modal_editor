@@ -44,8 +44,5 @@
         parallax_mapping_method: Occlusion,
         max_parallax_layer_count: 16.0,
     ),
-    extension: Some((
-        type_name: "grid",
-        data: "(line_color:(0.0,0.0,0.0,0.5),major_line_color:(0.0,0.0,0.0,0.5),line_width:1.0,major_line_width:3.0,grid_scale:1.0,major_line_every:10,axes_xz:true,axes_xy:true,axes_yz:true,fade_distance:0.0,fade_strength:1.0)",
-    )),
+    extension: None,
 )

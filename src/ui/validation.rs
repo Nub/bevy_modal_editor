@@ -4,7 +4,7 @@ use bevy_editor_game::{ValidationMessage, ValidationRegistry, ValidationSeverity
 
 use crate::editor::EditorState;
 use crate::selection::Selected;
-use crate::ui::theme::colors;
+use crate::ui::theme::{colors, window_frame};
 
 /// Cached validation results, refreshed periodically.
 #[derive(Resource, Default)]
@@ -174,6 +174,7 @@ fn draw_validation_panel(world: &mut World) {
             .max_height(300.0)
             .resizable(true)
             .collapsible(false)
+            .frame(window_frame(&ctx.style()))
             .show(&ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     for (rule_name, messages) in &results {
