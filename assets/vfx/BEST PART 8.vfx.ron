@@ -1,0 +1,820 @@
+(
+    emitters: [
+        (
+            name: "Pillar",
+            enabled: true,
+            capacity: 2,
+            spawn: Once(
+                count: 1,
+                offset: 0.0,
+            ),
+            init: [
+                SetLifetime(Constant(5.0)),
+                SetUvScale((1.1, -1.4)),
+                SetScale3d(
+                    x: Constant(1.0),
+                    y: Constant(5.0),
+                    z: Constant(1.0),
+                ),
+                SetPosition(Point((0.0, 5.0, 0.0))),
+                SetOrientation(RandomY),
+            ],
+            update: [
+                UvScroll(
+                    speed: (0.0, -0.16),
+                ),
+                Spin(
+                    axis: (0.0, 1.0, 0.0),
+                    speed: 0.8,
+                ),
+                Scale3dByLife(
+                    x: (
+                        keys: [
+                            (
+                                time: 0.0,
+                                value: 0.0,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.24804688,
+                                value: 0.13854218,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.3997294,
+                                value: 0.862761,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.95571876,
+                                value: 0.94785166,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 1.0,
+                                value: 0.0,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                    y: (
+                        keys: [
+                            (
+                                time: 0.0,
+                                value: 1.0,
+                                interp: Linear,
+                            ),
+                            (
+                                time: 1.0,
+                                value: 1.0,
+                                interp: Linear,
+                            ),
+                        ],
+                    ),
+                    z: (
+                        keys: [
+                            (
+                                time: 0.0,
+                                value: 0.0,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.24804688,
+                                value: 0.13854218,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.3997294,
+                                value: 0.862761,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.95571876,
+                                value: 0.94785166,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 1.0,
+                                value: 0.0,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                ),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.1,
+                            color: (
+                                red: 0.056402523,
+                                green: 0.90600884,
+                                blue: 0.6372726,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.48666382,
+                            color: (
+                                red: 0.25394395,
+                                green: 0.8022067,
+                                blue: 0.9345351,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.7154136,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+            ],
+            render: Mesh((
+                shape: Custom("particle_meshes::Cylinder"),
+                material_path: Some("Effect1"),
+                base_color: (
+                    red: 0.5,
+                    green: 0.5,
+                    blue: 0.5,
+                    alpha: 1.0,
+                ),
+                collide: false,
+                restitution: 0.3,
+                cast_shadows: false,
+            )),
+            sim_space: Local,
+            alpha_mode: Blend,
+        ),
+        (
+            name: "Particles",
+            enabled: true,
+            capacity: 256,
+            spawn: Once(
+                count: 50,
+                offset: 0.0,
+            ),
+            init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Circle(
+                    center: (0.0, 5.0, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    radius: Random(0.05, 0.2),
+                )),
+                SetSize(Random(0.35, 0.65)),
+                SetVelocity(Directional(
+                    direction: (0.0, -1.0, 0.0),
+                    speed: Random(0.0, 5.0),
+                )),
+            ],
+            update: [
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.2,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 0.25,
+                            value: 1.0,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 0.8,
+                            value: 0.0,
+                            interp: Linear,
+                        ),
+                    ],
+                )),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.22312498,
+                                green: 1.0,
+                                blue: 0.8338553,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.25,
+                            color: (
+                                red: 0.4322807,
+                                green: 0.9331897,
+                                blue: 0.7519515,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.5,
+                            color: (
+                                red: 0.15201358,
+                                green: 0.47544843,
+                                blue: 0.8339897,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.1418983,
+                                green: 0.79543775,
+                                blue: 0.58296305,
+                                alpha: 1.0,
+                            ),
+                        ),
+                    ],
+                )),
+                TangentAccel(
+                    origin: (0.0, 0.0, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    accel: -0.6,
+                ),
+                Gravity((0.0, -3.3, 0.0)),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/trace_01.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Blend,
+        ),
+        (
+            name: "splash",
+            enabled: true,
+            capacity: 5,
+            spawn: Once(
+                count: 5,
+                offset: 1.3,
+            ),
+            init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Circle(
+                    center: (0.0, 0.0, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    radius: Random(0.3, 0.5),
+                )),
+                SetScale3d(
+                    x: Constant(0.3),
+                    y: Constant(1.5),
+                    z: Constant(0.3),
+                ),
+                SetUvScale((-0.1, 0.8)),
+                SetOrientation(RandomY),
+            ],
+            update: [
+                UvScroll(
+                    speed: (-0.12, -0.18),
+                ),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.16447973,
+                            color: (
+                                red: 0.4935526,
+                                green: 0.9038529,
+                                blue: 0.9544756,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.3442688,
+                            color: (
+                                red: 0.046041716,
+                                green: 0.2167373,
+                                blue: 0.50519603,
+                                alpha: 0.72859025,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                Spin(
+                    axis: (0.0, 1.0, 0.0),
+                    speed: 2.0,
+                ),
+                Scale3dByLife(
+                    x: (
+                        keys: [
+                            (
+                                time: 0.0,
+                                value: 0.540364,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.16223338,
+                                value: 1.0078781,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                    y: (
+                        keys: [
+                            (
+                                time: 0.00036160907,
+                                value: 0.0,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.26445735,
+                                value: 1.0391922,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                    z: (
+                        keys: [
+                            (
+                                time: 0.0,
+                                value: 0.540364,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.16223338,
+                                value: 1.0078781,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                ),
+            ],
+            render: Mesh((
+                shape: Custom("particle_meshes::Tendril"),
+                material_path: Some("Effect1"),
+                base_color: (
+                    red: 0.5,
+                    green: 0.5,
+                    blue: 0.5,
+                    alpha: 1.0,
+                ),
+                collide: false,
+                restitution: 0.3,
+                cast_shadows: false,
+            )),
+            sim_space: Local,
+            alpha_mode: Blend,
+        ),
+        (
+            name: "rocks",
+            enabled: true,
+            capacity: 256,
+            spawn: Once(
+                count: 100,
+                offset: 1.5,
+            ),
+            init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Circle(
+                    center: (0.0, 0.0, 0.0),
+                    axis: (0.0, 1.0, 0.0),
+                    radius: Random(1.0, 1.2),
+                )),
+                SetVelocity(Cone(
+                    direction: (0.0, 1.0, 0.0),
+                    angle: 1.8,
+                    speed: Random(2.0, 5.0),
+                )),
+                SetSize(Random(0.05, 0.15)),
+            ],
+            update: [],
+            render: Mesh((
+                shape: Custom("particle_meshes::Rock"),
+                material_path: None,
+                base_color: (
+                    red: 0.5,
+                    green: 0.5,
+                    blue: 0.5,
+                    alpha: 1.0,
+                ),
+                collide: true,
+                restitution: 0.3,
+                cast_shadows: false,
+            )),
+            sim_space: World,
+            alpha_mode: Blend,
+        ),
+        (
+            name: "ground effect",
+            enabled: false,
+            capacity: 20,
+            spawn: Once(
+                count: 100,
+                offset: 0.0,
+            ),
+            init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Constant(0.1),
+                )),
+                SetSize(Constant(1.2)),
+            ],
+            update: [
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.2,
+                            color: (
+                                red: 0.02843542,
+                                green: 0.017723681,
+                                blue: 0.012226422,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: None,
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Premultiply,
+        ),
+        (
+            name: "smoke",
+            enabled: true,
+            capacity: 30,
+            spawn: Once(
+                count: 20,
+                offset: 1.5,
+            ),
+            init: [
+                SetLifetime(Random(1.0, 3.0)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Constant(0.1),
+                )),
+                SetVelocity(Radial(
+                    center: (0.0, 1.0, 0.0),
+                    speed: Random(0.1, 0.3),
+                )),
+            ],
+            update: [
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.2,
+                            color: (
+                                red: 1.0,
+                                green: 1.0,
+                                blue: 1.0,
+                                alpha: 0.18186568,
+                            ),
+                        ),
+                        (
+                            time: 1.0,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+                SizeByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            value: 0.0,
+                            interp: Linear,
+                        ),
+                        (
+                            time: 0.9691942,
+                            value: 9.574477,
+                            interp: Linear,
+                        ),
+                    ],
+                )),
+                Noise(
+                    strength: 1.0,
+                    frequency: 1.0,
+                    scroll: (0.0, 1.0, 0.0),
+                ),
+            ],
+            render: Billboard((
+                orient: FaceCamera,
+                texture: Some("textures/particles/smoke_07.png"),
+                flipbook: None,
+                soft_particle_distance: 0.0,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+        (
+            name: "spheres",
+            enabled: true,
+            capacity: 3,
+            spawn: Once(
+                count: 3,
+                offset: 1.2,
+            ),
+            init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Sphere(
+                    center: (0.0, 0.0, 0.0),
+                    radius: Random(0.0, 0.2),
+                )),
+            ],
+            update: [
+                Scale3dByLife(
+                    x: (
+                        keys: [
+                            (
+                                time: 0.0082567,
+                                value: 0.07487035,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.18364558,
+                                value: 3.4013603,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                    y: (
+                        keys: [
+                            (
+                                time: 0.0082567,
+                                value: 0.07487035,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.18364558,
+                                value: 3.4013603,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                    z: (
+                        keys: [
+                            (
+                                time: 0.0082567,
+                                value: 0.07487035,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.18364558,
+                                value: 3.4013603,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                ),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.05250001,
+                                green: 1.0,
+                                blue: 0.8823152,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.17865992,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+            ],
+            render: Mesh((
+                shape: Sphere,
+                material_path: None,
+                base_color: (
+                    red: 0.5,
+                    green: 0.5,
+                    blue: 0.5,
+                    alpha: 1.0,
+                ),
+                collide: false,
+                restitution: 0.3,
+                cast_shadows: false,
+            )),
+            sim_space: Local,
+            alpha_mode: Additive,
+        ),
+        (
+            name: "skirt",
+            enabled: true,
+            capacity: 3,
+            spawn: Once(
+                count: 3,
+                offset: 0.0,
+            ),
+            init: [
+                SetLifetime(Constant(5.0)),
+                SetPosition(Point((0.0, 0.0, 0.0))),
+                SetScale3d(
+                    x: Constant(1.0),
+                    y: Constant(0.7),
+                    z: Constant(1.0),
+                ),
+                SetUvScale((1.0, 1.0)),
+                SetOrientation(RandomY),
+            ],
+            update: [
+                Scale3dByLife(
+                    x: (
+                        keys: [
+                            (
+                                time: 0.011501736,
+                                value: 0.13216102,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.24804688,
+                                value: 0.25,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.3997294,
+                                value: 1.6,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.95571876,
+                                value: 2.0,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 1.0,
+                                value: 0.0,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                    y: (
+                        keys: [
+                            (
+                                time: 0.0,
+                                value: 1.0,
+                                interp: Linear,
+                            ),
+                        ],
+                    ),
+                    z: (
+                        keys: [
+                            (
+                                time: 0.011501736,
+                                value: 0.13216102,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.24804688,
+                                value: 0.25,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.3997294,
+                                value: 1.6,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 0.95571876,
+                                value: 2.0,
+                                interp: EaseInOut,
+                            ),
+                            (
+                                time: 1.0,
+                                value: 0.0,
+                                interp: EaseInOut,
+                            ),
+                        ],
+                    ),
+                ),
+                Spin(
+                    axis: (0.0, 1.0, 0.0),
+                    speed: 2.0,
+                ),
+                ColorByLife((
+                    keys: [
+                        (
+                            time: 0.0,
+                            color: (
+                                red: 0.0,
+                                green: 0.0,
+                                blue: 0.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                        (
+                            time: 0.27996826,
+                            color: (
+                                red: 0.13531357,
+                                green: 0.2900119,
+                                blue: 0.323371,
+                                alpha: 0.3299283,
+                            ),
+                        ),
+                        (
+                            time: 0.39883423,
+                            color: (
+                                red: 0.4101302,
+                                green: 0.87901497,
+                                blue: 0.980125,
+                                alpha: 1.0,
+                            ),
+                        ),
+                        (
+                            time: 0.7067666,
+                            color: (
+                                red: 1.0,
+                                green: 1.0,
+                                blue: 1.0,
+                                alpha: 0.0,
+                            ),
+                        ),
+                    ],
+                )),
+            ],
+            render: Mesh((
+                shape: Custom("particle_meshes::ConeHalf"),
+                material_path: Some("Effe"),
+                base_color: (
+                    red: 0.5,
+                    green: 0.5,
+                    blue: 0.5,
+                    alpha: 1.0,
+                ),
+                collide: false,
+                restitution: 0.3,
+                cast_shadows: false,
+            )),
+            sim_space: Local,
+            alpha_mode: Blend,
+        ),
+    ],
+    params: [],
+    duration: 5.0,
+    looping: true,
+)
