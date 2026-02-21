@@ -59,6 +59,45 @@ const UPDATE_SHADER_SRC: &str = include_str!("shaders/update.wgsl");
 const COMPACT_SHADER_SRC: &str = include_str!("shaders/compact.wgsl");
 const BILLBOARD_SHADER_SRC: &str = include_str!("shaders/billboard.wgsl");
 
+/// Auto-insert `VfxStartTime` on VFX systems that don't have one yet.
+fn vfx_init_start_time(
+    mut commands: Commands,
+    time: Res<Time>,
+    query: Query<Entity, (With<VfxSystem>, Without<VfxStartTime>)>,
+) {
+    let t = time.elapsed_secs();
+    for entity in &query {
+        commands.entity(entity).insert(VfxStartTime(t));
+    }
+}
+
+/// Handle `VfxRestart`: despawn CPU particles, reset emitter state, remove
+/// start time (will be re-inserted next frame), and remove the marker.
+fn vfx_handle_restart(
+    mut commands: Commands,
+    mut query: Query<(Entity, Option<&mut mesh_particles::MeshParticleStates>), With<VfxRestart>>,
+) {
+    for (entity, mesh_states) in &mut query {
+        // Reset CPU mesh particle state: despawn all live particle entities
+        if let Some(mut states) = mesh_states {
+            for state in &mut states.entries {
+                for p in state.particles.drain(..) {
+                    commands.entity(p.entity).try_despawn();
+                }
+                state.spawn_accumulator = 0.0;
+                state.burst_cycle = 0;
+                state.burst_timer = 0.0;
+                state.once_fired = false;
+            }
+        }
+        // Remove start time so it gets re-initialized next frame
+        commands
+            .entity(entity)
+            .remove::<VfxRestart>()
+            .remove::<VfxStartTime>();
+    }
+}
+
 /// Main VFX plugin. Registers types, compute pipelines, and the render graph node.
 pub struct VfxPlugin;
 
@@ -100,6 +139,8 @@ impl Plugin for VfxPlugin {
             .add_systems(
                 Update,
                 (
+                    vfx_init_start_time,
+                    vfx_handle_restart,
                     mesh_particles::auto_insert_mesh_particle_state,
                     mesh_particles::cpu_mesh_particle_spawn,
                     mesh_particles::cpu_mesh_particle_update,

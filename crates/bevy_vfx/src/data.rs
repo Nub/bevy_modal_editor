@@ -39,6 +39,16 @@ impl Default for VfxSystem {
     }
 }
 
+/// Per-system start time (seconds since app start). Auto-inserted when missing.
+/// Used to compute per-system elapsed time for burst offsets, Once mode, etc.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct VfxStartTime(pub f32);
+
+/// Marker component that triggers a full system restart: kills all particles,
+/// resets emitter state, and evicts GPU buffer caches. Consumed after one frame.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct VfxRestart;
+
 // ---------------------------------------------------------------------------
 // Emitter definition
 // ---------------------------------------------------------------------------
@@ -218,9 +228,17 @@ pub enum SpawnModule {
         count: u32,
         interval: f32,
         max_cycles: Option<u32>,
+        /// Delay before the first burst fires (seconds). Default 0.
+        #[serde(default)]
+        offset: f32,
     },
     /// Single burst on activation.
-    Once(u32),
+    Once {
+        count: u32,
+        /// Delay before the burst fires (seconds). Default 0.
+        #[serde(default)]
+        offset: f32,
+    },
     /// Spawn along movement path with given spacing.
     Distance { spacing: f32 },
 }
@@ -236,7 +254,7 @@ impl SpawnModule {
         match self {
             Self::Rate(_) => "Rate",
             Self::Burst { .. } => "Burst",
-            Self::Once(_) => "Once",
+            Self::Once { .. } => "Once",
             Self::Distance { .. } => "Distance",
         }
     }

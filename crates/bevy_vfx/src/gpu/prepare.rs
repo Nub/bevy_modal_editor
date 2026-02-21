@@ -61,6 +61,11 @@ pub fn prepare_vfx_buffers(
         let emitter_def = &info.emitter;
         active_keys.insert(key);
 
+        // Restart: evict cached buffers so they get fully re-initialized
+        if info.restart {
+            cache.buffers.remove(&key);
+        }
+
         // Get or create buffers for this emitter
         let buffers = cache.buffers.entry(key).or_insert_with(|| {
             EmitterBuffers::new(&device, emitter_def.capacity)
@@ -91,8 +96,11 @@ pub fn prepare_vfx_buffers(
             queue.write_buffer(&buffers.counter_buffer, 0, bytemuck::bytes_of(&counters));
         }
 
+        // Compute per-system elapsed time (relative to start_time)
+        let local_elapsed = elapsed - info.start_time;
+
         // Compute spawn count for this frame
-        let spawn_count = compute_spawn_count(&emitter_def.spawn, dt, elapsed);
+        let spawn_count = compute_spawn_count(&emitter_def.spawn, dt, local_elapsed);
 
         // Fast change detection: compare EmitterDef by value to skip expensive
         // pack_emitter_params() (builds 912-byte struct) when nothing changed.
@@ -103,7 +111,7 @@ pub fn prepare_vfx_buffers(
 
         if def_changed {
             // EmitterDef changed (or first frame) — full pack + upload 912 bytes
-            let params = pack_emitter_params(emitter_def, &info.transform, dt, elapsed, key);
+            let params = pack_emitter_params(emitter_def, &info.transform, dt, local_elapsed, key);
             queue.write_buffer(&buffers.params_buffer, 0, bytemuck::bytes_of(&params));
             buffers.static_params_hash = hash_static_params(&params);
             buffers.last_emitter_def = Some(emitter_def.clone());
@@ -111,7 +119,7 @@ pub fn prepare_vfx_buffers(
             // Only dynamic params changed (dt, time, transform) — upload 84 bytes
             let dynamic = GpuDynamicParams {
                 dt,
-                time: elapsed,
+                time: local_elapsed,
                 _pad13: [0.0; 3],
                 emitter_transform: info.transform.to_matrix().to_cols_array_2d(),
             };
@@ -259,12 +267,22 @@ fn compute_spawn_count(spawn: &SpawnModule, dt: f32, elapsed: f32) -> u32 {
             count,
             interval,
             max_cycles,
+            offset,
         } => {
             if *interval <= 0.0 {
                 return 0;
             }
-            let cycle = (elapsed / interval) as u32;
-            let prev_cycle = ((elapsed - dt) / interval) as u32;
+            let local = elapsed - offset;
+            if local < 0.0 {
+                return 0;
+            }
+            // Shift so first burst fires at local=0 (i.e. elapsed=offset),
+            // then every interval after that
+            let adjusted = local + *interval;
+            let cycle = (adjusted / interval) as u32;
+            let prev_adjusted = adjusted - dt;
+            let prev_cycle =
+                if prev_adjusted <= 0.0 { 0 } else { (prev_adjusted / interval) as u32 };
             if cycle > prev_cycle {
                 if let Some(max) = max_cycles {
                     if cycle > *max {
@@ -276,8 +294,9 @@ fn compute_spawn_count(spawn: &SpawnModule, dt: f32, elapsed: f32) -> u32 {
                 0
             }
         }
-        SpawnModule::Once(count) => {
-            if elapsed < dt * 2.0 {
+        SpawnModule::Once { count, offset } => {
+            let local = elapsed - offset;
+            if local >= 0.0 && local < dt * 2.0 {
                 *count
             } else {
                 0

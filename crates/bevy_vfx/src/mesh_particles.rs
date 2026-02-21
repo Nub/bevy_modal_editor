@@ -780,6 +780,7 @@ fn compute_spawn_count(spawn: &SpawnModule, state: &mut MeshParticleState, dt: f
             count,
             interval,
             max_cycles,
+            offset,
         } => {
             if let Some(max) = max_cycles {
                 if state.burst_cycle >= *max {
@@ -787,20 +788,37 @@ fn compute_spawn_count(spawn: &SpawnModule, state: &mut MeshParticleState, dt: f
                 }
             }
             state.burst_timer += dt;
-            if state.burst_timer >= *interval {
-                state.burst_timer -= interval;
-                state.burst_cycle += 1;
-                *count
+            if state.burst_cycle == 0 {
+                // First burst fires as soon as offset elapses
+                if state.burst_timer >= *offset {
+                    state.burst_timer -= *offset;
+                    state.burst_cycle += 1;
+                    *count
+                } else {
+                    0
+                }
             } else {
-                0
+                // Subsequent bursts fire every interval
+                if state.burst_timer >= *interval {
+                    state.burst_timer -= *interval;
+                    state.burst_cycle += 1;
+                    *count
+                } else {
+                    0
+                }
             }
         }
-        SpawnModule::Once(count) => {
+        SpawnModule::Once { count, offset } => {
             if state.once_fired {
                 0
             } else {
-                state.once_fired = true;
-                *count
+                state.burst_timer += dt;
+                if state.burst_timer >= *offset {
+                    state.once_fired = true;
+                    *count
+                } else {
+                    0
+                }
             }
         }
         SpawnModule::Distance { .. } => 0,

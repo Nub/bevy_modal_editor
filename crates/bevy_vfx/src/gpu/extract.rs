@@ -6,7 +6,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::render::Extract;
 
-use crate::data::{EmitterDef, RenderModule, VfxSystem};
+use crate::data::{EmitterDef, RenderModule, VfxRestart, VfxStartTime, VfxSystem};
 
 /// Extracted data for a single emitter, stored in a resource (not per-entity).
 pub struct ExtractedEmitterInfo {
@@ -20,6 +20,10 @@ pub struct ExtractedEmitterInfo {
     pub transform: GlobalTransform,
     /// Texture asset ID for billboard rendering (None = procedural circle).
     pub texture: Option<AssetId<Image>>,
+    /// Per-system start time (for computing local elapsed).
+    pub start_time: f32,
+    /// If true, this system should be restarted (evict GPU caches).
+    pub restart: bool,
 }
 
 /// Resource holding all extracted emitter data for the current frame.
@@ -68,12 +72,21 @@ pub fn load_vfx_textures(
 /// Extract all VfxSystem entities from the main world into a resource.
 pub fn extract_vfx_systems(
     mut extracted: ResMut<ExtractedVfxData>,
-    query: Extract<Query<(Entity, &VfxSystem, &GlobalTransform)>>,
+    query: Extract<
+        Query<(
+            Entity,
+            &VfxSystem,
+            &GlobalTransform,
+            Option<&VfxStartTime>,
+            Has<VfxRestart>,
+        )>,
+    >,
     texture_cache: Extract<Res<VfxTextureCache>>,
 ) {
     extracted.emitters.clear();
 
-    for (entity, system, transform) in &query {
+    for (entity, system, transform, start_time, restart) in &query {
+        let st = start_time.map(|s| s.0).unwrap_or(0.0);
         for (idx, emitter) in system.emitters.iter().enumerate() {
             if !emitter.enabled {
                 continue;
@@ -94,6 +107,8 @@ pub fn extract_vfx_systems(
                 emitter: emitter.clone(),
                 transform: *transform,
                 texture,
+                start_time: st,
+                restart,
             });
         }
     }

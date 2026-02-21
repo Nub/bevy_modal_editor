@@ -252,6 +252,7 @@ fn sparks() -> VfxSystem {
                 count: 30,
                 interval: 0.5,
                 max_cycles: None,
+                offset: 0.0,
             },
             init: vec![
                 InitModule::SetLifetime(ScalarRange::Random(0.3, 0.8)),
@@ -486,7 +487,7 @@ fn explosion() -> VfxSystem {
                 name: "Flash".to_string(),
                 enabled: true,
                 capacity: 8,
-                spawn: SpawnModule::Once(4),
+                spawn: SpawnModule::Once { offset: 0.0, count: 4 },
                 init: vec![
                     InitModule::SetLifetime(ScalarRange::Random(0.1, 0.25)),
                     InitModule::SetPosition(ShapeEmitter::Point(Vec3::ZERO)),
@@ -523,7 +524,7 @@ fn explosion() -> VfxSystem {
                 name: "Fireball".to_string(),
                 enabled: true,
                 capacity: 64,
-                spawn: SpawnModule::Once(20),
+                spawn: SpawnModule::Once { offset: 0.0, count: 20 },
                 init: vec![
                     InitModule::SetLifetime(ScalarRange::Random(0.3, 0.8)),
                     InitModule::SetPosition(ShapeEmitter::Sphere {
@@ -565,7 +566,7 @@ fn explosion() -> VfxSystem {
                 name: "Debris".to_string(),
                 enabled: true,
                 capacity: 256,
-                spawn: SpawnModule::Once(80),
+                spawn: SpawnModule::Once { offset: 0.0, count: 80 },
                 init: vec![
                     InitModule::SetLifetime(ScalarRange::Random(0.5, 1.5)),
                     InitModule::SetPosition(ShapeEmitter::Sphere {
@@ -607,7 +608,7 @@ fn explosion() -> VfxSystem {
                 name: "Smoke".to_string(),
                 enabled: true,
                 capacity: 64,
-                spawn: SpawnModule::Once(20),
+                spawn: SpawnModule::Once { offset: 0.0, count: 20 },
                 init: vec![
                     InitModule::SetLifetime(ScalarRange::Random(1.0, 3.0)),
                     InitModule::SetPosition(ShapeEmitter::Sphere {
@@ -1415,6 +1416,7 @@ fn rock_debris() -> VfxSystem {
                 count: 15,
                 interval: 1.5,
                 max_cycles: None,
+                offset: 0.0,
             },
             init: vec![
                 InitModule::SetLifetime(ScalarRange::Random(1.0, 2.5)),

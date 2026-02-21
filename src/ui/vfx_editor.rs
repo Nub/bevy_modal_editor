@@ -16,13 +16,36 @@ use bevy_vfx::mesh_particles::MeshParticleStates;
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::selection::Selected;
 use crate::ui::command_palette::{CommandPaletteState, TexturePickResult, TextureSlot};
-use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame};
+use crate::ui::theme::{colors, draw_pin_button, grid_label, linear_rgba_to_color32, panel, panel_frame};
 
 pub struct VfxEditorPlugin;
 
 impl Plugin for VfxEditorPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(EguiPrimaryContextPass, draw_vfx_panel);
+        app.add_systems(EguiPrimaryContextPass, draw_vfx_panel)
+            .add_systems(Update, vfx_restart_keybinding);
+    }
+}
+
+/// Space in Particle mode restarts the selected VFX system.
+fn vfx_restart_keybinding(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mode: Res<State<EditorMode>>,
+    editor_state: Res<EditorState>,
+    mut contexts: bevy_egui::EguiContexts,
+    mut commands: Commands,
+    selected: Query<Entity, (With<Selected>, With<VfxSystem>)>,
+) {
+    if *mode.get() != EditorMode::Particle {
+        return;
+    }
+    if !crate::utils::should_process_input(&editor_state, &mut contexts) {
+        return;
+    }
+    if keyboard.just_pressed(KeyCode::Space) {
+        for entity in &selected {
+            commands.entity(entity).insert(VfxRestart);
+        }
     }
 }
 
@@ -30,8 +53,106 @@ impl Plugin for VfxEditorPlugin {
 // Card / section drawing helpers
 // ---------------------------------------------------------------------------
 
-const CARD_ROUNDING: u8 = 4;
+const CARD_ROUNDING: u8 = 6;
 const ACCENT_STRIPE_WIDTH: f32 = 3.0;
+
+/// Per-curve drag state stored in egui temp memory.
+#[derive(Clone, Copy, Default)]
+struct CurveDragState {
+    dragging_key: Option<usize>,
+    selected_key: Option<usize>,
+}
+
+/// Per-curve Y-axis range stored in egui temp memory.
+#[derive(Clone, Copy)]
+struct CurveYRange {
+    y_min: f32,
+    y_max: f32,
+    /// Hash of curve key values last time we auto-fitted.
+    /// Used to detect external changes (not from dragging).
+    last_hash: u64,
+}
+
+impl Default for CurveYRange {
+    fn default() -> Self {
+        Self { y_min: -0.5, y_max: 1.5, last_hash: 0 }
+    }
+}
+
+impl CurveYRange {
+    /// Compute a suitable Y range from curve key values with padding.
+    fn fit_to_curve(curve: &Curve<f32>) -> Self {
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        // Sample the curve, not just keys, to capture interpolated peaks
+        for i in 0..=64 {
+            let t = i as f32 / 64.0;
+            let v = curve.sample(t);
+            lo = lo.min(v);
+            hi = hi.max(v);
+        }
+        if lo == hi {
+            lo -= 0.5;
+            hi += 0.5;
+        }
+        let pad = (hi - lo) * 0.15;
+        Self {
+            y_min: lo - pad,
+            y_max: hi + pad,
+            last_hash: Self::hash_curve(curve),
+        }
+    }
+
+    fn hash_curve(curve: &Curve<f32>) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        for key in &curve.keys {
+            key.time.to_bits().hash(&mut hasher);
+            key.value.to_bits().hash(&mut hasher);
+        }
+        hasher.finish()
+    }
+}
+
+/// Per-gradient drag state stored in egui temp memory.
+#[derive(Clone, Default)]
+struct GradientDragState {
+    dragging_key: Option<usize>,
+    /// Key index whose color picker popup is open.
+    color_picker_key: Option<usize>,
+}
+
+/// Per-scale3d axis linking state stored in egui temp memory.
+#[derive(Clone, Copy, Default)]
+struct AxisLinkState {
+    y_follows_x: bool,
+    z_follows_x: bool,
+}
+
+/// Draw Y=X / Z=X toggle buttons, returning the current link state.
+fn draw_axis_link_toggles(ui: &mut egui::Ui, id: egui::Id) -> AxisLinkState {
+    let mut state: AxisLinkState = ui.ctx().data_mut(|d| *d.get_temp_mut_or_default(id));
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Link").color(colors::TEXT_MUTED).small());
+        for (label, active, tooltip) in [
+            ("Y=X", &mut state.y_follows_x, "Link Y axis to X"),
+            ("Z=X", &mut state.z_follows_x, "Link Z axis to X"),
+        ] {
+            let (text_color, fill) = if *active {
+                (colors::TEXT_PRIMARY, colors::ACCENT_BLUE)
+            } else {
+                (colors::TEXT_MUTED, colors::BG_DARK)
+            };
+            let btn = egui::Button::new(egui::RichText::new(label).color(text_color).small())
+                .fill(fill)
+                .corner_radius(egui::CornerRadius::same(3));
+            if ui.add(btn).on_hover_text(tooltip).clicked() {
+                *active = !*active;
+            }
+        }
+    });
+    ui.ctx().data_mut(|d| d.insert_temp(id, state));
+    state
+}
 
 fn modifier_card(
     ui: &mut egui::Ui,
@@ -55,7 +176,8 @@ fn modifier_card(
                     egui::Button::new(
                         egui::RichText::new("\u{00d7}").color(colors::STATUS_ERROR),
                     )
-                    .frame(false),
+                    .fill(colors::BG_DARK)
+                    .corner_radius(egui::CornerRadius::same(3)),
                 );
                 if btn.on_hover_text("Remove modifier").clicked() {
                     removed = true;
@@ -90,7 +212,7 @@ fn category_header<T>(
 ) {
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new(label).strong().size(12.0).color(accent));
+        ui.label(egui::RichText::new(label).strong().small().color(accent));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             ui.menu_button(egui::RichText::new("+").strong().color(accent), |ui| {
                 for (name, factory) in options {
@@ -105,46 +227,268 @@ fn category_header<T>(
     ui.add_space(4.0);
 }
 
-fn gradient_preview_bar(ui: &mut egui::Ui, gradient: &Gradient) {
-    let desired = egui::vec2(ui.available_width(), 16.0);
-    let (rect, _resp) = ui.allocate_exact_size(desired, egui::Sense::hover());
+
+/// Interactive gradient bar with draggable color stop nodes.
+/// - Drag nodes horizontally to change `t` value.
+/// - Right-click a node to open color picker.
+/// - Ctrl+click empty area to add a new key.
+/// - Ctrl+right-click a node to remove it.
+fn draw_interactive_gradient(
+    ui: &mut egui::Ui,
+    gradient: &mut Gradient,
+    idx: usize,
+) {
+    let bar_height = 20.0;
+    let node_area = 14.0; // space below bar for node triangles
+    let total_height = bar_height + node_area;
+    let x_pad = 6.0;
+
+    let desired = egui::vec2(ui.available_width(), total_height);
+    let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
+
+    let bar_rect = egui::Rect::from_min_max(
+        rect.min,
+        egui::pos2(rect.right(), rect.top() + bar_height),
+    );
+    let plot_left = bar_rect.left() + x_pad;
+    let plot_right = bar_rect.right() - x_pad;
+    let plot_width = plot_right - plot_left;
+    let node_y = bar_rect.bottom() + 7.0; // center of node triangles
+
+    let t_to_x = |t: f32| -> f32 { plot_left + t * plot_width };
+    let x_to_t = |x: f32| -> f32 { ((x - plot_left) / plot_width).clamp(0.0, 1.0) };
 
     if gradient.keys.is_empty() {
         return;
     }
 
-    let painter = ui.painter();
-    let n_segments = 64;
+    let painter = ui.painter_at(rect);
 
+    // Draw gradient bar
+    let n_segments = 64;
     for seg in 0..n_segments {
         let t0 = seg as f32 / n_segments as f32;
         let t1 = (seg + 1) as f32 / n_segments as f32;
-        let t_mid = (t0 + t1) * 0.5;
-
-        let c = gradient.sample(t_mid);
-
-        let color = egui::Color32::from_rgba_unmultiplied(
-            (c.red * 255.0).clamp(0.0, 255.0) as u8,
-            (c.green * 255.0).clamp(0.0, 255.0) as u8,
-            (c.blue * 255.0).clamp(0.0, 255.0) as u8,
-            (c.alpha * 255.0).clamp(0.0, 255.0) as u8,
+        let c = gradient.sample((t0 + t1) * 0.5);
+        let x0 = bar_rect.left() + t0 * bar_rect.width();
+        let x1 = bar_rect.left() + t1 * bar_rect.width();
+        painter.rect_filled(
+            egui::Rect::from_min_max(egui::pos2(x0, bar_rect.top()), egui::pos2(x1, bar_rect.bottom())),
+            0.0,
+            linear_rgba_to_color32(c),
         );
-
-        let x0 = rect.left() + t0 * rect.width();
-        let x1 = rect.left() + t1 * rect.width();
-        let seg_rect = egui::Rect::from_min_max(
-            egui::pos2(x0, rect.top()),
-            egui::pos2(x1, rect.bottom()),
-        );
-        painter.rect_filled(seg_rect, 0.0, color);
     }
-
     painter.rect_stroke(
-        rect,
+        bar_rect,
         egui::CornerRadius::same(2),
         egui::Stroke::new(1.0, colors::WIDGET_BORDER),
         egui::StrokeKind::Inside,
     );
+
+    // --- Interaction state ---
+    let id = ui.id().with("grad_drag").with(idx);
+    let mut state: GradientDragState = ui.ctx().data(|d| d.get_temp(id).unwrap_or_default());
+
+    // Clamp state indices
+    if let Some(dk) = state.dragging_key {
+        if dk >= gradient.keys.len() { state.dragging_key = None; }
+    }
+    if let Some(ck) = state.color_picker_key {
+        if ck >= gradient.keys.len() { state.color_picker_key = None; }
+    }
+
+    let hover_pos = response.hover_pos();
+    let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.mac_cmd);
+
+    // Hit test: find closest node within radius (macro avoids borrow conflicts)
+    macro_rules! hit_key {
+        ($pos:expr) => {
+            gradient.keys.iter().enumerate()
+                .filter_map(|(i, k)| {
+                    let node_center = egui::pos2(t_to_x(k.time), node_y);
+                    let dist = node_center.distance($pos);
+                    (dist < 10.0).then_some((i, dist))
+                })
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        };
+    }
+
+    // Draw node markers (triangles pointing up into the bar)
+    for (ki, key) in gradient.keys.iter().enumerate() {
+        let cx = t_to_x(key.time);
+        let node_color = linear_rgba_to_color32(key.color);
+        let is_dragging = state.dragging_key == Some(ki);
+        let is_hovered = hover_pos.is_some_and(|hp| {
+            egui::pos2(cx, node_y).distance(hp) < 10.0
+        });
+        let is_picker_open = state.color_picker_key == Some(ki);
+
+        // Triangle pointing up
+        let half = if is_hovered || is_dragging { 6.0 } else { 5.0 };
+        let tri = [
+            egui::pos2(cx, node_y - half),       // top
+            egui::pos2(cx - half, node_y + half), // bottom-left
+            egui::pos2(cx + half, node_y + half), // bottom-right
+        ];
+
+        // Fill with key color
+        painter.add(egui::Shape::convex_polygon(
+            tri.to_vec(),
+            node_color,
+            egui::Stroke::NONE,
+        ));
+
+        // Outline
+        let outline_color = if is_picker_open {
+            egui::Color32::WHITE
+        } else if is_hovered || is_dragging {
+            egui::Color32::from_white_alpha(200)
+        } else {
+            egui::Color32::from_white_alpha(120)
+        };
+        let outline_width = if is_picker_open || is_dragging { 1.5 } else { 1.0 };
+        painter.add(egui::Shape::convex_polygon(
+            tri.to_vec(),
+            egui::Color32::TRANSPARENT,
+            egui::Stroke::new(outline_width, outline_color),
+        ));
+
+        // Vertical guide line from node to bar
+        painter.line_segment(
+            [egui::pos2(cx, bar_rect.top()), egui::pos2(cx, bar_rect.bottom())],
+            egui::Stroke::new(0.5, egui::Color32::from_white_alpha(60)),
+        );
+    }
+
+    // --- Mouse interactions ---
+
+    // Pointer down — start drag
+    let pointer_just_pressed = !ctrl
+        && response.contains_pointer()
+        && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+    if pointer_just_pressed {
+        if let Some(pos) = response.interact_pointer_pos() {
+            state.dragging_key = hit_key!(pos).map(|(i, _)| i);
+        }
+    }
+
+    // Dragging
+    if let Some(dk) = state.dragging_key {
+        if response.dragged_by(egui::PointerButton::Primary) {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let new_t = x_to_t(pos.x);
+                gradient.keys[dk].time = new_t;
+            }
+        }
+        if !ui.input(|i| i.pointer.button_down(egui::PointerButton::Primary)) {
+            // Sort keys by time after drag ends
+            let dragged_time = gradient.keys[dk].time;
+            gradient.keys.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+            // Track new index
+            state.dragging_key = gradient.keys.iter().position(|k| (k.time - dragged_time).abs() < 1e-6);
+            state.dragging_key = None;
+        }
+    }
+
+    // Right-click — open color picker for node
+    if response.clicked_by(egui::PointerButton::Secondary) {
+        if let Some(pos) = response.interact_pointer_pos() {
+            if ctrl {
+                // Ctrl+right-click: remove key
+                if gradient.keys.len() > 1 {
+                    if let Some((ki, _)) = hit_key!(pos) {
+                        gradient.keys.remove(ki);
+                        if state.color_picker_key == Some(ki) {
+                            state.color_picker_key = None;
+                        }
+                    }
+                }
+            } else if let Some((ki, _)) = hit_key!(pos) {
+                // Toggle color picker for this node
+                if state.color_picker_key == Some(ki) {
+                    state.color_picker_key = None;
+                } else {
+                    state.color_picker_key = Some(ki);
+                }
+            }
+        }
+    }
+
+    // Ctrl+left-click — add new key
+    if ctrl && response.clicked_by(egui::PointerButton::Primary) {
+        if let Some(pos) = response.interact_pointer_pos() {
+            if hit_key!(pos).is_none() {
+                let t = x_to_t(pos.x);
+                let sampled = gradient.sample(t);
+                gradient.keys.push(GradientKey { time: t, color: sampled });
+                gradient.keys.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+            }
+        }
+    }
+
+    // Store state
+    ui.ctx().data_mut(|d| d.insert_temp(id, state.clone()));
+
+    // Hint text
+    ui.label(
+        egui::RichText::new("Drag stops \u{2022} Right-click to edit color \u{2022} Ctrl+click to add \u{2022} Ctrl+right-click to remove")
+            .color(colors::TEXT_MUTED)
+            .small(),
+    );
+
+    // --- Color picker popup ---
+    if let Some(ck) = state.color_picker_key {
+        if ck < gradient.keys.len() {
+            let popup_id = ui.id().with("grad_color_popup").with(idx);
+            let node_x = t_to_x(gradient.keys[ck].time);
+            let popup_pos = egui::pos2(node_x, rect.bottom());
+
+            let area_resp = egui::Area::new(popup_id)
+                .order(egui::Order::Foreground)
+                .fixed_pos(popup_pos)
+                .pivot(egui::Align2::CENTER_TOP)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::popup(ui.style())
+                        .fill(colors::BG_DARK)
+                        .show(ui, |ui| {
+                            let key = &mut gradient.keys[ck];
+                            let mut rgba = [key.color.red, key.color.green, key.color.blue, key.color.alpha];
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("t:").color(colors::TEXT_MUTED));
+                                ui.add(egui::DragValue::new(&mut key.time).range(0.0..=1.0).speed(0.01).max_decimals(3));
+                            });
+                            ui.color_edit_button_rgba_unmultiplied(&mut rgba);
+                            key.color = LinearRgba::new(rgba[0], rgba[1], rgba[2], rgba[3]);
+                        });
+                });
+
+            // Close popup when clicking outside both the popup and the gradient bar
+            let pointer_pressed = ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+            let in_popup = area_resp.response.rect.contains(
+                ui.input(|i| i.pointer.interact_pos().unwrap_or_default()),
+            );
+            // Also check if any color picker sub-popup is open (egui opens a separate popup for color_edit_button)
+            let any_popup_open = egui::Popup::is_any_open(ui.ctx());
+
+            if pointer_pressed && !in_popup && !response.contains_pointer() && !any_popup_open {
+                ui.ctx().data_mut(|d| {
+                    let mut s: GradientDragState = d.get_temp(id).unwrap_or_default();
+                    s.color_picker_key = None;
+                    d.insert_temp(id, s);
+                });
+            }
+        }
+    }
+
+    // + Key button
+    if ui.button(egui::RichText::new("+ Key").color(colors::ACCENT_GREEN)).clicked() {
+        let time = gradient.keys.last().map(|k| (k.time + 1.0) / 2.0).unwrap_or(0.5);
+        gradient.keys.push(GradientKey {
+            time: time.min(1.0),
+            color: LinearRgba::WHITE,
+        });
+        gradient.keys.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +609,7 @@ fn draw_vfx_panel(world: &mut World) {
     let mut pin_toggled = false;
     let mut save_preset_clicked = false;
     let mut browse_presets_clicked = false;
+    let mut restart_clicked = false;
 
     // Track which emitter is selected for editing
     let selected_emitter_id = ctx.memory(|mem| {
@@ -300,6 +645,13 @@ fn draw_vfx_panel(world: &mut World) {
                     .clicked()
                 {
                     browse_presets_clicked = true;
+                }
+                if ui
+                    .button(egui::RichText::new("Restart").small().color(colors::ACCENT_BLUE))
+                    .on_hover_text("Restart the effect (kills all particles, resets timers)")
+                    .clicked()
+                {
+                    restart_clicked = true;
                 }
             });
 
@@ -346,7 +698,7 @@ fn draw_vfx_panel(world: &mut World) {
             // Emitter list
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("EMITTERS").strong().size(12.0).color(colors::TEXT_SECONDARY));
+                ui.label(egui::RichText::new("EMITTERS").strong().small().color(colors::TEXT_SECONDARY));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(egui::RichText::new("+ Add").color(colors::ACCENT_GREEN)).clicked() {
                         let idx = system.emitters.len();
@@ -361,6 +713,9 @@ fn draw_vfx_panel(world: &mut World) {
 
             // Draw emitter list items
             let mut remove_emitter = None;
+            let mut duplicate_emitter = None;
+            let mut paste_at = None;
+            let clipboard_id = egui::Id::new("emitter_clipboard");
             let emitter_count = system.emitters.len();
             for (i, emitter) in system.emitters.iter_mut().enumerate() {
                 let is_selected = i == selected_emitter;
@@ -370,7 +725,7 @@ fn draw_vfx_panel(world: &mut World) {
                     .corner_radius(egui::CornerRadius::same(3))
                     .inner_margin(egui::Margin::symmetric(6, 3));
 
-                frame.show(ui, |ui| {
+                let resp = frame.show(ui, |ui| {
                     ui.horizontal(|ui| {
                         // Clickable name
                         if ui.selectable_label(is_selected, &emitter.name).clicked() {
@@ -383,7 +738,9 @@ fn draw_vfx_panel(world: &mut World) {
                                 if ui.add(
                                     egui::Button::new(
                                         egui::RichText::new("\u{00d7}").color(colors::STATUS_ERROR),
-                                    ).frame(false)
+                                    )
+                                    .fill(colors::BG_DARK)
+                                    .corner_radius(egui::CornerRadius::same(3))
                                 ).on_hover_text("Remove emitter").clicked() {
                                     remove_emitter = Some(i);
                                 }
@@ -401,8 +758,37 @@ fn draw_vfx_panel(world: &mut World) {
                         });
                     });
                 });
+
+                resp.response.context_menu(|ui| {
+                    if ui.button("Copy Emitter").clicked() {
+                        ui.ctx().data_mut(|d| d.insert_temp(clipboard_id, emitter.clone()));
+                        ui.close();
+                    }
+                    let has_clipboard = ui.ctx().data(|d| d.get_temp::<EmitterDef>(clipboard_id).is_some());
+                    if ui.add_enabled(has_clipboard, egui::Button::new("Paste Emitter")).clicked() {
+                        paste_at = Some(i);
+                        ui.close();
+                    }
+                    if ui.button("Duplicate Emitter").clicked() {
+                        duplicate_emitter = Some(i);
+                        ui.close();
+                    }
+                });
             }
 
+            // Apply emitter clipboard actions
+            if let Some(idx) = paste_at {
+                if let Some(mut pasted) = ui.ctx().data(|d| d.get_temp::<EmitterDef>(clipboard_id)) {
+                    pasted.name = format!("{} (Pasted)", pasted.name.trim_end_matches(" (Pasted)"));
+                    system.emitters[idx] = pasted;
+                }
+            }
+            if let Some(idx) = duplicate_emitter {
+                let mut dup = system.emitters[idx].clone();
+                dup.name = format!("{} (Copy)", dup.name.trim_end_matches(" (Copy)"));
+                system.emitters.insert(idx + 1, dup);
+                selected_emitter = idx + 1;
+            }
             if let Some(idx) = remove_emitter {
                 system.emitters.remove(idx);
                 if selected_emitter >= system.emitters.len() {
@@ -561,6 +947,10 @@ fn draw_vfx_panel(world: &mut World) {
             .resource_mut::<CommandPaletteState>()
             .open_particle_preset();
     }
+
+    if restart_clicked {
+        world.entity_mut(entity).insert(VfxRestart);
+    }
 }
 
 fn draw_empty_panel(world: &mut World, is_pinned: bool, current_mode: EditorMode) {
@@ -678,7 +1068,7 @@ fn draw_spawner_card(ui: &mut egui::Ui, spawn: &mut SpawnModule) {
         let mode_idx = match spawn {
             SpawnModule::Rate(_) => 0,
             SpawnModule::Burst { .. } => 1,
-            SpawnModule::Once(_) => 2,
+            SpawnModule::Once { .. } => 2,
             SpawnModule::Distance { .. } => 3,
         };
         let mut new_mode = mode_idx;
@@ -702,8 +1092,8 @@ fn draw_spawner_card(ui: &mut egui::Ui, spawn: &mut SpawnModule) {
         if new_mode != mode_idx {
             *spawn = match new_mode {
                 0 => SpawnModule::Rate(50.0),
-                1 => SpawnModule::Burst { count: 30, interval: 0.5, max_cycles: None },
-                2 => SpawnModule::Once(100),
+                1 => SpawnModule::Burst { count: 30, interval: 0.5, max_cycles: None, offset: 0.0 },
+                2 => SpawnModule::Once { count: 100, offset: 0.0 },
                 _ => SpawnModule::Distance { spacing: 0.5 },
             };
         }
@@ -717,15 +1107,19 @@ fn draw_spawner_card(ui: &mut egui::Ui, spawn: &mut SpawnModule) {
                     ui.add(egui::DragValue::new(rate).speed(1.0).range(0.1..=100000.0).max_decimals(1));
                     ui.end_row();
                 }
-                SpawnModule::Once(count) => {
+                SpawnModule::Once { count, offset } => {
                     grid_label(ui, "Count");
                     let mut c = *count as i32;
                     if ui.add(egui::DragValue::new(&mut c).speed(1.0).range(1..=100000)).changed() {
                         *count = c.max(1) as u32;
                     }
                     ui.end_row();
+
+                    grid_label(ui, "Offset");
+                    ui.add(egui::DragValue::new(offset).speed(0.01).range(0.0..=60.0).max_decimals(2).suffix(" s"));
+                    ui.end_row();
                 }
-                SpawnModule::Burst { count, interval, max_cycles } => {
+                SpawnModule::Burst { count, interval, max_cycles, offset } => {
                     grid_label(ui, "Count");
                     let mut c = *count as i32;
                     if ui.add(egui::DragValue::new(&mut c).speed(1.0).range(1..=100000)).changed() {
@@ -735,6 +1129,10 @@ fn draw_spawner_card(ui: &mut egui::Ui, spawn: &mut SpawnModule) {
 
                     grid_label(ui, "Interval");
                     ui.add(egui::DragValue::new(interval).speed(0.1).range(0.01..=60.0).max_decimals(2).suffix(" s"));
+                    ui.end_row();
+
+                    grid_label(ui, "Offset");
+                    ui.add(egui::DragValue::new(offset).speed(0.01).range(0.0..=60.0).max_decimals(2).suffix(" s"));
                     ui.end_row();
 
                     grid_label(ui, "Max Cycles");
@@ -811,8 +1209,7 @@ fn draw_init_body(ui: &mut egui::Ui, m: &mut InitModule, idx: usize) {
                     draw_linear_rgba_color(ui, "Color", c);
                 }
                 ColorSource::RandomFromGradient(g) => {
-                    gradient_preview_bar(ui, g);
-                    draw_gradient_keys(ui, &mut g.keys, idx);
+                    draw_interactive_gradient(ui, g, idx);
                 }
             }
         }
@@ -839,9 +1236,20 @@ fn draw_init_body(ui: &mut egui::Ui, m: &mut InitModule, idx: usize) {
                 });
         }
         InitModule::SetScale3d { x, y, z } => {
-            draw_scalar_range(ui, "Scale X", x, 0.01, 0.001..=100.0, idx);
-            draw_scalar_range(ui, "Scale Y", y, 0.01, 0.001..=100.0, idx);
-            draw_scalar_range(ui, "Scale Z", z, 0.01, 0.001..=100.0, idx);
+            let link = draw_axis_link_toggles(ui, egui::Id::new(("scale3d_link", idx)));
+            draw_scalar_range(ui, "Scale X", x, 0.01, -100.0..=100.0, idx);
+            if link.y_follows_x {
+                *y = x.clone();
+                ui.label(egui::RichText::new("  Y = X").color(colors::TEXT_MUTED).small());
+            } else {
+                draw_scalar_range(ui, "Scale Y", y, 0.01, -100.0..=100.0, idx);
+            }
+            if link.z_follows_x {
+                *z = x.clone();
+                ui.label(egui::RichText::new("  Z = X").color(colors::TEXT_MUTED).small());
+            } else {
+                draw_scalar_range(ui, "Scale Z", z, 0.01, -100.0..=100.0, idx);
+            }
         }
         InitModule::SetUvScale(scale) => {
             ui.horizontal(|ui| {
@@ -1094,9 +1502,7 @@ fn draw_update_body(ui: &mut egui::Ui, m: &mut UpdateModule, idx: usize) {
             draw_curve_editor(ui, curve, idx, "size_life");
         }
         UpdateModule::ColorByLife(gradient) => {
-            gradient_preview_bar(ui, gradient);
-            ui.add_space(4.0);
-            draw_gradient_keys(ui, &mut gradient.keys, idx);
+            draw_interactive_gradient(ui, gradient, idx);
         }
         UpdateModule::SizeBySpeed { min_speed, max_speed, min_size, max_size } => {
             egui::Grid::new(format!("sbs_{idx}")).num_columns(2).spacing([8.0, 4.0]).show(ui, |ui| {
@@ -1149,12 +1555,23 @@ fn draw_update_body(ui: &mut egui::Ui, m: &mut UpdateModule, idx: usize) {
             });
         }
         UpdateModule::Scale3dByLife { x, y, z } => {
+            let link = draw_axis_link_toggles(ui, egui::Id::new(("s3d_life_link", idx)));
             ui.label(egui::RichText::new("X").color(colors::AXIS_X));
             draw_curve_editor(ui, x, idx, "s3d_x");
-            ui.label(egui::RichText::new("Y").color(colors::AXIS_Y));
-            draw_curve_editor(ui, y, idx, "s3d_y");
-            ui.label(egui::RichText::new("Z").color(colors::AXIS_Z));
-            draw_curve_editor(ui, z, idx, "s3d_z");
+            if link.y_follows_x {
+                y.keys = x.keys.clone();
+                ui.label(egui::RichText::new("  Y = X").color(colors::TEXT_MUTED).small());
+            } else {
+                ui.label(egui::RichText::new("Y").color(colors::AXIS_Y));
+                draw_curve_editor(ui, y, idx, "s3d_y");
+            }
+            if link.z_follows_x {
+                z.keys = x.keys.clone();
+                ui.label(egui::RichText::new("  Z = X").color(colors::TEXT_MUTED).small());
+            } else {
+                ui.label(egui::RichText::new("Z").color(colors::AXIS_Z));
+                draw_curve_editor(ui, z, idx, "s3d_z");
+            }
         }
         UpdateModule::OffsetByLife { x, y, z } => {
             ui.label(egui::RichText::new("X").color(colors::AXIS_X));
@@ -1165,9 +1582,7 @@ fn draw_update_body(ui: &mut egui::Ui, m: &mut UpdateModule, idx: usize) {
             draw_curve_editor(ui, z, idx, "off_z");
         }
         UpdateModule::EmissiveOverLife(gradient) => {
-            gradient_preview_bar(ui, gradient);
-            ui.add_space(4.0);
-            draw_gradient_keys(ui, &mut gradient.keys, idx);
+            draw_interactive_gradient(ui, gradient, idx);
         }
     }
 }
@@ -1179,7 +1594,7 @@ fn draw_update_body(ui: &mut egui::Ui, m: &mut UpdateModule, idx: usize) {
 fn draw_render_section(ui: &mut egui::Ui, render: &mut RenderModule, material_names: &[String]) -> bool {
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("RENDER").strong().size(12.0).color(colors::ACCENT_PURPLE));
+        ui.label(egui::RichText::new("RENDER").strong().small().color(colors::ACCENT_PURPLE));
     });
     ui.add_space(4.0);
 
@@ -1460,64 +1875,383 @@ fn draw_linear_rgba_color(ui: &mut egui::Ui, label: &str, color: &mut LinearRgba
     });
 }
 
-fn draw_gradient_keys(ui: &mut egui::Ui, keys: &mut Vec<GradientKey>, _mod_idx: usize) {
-    let mut remove_key = None;
-    for (i, key) in keys.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("t:").color(colors::TEXT_MUTED));
-            ui.add(egui::DragValue::new(&mut key.time).range(0.0..=1.0).speed(0.01).max_decimals(2));
-            let mut rgba = [key.color.red, key.color.green, key.color.blue, key.color.alpha];
-            if ui.color_edit_button_rgba_unmultiplied(&mut rgba).changed() {
-                key.color = LinearRgba::new(rgba[0], rgba[1], rgba[2], rgba[3]);
-            }
-            if ui.add(egui::Button::new(egui::RichText::new("\u{00d7}").color(colors::STATUS_ERROR)).frame(false)).on_hover_text("Remove key").clicked() {
-                remove_key = Some(i);
-            }
-        });
-    }
-
-    if let Some(idx) = remove_key {
-        if keys.len() > 1 {
-            keys.remove(idx);
-        }
-    }
-
-    if ui.button(egui::RichText::new("+ Key").color(colors::ACCENT_GREEN)).clicked() {
-        let time = keys.last().map(|k| (k.time + 1.0) / 2.0).unwrap_or(0.5);
-        keys.push(GradientKey {
-            time: time.min(1.0),
-            color: LinearRgba::WHITE,
-        });
+fn interp_color(interp: Interp) -> egui::Color32 {
+    match interp {
+        Interp::Linear => colors::ACCENT_BLUE,
+        Interp::EaseIn => colors::ACCENT_ORANGE,
+        Interp::EaseOut => colors::ACCENT_GREEN,
+        Interp::EaseInOut => colors::ACCENT_PURPLE,
+        Interp::Constant => colors::TEXT_MUTED,
     }
 }
 
-fn draw_curve_editor(ui: &mut egui::Ui, curve: &mut Curve<f32>, _idx: usize, _salt: &str) {
-    // Simple key list editor
-    let mut remove_key = None;
-    for (i, key) in curve.keys.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new("t:").color(colors::TEXT_MUTED));
-            ui.add(egui::DragValue::new(&mut key.time).range(0.0..=1.0).speed(0.01).max_decimals(2));
-            ui.label(egui::RichText::new("v:").color(colors::TEXT_MUTED));
-            ui.add(egui::DragValue::new(&mut key.value).speed(0.01).max_decimals(3));
-            if ui.add(egui::Button::new(egui::RichText::new("\u{00d7}").color(colors::STATUS_ERROR)).frame(false)).clicked() {
-                remove_key = Some(i);
+fn draw_curve_canvas(ui: &mut egui::Ui, curve: &mut Curve<f32>, idx: usize, salt: &str) {
+    let id = ui.id().with(salt).with(idx).with("curve_drag");
+    let range_id = ui.id().with(salt).with(idx).with("curve_yrange");
+    let width = ui.available_width().min(280.0);
+    let desired = egui::vec2(width, 120.0);
+    let (rect, response) = ui.allocate_exact_size(desired, egui::Sense::click_and_drag());
+
+    // --- Dynamic Y range ---
+    let drag_state: CurveDragState = ui.ctx().data(|d| d.get_temp(id).unwrap_or_default());
+    let is_dragging = drag_state.dragging_key.is_some();
+
+    let mut yr: CurveYRange = ui.ctx().data(|d| d.get_temp(range_id).unwrap_or_default());
+
+    // Auto-fit on first load (hash == 0) or when curve changed externally (not while dragging)
+    let current_hash = CurveYRange::hash_curve(curve);
+    if yr.last_hash == 0 || (!is_dragging && current_hash != yr.last_hash) {
+        yr = CurveYRange::fit_to_curve(curve);
+    }
+
+    // Middle mouse drag: rescale Y axis
+    if response.dragged_by(egui::PointerButton::Middle) {
+        let delta_y = response.drag_delta().y;
+        let scale_factor = 1.0 + delta_y * 0.01;
+        let center = (yr.y_min + yr.y_max) * 0.5;
+        let half = (yr.y_max - yr.y_min) * 0.5 * scale_factor;
+        let half = half.max(0.01); // prevent collapsing
+        yr.y_min = center - half;
+        yr.y_max = center + half;
+    }
+
+    // Middle mouse scroll: also rescale Y axis
+    if response.contains_pointer() {
+        let scroll = ui.input(|i| i.raw_scroll_delta.y);
+        if scroll.abs() > 0.0 {
+            let scale_factor = 1.0 - scroll * 0.002;
+            let center = (yr.y_min + yr.y_max) * 0.5;
+            let half = ((yr.y_max - yr.y_min) * 0.5 * scale_factor).max(0.01);
+            yr.y_min = center - half;
+            yr.y_max = center + half;
+        }
+    }
+
+    ui.ctx().data_mut(|d| d.insert_temp(range_id, yr));
+
+    let y_min = yr.y_min;
+    let y_max = yr.y_max;
+
+    // X padding so keys at t=0 and t=1 aren't at the very edge
+    let x_pad = 8.0;
+    let plot_left = rect.left() + x_pad;
+    let plot_right = rect.right() - x_pad;
+    let plot_width = plot_right - plot_left;
+
+    let to_screen = |t: f32, v: f32| -> egui::Pos2 {
+        let x = plot_left + t * plot_width;
+        let y = rect.bottom() - (v - y_min) / (y_max - y_min) * rect.height();
+        egui::pos2(x, y)
+    };
+    let from_screen = |pos: egui::Pos2| -> (f32, f32) {
+        let t = (pos.x - plot_left) / plot_width;
+        let v = y_min + (rect.bottom() - pos.y) / rect.height() * (y_max - y_min);
+        (t.clamp(0.0, 1.0), v)
+    };
+
+    let painter = ui.painter_at(rect);
+
+    // Background
+    painter.rect_filled(rect, 2.0, colors::BG_DARKEST);
+
+    // Grid lines — vertical at t=0, 0.25, 0.5, 0.75, 1.0
+    let grid_stroke = egui::Stroke::new(0.5, egui::Color32::from_white_alpha(20));
+    let label_color = egui::Color32::from_white_alpha(80);
+    let label_font = egui::FontId::proportional(9.0);
+    for i in 0..=4 {
+        let t = i as f32 * 0.25;
+        let x = plot_left + t * plot_width;
+        painter.line_segment(
+            [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+            grid_stroke,
+        );
+        // Time label at bottom
+        let label = if t == 0.0 || t == 1.0 { format!("{:.0}", t) } else { format!("{:.2}", t) };
+        painter.text(
+            egui::pos2(x, rect.bottom() - 1.0),
+            egui::Align2::CENTER_BOTTOM,
+            label,
+            label_font.clone(),
+            label_color,
+        );
+    }
+
+    // Horizontal grid — auto-stepped
+    let y_range = y_max - y_min;
+    let step = nice_step(y_range, 4);
+    if step > 0.0 {
+        let first = (y_min / step).ceil() * step;
+        let mut v = first;
+        while v <= y_max {
+            let p = to_screen(0.0, v);
+            painter.line_segment(
+                [egui::pos2(rect.left(), p.y), egui::pos2(rect.right(), p.y)],
+                grid_stroke,
+            );
+            // Value label on left edge
+            let label = if v.abs() < 1e-6 { "0".to_string() } else if v.fract().abs() < 1e-6 { format!("{:.0}", v) } else { format!("{:.1}", v) };
+            painter.text(
+                egui::pos2(rect.left() + 2.0, p.y),
+                egui::Align2::LEFT_CENTER,
+                label,
+                label_font.clone(),
+                label_color,
+            );
+            v += step;
+        }
+    }
+
+    // Curve polyline — 64 samples
+    let points: Vec<egui::Pos2> = (0..=64)
+        .map(|i| {
+            let t = i as f32 / 64.0;
+            to_screen(t, curve.sample(t))
+        })
+        .collect();
+    painter.add(egui::Shape::line(
+        points,
+        egui::Stroke::new(1.5, colors::ACCENT_BLUE),
+    ));
+
+    // --- Interaction state (read early so we can use it for rendering) ---
+    let mut state: CurveDragState = ui.ctx().data(|d| d.get_temp(id).unwrap_or_default());
+
+    // Clamp selected_key to valid range
+    if let Some(sel) = state.selected_key {
+        if sel >= curve.keys.len() {
+            state.selected_key = None;
+        }
+    }
+
+    // Key point circles
+    let hover_pos = response.hover_pos();
+    let mut tooltip_key: Option<&CurveKey<f32>> = None;
+    for (ki, key) in curve.keys.iter().enumerate() {
+        let center = to_screen(key.time, key.value);
+        let hovered = hover_pos.is_some_and(|hp| center.distance(hp) < 8.0);
+        let active = state.dragging_key == Some(ki);
+        let selected = state.selected_key == Some(ki);
+        let radius = if hovered || active { 5.0 } else { 4.0 };
+        let color = interp_color(key.interp);
+        painter.circle_filled(center, radius, color);
+        if selected {
+            painter.circle_stroke(center, radius + 1.0, egui::Stroke::new(1.5, egui::Color32::WHITE));
+        } else if hovered || active {
+            painter.circle_stroke(center, radius + 1.0, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(160)));
+        }
+        if hovered || active {
+            tooltip_key = Some(key);
+        }
+    }
+
+    // Tooltip for hovered/dragged key
+    if let Some(key) = tooltip_key {
+        response.clone().on_hover_ui_at_pointer(|ui| {
+            ui.label(format!("t: {:.3}  v: {:.3}", key.time, key.value));
+            ui.label(egui::RichText::new(format!("{:?}", key.interp)).color(interp_color(key.interp)).small());
+        });
+    }
+
+    // Border
+    painter.rect_stroke(
+        rect,
+        2.0,
+        egui::Stroke::new(1.0, colors::WIDGET_BORDER),
+        egui::StrokeKind::Inside,
+    );
+
+    let ctrl = ui.input(|i| i.modifiers.ctrl || i.modifiers.mac_cmd);
+
+    // Helper: find closest key within hit radius (uses macro to avoid borrow conflicts)
+    macro_rules! hit_key {
+        ($pos:expr) => {
+            curve.keys.iter().enumerate()
+                .filter_map(|(i, k)| {
+                    let dist = to_screen(k.time, k.value).distance($pos);
+                    (dist < 8.0).then_some((i, dist))
+                })
+                .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        };
+    }
+
+    // Ctrl+left click — insert new key at cursor position
+    if ctrl && response.clicked_by(egui::PointerButton::Primary) {
+        if let Some(pos) = response.interact_pointer_pos() {
+            if hit_key!(pos).is_none() {
+                let (t, v) = from_screen(pos);
+                curve.keys.push(CurveKey {
+                    time: t,
+                    value: v,
+                    interp: Interp::EaseInOut,
+                });
+                curve.keys.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+                // Select the newly inserted key
+                state.selected_key = curve.keys.iter().position(|k| (k.time - t).abs() < 1e-6 && (k.value - v).abs() < 1e-6);
+            }
+        }
+    }
+
+    // Ctrl+right click — remove key under cursor
+    if ctrl && response.clicked_by(egui::PointerButton::Secondary) {
+        if let Some(pos) = response.interact_pointer_pos() {
+            if curve.keys.len() > 1 {
+                if let Some((ki, _)) = hit_key!(pos) {
+                    curve.keys.remove(ki);
+                    if state.selected_key == Some(ki) {
+                        state.selected_key = None;
+                    } else if let Some(sel) = state.selected_key {
+                        if sel > ki {
+                            state.selected_key = Some(sel - 1);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Pointer down — immediately start tracking for drag (no threshold delay)
+    let pointer_just_pressed = !ctrl
+        && response.contains_pointer()
+        && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary));
+    if pointer_just_pressed {
+        if let Some(pos) = response.interact_pointer_pos() {
+            let hit = hit_key!(pos).map(|(i, _)| i);
+            state.dragging_key = hit;
+            if let Some(ki) = hit {
+                state.selected_key = Some(ki);
+            }
+        }
+    }
+
+    // Plain click (no drag) selects key, click empty deselects
+    if response.clicked_by(egui::PointerButton::Primary) && !ctrl {
+        if let Some(pos) = response.interact_pointer_pos() {
+            state.selected_key = hit_key!(pos).map(|(i, _)| i);
+        }
+    }
+
+    // Drag key
+    if response.dragged_by(egui::PointerButton::Primary) {
+        if let Some(ki) = state.dragging_key {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let (t, v) = from_screen(pos);
+                if let Some(key) = curve.keys.get_mut(ki) {
+                    key.time = t;
+                    key.value = v;
+                }
+            }
+        }
+    }
+
+    // Drag end — sort keys, update selected_key to follow the moved key
+    if response.drag_stopped_by(egui::PointerButton::Primary) {
+        if let Some(ki) = state.dragging_key {
+            if let Some(key) = curve.keys.get(ki) {
+                let t = key.time;
+                let v = key.value;
+                curve.keys.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+                // Find where the key ended up after sort
+                state.selected_key = curve.keys.iter().position(|k| (k.time - t).abs() < 1e-6 && (k.value - v).abs() < 1e-6);
+            }
+            state.dragging_key = None;
+        }
+    }
+
+    // Shift+click to cycle interp mode
+    if response.clicked_by(egui::PointerButton::Primary) && ui.input(|i| i.modifiers.shift) {
+        if let Some(pos) = response.interact_pointer_pos() {
+            if let Some((ki, _)) = hit_key!(pos) {
+                let key = &mut curve.keys[ki];
+                key.interp = match key.interp {
+                    Interp::Linear => Interp::EaseIn,
+                    Interp::EaseIn => Interp::EaseOut,
+                    Interp::EaseOut => Interp::EaseInOut,
+                    Interp::EaseInOut => Interp::Constant,
+                    Interp::Constant => Interp::Linear,
+                };
+                state.selected_key = Some(ki);
+            }
+        }
+    }
+
+    // Right-click context menu (plain right-click, not ctrl)
+    if !ctrl {
+        let clipboard_id = egui::Id::new("curve_clipboard");
+        response.context_menu(|ui| {
+            if ui.button("Copy Curve").clicked() {
+                ui.ctx().data_mut(|d| d.insert_temp(clipboard_id, curve.keys.clone()));
+                ui.close();
+            }
+            let has_clipboard = ui.ctx().data(|d| d.get_temp::<Vec<CurveKey<f32>>>(clipboard_id).is_some());
+            if ui.add_enabled(has_clipboard, egui::Button::new("Paste Curve")).clicked() {
+                if let Some(keys) = ui.ctx().data(|d| d.get_temp::<Vec<CurveKey<f32>>>(clipboard_id)) {
+                    curve.keys = keys;
+                    state.selected_key = None;
+                }
+                ui.close();
+            }
+            ui.separator();
+            if ui.button("Reset to Default").clicked() {
+                curve.keys = vec![
+                    CurveKey { time: 0.0, value: 1.0, interp: Interp::Linear },
+                    CurveKey { time: 1.0, value: 1.0, interp: Interp::Linear },
+                ];
+                state.selected_key = None;
+                ui.close();
             }
         });
     }
 
-    if let Some(idx) = remove_key {
-        if curve.keys.len() > 1 {
-            curve.keys.remove(idx);
-        }
-    }
+    ui.ctx().data_mut(|d| d.insert_temp(id, state));
+}
 
-    if ui.button(egui::RichText::new("+ Key").color(colors::ACCENT_GREEN)).clicked() {
-        let time = curve.keys.last().map(|k| (k.time + 1.0) / 2.0).unwrap_or(0.5);
-        curve.keys.push(CurveKey {
-            time: time.min(1.0),
-            value: 0.5,
-            interp: Interp::Linear,
-        });
+/// Choose a "nice" step size for grid lines given a value range and target line count.
+fn nice_step(range: f32, target_lines: u32) -> f32 {
+    if range <= 0.0 || target_lines == 0 {
+        return 0.0;
+    }
+    let raw = range / target_lines as f32;
+    let mag = 10.0_f32.powf(raw.log10().floor());
+    let norm = raw / mag;
+    let step = if norm < 1.5 {
+        1.0
+    } else if norm < 3.5 {
+        2.0
+    } else if norm < 7.5 {
+        5.0
+    } else {
+        10.0
+    };
+    step * mag
+}
+
+fn draw_curve_editor(ui: &mut egui::Ui, curve: &mut Curve<f32>, idx: usize, salt: &str) {
+    draw_curve_canvas(ui, curve, idx, salt);
+
+    // Show selected key values (or hint if none selected)
+    let id = ui.id().with(salt).with(idx).with("curve_drag");
+    let state: CurveDragState = ui.ctx().data(|d| d.get_temp(id).unwrap_or_default());
+
+    if let Some(sel) = state.selected_key {
+        if let Some(key) = curve.keys.get_mut(sel) {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("t:").color(colors::TEXT_MUTED));
+                ui.add(egui::DragValue::new(&mut key.time).range(0.0..=1.0).speed(0.01).max_decimals(3));
+                ui.label(egui::RichText::new("v:").color(colors::TEXT_MUTED));
+                ui.add(egui::DragValue::new(&mut key.value).speed(0.01).max_decimals(3));
+                let interp_label = format!("{:?}", key.interp);
+                egui::ComboBox::from_id_salt(ui.id().with(salt).with(idx).with("interp"))
+                    .selected_text(egui::RichText::new(&interp_label).color(interp_color(key.interp)))
+                    .width(80.0)
+                    .show_ui(ui, |ui| {
+                        for mode in [Interp::Linear, Interp::EaseIn, Interp::EaseOut, Interp::EaseInOut, Interp::Constant] {
+                            let label = format!("{:?}", mode);
+                            ui.selectable_value(&mut key.interp, mode, egui::RichText::new(label).color(interp_color(mode)));
+                        }
+                    });
+            });
+        }
+    } else {
+        ui.label(egui::RichText::new("Click a key to edit \u{2022} Ctrl+click to add \u{2022} Ctrl+right-click to remove").color(colors::TEXT_MUTED).small());
     }
 }
