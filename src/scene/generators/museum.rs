@@ -99,6 +99,7 @@ pub fn generate_museum(world: &mut World) {
 
     // Regenerate runtime components for material cubes (spawned without Mesh3d)
     regenerate_runtime_components(world);
+    crate::scene::resolve_entity_references(world);
 
     // Spawn ground floor encompassing all sections
     spawn_ground(world);

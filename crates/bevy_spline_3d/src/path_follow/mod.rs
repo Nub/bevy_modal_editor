@@ -10,24 +10,24 @@
 //! use bevy_spline_3d::prelude::*;
 //!
 //! fn setup(mut commands: Commands) {
-//!     // Create a spline
-//!     let spline_entity = commands.spawn(Spline::new(
-//!         SplineType::CatmullRom,
-//!         vec![
-//!             Vec3::new(0.0, 0.0, 0.0),
-//!             Vec3::new(5.0, 2.0, 0.0),
-//!             Vec3::new(10.0, 0.0, 0.0),
-//!         ],
-//!     )).id();
+//!     // Create a named spline
+//!     commands.spawn((
+//!         Name::new("MySpline"),
+//!         Spline::new(
+//!             SplineType::CatmullRom,
+//!             vec![
+//!                 Vec3::new(0.0, 0.0, 0.0),
+//!                 Vec3::new(5.0, 2.0, 0.0),
+//!                 Vec3::new(10.0, 0.0, 0.0),
+//!             ],
+//!         ),
+//!     ));
 //!
-//!     // Spawn an entity that follows the spline
+//!     // Spawn an entity that follows the spline by name
 //!     commands.spawn((
 //!         Transform::default(),
-//!         SplineFollower {
-//!             spline: spline_entity,
-//!             speed: 2.0,
-//!             ..default()
-//!         },
+//!         SplineFollower::new("MySpline")
+//!             .with_speed(2.0),
 //!     ));
 //! }
 //! ```
@@ -36,7 +36,7 @@ mod components;
 mod systems;
 
 pub use components::*;
-pub use systems::update_spline_followers;
+pub use systems::{resolve_spline_followers, update_spline_followers};
 
 use bevy::prelude::*;
 
@@ -52,6 +52,13 @@ impl Plugin for SplineFollowPlugin {
             .register_type::<LoopMode>()
             .register_type::<FollowerState>()
             .add_message::<FollowerEvent>()
-            .add_systems(Update, systems::update_spline_followers);
+            .add_systems(
+                Update,
+                (
+                    systems::resolve_spline_followers,
+                    systems::update_spline_followers,
+                )
+                    .chain(),
+            );
     }
 }

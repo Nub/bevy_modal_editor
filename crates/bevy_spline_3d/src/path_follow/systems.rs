@@ -3,28 +3,82 @@ use bevy::prelude::*;
 use crate::geometry::CoordinateFrame;
 use crate::spline::{approximate_arc_length, Spline};
 
-use super::{FollowerEvent, FollowerEventKind, FollowerState, LoopMode, SplineFollower};
+use super::{
+    FollowerEvent, FollowerEventKind, FollowerState, LoopMode, ResolvedSplineFollower,
+    SplineFollower,
+};
 
 /// Number of samples for arc-length approximation.
 const ARC_LENGTH_SAMPLES: usize = 128;
 
+/// System that resolves `SplineFollower.spline` (name) → `ResolvedSplineFollower` (entity).
+/// Runs when a follower is added or changed, or when it lacks a resolved component.
+pub fn resolve_spline_followers(
+    mut commands: Commands,
+    followers: Query<
+        (Entity, &SplineFollower, Option<&ResolvedSplineFollower>),
+        Or<(Changed<SplineFollower>, Without<ResolvedSplineFollower>)>,
+    >,
+    named_splines: Query<(Entity, &Name), With<Spline>>,
+) {
+    for (entity, follower, existing) in &followers {
+        if follower.spline.is_empty() {
+            // No spline name set — remove resolved if present
+            if existing.is_some() {
+                commands.entity(entity).remove::<ResolvedSplineFollower>();
+            }
+            continue;
+        }
+
+        // Look up spline entity by name
+        let resolved = named_splines
+            .iter()
+            .find(|(_, name)| name.as_str() == follower.spline);
+
+        match resolved {
+            Some((spline_entity, _)) => {
+                // Only insert/update if different from current
+                let needs_update = existing
+                    .map(|r| r.spline != spline_entity)
+                    .unwrap_or(true);
+                if needs_update {
+                    commands
+                        .entity(entity)
+                        .insert(ResolvedSplineFollower { spline: spline_entity });
+                }
+            }
+            None => {
+                // Spline not found — remove stale resolved component
+                if existing.is_some() {
+                    commands.entity(entity).remove::<ResolvedSplineFollower>();
+                }
+            }
+        }
+    }
+}
+
 /// System that updates all spline followers.
 pub fn update_spline_followers(
-    mut followers: Query<(Entity, &mut SplineFollower, &mut Transform)>,
+    mut followers: Query<(
+        Entity,
+        &mut SplineFollower,
+        &ResolvedSplineFollower,
+        &mut Transform,
+    )>,
     splines: Query<(&Spline, &GlobalTransform)>,
     time: Res<Time>,
     mut events: MessageWriter<FollowerEvent>,
 ) {
     let delta = time.delta_secs();
 
-    for (entity, mut follower, mut transform) in &mut followers {
+    for (entity, mut follower, resolved, mut transform) in &mut followers {
         // Skip if not playing
         if follower.state != FollowerState::Playing {
             continue;
         }
 
         // Get the spline and its transform
-        let Ok((spline, spline_transform)) = splines.get(follower.spline) else {
+        let Ok((spline, spline_transform)) = splines.get(resolved.spline) else {
             continue;
         };
 

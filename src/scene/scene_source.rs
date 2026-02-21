@@ -208,6 +208,7 @@ impl Command for LoadSceneSourceCommand {
 
         // Regenerate runtime components for loaded primitives, lights, etc.
         regenerate_runtime_components(world);
+        super::resolve_entity_references(world);
 
         info!("Loaded scene source: {} ({} entities)", self.path, loaded_entities.len());
     }

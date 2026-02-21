@@ -29,12 +29,13 @@ pub enum FollowerState {
 /// Component that makes an entity follow a spline path.
 ///
 /// The entity's [`Transform`] will be updated each frame to move along the spline
-/// at the specified speed.
+/// at the specified speed. The spline is referenced by name (the `Name` component)
+/// rather than by `Entity` ID, so references survive scene save/load.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct SplineFollower {
-    /// The spline entity to follow.
-    pub spline: Entity,
+    /// The name of the spline entity to follow.
+    pub spline: String,
 
     /// Movement speed in world units per second.
     pub speed: f32,
@@ -73,7 +74,7 @@ pub struct SplineFollower {
 impl Default for SplineFollower {
     fn default() -> Self {
         Self {
-            spline: Entity::PLACEHOLDER,
+            spline: String::new(),
             speed: 1.0,
             t: 0.0,
             loop_mode: LoopMode::Once,
@@ -87,11 +88,20 @@ impl Default for SplineFollower {
     }
 }
 
+/// Runtime-only component that caches the resolved spline entity.
+/// Inserted by the resolution system after looking up the spline by name.
+/// Not serialized — rebuilt after scene load.
+#[derive(Component, Debug, Clone)]
+pub struct ResolvedSplineFollower {
+    /// The resolved spline entity.
+    pub spline: Entity,
+}
+
 impl SplineFollower {
-    /// Create a new follower for the given spline.
-    pub fn new(spline: Entity) -> Self {
+    /// Create a new follower for the given spline name.
+    pub fn new(spline: impl Into<String>) -> Self {
         Self {
-            spline,
+            spline: spline.into(),
             ..default()
         }
     }

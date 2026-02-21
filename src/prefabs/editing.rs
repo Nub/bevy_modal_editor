@@ -197,6 +197,7 @@ impl Command for ClosePrefabCommand {
 
         // Regenerate runtime components
         crate::scene::regenerate_runtime_components(world);
+        crate::scene::resolve_entity_references(world);
 
         // Restore parent state
         if let Some(mut scene_file) = world.get_resource_mut::<SceneFile>() {

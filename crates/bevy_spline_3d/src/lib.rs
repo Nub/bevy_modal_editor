@@ -90,8 +90,8 @@ pub use editor::SplineEditorPlugin;
 pub mod prelude {
     pub use crate::camera::{CameraMode, CameraPlugin, FlyCamera, OrbitCamera};
     pub use crate::path_follow::{
-        FollowerEvent, FollowerEventKind, FollowerState, LoopMode, SplineFollowPlugin,
-        SplineFollower,
+        FollowerEvent, FollowerEventKind, FollowerState, LoopMode, ResolvedSplineFollower,
+        SplineFollowPlugin, SplineFollower,
     };
     pub use crate::road::{
         create_road_segment_mesh, GeneratedIntersectionMesh, GeneratedRoadMesh,

@@ -56,8 +56,9 @@ fn setup(
     ));
 
     // Create a figure-8 spline (closed loop)
-    let spline_entity = commands
-        .spawn(Spline::closed(
+    commands.spawn((
+        Name::new("Figure8Spline"),
+        Spline::closed(
             SplineType::CatmullRom,
             vec![
                 Vec3::new(-8.0, 0.0, 0.0),
@@ -69,8 +70,8 @@ fn setup(
                 Vec3::new(0.0, -2.0, 0.0),
                 Vec3::new(-4.0, 0.0, 6.0),
             ],
-        ))
-        .id();
+        ),
+    ));
 
     // Shared mesh and materials
     let cube_mesh = meshes.add(Cuboid::new(0.8, 0.8, 1.2));
@@ -94,7 +95,7 @@ fn setup(
         Mesh3d(cube_mesh.clone()),
         MeshMaterial3d(red_material),
         Transform::default(),
-        SplineFollower::new(spline_entity)
+        SplineFollower::new("Figure8Spline")
             .with_speed(5.0)
             .with_loop_mode(LoopMode::Loop)
             .with_start_t(0.0),
@@ -106,7 +107,7 @@ fn setup(
         Mesh3d(cube_mesh.clone()),
         MeshMaterial3d(green_material),
         Transform::default(),
-        SplineFollower::new(spline_entity)
+        SplineFollower::new("Figure8Spline")
             .with_speed(3.0)
             .with_loop_mode(LoopMode::PingPong)
             .with_start_t(0.25),
@@ -118,7 +119,7 @@ fn setup(
         Mesh3d(sphere_mesh),
         MeshMaterial3d(blue_material),
         Transform::default(),
-        SplineFollower::new(spline_entity)
+        SplineFollower::new("Figure8Spline")
             .with_speed(2.0)
             .with_loop_mode(LoopMode::Once)
             .with_start_t(0.5)

@@ -9,14 +9,15 @@ use std::any::TypeId;
 
 use bevy_editor_game::{CustomEntityRegistry, InspectorWidgetFn, SceneComponentRegistry};
 
-use super::command_palette::{open_add_component_palette, CommandPaletteState, TexturePickResult, TextureSlot, draw_entity_field, make_callback_id, PendingEntitySelection};
+use super::command_palette::{open_add_component_palette, CommandPaletteState, TexturePickResult, TextureSlot, draw_name_entity_field, make_callback_id, PendingEntitySelection};
 use super::reflect_editor::{clear_focus_state, component_editor, ReflectEditorConfig};
 use super::InspectorPanelState;
 use crate::commands::TakeSnapshotCommand;
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
 use crate::scene::{
     blockout::{ArchMarker, LShapeMarker, RampMarker, StairsMarker},
-    DecalMarker, DecalType, DirectionalLightMarker, FogVolumeMarker, Locked, SceneLightMarker,
+    DecalMarker, DecalType, DirectionalLightMarker, FogVolumeMarker, Locked, SceneEntity,
+    SceneLightMarker,
 };
 use crate::selection::Selected;
 use crate::ui::theme::{colors, draw_pin_button, grid_label, panel, panel_frame, section_header, value_slider, DRAG_VALUE_WIDTH};
@@ -268,7 +269,7 @@ struct DecalTextureResult {
 /// Data for SplineFollower editing
 #[derive(Clone)]
 struct SplineFollowerData {
-    spline: Entity,
+    spline: String,
     speed: f32,
     t: f32,
     loop_mode: LoopMode,
@@ -283,7 +284,7 @@ struct SplineFollowerData {
 impl From<&SplineFollower> for SplineFollowerData {
     fn from(follower: &SplineFollower) -> Self {
         Self {
-            spline: follower.spline,
+            spline: follower.spline.clone(),
             speed: follower.speed,
             t: follower.t,
             loop_mode: follower.loop_mode,
@@ -300,9 +301,8 @@ impl From<&SplineFollower> for SplineFollowerData {
 /// Template data for UI editing
 #[derive(Clone)]
 struct TemplateData {
-    entity: Entity,
+    name: String,
     weight: f32,
-    name: Option<String>,
 }
 
 /// Data for ProceduralPlacer editing
@@ -329,7 +329,7 @@ struct ProceduralPlacerData {
 }
 
 impl ProceduralPlacerData {
-    fn from_placer(p: &ProceduralPlacer, world: &World) -> Self {
+    fn from_placer(p: &ProceduralPlacer, _world: &World) -> Self {
         let (mode, seed) = match &p.mode {
             SamplingMode::Uniform => (0, None),
             SamplingMode::Random { seed } => (1, *seed),
@@ -343,9 +343,8 @@ impl ProceduralPlacerData {
         };
         let templates = p.templates.iter().map(|t| {
             TemplateData {
-                entity: t.entity,
+                name: t.name.clone(),
                 weight: t.weight,
-                name: world.get::<Name>(t.entity).map(|n| n.as_str().to_string()),
             }
         }).collect();
         Self {
@@ -841,7 +840,6 @@ struct SplineFollowerResult {
 fn draw_spline_follower_section(
     ui: &mut egui::Ui,
     data: &mut SplineFollowerData,
-    spline_name: Option<&str>,
 ) -> SplineFollowerResult {
     let mut result = SplineFollowerResult {
         changed: false,
@@ -853,9 +851,9 @@ fn draw_spline_follower_section(
             .num_columns(2)
             .spacing([8.0, 4.0])
             .show(ui, |ui| {
-                // Spline entity reference
+                // Spline entity reference (name-based)
                 grid_label(ui, "Spline");
-                result.open_spline_picker = draw_entity_field(ui, "", data.spline, spline_name);
+                result.open_spline_picker = draw_name_entity_field(ui, "", &data.spline);
                 ui.end_row();
 
                 // Speed
@@ -976,9 +974,9 @@ fn draw_procedural_placer_section(ui: &mut egui::Ui, data: &mut ProceduralPlacer
         } else {
             for (i, template) in data.templates.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    // Template name/entity
-                    let name = template.name.as_deref().unwrap_or("Unnamed");
-                    ui.label(egui::RichText::new(name).color(colors::TEXT_PRIMARY));
+                    // Template name
+                    let display_name = if template.name.is_empty() { "Unnamed" } else { &template.name };
+                    ui.label(egui::RichText::new(display_name).color(colors::TEXT_PRIMARY));
 
                     // Weight slider
                     ui.add_sized(
@@ -1356,10 +1354,7 @@ fn draw_inspector_panel(world: &mut World) {
         world.get::<SplineFollower>(e).map(|f| SplineFollowerData::from(f))
     });
 
-    // Get the spline entity's name (for display in the picker)
-    let spline_name: Option<String> = spline_follower_data.as_ref().and_then(|data| {
-        world.get::<Name>(data.spline).map(|n| n.as_str().to_string())
-    });
+    // spline_follower_data.spline is already the name string — no separate lookup needed
 
     // Get procedural placer component data for single selection
     let mut procedural_placer_data = single_entity.and_then(|e| {
@@ -1577,7 +1572,7 @@ fn draw_inspector_panel(world: &mut World) {
 
                             // Spline follower properties
                             if let Some(ref mut data) = spline_follower_data {
-                                let result = draw_spline_follower_section(ui, data, spline_name.as_deref());
+                                let result = draw_spline_follower_section(ui, data);
                                 spline_follower_changed = result.changed;
                                 open_spline_picker = result.open_spline_picker;
                                 ui.add_space(4.0);
@@ -1858,8 +1853,29 @@ fn draw_inspector_panel(world: &mut World) {
     }
 
     // Apply name changes back to the entity (single selection only)
+    // Enforce uniqueness among SceneEntity names to keep name-based references stable.
     if entity_name != original_name {
-        if let (Some(entity), Some(new_name)) = (single_entity, entity_name) {
+        if let (Some(entity), Some(mut new_name)) = (single_entity, entity_name) {
+            // Check for duplicates among other SceneEntity names
+            let existing_names: Vec<String> = {
+                let mut q = world.query_filtered::<(Entity, &Name), With<SceneEntity>>();
+                q.iter(world)
+                    .filter(|(e, _)| *e != entity)
+                    .map(|(_, n)| n.as_str().to_string())
+                    .collect()
+            };
+            if existing_names.iter().any(|n| n == &new_name) {
+                // Deduplicate by appending a number
+                let base = new_name.clone();
+                let mut counter = 2;
+                loop {
+                    new_name = format!("{} {}", base, counter);
+                    if !existing_names.iter().any(|n| n == &new_name) {
+                        break;
+                    }
+                    counter += 1;
+                }
+            }
             if let Some(mut name) = world.get_mut::<Name>(entity) {
                 name.set(new_name);
             }
@@ -2146,17 +2162,27 @@ fn draw_inspector_panel(world: &mut World) {
                 // Check if this is for the SplineFollower spline field
                 let spline_callback = make_callback_id(entity, "spline");
                 if selection.callback_id == spline_callback {
+                    // Look up the name of the selected entity
+                    let selected_name = world
+                        .get::<Name>(selection.selected_entity)
+                        .map(|n| n.as_str().to_string())
+                        .unwrap_or_default();
                     if let Some(mut follower) = world.get_mut::<SplineFollower>(entity) {
-                        follower.spline = selection.selected_entity;
+                        follower.spline = selected_name;
                     }
                 }
 
                 // Check if this is for adding a placer template
                 let placer_template_callback = make_callback_id(entity, "placer_template");
                 if selection.callback_id == placer_template_callback {
+                    // Look up the name of the selected entity
+                    let selected_name = world
+                        .get::<Name>(selection.selected_entity)
+                        .map(|n| n.as_str().to_string())
+                        .unwrap_or_default();
                     if let Some(mut placer) = world.get_mut::<ProceduralPlacer>(entity) {
                         placer.templates.push(bevy_procedural::WeightedTemplate::new(
-                            selection.selected_entity,
+                            selected_name,
                             1.0,
                         ));
                     }

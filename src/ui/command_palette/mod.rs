@@ -46,7 +46,7 @@ pub use commands::{CommandAction, CommandRegistry};
 pub use mesh_shape_picker::MeshShapePickResult;
 pub use entity_picker::{
     CurrentInspectedEntity, EntityPickerSelection, PendingEntityPickerRequest,
-    PendingEntitySelection, draw_entity_field, make_callback_id,
+    PendingEntitySelection, draw_entity_field, draw_name_entity_field, make_callback_id,
 };
 
 // ── PaletteMode ──────────────────────────────────────────────────────

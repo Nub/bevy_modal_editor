@@ -130,6 +130,7 @@ impl Command for SpawnPrefabCommand {
 
         // Regenerate runtime components (meshes, materials, colliders, lights)
         regenerate_runtime_components(world);
+        crate::scene::resolve_entity_references(world);
 
         info!(
             "Spawned prefab '{}' as instance '{}' ({} entities)",

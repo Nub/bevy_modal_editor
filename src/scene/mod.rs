@@ -28,7 +28,7 @@ use bevy_editor_game::{
 use crate::materials::{load_base_textures, MaterialTypeRegistry, resolve_material_ref};
 use bevy_outliner::prelude::{HasSilhouetteMesh, SilhouetteMesh};
 use bevy_procedural::{ProceduralEntity, ProceduralPlacer, ProceduralTemplate};
-use bevy_spline_3d::prelude::SplineFollower;
+use bevy_spline_3d::prelude::{ResolvedSplineFollower, SplineFollower};
 use bevy_spline_3d::prelude::{Spline, SplineType};
 use serde::de::DeserializeSeed;
 
@@ -324,6 +324,91 @@ pub fn regenerate_runtime_components(world: &mut World) {
             world.resource::<AssetServer>().load(&asset_ref.path);
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.insert(SceneRoot(handle));
+        }
+    }
+}
+
+/// Resolve name-based entity references after scene load or undo/redo.
+///
+/// Components like `SplineFollower` and `ProceduralPlacer` store entity references
+/// as names (strings) for stable serialization. This function resolves those names
+/// back to actual `Entity` IDs by inserting runtime resolver components.
+pub fn resolve_entity_references(world: &mut World) {
+    // Resolve SplineFollower references
+    let followers: Vec<(Entity, String)> = {
+        let mut query =
+            world.query_filtered::<(Entity, &SplineFollower), Without<ResolvedSplineFollower>>();
+        query
+            .iter(world)
+            .filter(|(_, f)| !f.spline.is_empty())
+            .map(|(e, f)| (e, f.spline.clone()))
+            .collect()
+    };
+
+    // Build name→entity lookup for splines
+    let spline_lookup: Vec<(Entity, String)> = {
+        let mut query = world.query_filtered::<(Entity, &Name), With<Spline>>();
+        query
+            .iter(world)
+            .map(|(e, n)| (e, n.as_str().to_string()))
+            .collect()
+    };
+
+    for (follower_entity, spline_name) in followers {
+        if let Some((spline_entity, _)) = spline_lookup.iter().find(|(_, n)| n == &spline_name) {
+            if let Ok(mut entity_mut) = world.get_entity_mut(follower_entity) {
+                entity_mut.insert(ResolvedSplineFollower {
+                    spline: *spline_entity,
+                });
+            }
+        }
+    }
+
+    // Resolve ProceduralPlacer template references
+    let placers: Vec<(Entity, Vec<(String, f32)>)> = {
+        let mut query = world
+            .query_filtered::<(Entity, &ProceduralPlacer), Without<bevy_procedural::ResolvedPlacer>>(
+            );
+        query
+            .iter(world)
+            .map(|(e, p)| {
+                let templates = p
+                    .templates
+                    .iter()
+                    .map(|t| (t.name.clone(), t.weight))
+                    .collect();
+                (e, templates)
+            })
+            .collect()
+    };
+
+    // Build name→entity lookup for all named entities
+    let name_lookup: Vec<(Entity, String)> = {
+        let mut query = world.query::<(Entity, &Name)>();
+        query
+            .iter(world)
+            .map(|(e, n)| (e, n.as_str().to_string()))
+            .collect()
+    };
+
+    for (placer_entity, templates) in placers {
+        let resolved_templates: Vec<bevy_procedural::ResolvedTemplate> = templates
+            .iter()
+            .filter_map(|(name, weight)| {
+                name_lookup
+                    .iter()
+                    .find(|(_, n)| n == name)
+                    .map(|(e, _)| bevy_procedural::ResolvedTemplate {
+                        entity: *e,
+                        weight: *weight,
+                    })
+            })
+            .collect();
+
+        if let Ok(mut entity_mut) = world.get_entity_mut(placer_entity) {
+            entity_mut.insert(bevy_procedural::ResolvedPlacer {
+                templates: resolved_templates,
+            });
         }
     }
 }
@@ -647,6 +732,9 @@ pub fn restore_scene_from_data(world: &mut World, data: &str) {
 
     // Regenerate meshes, materials, and colliders
     regenerate_runtime_components(world);
+
+    // Resolve name-based entity references (SplineFollower, ProceduralPlacer)
+    resolve_entity_references(world);
 
     info!("Scene restoration complete");
 }

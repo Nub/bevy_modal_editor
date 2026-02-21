@@ -167,6 +167,47 @@ pub fn draw_entity_field(
     clicked
 }
 
+/// Helper function to draw a name-based entity reference field with a picker button.
+/// Shows the entity name, or "(none)" if empty. Returns true if the picker should open.
+pub fn draw_name_entity_field(
+    ui: &mut egui::Ui,
+    label: &str,
+    current_name: &str,
+) -> bool {
+    let mut clicked = false;
+
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(label).color(colors::TEXT_SECONDARY));
+
+        let display_text = if current_name.is_empty() {
+            "(none)".to_string()
+        } else {
+            current_name.to_string()
+        };
+
+        let button = ui.add(
+            egui::Button::new(
+                egui::RichText::new(&display_text)
+                    .color(if current_name.is_empty() {
+                        colors::TEXT_MUTED
+                    } else {
+                        colors::ACCENT_CYAN
+                    })
+                    .small(),
+            )
+            .frame(true),
+        );
+
+        if button.clicked() {
+            clicked = true;
+        }
+
+        button.on_hover_text("Click to select entity");
+    });
+
+    clicked
+}
+
 /// Helper to generate a unique callback ID from entity and field name
 pub fn make_callback_id(entity: Entity, field_name: &str) -> u64 {
     use std::hash::{Hash, Hasher};

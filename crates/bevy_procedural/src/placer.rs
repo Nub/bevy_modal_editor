@@ -5,19 +5,41 @@ use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// A template entity with a placement weight.
+/// References the template by name (the `Name` component) for stable serialization.
 #[derive(Clone, Debug, Reflect, Serialize, Deserialize)]
 pub struct WeightedTemplate {
-    /// The template entity to place instances of.
-    pub entity: Entity,
+    /// The name of the template entity.
+    pub name: String,
     /// Relative weight for selection (higher = more likely).
     pub weight: f32,
 }
 
 impl WeightedTemplate {
-    /// Create a new weighted template.
-    pub fn new(entity: Entity, weight: f32) -> Self {
-        Self { entity, weight }
+    /// Create a new weighted template by name.
+    pub fn new(name: impl Into<String>, weight: f32) -> Self {
+        Self {
+            name: name.into(),
+            weight,
+        }
     }
+}
+
+/// Runtime-only resolved template with the actual entity reference.
+/// Not serialized — rebuilt by the resolution system.
+#[derive(Clone, Debug)]
+pub struct ResolvedTemplate {
+    /// The resolved template entity.
+    pub entity: Entity,
+    /// Relative weight for selection.
+    pub weight: f32,
+}
+
+/// Runtime-only component caching resolved template entities for a `ProceduralPlacer`.
+/// Not serialized — rebuilt after scene load.
+#[derive(Component, Clone, Debug, Default)]
+pub struct ResolvedPlacer {
+    /// Resolved template entities with weights.
+    pub templates: Vec<ResolvedTemplate>,
 }
 
 /// Sampling mode for procedural placement.
@@ -152,9 +174,9 @@ impl ProceduralPlacer {
         }
     }
 
-    /// Create a new placer with a single template.
-    pub fn single(template: Entity) -> Self {
-        Self::new(vec![WeightedTemplate::new(template, 1.0)])
+    /// Create a new placer with a single template by name.
+    pub fn single(name: impl Into<String>) -> Self {
+        Self::new(vec![WeightedTemplate::new(name, 1.0)])
     }
 
     /// Set the number of instances to place.
@@ -199,9 +221,9 @@ impl ProceduralPlacer {
         self
     }
 
-    /// Add a template with a weight.
-    pub fn add_template(&mut self, entity: Entity, weight: f32) {
-        self.templates.push(WeightedTemplate::new(entity, weight));
+    /// Add a template by name with a weight.
+    pub fn add_template(&mut self, name: impl Into<String>, weight: f32) {
+        self.templates.push(WeightedTemplate::new(name, weight));
     }
 }
 
@@ -220,13 +242,14 @@ pub type PlacementTemplate = ProceduralTemplate;
 /// Marker component for procedurally placed instances.
 ///
 /// This is added to all entities spawned by a ProceduralPlacer.
+/// References use names for stable serialization.
 #[derive(Component, Clone, Debug, Reflect, Serialize, Deserialize)]
 #[reflect(Component)]
 pub struct ProceduralEntity {
-    /// The placer entity that created this instance.
-    pub placer: Entity,
-    /// The template entity this instance was created from.
-    pub template: Entity,
+    /// The name of the placer entity that created this instance.
+    pub placer: String,
+    /// The name of the template entity this instance was created from.
+    pub template: String,
     /// Index in the placement sequence.
     pub index: usize,
 }

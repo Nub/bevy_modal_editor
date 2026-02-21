@@ -414,6 +414,9 @@ impl Command for LoadSceneCommand {
         // Regenerate runtime components from markers
         regenerate_runtime_components(world);
 
+        // Resolve name-based entity references
+        super::resolve_entity_references(world);
+
         // Note: Physics state is preserved - not changed on load
 
         // Update SceneFile resource

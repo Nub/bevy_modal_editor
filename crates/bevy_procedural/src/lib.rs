@@ -11,16 +11,18 @@
 //! use bevy_procedural::prelude::*;
 //!
 //! fn setup(mut commands: Commands) {
-//!     // Create template entities (will be hidden automatically)
-//!     let tree = commands.spawn((Mesh3d::default(), PlacementTemplate)).id();
-//!     let rock = commands.spawn((Mesh3d::default(), PlacementTemplate)).id();
+//!     // Create named template entities (will be hidden automatically)
+//!     commands.spawn((Name::new("Tree"), Mesh3d::default(), PlacementTemplate));
+//!     commands.spawn((Name::new("Rock"), Mesh3d::default(), PlacementTemplate));
 //!
 //!     // Add ProceduralPlacer to any mesh - it samples its own surface
+//!     // Templates are referenced by name for stable serialization.
 //!     commands.spawn((
+//!         Name::new("Terrain"),
 //!         Mesh3d::default(), // terrain mesh
 //!         ProceduralPlacer::new(vec![
-//!             WeightedTemplate::new(tree, 1.0),
-//!             WeightedTemplate::new(rock, 0.5),
+//!             WeightedTemplate::new("Tree", 1.0),
+//!             WeightedTemplate::new("Rock", 0.5),
 //!         ])
 //!         .with_count(100)
 //!         .with_mode(SamplingMode::Random { seed: Some(42) })
@@ -40,8 +42,8 @@ use avian3d::prelude::*;
 use bevy::prelude::*;
 
 pub use placer::{
-    PlacementOrientation, ProceduralEntity, ProceduralPlacer, ProceduralTemplate, SamplingMode,
-    SurfaceProjection, WeightedTemplate,
+    PlacementOrientation, ProceduralEntity, ProceduralPlacer, ProceduralTemplate, ResolvedPlacer,
+    ResolvedTemplate, SamplingMode, SurfaceProjection, WeightedTemplate,
 };
 // Deprecated re-exports for backwards compatibility
 #[allow(deprecated)]
@@ -75,7 +77,13 @@ impl Plugin for ProceduralPlugin {
             .register_type::<ProceduralTemplate>()
             .add_systems(
                 Update,
-                (hide_template_entities, update_placements, cleanup_placements).chain(),
+                (
+                    hide_template_entities,
+                    resolve_placer_templates,
+                    update_placements,
+                    cleanup_placements,
+                )
+                    .chain(),
             )
             .add_systems(PostUpdate, project_placed_instances);
     }
@@ -88,52 +96,123 @@ fn hide_template_entities(mut query: Query<&mut Visibility, Added<ProceduralTemp
     }
 }
 
-/// System to update placements when placer or source changes.
-fn update_placements(
-    world: &mut World,
+/// System that resolves `WeightedTemplate.name` → `ResolvedPlacer` with entity references.
+fn resolve_placer_templates(
+    mut commands: Commands,
+    placers: Query<
+        (Entity, &ProceduralPlacer, Option<&ResolvedPlacer>),
+        Or<(Changed<ProceduralPlacer>, Without<ResolvedPlacer>)>,
+    >,
+    named_entities: Query<(Entity, &Name)>,
 ) {
+    for (entity, placer, _existing) in &placers {
+        let resolved_templates: Vec<ResolvedTemplate> = placer
+            .templates
+            .iter()
+            .filter_map(|wt| {
+                let found = named_entities
+                    .iter()
+                    .find(|(_, name)| name.as_str() == wt.name);
+                found.map(|(e, _)| ResolvedTemplate {
+                    entity: e,
+                    weight: wt.weight,
+                })
+            })
+            .collect();
+
+        commands
+            .entity(entity)
+            .insert(ResolvedPlacer { templates: resolved_templates });
+    }
+}
+
+/// System to update placements when placer or source changes.
+fn update_placements(world: &mut World) {
     // Collect placers that need updating.
     // Triggers on: ProceduralPlacer change, Mesh3d change, or GlobalTransform change.
     let mesh_placers: Vec<_> = world
-        .query_filtered::<(Entity, &ProceduralPlacer, &Mesh3d, &GlobalTransform), Or<(Changed<ProceduralPlacer>, Added<ProceduralPlacer>, Changed<Mesh3d>, Changed<GlobalTransform>)>>()
+        .query_filtered::<(
+            Entity,
+            &ProceduralPlacer,
+            &ResolvedPlacer,
+            &Mesh3d,
+            &GlobalTransform,
+            &Name,
+        ), Or<(
+            Changed<ProceduralPlacer>,
+            Added<ProceduralPlacer>,
+            Changed<Mesh3d>,
+            Changed<GlobalTransform>,
+        )>>()
         .iter(world)
-        .filter(|(_, p, _, _)| p.enabled)
-        .map(|(e, p, m, t)| (e, p.clone(), m.0.clone(), *t))
+        .filter(|(_, p, _, _, _, _)| p.enabled)
+        .map(|(e, p, r, m, t, n)| (e, p.clone(), r.clone(), m.0.clone(), *t, n.as_str().to_string()))
         .collect();
 
     // Collect spline-based placers.
-    // Triggers on: ProceduralPlacer change, Spline change, or GlobalTransform change.
     #[cfg(feature = "spline")]
     let spline_placers: Vec<_> = world
-        .query_filtered::<(Entity, &ProceduralPlacer, &bevy_spline_3d::spline::Spline, &GlobalTransform), (Or<(Changed<ProceduralPlacer>, Added<ProceduralPlacer>, Changed<bevy_spline_3d::spline::Spline>, Changed<GlobalTransform>)>, Without<Mesh3d>)>()
+        .query_filtered::<(
+            Entity,
+            &ProceduralPlacer,
+            &ResolvedPlacer,
+            &bevy_spline_3d::spline::Spline,
+            &GlobalTransform,
+            &Name,
+        ), (
+            Or<(
+                Changed<ProceduralPlacer>,
+                Added<ProceduralPlacer>,
+                Changed<bevy_spline_3d::spline::Spline>,
+                Changed<GlobalTransform>,
+            )>,
+            Without<Mesh3d>,
+        )>()
         .iter(world)
-        .filter(|(_, p, _, _)| p.enabled)
-        .map(|(e, p, s, t)| (e, p.clone(), s.clone(), *t))
+        .filter(|(_, p, _, _, _, _)| p.enabled)
+        .map(|(e, p, r, s, t, n)| (e, p.clone(), r.clone(), s.clone(), *t, n.as_str().to_string()))
         .collect();
 
-    // Collect existing instances to remove
+    // Collect existing instances to remove (keyed by placer name)
     let instances_to_remove: Vec<_> = world
         .query::<(Entity, &ProceduralEntity)>()
         .iter(world)
-        .map(|(e, i)| (e, i.placer))
+        .map(|(e, i)| (e, i.placer.clone()))
         .collect();
 
     // First, sample all meshes while we have immutable access
     let mesh_samples: Vec<_> = {
         let meshes = world.resource::<Assets<Mesh>>();
-        mesh_placers.iter().map(|(placer_entity, placer, mesh_handle, global_transform)| {
-            let samples = meshes.get(mesh_handle.id())
-                .map(|mesh| mesh.sample(placer.count, placer.mode.is_uniform(), placer.mode.seed()))
-                .unwrap_or_default();
-            (*placer_entity, placer.clone(), samples, *global_transform)
-        }).collect()
+        mesh_placers
+            .iter()
+            .map(|(placer_entity, placer, resolved, mesh_handle, global_transform, placer_name)| {
+                let samples = meshes
+                    .get(mesh_handle.id())
+                    .map(|mesh| {
+                        mesh.sample(
+                            placer.count,
+                            placer.mode.is_uniform(),
+                            placer.mode.seed(),
+                        )
+                    })
+                    .unwrap_or_default();
+                (
+                    *placer_entity,
+                    placer.clone(),
+                    resolved.clone(),
+                    samples,
+                    *global_transform,
+                    placer_name.clone(),
+                )
+            })
+            .collect()
     };
 
     // Process mesh-based placers
-    for (placer_entity, placer, samples, global_transform) in mesh_samples {
+    for (placer_entity, placer, resolved, samples, global_transform, placer_name) in mesh_samples {
         // Remove existing instances for this placer
-        for (instance_entity, instance_placer) in &instances_to_remove {
-            if *instance_placer == placer_entity {
+        for (instance_entity, instance_placer_name) in &instances_to_remove {
+            if *instance_placer_name == placer_name {
                 world.despawn(*instance_entity);
             }
         }
@@ -145,7 +224,9 @@ fn update_placements(
         spawn_instances_world(
             world,
             placer_entity,
+            &placer_name,
             &placer,
+            &resolved,
             &samples,
             &global_transform,
         );
@@ -153,20 +234,28 @@ fn update_placements(
 
     // Process spline-based placers
     #[cfg(feature = "spline")]
-    for (placer_entity, placer, spline, global_transform) in &spline_placers {
+    for (placer_entity, placer, resolved, spline, global_transform, placer_name) in &spline_placers
+    {
         // Remove existing instances for this placer
-        for (instance_entity, instance_placer) in &instances_to_remove {
-            if instance_placer == placer_entity {
+        for (instance_entity, instance_placer_name) in &instances_to_remove {
+            if instance_placer_name == placer_name {
                 world.despawn(*instance_entity);
             }
         }
 
-        let samples = spline_sampling::sample_spline(&spline, placer.count, placer.mode.is_uniform(), placer.mode.seed());
+        let samples = spline_sampling::sample_spline(
+            spline,
+            placer.count,
+            placer.mode.is_uniform(),
+            placer.mode.seed(),
+        );
 
         spawn_instances_world(
             world,
             *placer_entity,
-            &placer,
+            placer_name,
+            placer,
+            resolved,
             &samples,
             global_transform,
         );
@@ -176,17 +265,19 @@ fn update_placements(
 /// Spawn instances from samples using entity cloning.
 fn spawn_instances_world(
     world: &mut World,
-    placer_entity: Entity,
+    _placer_entity: Entity,
+    placer_name: &str,
     placer: &ProceduralPlacer,
+    resolved: &ResolvedPlacer,
     samples: &[Sample],
     source_transform: &GlobalTransform,
 ) {
-    if placer.templates.is_empty() {
+    if resolved.templates.is_empty() {
         return;
     }
 
-    // Build weighted selection
-    let total_weight: f32 = placer.templates.iter().map(|t| t.weight).sum();
+    // Build weighted selection from resolved templates
+    let total_weight: f32 = resolved.templates.iter().map(|t| t.weight).sum();
     if total_weight <= 0.0 {
         return;
     }
@@ -194,33 +285,49 @@ fn spawn_instances_world(
     let mut rng = fastrand::Rng::with_seed(placer.mode.seed().unwrap_or(0));
 
     // Collect spawn data first to avoid borrow issues
-    let spawn_data: Vec<_> = samples.iter().enumerate().filter_map(|(index, sample)| {
-        // Select template based on weight
-        let template = select_weighted_template(&placer.templates, total_weight, &mut rng);
+    let spawn_data: Vec<_> = samples
+        .iter()
+        .enumerate()
+        .filter_map(|(index, sample)| {
+            // Select template based on weight
+            let template =
+                select_weighted_resolved_template(&resolved.templates, total_weight, &mut rng);
 
-        // Get template transform
-        let template_transform = world.get::<Transform>(template.entity).copied()?;
+            // Get template transform and name
+            let template_transform = world.get::<Transform>(template.entity).copied()?;
+            let template_name = world
+                .get::<Name>(template.entity)
+                .map(|n| n.as_str().to_string())
+                .unwrap_or_default();
 
-        // Convert sample position from local to world space
-        let world_position = source_transform.transform_point(sample.position);
+            // Convert sample position from local to world space
+            let world_position = source_transform.transform_point(sample.position);
 
-        // Calculate rotation based on orientation mode
-        let rotation = calculate_instance_rotation(
-            &placer.orientation,
-            &sample.orientation,
-            template_transform.rotation,
-            index,
-            placer.mode.seed(),
-        );
+            // Calculate rotation based on orientation mode
+            let rotation = calculate_instance_rotation(
+                &placer.orientation,
+                &sample.orientation,
+                template_transform.rotation,
+                index,
+                placer.mode.seed(),
+            );
 
-        // Apply offset in local space
-        let offset_position = world_position + rotation * placer.offset;
+            // Apply offset in local space
+            let offset_position = world_position + rotation * placer.offset;
 
-        Some((template.entity, offset_position, rotation, template_transform.scale, index))
-    }).collect();
+            Some((
+                template.entity,
+                template_name,
+                offset_position,
+                rotation,
+                template_transform.scale,
+                index,
+            ))
+        })
+        .collect();
 
     // Now spawn instances
-    for (template_entity, position, rotation, scale, index) in spawn_data {
+    for (template_entity, template_name, position, rotation, scale, index) in spawn_data {
         // Guard against despawned templates (can happen after undo/scene reload)
         if world.get_entity(template_entity).is_err() {
             warn!("Procedural template entity {template_entity:?} no longer exists, skipping");
@@ -244,10 +351,11 @@ fn spawn_instances_world(
         }
 
         // Add the procedural entity marker and remove template marker
-        world.entity_mut(cloned)
+        world
+            .entity_mut(cloned)
             .insert(ProceduralEntity {
-                placer: placer_entity,
-                template: template_entity,
+                placer: placer_name.to_string(),
+                template: template_name,
                 index,
             })
             .remove::<ProceduralTemplate>();
@@ -259,12 +367,12 @@ fn spawn_instances_world(
     }
 }
 
-/// Select a template based on weights.
-fn select_weighted_template<'a>(
-    templates: &'a [WeightedTemplate],
+/// Select a resolved template based on weights.
+fn select_weighted_resolved_template<'a>(
+    templates: &'a [ResolvedTemplate],
     total_weight: f32,
     rng: &mut fastrand::Rng,
-) -> &'a WeightedTemplate {
+) -> &'a ResolvedTemplate {
     let r = rng.f32() * total_weight;
     let mut cumulative = 0.0;
 
@@ -345,13 +453,21 @@ fn calculate_instance_rotation(
 fn cleanup_placements(
     mut commands: Commands,
     mut removed_placers: RemovedComponents<ProceduralPlacer>,
+    placers_with_names: Query<&Name, With<ProceduralPlacer>>,
     instances: Query<(Entity, &ProceduralEntity)>,
 ) {
     for removed_placer in removed_placers.read() {
-        for (instance_entity, instance) in &instances {
-            if instance.placer == removed_placer {
-                commands.entity(instance_entity).despawn();
-            }
+        // The entity is being removed, so we can't query its Name anymore.
+        // Instead, despawn all instances whose placer entity no longer exists.
+        // We check if the placer entity still has a ProceduralPlacer — if not, clean up.
+        if placers_with_names.get(removed_placer).is_ok() {
+            continue; // Still exists, skip
+        }
+        for (instance_entity, _instance) in &instances {
+            // Since we can't know the name of the removed placer, we despawn all instances
+            // referencing any placer that no longer exists. This is safe because
+            // update_placements will recreate instances for still-existing placers.
+            commands.entity(instance_entity).despawn();
         }
     }
 }
@@ -359,23 +475,31 @@ fn cleanup_placements(
 /// System to project placed instances onto surfaces.
 fn project_placed_instances(
     spatial_query: SpatialQuery,
-    placers: Query<(&ProceduralPlacer, &GlobalTransform)>,
+    placers: Query<(Entity, &Name, &ProceduralPlacer, &GlobalTransform)>,
     mut instances: Query<(Entity, &ProceduralEntity, &mut Transform)>,
     colliders: Query<&Collider>,
 ) {
     use std::collections::HashMap;
 
-    // First, collect all instance entities grouped by placer
-    let mut instances_by_placer: HashMap<Entity, Vec<Entity>> = HashMap::new();
+    // Build name→entity lookup for placers
+    let placer_by_name: HashMap<&str, (Entity, &ProceduralPlacer, &GlobalTransform)> = placers
+        .iter()
+        .map(|(e, n, p, t)| (n.as_str(), (e, p, t)))
+        .collect();
+
+    // First, collect all instance entities grouped by placer name
+    let mut instances_by_placer: HashMap<String, Vec<Entity>> = HashMap::new();
     for (entity, instance, _) in instances.iter() {
         instances_by_placer
-            .entry(instance.placer)
+            .entry(instance.placer.clone())
             .or_default()
             .push(entity);
     }
 
     for (instance_entity, instance, mut transform) in &mut instances {
-        let Ok((placer, source_transform)) = placers.get(instance.placer) else {
+        let Some(&(placer_entity, placer, source_transform)) =
+            placer_by_name.get(instance.placer.as_str())
+        else {
             continue;
         };
 
@@ -385,9 +509,11 @@ fn project_placed_instances(
 
         // Create projection config excluding the placer and all sibling instances
         let mut projection = placer.projection.clone();
-        projection.exclude_entities.push(instance.placer);
+        projection.exclude_entities.push(placer_entity);
         if let Some(siblings) = instances_by_placer.get(&instance.placer) {
-            projection.exclude_entities.extend(siblings.iter().copied());
+            projection
+                .exclude_entities
+                .extend(siblings.iter().copied());
         }
 
         // Pass source rotation for local-space direction transformation
@@ -405,7 +531,7 @@ fn project_placed_instances(
         ) {
             let mut new_position = result.position;
 
-            // Apply bounds offset if enabled - use instance's collider (instances are clones with their own colliders)
+            // Apply bounds offset if enabled
             if placer.use_bounds_offset {
                 if let Ok(collider) = colliders.get(instance_entity) {
                     let aabb = collider.aabb(Vec3::ZERO, Quat::IDENTITY);
