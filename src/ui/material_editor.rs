@@ -7,8 +7,8 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use bevy_editor_game::{
-    AlphaModeValue, BaseMaterialProps, MaterialDefinition, MaterialExtensionData, MaterialLibrary,
-    MaterialRef, ParallaxMappingMethodValue,
+    AlphaModeValue, BaseMaterialProps, CullModeValue, MaterialDefinition, MaterialExtensionData,
+    MaterialLibrary, MaterialRef, ParallaxMappingMethodValue,
 };
 
 use crate::editor::{EditorMode, EditorState, PanelSide, PinnedWindows};
@@ -307,6 +307,18 @@ fn draw_base_properties(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> bool
     section_header(ui, "Options", false, |ui| {
         changed |= ui.checkbox(&mut base.double_sided, "Double Sided").changed();
         changed |= ui.checkbox(&mut base.unlit, "Unlit").changed();
+        egui::ComboBox::from_id_salt("cull_mode")
+            .selected_text(base.cull_mode.label())
+            .show_ui(ui, |ui| {
+                for mode in CullModeValue::ALL {
+                    if ui
+                        .selectable_value(&mut base.cull_mode, mode, mode.label())
+                        .changed()
+                    {
+                        changed = true;
+                    }
+                }
+            });
     });
 
     // ── Parallax Mapping ─────────────────────────────────────
@@ -625,6 +637,7 @@ fn draw_material_panel(world: &mut World) {
     };
     let mut preset_name_buf = library_preset_name.clone().unwrap_or_default();
     let mut rename_preset: Option<(String, String)> = None;
+    let mut name_field_active = false;
 
     // Get egui context
     let ctx = {
@@ -707,13 +720,16 @@ fn draw_material_panel(world: &mut World) {
 
                 // Name area: editable preset name for library materials, static for others
                 if library_preset_name.is_some() {
-                    // Editable preset name (matching inspector name field style)
-                    ui.add(
+                    // Editable preset name (matching inspector name field style).
+                    // Rename is deferred until the field loses focus (Enter / click away)
+                    // to avoid creating intermediate entries while typing.
+                    let name_response = ui.add(
                         egui::TextEdit::singleline(&mut preset_name_buf)
                             .font(egui::FontId::proportional(16.0))
                             .text_color(colors::TEXT_PRIMARY)
                             .margin(egui::vec2(8.0, 6.0)),
                     );
+                    name_field_active = name_response.has_focus();
                     ui.horizontal(|ui| {
                         ui.label(
                             egui::RichText::new("Library preset")
@@ -961,11 +977,14 @@ fn draw_material_panel(world: &mut World) {
         }
     }
 
-    // Detect preset rename from TextEdit
-    if let Some(ref lib_name) = library_preset_name {
-        let new_name = preset_name_buf.trim().to_string();
-        if !new_name.is_empty() && new_name != *lib_name {
-            rename_preset = Some((lib_name.clone(), new_name));
+    // Detect preset rename from TextEdit — only when the field has lost focus
+    // (Enter / click away) to avoid renaming on every keystroke.
+    if !name_field_active {
+        if let Some(ref lib_name) = library_preset_name {
+            let new_name = preset_name_buf.trim().to_string();
+            if !new_name.is_empty() && new_name != *lib_name {
+                rename_preset = Some((lib_name.clone(), new_name));
+            }
         }
     }
 
@@ -1108,6 +1127,7 @@ fn draw_material_panel(world: &mut World) {
             || original.base.alpha_mode != modified.base.alpha_mode
             || original.base.alpha_cutoff != modified.base.alpha_cutoff
             || original.base.double_sided != modified.base.double_sided
+            || original.base.cull_mode != modified.base.cull_mode
             || original.base.unlit != modified.base.unlit
             || original.base.emissive != modified.base.emissive
             || original.base.ior != modified.base.ior

@@ -454,6 +454,49 @@ impl AlphaModeValue {
     ];
 }
 
+/// Serializable cull mode (mirrors Bevy's `Option<Face>`)
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect, Default)]
+pub enum CullModeValue {
+    #[default]
+    Back,
+    Front,
+    Off,
+}
+
+impl CullModeValue {
+    pub fn to_bevy(self) -> Option<bevy::render::render_resource::Face> {
+        use bevy::render::render_resource::Face;
+        match self {
+            CullModeValue::Back => Some(Face::Back),
+            CullModeValue::Front => Some(Face::Front),
+            CullModeValue::Off => None,
+        }
+    }
+
+    pub fn from_bevy(mode: Option<bevy::render::render_resource::Face>) -> Self {
+        use bevy::render::render_resource::Face;
+        match mode {
+            Some(Face::Back) => CullModeValue::Back,
+            Some(Face::Front) => CullModeValue::Front,
+            None => CullModeValue::Off,
+        }
+    }
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            CullModeValue::Back => "Back",
+            CullModeValue::Front => "Front",
+            CullModeValue::Off => "Off",
+        }
+    }
+
+    pub const ALL: [CullModeValue; 3] = [
+        CullModeValue::Back,
+        CullModeValue::Front,
+        CullModeValue::Off,
+    ];
+}
+
 /// Base PBR material properties that map to Bevy's StandardMaterial.
 #[derive(Serialize, Deserialize, Clone, Debug, Reflect)]
 pub struct BaseMaterialProps {
@@ -465,6 +508,8 @@ pub struct BaseMaterialProps {
     pub alpha_cutoff: f32,
     pub double_sided: bool,
     pub unlit: bool,
+    #[serde(default)]
+    pub cull_mode: CullModeValue,
     pub alpha_mode: AlphaModeValue,
     #[serde(default = "default_ior")]
     pub ior: f32,
@@ -576,6 +621,7 @@ impl Default for BaseMaterialProps {
             alpha_cutoff: 0.5,
             double_sided: false,
             unlit: false,
+            cull_mode: CullModeValue::Back,
             alpha_mode: AlphaModeValue::Opaque,
             ior: 1.5,
             specular_transmission: 0.0,
@@ -617,6 +663,7 @@ impl BaseMaterialProps {
             alpha_cutoff,
             double_sided: mat.double_sided,
             unlit: mat.unlit,
+            cull_mode: CullModeValue::from_bevy(mat.cull_mode),
             alpha_mode,
             ior: mat.ior,
             specular_transmission: mat.specular_transmission,
@@ -655,6 +702,7 @@ impl BaseMaterialProps {
             reflectance: self.reflectance,
             alpha_mode: self.alpha_mode.to_alpha_mode(self.alpha_cutoff),
             double_sided: self.double_sided,
+            cull_mode: self.cull_mode.to_bevy(),
             unlit: self.unlit,
             ior: self.ior,
             specular_transmission: self.specular_transmission,
@@ -682,6 +730,7 @@ impl BaseMaterialProps {
         mat.reflectance = self.reflectance;
         mat.alpha_mode = self.alpha_mode.to_alpha_mode(self.alpha_cutoff);
         mat.double_sided = self.double_sided;
+        mat.cull_mode = self.cull_mode.to_bevy();
         mat.unlit = self.unlit;
         mat.ior = self.ior;
         mat.specular_transmission = self.specular_transmission;

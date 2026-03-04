@@ -18,6 +18,7 @@
         alpha_cutoff: 0.5,
         double_sided: false,
         unlit: false,
+        cull_mode: Back,
         alpha_mode: Opaque,
         ior: 1.5,
         specular_transmission: 0.0,
