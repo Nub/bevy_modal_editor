@@ -5,6 +5,7 @@ mod gltf_source;
 mod primitives;
 mod scene_source;
 mod serialization;
+mod splat_source;
 
 pub use blockout::*;
 pub use collider_constructor::*;
@@ -12,6 +13,7 @@ pub use gltf_source::*;
 pub use primitives::*;
 pub use scene_source::*;
 pub use serialization::*;
+pub use splat_source::*;
 
 use avian3d::prelude::*;
 use bevy::ecs::entity::EntityHashMap;
@@ -95,6 +97,8 @@ pub fn build_editor_scene(world: &World, entities: impl Iterator<Item = Entity>)
         // External sources
         .allow_component::<GltfSource>()
         .allow_component::<SceneSource>()
+        .allow_component::<SplatSource>()
+        .allow_component::<bevy_gaussian_splatting::CloudSettings>()
         .allow_component::<RecursiveColliderConstructor>()
         // Procedural placement
         .allow_component::<ProceduralPlacer>()
@@ -755,6 +759,7 @@ impl Plugin for ScenePlugin {
             .add_plugins(GltfSourcePlugin)
             .add_plugins(SceneSourcePlugin)
             .add_plugins(ColliderConstructorPlugin)
+            .add_plugins(SplatSourcePlugin)
             .add_plugins(BlockoutPlugin)
             .add_plugins(generators::SceneGeneratorPlugin)
             .add_message::<SpawnDemoSceneEvent>()

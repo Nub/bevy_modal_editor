@@ -31,7 +31,7 @@ use crate::editor::{
     CameraMarks, EditorCamera, EditorMode, EditorState, FlyCamera, InsertState,
     SetCameraMarkEvent,
 };
-use crate::scene::{LoadSceneEvent, SaveSceneEvent, SceneEntity, SceneFile};
+use crate::scene::{LoadSceneEvent, SaveSceneEvent, SceneEntity, SceneFile, SpawnSplatEvent};
 use crate::selection::Selected;
 use crate::ui::gltf_preview::GltfPreviewState;
 use crate::ui::insert_preview::InsertPreviewState;
@@ -282,6 +282,13 @@ impl CommandPaletteState {
     pub(crate) fn open_asset_browser_insert_scene(&mut self) {
         self.open_insert_scene();
     }
+
+    pub(crate) fn open_asset_browser_insert_splat(&mut self) {
+        self.open_asset_browser(
+            asset_browser::BrowseOperation::InsertSplat,
+            &["ply", "splat", "gcloud"],
+        );
+    }
 }
 
 /// Open the command palette in AddComponent mode for a specific entity
@@ -461,6 +468,7 @@ struct AssetBrowserParams<'w> {
     mesh_shape_pick: ResMut<'w, MeshShapePickResult>,
     asset_server: Res<'w, AssetServer>,
     gltf_preview_state: ResMut<'w, GltfPreviewState>,
+    splat_events: MessageWriter<'w, SpawnSplatEvent>,
 }
 
 /// Resources used by modes other than AssetBrowser
@@ -653,6 +661,7 @@ fn draw_command_palette(
                 &mut ab.gltf_pick,
                 &ab.asset_server,
                 &mut ab.gltf_preview_state,
+                &mut ab.splat_events,
             );
         }
         PaletteMode::Commands => {

@@ -73,6 +73,8 @@ pub enum CommandAction {
     InsertGltf,
     /// Open file dialog to insert a RON scene file
     InsertScene,
+    /// Open file dialog to insert a gaussian splat
+    InsertSplat,
     /// Spawn a spline of the specified type
     SpawnSpline(SplineType),
     /// Spawn a volumetric fog volume
@@ -226,6 +228,13 @@ impl CommandRegistry {
             keywords: vec!["import".into(), "ron".into(), "nested".into(), "sub".into()],
             category: "Models",
             action: CommandAction::InsertScene,
+            insertable: true,
+        });
+        self.commands.push(Command {
+            name: "Add Gaussian Splat".to_string(),
+            keywords: vec!["splat".into(), "ply".into(), "point cloud".into(), "3dgs".into(), "gaussian".into()],
+            category: "Models",
+            action: CommandAction::InsertSplat,
             insertable: true,
         });
 
@@ -1105,6 +1114,9 @@ fn execute_command(
         }
         CommandAction::InsertScene => {
             state.open_asset_browser_insert_scene();
+        }
+        CommandAction::InsertSplat => {
+            state.open_asset_browser_insert_splat();
         }
         CommandAction::Play => {
             events.play.write(PlayEvent);

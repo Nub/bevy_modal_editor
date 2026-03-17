@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiTextureHandle};
 
 use crate::editor::{EditorMode, InsertObjectType, InsertState, StartInsertEvent};
-use crate::scene::{LoadSceneEvent, SaveSceneEvent};
+use crate::scene::{LoadSceneEvent, SaveSceneEvent, SpawnSplatEvent};
 use crate::ui::fuzzy_palette::{
     draw_fuzzy_palette, fuzzy_filter, PaletteConfig, PaletteItem, PaletteResult, PaletteState,
 };
@@ -64,6 +64,7 @@ pub(crate) enum BrowseOperation {
     SaveScene,
     InsertGltf,
     InsertScene,
+    InsertSplat,
     PickTexture { slot: TextureSlot, entity: Option<Entity> },
     PickGltf { entity: Option<Entity> },
 }
@@ -185,6 +186,7 @@ pub(super) fn draw_asset_browser(
     gltf_pick: &mut ResMut<GltfPickResult>,
     asset_server: &Res<AssetServer>,
     gltf_preview_state: &mut ResMut<GltfPreviewState>,
+    splat_events: &mut MessageWriter<SpawnSplatEvent>,
 ) -> Result {
     // Clone the egui context so we can also use contexts.add_image/remove_image later.
     let ctx = contexts.ctx_mut()?.clone();
@@ -224,6 +226,13 @@ pub(super) fn draw_asset_browser(
             colors::ACCENT_ORANGE,
             "Pick a scene to insert",
             "Type to search scenes...",
+            "insert",
+        ),
+        BrowseOperation::InsertSplat => (
+            "INSERT SPLAT",
+            colors::ACCENT_ORANGE,
+            "Pick a gaussian splat to insert",
+            "Type to search splats...",
             "insert",
         ),
         BrowseOperation::PickTexture { .. } => (
@@ -412,6 +421,13 @@ pub(super) fn draw_asset_browser(
                         object_type: InsertObjectType::Scene,
                     });
                     next_mode.set(EditorMode::Insert);
+                }
+                BrowseOperation::InsertSplat => {
+                    splat_events.write(SpawnSplatEvent {
+                        path: relative_path,
+                        position: Vec3::ZERO,
+                        rotation: Quat::IDENTITY,
+                    });
                 }
                 BrowseOperation::PickTexture { slot, entity } => {
                     texture_pick.0 = Some(TexturePickData {

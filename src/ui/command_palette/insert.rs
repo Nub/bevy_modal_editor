@@ -264,6 +264,12 @@ pub(super) fn draw_insert_palette(
                     insert_preview_state.current_kind = None;
                     return Ok(());
                 }
+                CommandAction::InsertSplat => {
+                    state.open_asset_browser_insert_splat();
+                    next_mode.set(EditorMode::View);
+                    insert_preview_state.current_kind = None;
+                    return Ok(());
+                }
                 CommandAction::SpawnSpline(spline_type) => {
                     events.start_insert.write(StartInsertEvent {
                         object_type: InsertObjectType::Spline(*spline_type),

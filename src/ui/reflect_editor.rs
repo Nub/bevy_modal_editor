@@ -243,6 +243,7 @@ pub fn reflect_editor(
             // Handle primitive/opaque types
             opaque_editor(ui, value, name, config)
         }
+        ReflectMut::Function(_) => EditResult::Unchanged,
     }
 }
 
@@ -1226,6 +1227,7 @@ pub fn reflect_viewer(
         ReflectRef::Opaque(_) => {
             opaque_viewer(ui, value, name, config);
         }
+        ReflectRef::Function(_) => {}
     }
 }
 

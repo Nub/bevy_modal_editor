@@ -66,6 +66,7 @@ ron.workspace = true
 dirs = "6"
 fuzzy-matcher = "0.3"
 egui_commonmark = "0.22"
+bevy_gaussian_splatting = { git = "https://github.com/Nub/bevy_gaussian_splatting.git", branch = "main", default-features = false, features = ["planar", "io_ply", "io_flexbuffers", "buffer_storage", "sort_rayon"] }
 
 
 [dev-dependencies]

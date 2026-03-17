@@ -8,6 +8,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::remote::{RemotePlugin, http::RemoteHttpPlugin};
 use bevy_egui::EguiPlugin;
 use bevy_channel_mat::ChannelThresholdPlugin;
+use bevy_gaussian_splatting::GaussianSplattingPlugin;
 use bevy_grid_shader::GridMaterialPlugin;
 use bevy_outliner::prelude::*;
 use bevy_procedural::ProceduralPlugin;
@@ -211,6 +212,7 @@ impl Plugin for EditorPlugin {
             .add_plugins(OutlinePlugin)
             .add_plugins(GridMaterialPlugin)
             .add_plugins(ChannelThresholdPlugin)
+            .add_plugins(GaussianSplattingPlugin)
             .add_plugins(WireframePlugin::default())
             // Material system
             .add_plugins(MaterialsPlugin)
