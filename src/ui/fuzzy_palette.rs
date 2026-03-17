@@ -232,6 +232,15 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
         state.selected_index = first_non_pinned_index(&filtered);
     }
 
+    // Track explicit arrow-key navigation so pinned items (e.g. "+ New Preset")
+    // are only Enter-selectable when the user deliberately navigated to them,
+    // not when clamping placed them there while typing a query.
+    let nav_id = egui::Id::new("fuzzy_palette_explicitly_navigated");
+    if state.just_opened {
+        ctx.data_mut(|d| d.insert_temp(nav_id, false));
+    }
+    let explicitly_navigated: bool = ctx.data(|d| d.get_temp(nav_id).unwrap_or(false));
+
     // Skip input handling on the first frame to avoid consuming leftover
     // keypresses (e.g. Enter from the palette that opened us).
     let skip_input = state.just_opened;
@@ -247,11 +256,13 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
         return PaletteResult::Closed;
     }
 
-    // Handle Enter
+    // Handle Enter — pinned items require explicit navigation
     if enter_pressed && !filtered.is_empty() {
         if let Some(filtered_item) = filtered.get(state.selected_index) {
             if filtered_item.item.is_enabled() {
-                return PaletteResult::Selected(filtered_item.index);
+                if !filtered_item.item.always_visible() || explicitly_navigated {
+                    return PaletteResult::Selected(filtered_item.index);
+                }
             }
         }
     }
@@ -259,9 +270,11 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
     // Handle arrow keys
     if down_pressed && !filtered.is_empty() {
         state.selected_index = (state.selected_index + 1).min(filtered.len() - 1);
+        ctx.data_mut(|d| d.insert_temp(nav_id, true));
     }
     if up_pressed {
         state.selected_index = state.selected_index.saturating_sub(1);
+        ctx.data_mut(|d| d.insert_temp(nav_id, true));
     }
 
     let has_preview = config.preview_panel.is_some();
@@ -306,11 +319,17 @@ pub fn draw_fuzzy_palette<T: PaletteItem>(
             }
 
             // Search input
+            let pre_edit_query = state.query.clone();
             let response = ui.add(
                 egui::TextEdit::singleline(&mut state.query)
                     .hint_text(config.hint_text)
                     .desired_width(f32::INFINITY),
             );
+
+            // Clear explicit-navigation flag when the query changes (user is typing)
+            if state.query != pre_edit_query {
+                ui.ctx().data_mut(|d| d.insert_temp(nav_id, false));
+            }
 
             // Focus when just opened
             if state.just_opened {

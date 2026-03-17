@@ -307,18 +307,21 @@ fn draw_base_properties(ui: &mut egui::Ui, base: &mut BaseMaterialProps) -> bool
     section_header(ui, "Options", false, |ui| {
         changed |= ui.checkbox(&mut base.double_sided, "Double Sided").changed();
         changed |= ui.checkbox(&mut base.unlit, "Unlit").changed();
-        egui::ComboBox::from_id_salt("cull_mode")
-            .selected_text(base.cull_mode.label())
-            .show_ui(ui, |ui| {
-                for mode in CullModeValue::ALL {
-                    if ui
-                        .selectable_value(&mut base.cull_mode, mode, mode.label())
-                        .changed()
-                    {
-                        changed = true;
+        ui.horizontal(|ui| {
+            ui.label("Cull Mode");
+            egui::ComboBox::from_id_salt("cull_mode")
+                .selected_text(base.cull_mode.label())
+                .show_ui(ui, |ui| {
+                    for mode in CullModeValue::ALL {
+                        if ui
+                            .selectable_value(&mut base.cull_mode, mode, mode.label())
+                            .changed()
+                        {
+                            changed = true;
+                        }
                     }
-                }
-            });
+                });
+        });
     });
 
     // ── Parallax Mapping ─────────────────────────────────────
