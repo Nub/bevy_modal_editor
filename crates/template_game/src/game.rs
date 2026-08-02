@@ -222,14 +222,14 @@ fn sync_cursor_grab(
     input_active: Res<GameInputActive>,
     cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
+    // The game only asserts cursor policy while it OWNS input; when the editor is
+    // active, the editor (fly-nav) owns the cursor.
+    if !input_active.0 {
+        return;
+    }
     let mut cursor = cursor.into_inner();
-    let (grab, visible) = if input_active.0 {
-        (CursorGrabMode::Locked, false)
-    } else {
-        (CursorGrabMode::None, true)
-    };
-    if cursor.grab_mode != grab {
-        cursor.grab_mode = grab;
-        cursor.visible = visible;
+    if cursor.grab_mode != CursorGrabMode::Locked {
+        cursor.grab_mode = CursorGrabMode::Locked;
+        cursor.visible = false;
     }
 }

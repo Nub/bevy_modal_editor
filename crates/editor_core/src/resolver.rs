@@ -35,6 +35,11 @@ pub struct KeyCapture(pub bool);
 #[derive(Resource, Default)]
 pub struct OverlayContext(pub Option<ContextId>);
 
+/// Set for the frame when Escape pierced a text-field capture: backout peels ONE
+/// layer per press — the capturing surface closes, but mode/selection stay.
+#[derive(Resource, Default)]
+pub struct EscapeFromCapture(pub bool);
+
 /// Emitted when a key sequence resolves to nothing — every keypress deserves feedback
 /// (design bar, spec §7): the shell shows "unbound" instead of silence.
 #[derive(Message, Debug)]
@@ -74,21 +79,22 @@ fn is_modifier(key: KeyCode) -> bool {
     )
 }
 
-/// Active context layers, highest priority first.
+/// Active context layers, highest priority first. An overlay (gesture, focused
+/// panel) is EXCLUSIVE — while a drag owns the pointer, `u`/`ctrl+s`/`:` must not
+/// fall through and mutate state mid-gesture (flow-audit class: key fall-through).
 pub fn active_contexts(
     state: &EditorState,
     mode: &CurrentMode,
     overlay: &OverlayContext,
 ) -> Vec<ContextId> {
-    let mut contexts = Vec::with_capacity(3);
     if state.active {
         if let Some(overlay) = &overlay.0 {
-            contexts.push(overlay.clone());
+            return vec![overlay.clone()];
         }
-        contexts.push(mode.context());
+        vec![mode.context(), GLOBAL_CONTEXT]
+    } else {
+        vec![GLOBAL_CONTEXT]
     }
-    contexts.push(GLOBAL_CONTEXT);
-    contexts
 }
 
 enum Resolution {
@@ -150,15 +156,24 @@ pub fn resolve_input(
     state: Res<EditorState>,
     overlay: Res<OverlayContext>,
     mode: Res<CurrentMode>,
+    flying: Res<crate::camera::FlyingCamera>,
+    mut escape_from_capture: ResMut<EscapeFromCapture>,
     mut pending: ResMut<PendingKeys>,
     mut actions: MessageWriter<ActionInvoked>,
     mut unresolved: MessageWriter<KeysUnresolved>,
 ) {
     let Some(keys) = keys else { return };
+    // Fly-nav owns the keyboard while RMB is held (WASD is locomotion, not actions).
+    if flying.0 {
+        pending.0.clear();
+        return;
+    }
     if capture.0 {
         // Escape is the universal backout: it pierces text-field capture as a forced
-        // escape-home so no window/state can ever trap the keyboard.
+        // escape-home so no window/state can ever trap the keyboard. The flag makes
+        // it peel one layer only (the capturing surface).
         if keys.just_pressed(KeyCode::Escape) {
+            escape_from_capture.0 = true;
             actions.write(ActionInvoked {
                 action: ActionId::new_static("core.escape-home"),
                 args: None,
@@ -209,13 +224,17 @@ pub fn apply_action_conventions(
     modes: Res<Modes>,
     mut state: ResMut<EditorState>,
     mut mode: ResMut<CurrentMode>,
+    escape_from_capture: Res<EscapeFromCapture>,
     mut mode_changed: MessageWriter<ModeChanged>,
 ) {
     for invoked in reader.read() {
         if invoked.action.as_str() == "core.toggle-editor" {
             state.active = !state.active;
         }
-        if invoked.action.as_str() == "core.escape-home" && mode.0 != MODE_NORMAL {
+        if invoked.action.as_str() == "core.escape-home"
+            && mode.0 != MODE_NORMAL
+            && !escape_from_capture.0
+        {
             set_mode(MODE_NORMAL, &mut mode, &mut mode_changed);
         }
         if let Some(mode_id) = invoked.action.as_str().strip_prefix("mode.") {

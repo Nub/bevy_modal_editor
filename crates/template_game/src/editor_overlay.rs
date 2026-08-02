@@ -438,10 +438,23 @@ fn collect_io_feedback(
 
 /// The editor owns input while active; the game module knows nothing about the
 /// editor — it just honors `GameInputActive`.
-fn sync_game_input(state: Res<EditorState>, mut game_input: ResMut<GameInputActive>) {
+fn sync_game_input(
+    state: Res<EditorState>,
+    mut game_input: ResMut<GameInputActive>,
+    mut player: Query<(&mut crate::game::Player, &Transform)>,
+) {
     let game_owns = !state.active;
     if game_input.0 != game_owns {
         game_input.0 = game_owns;
+        // Handing input back to the game: the editor may have flown the camera —
+        // re-derive the player's yaw/pitch so the game view doesn't snap.
+        if game_owns {
+            for (mut player, transform) in &mut player {
+                let (yaw, pitch, _) = transform.rotation.to_euler(EulerRot::YXZ);
+                player.yaw = yaw;
+                player.pitch = pitch;
+            }
+        }
     }
 }
 

@@ -206,6 +206,8 @@ pub(crate) fn place_on_click(
     mouse: Option<Res<ButtonInput<MouseButton>>>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     state: Res<EditorState>,
+    capture: Res<crate::resolver::KeyCapture>,
+    flying: Res<crate::camera::FlyingCamera>,
     mut mode: ResMut<CurrentMode>,
     insert: Res<InsertState>,
     catalog: Res<KindCatalog>,
@@ -214,7 +216,9 @@ pub(crate) fn place_on_click(
     mut edits: EditScope,
     mut mode_changed: MessageWriter<ModeChanged>,
 ) {
-    if !state.active || mode.0 != MODE_INSERT {
+    // A click that dismisses the palette (capture active) must not ALSO place, and
+    // fly-nav owns the mouse entirely.
+    if !state.active || capture.0 || flying.0 || mode.0 != MODE_INSERT {
         return;
     }
     let (Some(mouse), Some(target)) = (mouse, cursor.0) else { return };

@@ -6,6 +6,7 @@
 //! M1 scope: feature host, modes, resolver, keymap layering, which-key data.
 //! The `EditQueue` (M2) and panel shell (`editor_ui`) build on top.
 
+pub mod camera;
 pub mod edits;
 pub mod gesture;
 pub mod insert;
@@ -19,6 +20,7 @@ use editor_api::prelude::*;
 
 pub mod prelude {
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
+    pub use crate::camera::FlyingCamera;
     pub use crate::gesture::{GesturePointer, MoveGesture, GESTURE_MOVE_CONTEXT};
     pub use crate::insert::{
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
@@ -56,7 +58,7 @@ impl EditorFeature for CoreFeature {
         FeatureManifest::new("core", "Editor Core")
     }
     fn register(&self, reg: &mut FeatureRegistry) {
-        reg.mode(ModeDef::new("normal", "Normal").hint("navigate/select"))
+        reg.mode(ModeDef::new("normal", "Normal").hint("RMB fly · click select · w move · i insert"))
             .mode(ModeDef::new("insert", "Insert").hint("click place · shift multi · esc done"))
             .action(
                 ActionDef::new("mode.insert", "Insert Mode")
@@ -170,6 +172,8 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<edits::History>()
             .init_resource::<edits::HistoryRequests>()
             .init_resource::<resolver::OverlayContext>()
+            .init_resource::<resolver::EscapeFromCapture>()
+            .init_resource::<camera::FlyingCamera>()
             .init_resource::<gesture::MoveGesture>()
             .init_resource::<gesture::GesturePointer>()
             .init_resource::<gesture::GestureCounter>()
@@ -197,7 +201,9 @@ impl Plugin for EditorCorePlugin {
         app.add_systems(
             Update,
             (
-                resolver::resolve_input.in_set(EditorSet::Input),
+                (camera::editor_fly_camera, resolver::resolve_input)
+                    .chain()
+                    .in_set(EditorSet::Input),
                 (
                     resolver::apply_action_conventions,
                     edits::handle_history_actions,
@@ -210,6 +216,9 @@ impl Plugin for EditorCorePlugin {
                     insert::cursor_ground,
                     insert::sync_preview,
                     insert::place_on_click,
+                    |mut flag: ResMut<resolver::EscapeFromCapture>| {
+                        flag.0 = false;
+                    },
                 )
                     .chain()
                     .in_set(EditorSet::Tools),

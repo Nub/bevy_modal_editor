@@ -46,15 +46,22 @@ fn clear_selection_world(world: &mut World) {
 /// it; shift extends. Skips while a gesture owns the pointer or the editor is off.
 pub(crate) fn on_pointer_press(
     press: On<Pointer<Press>>,
+    flying: Res<crate::camera::FlyingCamera>,
     ids: Query<(), With<SceneId>>,
     parents: Query<&ChildOf>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     state: Res<EditorState>,
     mode: Res<crate::modes::CurrentMode>,
     gesture: Res<crate::gesture::MoveGesture>,
+    capture: Res<crate::resolver::KeyCapture>,
     mut commands: Commands,
 ) {
+    // Flow-audit gates: no selection while the game owns input, while inserting,
+    // mid-gesture, or when the click is dismissing a capturing surface (palette).
     if !state.active
+        || capture.0
+        || flying.0
+        || press.button != bevy::picking::pointer::PointerButton::Primary
         || mode.0 == crate::insert::MODE_INSERT
         || !matches!(*gesture, crate::gesture::MoveGesture::Idle)
     {
@@ -71,11 +78,26 @@ pub(crate) fn on_pointer_press(
             Err(_) => break None,
         }
     };
-    let Some(target) = target else { return };
     let extend = keys
         .map(|k| k.pressed(KeyCode::ShiftLeft) || k.pressed(KeyCode::ShiftRight))
         .unwrap_or(false);
-    commands.queue(move |world: &mut World| select_entity(world, target, extend));
+    match target {
+        Some(target) => {
+            commands.queue(move |world: &mut World| select_entity(world, target, extend));
+        }
+        // Click on empty space (ground, sky) clears the selection — unless extending.
+        None if !extend => {
+            commands.queue(|world: &mut World| {
+                let had_selection =
+                    world.query_filtered::<(), With<Selected>>().iter(world).count() > 0;
+                if had_selection {
+                    clear_selection_world(world);
+                    world.write_message(SelectionChanged);
+                }
+            });
+        }
+        None => {}
+    }
 }
 
 /// `core.escape-home` (and explicit `select.clear`) empties the selection;
@@ -84,11 +106,13 @@ pub(crate) fn handle_selection_actions(
     mut reader: MessageReader<ActionInvoked>,
     selected: Query<Entity, With<Selected>>,
     scene_entities: Query<Entity, With<SceneId>>,
+    escape_from_capture: Res<crate::resolver::EscapeFromCapture>,
     mut commands: Commands,
     mut changed: MessageWriter<SelectionChanged>,
 ) {
     for invoked in reader.read() {
         match invoked.action.as_str() {
+            "core.escape-home" if escape_from_capture.0 => {}
             "core.escape-home" | "select.clear" => {
                 for entity in &selected {
                     commands.entity(entity).remove::<Selected>();
