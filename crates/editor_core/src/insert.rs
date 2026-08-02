@@ -59,11 +59,12 @@ pub(crate) struct PreviewEntity {
 
 pub(crate) fn cursor_ground(
     state: Res<EditorState>,
+    over_chrome: Res<crate::resolver::PointerOverChrome>,
     camera: Query<(&Camera, &GlobalTransform, Option<&bevy::camera::RenderTarget>)>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut cursor: ResMut<CursorGround>,
 ) {
-    if !state.active {
+    if !state.active || over_chrome.0 {
         cursor.0 = None;
         return;
     }

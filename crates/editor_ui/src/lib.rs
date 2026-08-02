@@ -9,6 +9,7 @@
 
 pub mod style;
 
+mod dock;
 mod ghost;
 mod outline;
 mod palette;
@@ -21,6 +22,34 @@ use bevy::asset::embedded_asset;
 use bevy::feathers::{dark_theme::create_dark_theme, theme::UiTheme, FeathersPlugins};
 use bevy::prelude::*;
 use editor_core::prelude::*;
+
+/// The editor's own panels (hierarchy, inspector) — registered through the same
+/// front door as any feature crate's panels.
+struct EditorUiFeature;
+
+impl EditorFeature for EditorUiFeature {
+    fn manifest(&self) -> FeatureManifest {
+        FeatureManifest::new("editor-ui", "Editor UI")
+    }
+    fn register(&self, reg: &mut FeatureRegistry) {
+        reg.panel(PanelDecl {
+            id: PanelId::new_static("hierarchy"),
+            title: "Hierarchy",
+            placement: Placement::Left,
+            context: ContextId::new_static("hierarchy"),
+            content: PanelContent::Custom,
+            default_open: true,
+        })
+        .panel(PanelDecl {
+            id: PanelId::new_static("inspector"),
+            title: "Inspector",
+            placement: Placement::Right,
+            context: ContextId::new_static("inspector"),
+            content: PanelContent::Properties(PropertySource::Selection),
+            default_open: true,
+        });
+    }
+}
 
 pub struct EditorUiPlugin;
 
@@ -46,12 +75,15 @@ impl Plugin for EditorUiPlugin {
             palette::PalettePlugin,
             bevy_outliner::OutlinePlugin,
         ));
+        app.add_editor_feature(EditorUiFeature);
 
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<statusbar::StatusFlash>();
         app.add_systems(
             Update,
             (
+                dock::track_pointer_over_chrome,
+                dock::sync_dock_chrome,
                 ghost::apply_ghost_material,
                 outline::ensure_outline_camera,
                 outline::sync_selection_outlines,
@@ -70,6 +102,7 @@ impl Plugin for EditorUiPlugin {
                 ghost::init_ghost_material,
                 statusbar::spawn_statusbar,
                 which_key::spawn_which_key,
+                dock::spawn_docks,
             )
                 .chain(),
         );

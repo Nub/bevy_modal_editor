@@ -81,6 +81,8 @@ pub(crate) fn compute_which_key(
     pending: Res<PendingKeys>,
     keymap: Res<ResolvedKeymap>,
     catalog: Res<ActionCatalog>,
+    panel_focus: Res<PanelFocus>,
+    panel_catalog: Res<PanelCatalog>,
     mut unresolved: MessageReader<KeysUnresolved>,
     mut actions: MessageReader<ActionInvoked>,
     time: Res<Time>,
@@ -92,7 +94,7 @@ pub(crate) fn compute_which_key(
         which_key.until = None;
     }
     let now = time.elapsed_secs();
-    let contexts = active_contexts(&state, &mode, &overlay);
+    let contexts = active_contexts(&state, &mode, &overlay, &panel_focus, &panel_catalog);
 
     let next = if !state.active {
         None

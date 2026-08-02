@@ -48,6 +48,7 @@ pub(crate) fn on_pointer_press(
     press: On<Pointer<Press>>,
     flying: Res<crate::camera::FlyingCamera>,
     ids: Query<(), With<SceneId>>,
+    ui_nodes: Query<(), With<bevy::ui::ComputedNode>>,
     parents: Query<&ChildOf>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     state: Res<EditorState>,
@@ -60,6 +61,11 @@ pub(crate) fn on_pointer_press(
     // window): handle ONLY the original hit, or the bubbled window-target invocation
     // takes the empty-click path and clears the selection made a moment earlier.
     if press.entity != press.original_event_target() {
+        return;
+    }
+    // Clicks on ANY chrome (statusbar, panels, popups) belong to the UI — they must
+    // never reach the empty-click-clears path (flow-audit: coincident pick targets).
+    if ui_nodes.get(press.entity).is_ok() {
         return;
     }
     // Flow-audit gates: no selection while the game owns input, while inserting,

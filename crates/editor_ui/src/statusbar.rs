@@ -123,6 +123,8 @@ pub(crate) struct StatusData<'w> {
     flash: Res<'w, StatusFlash>,
     dirty: Res<'w, editor_scene::SceneDirty>,
     time: Res<'w, Time>,
+    panel_focus: Res<'w, PanelFocus>,
+    panel_catalog: Res<'w, PanelCatalog>,
 }
 
 #[allow(clippy::type_complexity)]
@@ -157,6 +159,12 @@ pub(crate) fn update_statusbar(
     // The bar always states the current activity (owner rule): an active gesture or
     // an armed insert kind owns the chip + hint; the plain mode otherwise.
     let gesture_active = !matches!(*data.gesture, MoveGesture::Idle);
+    let focused_panel = data
+        .panel_focus
+        .0
+        .as_ref()
+        .and_then(|id| data.panel_catalog.get(id))
+        .map(|decl| decl.title);
     let inserting = (data.mode.0 == MODE_INSERT)
         .then(|| data.insert.kind.as_ref())
         .flatten()
@@ -166,6 +174,8 @@ pub(crate) fn update_statusbar(
     for mut text in &mut mode_text {
         let name = if gesture_active {
             "MOVE".to_string()
+        } else if let Some(title) = focused_panel {
+            title.to_uppercase()
         } else if inserting.is_some() {
             "INSERT".to_string()
         } else {
@@ -178,6 +188,8 @@ pub(crate) fn update_statusbar(
     for mut text in &mut hint_text {
         let hint = if gesture_active {
             "moving selection · x/y/z constrain · click ⏎ commit · ⎋ cancel".to_string()
+        } else if focused_panel.is_some() {
+            "panel focused · ⌃h/j/k/l move focus · ⎋ viewport".to_string()
         } else if let Some(kind_name) = inserting {
             format!("inserting {kind_name} · click place · ⇧click multi · ⎋ done")
         } else {

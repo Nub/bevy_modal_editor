@@ -12,6 +12,7 @@ pub mod gesture;
 pub mod insert;
 pub mod keymap_data;
 pub mod modes;
+pub mod panels;
 pub mod resolver;
 pub mod selection;
 pub mod settings;
@@ -30,9 +31,10 @@ pub mod prelude {
     pub use crate::keymap_data::KeymapPaths;
     pub use crate::selection::{Selected, SelectionChanged};
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
+    pub use crate::panels::{PanelCatalog, PanelFocus, PanelStates};
     pub use crate::resolver::{
         active_contexts, which_key_continuations, ActionCatalog, EditorState, KeyCapture,
-        KeysUnresolved, OverlayContext, PendingKeys, ResolvedKeymap,
+        KeysUnresolved, OverlayContext, PendingKeys, PointerOverChrome, ResolvedKeymap,
     };
     pub use crate::EditorCorePlugin;
     pub use editor_api::prelude::*;
@@ -87,6 +89,26 @@ impl EditorFeature for CoreFeature {
                     .context("insert")
                     .bind("shift+semicolon") // ':'
                     .bind("space p"), // leader style — also demos which-key
+            )
+            .action(
+                ActionDef::new("panel.focus-left", "Focus Panel Left")
+                    .describe("Move focus toward the left dock")
+                    .bind("ctrl+h"),
+            )
+            .action(
+                ActionDef::new("panel.focus-down", "Focus Panel Down")
+                    .describe("Move focus downward (dock stack, then bottom dock)")
+                    .bind("ctrl+j"),
+            )
+            .action(
+                ActionDef::new("panel.focus-up", "Focus Panel Up")
+                    .describe("Move focus upward")
+                    .bind("ctrl+k"),
+            )
+            .action(
+                ActionDef::new("panel.focus-right", "Focus Panel Right")
+                    .describe("Move focus toward the right dock")
+                    .bind("ctrl+l"),
             )
             .action(
                 ActionDef::new("core.undo", "Undo")
@@ -175,6 +197,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<edits::HistoryRequests>()
             .init_resource::<resolver::OverlayContext>()
             .init_resource::<resolver::EscapeFromCapture>()
+            .init_resource::<resolver::PointerOverChrome>()
             .init_resource::<camera::FlyingCamera>()
             .init_resource::<settings::EditorSettings>()
             .init_resource::<gesture::MoveGesture>()
@@ -185,6 +208,9 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<insert::CursorGround>()
             .init_resource::<insert::KindCatalog>()
             .init_resource::<insert::KindJustPicked>()
+            .init_resource::<panels::PanelCatalog>()
+            .init_resource::<panels::PanelStates>()
+            .init_resource::<panels::PanelFocus>()
             .init_resource::<edits::MergeFrameEntries>()
             .add_message::<selection::SelectionChanged>();
 
@@ -210,6 +236,7 @@ impl Plugin for EditorCorePlugin {
                     .in_set(EditorSet::Input),
                 (
                     resolver::apply_action_conventions,
+                    panels::handle_panel_actions,
                     edits::handle_history_actions,
                     selection::handle_selection_actions,
                     gesture::handle_gesture_actions,
@@ -267,6 +294,27 @@ fn host_features(world: &mut World) {
         registry.synthesize_action(feature, def);
     }
 
+    // Registry-derived panel actions: one `panel.toggle.<id>` per panel (kernel
+    // convention — every panel is palette-toggleable without feature code).
+    let panel_actions: Vec<(FeatureId, ActionDef)> = registry
+        .panels
+        .iter()
+        .map(|(feature, panel)| {
+            let def = ActionDef {
+                id: ActionId::new(format!("panel.toggle.{}", panel.id)),
+                name: format!("Toggle Panel: {}", panel.title).into(),
+                description: std::borrow::Cow::Borrowed("Show or hide this panel"),
+                contexts: Vec::new(), // global: panels toggle from anywhere
+                default_bindings: Vec::new(),
+                flags: editor_api::actions::ActionFlags::default(),
+            };
+            (feature.clone(), def)
+        })
+        .collect();
+    for (feature, def) in panel_actions {
+        registry.synthesize_action(feature, def);
+    }
+
     let validated = match registry.validate() {
         Ok(v) => v,
         Err(errors) => {
@@ -299,6 +347,12 @@ fn host_features(world: &mut World) {
     world.insert_resource(insert::KindCatalog {
         kinds: validated.kinds.iter().map(|(_, k)| k.clone()).collect(),
     });
+    world.insert_resource(panels::PanelCatalog {
+        panels: validated.panels.iter().map(|(_, p)| p.clone()).collect(),
+    });
+    world.insert_resource(panels::PanelStates(
+        validated.panels.iter().map(|(_, p)| (p.id.clone(), p.default_open)).collect(),
+    ));
     world.insert_resource(modes::Modes::from_validated(&validated));
     world.insert_resource(modes::CurrentMode(MODE_NORMAL));
     world.insert_resource(resolver::ActionCatalog::from_validated(&validated));

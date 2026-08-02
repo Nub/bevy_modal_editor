@@ -76,6 +76,10 @@ pub struct UiSettings {
     pub which_key_dismiss_secs: f32,
     /// Hard cap on palette results (the list scrolls; guards pathological volume).
     pub palette_max_results: usize,
+    /// Dock sizes, logical px (draggable resize arrives with the layout manager).
+    pub dock_left_width: f32,
+    pub dock_right_width: f32,
+    pub dock_bottom_height: f32,
 }
 
 impl Default for UiSettings {
@@ -88,6 +92,9 @@ impl Default for UiSettings {
             status_flash_secs: 3.0,
             which_key_dismiss_secs: 3.0,
             palette_max_results: 50,
+            dock_left_width: 280.0,
+            dock_right_width: 320.0,
+            dock_bottom_height: 200.0,
         }
     }
 }

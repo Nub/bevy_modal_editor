@@ -8,6 +8,7 @@
 use crate::actions::ActionDef;
 use crate::ids::{ActionId, ContextId, FeatureId, ModeId, GLOBAL_CONTEXT};
 use crate::kinds::EntityKindDef;
+use crate::panels::PanelDecl;
 use crate::keymap::{find_conflicts, Binding};
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
@@ -79,6 +80,7 @@ pub struct FeatureRegistry {
     pub(crate) components: Vec<(FeatureId, ComponentReg)>,
     pub(crate) contexts: Vec<(FeatureId, ContextId)>,
     pub kinds: Vec<(FeatureId, EntityKindDef)>,
+    pub panels: Vec<(FeatureId, PanelDecl)>,
     current_feature: Option<FeatureId>,
 }
 
@@ -104,6 +106,13 @@ impl FeatureRegistry {
     /// registry-derived actions like kind insertion — never by features directly).
     pub fn synthesize_action(&mut self, feature: FeatureId, def: ActionDef) -> &mut Self {
         self.actions.push((feature, def));
+        self
+    }
+    /// Register a panel (RFC §9). The panel's focus context is registered implicitly;
+    /// the layout manager owns docking, chrome, and focus.
+    pub fn panel(&mut self, decl: PanelDecl) -> &mut Self {
+        let feature = self.current().clone();
+        self.panels.push((feature, decl));
         self
     }
     /// Register an overlay keymap context (gesture layers, focused-panel layers) that
@@ -150,6 +159,7 @@ pub enum RegistryError {
     BadBinding { action: ActionId, binding: String, message: String },
     UnknownContext { action: ActionId, context: ContextId },
     BindingConflict { context: ContextId, detail: String },
+    DuplicatePanel { id: crate::ids::PanelId, first: FeatureId, second: FeatureId },
 }
 
 impl fmt::Display for RegistryError {
@@ -165,6 +175,8 @@ impl fmt::Display for RegistryError {
                 write!(f, "action {action} targets unknown context {context}"),
             Self::BindingConflict { context, detail } =>
                 write!(f, "keymap conflict in context {context}: {detail}"),
+            Self::DuplicatePanel { id, first, second } =>
+                write!(f, "panel {id} registered by both {first} and {second}"),
         }
     }
 }
@@ -183,6 +195,7 @@ pub struct ValidatedFeatures {
     pub bindings: Vec<CompiledBinding>,
     pub components: Vec<(FeatureId, ComponentReg)>,
     pub kinds: Vec<(FeatureId, EntityKindDef)>,
+    pub panels: Vec<(FeatureId, PanelDecl)>,
 }
 
 impl FeatureRegistry {
@@ -225,6 +238,23 @@ impl FeatureRegistry {
         }
         for (_, context) in &self.contexts {
             known_contexts.insert(context.clone());
+        }
+        // Panel focus contexts are registered implicitly by the panel declaration.
+        for (_, panel) in &self.panels {
+            known_contexts.insert(panel.context.clone());
+        }
+
+        let mut seen_panels: HashMap<crate::ids::PanelId, FeatureId> = HashMap::new();
+        for (feature, panel) in &self.panels {
+            if let Some(first) = seen_panels.get(&panel.id) {
+                errors.push(RegistryError::DuplicatePanel {
+                    id: panel.id.clone(),
+                    first: first.clone(),
+                    second: feature.clone(),
+                });
+            } else {
+                seen_panels.insert(panel.id.clone(), feature.clone());
+            }
         }
 
         let mut bindings = Vec::new();
@@ -286,6 +316,7 @@ impl FeatureRegistry {
                 bindings,
                 components: self.components,
                 kinds: self.kinds,
+                panels: self.panels,
             })
         } else {
             Err(errors)

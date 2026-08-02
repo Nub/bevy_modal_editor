@@ -31,6 +31,13 @@ pub struct PendingKeys(pub Vec<Chord>);
 #[derive(Resource, Default)]
 pub struct KeyCapture(pub bool);
 
+/// True while the pointer is over ANY editor chrome (docks, statusbar, palette) —
+/// written by `editor_ui` each frame, read by viewport tools so ghosts, placement,
+/// and cursor rays never fire through a panel (flow-audit: input falling through
+/// overlapping surfaces).
+#[derive(Resource, Default)]
+pub struct PointerOverChrome(pub bool);
+
 /// An active overlay keymap layer (gesture, focused panel) — highest priority when set.
 #[derive(Resource, Default)]
 pub struct OverlayContext(pub Option<ContextId>);
@@ -86,10 +93,20 @@ pub fn active_contexts(
     state: &EditorState,
     mode: &CurrentMode,
     overlay: &OverlayContext,
+    panel_focus: &crate::panels::PanelFocus,
+    panel_catalog: &crate::panels::PanelCatalog,
 ) -> Vec<ContextId> {
     if state.active {
+        // Gesture overlays are exclusive: they grab the keyboard entirely.
         if let Some(overlay) = &overlay.0 {
             return vec![overlay.clone()];
+        }
+        // A focused panel is a focus target with its own layer: it REPLACES the mode
+        // context (j/k belong to the tree, not the viewport), global stays.
+        if let Some(panel) = &panel_focus.0 {
+            if let Some(decl) = panel_catalog.get(panel) {
+                return vec![decl.context.clone(), GLOBAL_CONTEXT];
+            }
         }
         vec![mode.context(), GLOBAL_CONTEXT]
     } else {
@@ -157,6 +174,8 @@ pub fn resolve_input(
     overlay: Res<OverlayContext>,
     mode: Res<CurrentMode>,
     flying: Res<crate::camera::FlyingCamera>,
+    panel_focus: Res<crate::panels::PanelFocus>,
+    panel_catalog: Res<crate::panels::PanelCatalog>,
     mut escape_from_capture: ResMut<EscapeFromCapture>,
     mut pending: ResMut<PendingKeys>,
     mut actions: MessageWriter<ActionInvoked>,
@@ -196,7 +215,7 @@ pub fn resolve_input(
         }
 
         pending.0.push(Chord { modifiers, key: *key });
-        let contexts = active_contexts(&state, &mode, &overlay);
+        let contexts = active_contexts(&state, &mode, &overlay, &panel_focus, &panel_catalog);
         match resolve_sequence(&keymap, &contexts, &pending.0) {
             Resolution::Exact(action) => {
                 pending.0.clear();
@@ -225,17 +244,21 @@ pub fn apply_action_conventions(
     mut state: ResMut<EditorState>,
     mut mode: ResMut<CurrentMode>,
     escape_from_capture: Res<EscapeFromCapture>,
+    mut panel_focus: ResMut<crate::panels::PanelFocus>,
     mut mode_changed: MessageWriter<ModeChanged>,
 ) {
     for invoked in reader.read() {
         if invoked.action.as_str() == "core.toggle-editor" {
             state.active = !state.active;
         }
-        if invoked.action.as_str() == "core.escape-home"
-            && mode.0 != MODE_NORMAL
-            && !escape_from_capture.0
-        {
-            set_mode(MODE_NORMAL, &mut mode, &mut mode_changed);
+        if invoked.action.as_str() == "core.escape-home" && !escape_from_capture.0 {
+            // One layer per press: a focused panel unfocuses FIRST; the mode walks
+            // home only when the viewport already owns focus.
+            if panel_focus.0.is_some() {
+                panel_focus.0 = None;
+            } else if mode.0 != MODE_NORMAL {
+                set_mode(MODE_NORMAL, &mut mode, &mut mode_changed);
+            }
         }
         if let Some(mode_id) = invoked.action.as_str().strip_prefix("mode.") {
             let target = ModeId::new(mode_id.to_string());
