@@ -4,7 +4,8 @@ members = [
     "crates/editor_api",
     "crates/game_framework",
     "crates/template_game",
-    # spike crates are added under spikes/ as each M0 spike begins
+    # M0 spikes (throwaway code, durable findings — see spikes/README.md)
+    "spikes/editqueue-scale",
 ]
 
 [workspace.package]

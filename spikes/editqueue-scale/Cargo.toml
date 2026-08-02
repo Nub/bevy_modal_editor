@@ -1,0 +1,11 @@
+[package]
+name = "spike_editqueue_scale"
+description = "M0 spike 1: EditScope transactions + reflection inverse capture at scale"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+uuid.workspace = true
