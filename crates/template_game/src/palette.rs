@@ -401,11 +401,11 @@ fn palette_keys(
 /// imperceptible) and clamps the container's scroll so the row stays visible.
 fn scroll_selected_into_view(
     container: Single<
-        (&ComputedNode, &GlobalTransform, &mut ScrollPosition),
+        (&ComputedNode, &UiGlobalTransform, &mut ScrollPosition),
         With<PaletteResults>,
     >,
     row: Option<
-        Single<(&ComputedNode, &GlobalTransform), (With<SelectedRow>, Without<PaletteResults>)>,
+        Single<(&ComputedNode, &UiGlobalTransform), (With<SelectedRow>, Without<PaletteResults>)>,
     >,
 ) {
     let Some(row) = row else { return };
@@ -414,9 +414,11 @@ fn scroll_selected_into_view(
     let scale = cont_node.inverse_scale_factor();
     let cont_h = cont_node.size().y * scale;
     let row_h = row_node.size().y * scale;
+    // UiGlobalTransform.translation = node CENTER, physical px, y-down (0.19 —
+    // plain GlobalTransform stays identity for UI nodes).
     // Row top in content coordinates (logical px): visible offset plus current scroll.
-    let visible_top = ((row_tf.translation().y - row_node.size().y / 2.0)
-        - (cont_tf.translation().y - cont_node.size().y / 2.0))
+    let visible_top = ((row_tf.translation.y - row_node.size().y / 2.0)
+        - (cont_tf.translation.y - cont_node.size().y / 2.0))
         * scale;
     let top = visible_top + scroll.0.y;
     if top < scroll.0.y {
