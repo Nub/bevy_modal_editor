@@ -36,7 +36,7 @@ use crate::style::{self, UiFonts};
 pub(crate) const INSPECTOR_PANEL: &str = "inspector";
 
 /// What a number field edits when it commits.
-#[derive(Component, Clone)]
+#[derive(Component, Clone, PartialEq)]
 pub(crate) struct InspectorField {
     pub target: SceneId,
     pub type_path: &'static str,
@@ -551,6 +551,7 @@ pub(crate) fn probe_inspector(
     mut focus_res: ResMut<InputFocus>,
     named: Query<(Entity, &Name)>,
     selected_q: Query<(), With<Selected>>,
+
     mut commands: Commands,
 ) {
     *frames += 1;
@@ -667,6 +668,42 @@ pub(crate) fn probe_inspector(
             None => info!("PROBE no Bool field found in inspector"),
         }
     }
+    if std::env::var("TAB_PROBE").is_ok() && *frames >= 280 && *frames <= 680 {
+        // Send a Tab press/release every 20 frames; log focus + selection between.
+        let phase = (*frames - 280) % 20;
+        if phase == 0 || phase == 2 {
+            if let Ok(window) = window.single() {
+                key_events.write(bevy::input::keyboard::KeyboardInput {
+                    key_code: KeyCode::Tab,
+                    logical_key: bevy::input::keyboard::Key::Tab,
+                    state: if phase == 0 {
+                        bevy::input::ButtonState::Pressed
+                    } else {
+                        bevy::input::ButtonState::Released
+                    },
+                    text: None,
+                    repeat: false,
+                    window,
+                });
+            }
+        }
+        if phase == 10 {
+            let focus_entity = focus_res.get();
+            let focus_kind = focus_entity.map(|e| {
+                if editable_q.get(e).is_ok() {
+                    "text-input"
+                } else if name_field.get(e).is_ok() {
+                    "field-root"
+                } else {
+                    "other"
+                }
+            });
+            info!(
+                "TAB focus={focus_entity:?} kind={focus_kind:?} selected={}",
+                selected_q.iter().count()
+            );
+        }
+    }
     if *frames == 400 && std::env::var("RELOAD_PROBE").is_ok() {
         writer.write(ActionInvoked {
             action: ActionId::new_static("editor.reload"),
@@ -726,6 +763,9 @@ pub(crate) fn render_inspector(
     body: Query<(Entity, &PanelBody)>,
     fonts: Res<UiFonts>,
     settings: Res<EditorSettings>,
+    focus: Res<InputFocus>,
+    parents: Query<&ChildOf>,
+    fields: Query<&InspectorField>,
     mut commands: Commands,
 ) {
     if model.generation == *last_generation {
@@ -737,6 +777,18 @@ pub(crate) fn render_inspector(
     else {
         return;
     };
+    // Rebuilds despawn every widget — if focus is on one of ours (Tab landed on a
+    // checkbox, say), remember WHICH field so the equivalent new widget can take
+    // focus back; otherwise Tab strands on a dead entity (owner-reported).
+    let focused_field: Option<InspectorField> = focus.get().and_then(|mut current| loop {
+        if let Ok(field) = fields.get(current) {
+            break Some(field.clone());
+        }
+        match parents.get(current) {
+            Ok(parent) => current = parent.parent(),
+            Err(_) => break None,
+        }
+    });
     let ui = settings.ui.clone();
     commands.entity(body_entity).despawn_related::<Children>();
 
@@ -908,6 +960,23 @@ pub(crate) fn render_inspector(
                 commands.entity(text).insert(ChildOf(row));
             }
         }
+    }
+
+    // AFTER the new widgets exist (queued last): hand focus back to the field
+    // the user was on — rebuilds must be invisible to keyboard navigation.
+    if let Some(field) = focused_field {
+        commands.queue(move |world: &mut World| {
+            let target = {
+                let mut query = world.query::<(Entity, &InspectorField)>();
+                query.iter(world).find(|(_, f)| **f == field).map(|(e, _)| e)
+            };
+            if let Some(root) = target {
+                let focus_target = find_editable_descendant(world, root).unwrap_or(root);
+                world
+                    .resource_mut::<InputFocus>()
+                    .set(focus_target, bevy::input_focus::FocusCause::Navigated);
+            }
+        });
     }
 }
 
