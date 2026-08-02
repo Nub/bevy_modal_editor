@@ -12,6 +12,7 @@ pub mod style;
 mod dock;
 mod ghost;
 mod hierarchy;
+mod inspector;
 mod outline;
 mod palette;
 mod statusbar;
@@ -69,6 +70,20 @@ impl EditorFeature for EditorUiFeature {
     }
 }
 
+/// ONE writer for `KeyCapture` (flow-audit: competing writers): the resolver stands
+/// down exactly while an editable text field owns keyboard focus — the palette
+/// input, inspector number fields, future rename boxes.
+fn sync_key_capture(
+    focus: Res<bevy::input_focus::InputFocus>,
+    editable: Query<(), With<bevy::text::EditableText>>,
+    mut capture: ResMut<KeyCapture>,
+) {
+    let captured = focus.get().is_some_and(|entity| editable.contains(entity));
+    if capture.0 != captured {
+        capture.0 = captured;
+    }
+}
+
 pub struct EditorUiPlugin;
 
 impl Plugin for EditorUiPlugin {
@@ -97,6 +112,7 @@ impl Plugin for EditorUiPlugin {
 
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<hierarchy::HierarchyState>();
+        app.init_resource::<inspector::InspectorModel>();
         app.add_systems(
             Update,
             hierarchy::handle_hierarchy_actions.in_set(editor_core::EditorSet::Tools),
@@ -110,6 +126,10 @@ impl Plugin for EditorUiPlugin {
                 hierarchy::watch_hierarchy_inputs,
                 hierarchy::rebuild_hierarchy,
                 hierarchy::scroll_cursor_into_view,
+                inspector::watch_inspector_inputs,
+                inspector::collect_inspector,
+                inspector::render_inspector,
+                sync_key_capture,
                 ghost::apply_ghost_material,
                 outline::ensure_outline_camera,
                 outline::sync_selection_outlines,
