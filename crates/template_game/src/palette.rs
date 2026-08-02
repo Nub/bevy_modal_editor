@@ -20,6 +20,8 @@ use bevy::ui::px;
 use bevy::ui_widgets::SelectAllOnFocus;
 use editor_core::prelude::*;
 
+use crate::ui_style::{self as style, UiFont};
+
 const MAX_RESULTS: usize = 8;
 
 #[derive(Resource, Default)]
@@ -61,8 +63,9 @@ fn spawn_palette(mut commands: Commands) {
             margin: UiRect { left: px(-240) },
             width: px(480),
             flex_direction: FlexDirection::Column,
-            row_gap: px(4),
-            padding: UiRect::all(px(8)),
+            row_gap: px(style::space::XS),
+            padding: UiRect::all(px(style::space::S)),
+            border_radius: {BorderRadius::all(px(style::radius::L))},
         }
         ThemeBackgroundColor(tokens::WINDOW_BG)
         GlobalZIndex(200)
@@ -113,9 +116,9 @@ fn filter_actions(
             .values()
             .flatten()
             .find(|(_, action)| action == &def.id)
-            .map(|(binding, _)| binding.to_string())
+            .map(|(binding, _)| style::pretty_binding(binding))
             .unwrap_or_default();
-        out.push((format!("{}  ({})", def.name, def.id), binding, def.id.clone()));
+        out.push((def.name.to_string(), binding, def.id.clone()));
         if out.len() >= MAX_RESULTS {
             break;
         }
@@ -241,6 +244,7 @@ fn rebuild_results(
     catalog: Res<ActionCatalog>,
     keymap: Res<ResolvedKeymap>,
     results: Single<Entity, With<PaletteResults>>,
+    font: Res<UiFont>,
     mut commands: Commands,
 ) {
     if !state.is_changed() {
@@ -251,6 +255,7 @@ fn rebuild_results(
         return;
     }
     let rows = filter_actions(&catalog, &keymap, &state.query);
+    let keys_font = style::text_font(&font);
     commands.entity(*results).with_children(|parent| {
         for (i, (label, binding, _)) in rows.iter().enumerate() {
             let selected = i == state.selected;
@@ -258,22 +263,21 @@ fn rebuild_results(
                 .spawn((
                     Node {
                         justify_content: JustifyContent::SpaceBetween,
-                        padding: UiRect::axes(px(6), px(3)),
-                        column_gap: px(12),
+                        align_items: AlignItems::Center,
+                        padding: UiRect::axes(px(style::space::S), px(style::space::XS)),
+                        column_gap: px(style::space::M),
+                        border_radius: BorderRadius::all(px(style::radius::S)),
                         ..default()
                     },
-                    BackgroundColor(if selected {
-                        Color::srgb(0.20, 0.30, 0.45)
-                    } else {
-                        Color::NONE
-                    }),
+                    BackgroundColor(if selected { style::color::selection() } else { Color::NONE }),
                 ))
                 .with_children(|row| {
                     row.spawn(Text::new(label.clone()));
                     if !binding.is_empty() {
                         row.spawn((
                             Text::new(binding.clone()),
-                            TextColor(Color::srgb(0.6, 0.6, 0.65)),
+                            keys_font.clone(),
+                            TextColor(style::color::TEXT_KEYS),
                         ));
                     }
                 });
@@ -281,8 +285,8 @@ fn rebuild_results(
         if rows.is_empty() {
             parent.spawn((
                 Text::new("no matching actions"),
-                TextColor(Color::srgb(0.5, 0.5, 0.5)),
-                Node { padding: UiRect::all(px(6)), ..default() },
+                TextColor(style::color::TEXT_DIM),
+                Node { padding: UiRect::all(px(style::space::S)), ..default() },
             ));
         }
     });

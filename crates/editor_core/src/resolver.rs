@@ -31,6 +31,11 @@ pub struct PendingKeys(pub Vec<Chord>);
 #[derive(Resource, Default)]
 pub struct KeyCapture(pub bool);
 
+/// Emitted when a key sequence resolves to nothing — every keypress deserves feedback
+/// (design bar, spec §7): the shell shows "unbound" instead of silence.
+#[derive(Message, Debug)]
+pub struct KeysUnresolved(pub Vec<Chord>);
+
 /// Palette/cheat-sheet data: every registered action (A8's sibling — derived, never
 /// hand-maintained).
 #[derive(Resource)]
@@ -135,6 +140,7 @@ pub fn resolve_input(
     mut pending: ResMut<PendingKeys>,
     mut actions: MessageWriter<ActionInvoked>,
     mut mode_changed: MessageWriter<ModeChanged>,
+    mut unresolved: MessageWriter<KeysUnresolved>,
 ) {
     if capture.0 {
         return;
@@ -168,7 +174,9 @@ pub fn resolve_input(
                 });
             }
             Resolution::Prefix => { /* keep collecting; which-key shows continuations */ }
-            Resolution::None => pending.0.clear(),
+            Resolution::None => {
+                unresolved.write(KeysUnresolved(std::mem::take(&mut pending.0)));
+            }
         }
     }
 }

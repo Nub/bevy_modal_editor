@@ -18,7 +18,7 @@ pub mod prelude {
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
     pub use crate::resolver::{
         active_contexts, which_key_continuations, ActionCatalog, EditorState, KeyCapture,
-        PendingKeys, ResolvedKeymap,
+        KeysUnresolved, PendingKeys, ResolvedKeymap,
     };
     pub use crate::EditorCorePlugin;
     pub use editor_api::prelude::*;
@@ -68,6 +68,7 @@ impl Plugin for EditorCorePlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<ActionInvoked>()
             .add_message::<modes::ModeChanged>()
+            .add_message::<resolver::KeysUnresolved>()
             .init_resource::<resolver::EditorState>()
             .init_resource::<resolver::PendingKeys>()
             .init_resource::<resolver::KeyCapture>()

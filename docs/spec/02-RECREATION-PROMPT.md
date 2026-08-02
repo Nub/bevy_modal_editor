@@ -515,7 +515,14 @@ with progress UI.
   semantic-color system carries as a design (a feathers theme), not as code.
   **Standing visual bar (owner directive, M1 review): editor chrome is always modern,
   themed surfaces — full-width bars/panels with backgrounds and real layout, never bare
-  text floating over the render — including interim milestones.**
+  text floating over the render — including interim milestones.** Corollaries, binding
+  on every widget: (1) universal styling — all spacing/radius/color/type values come
+  from one shared style scale; one-off inline values are a review-rejection; (2) padding
+  on every surface, logical alignment, cohesive rounding, no unexplained gaps;
+  (3) symbology over words — a nerd-font icon set ships with the editor and keys render
+  as glyphs (⌃ ⇧ ⌥ ⌘ ␣ ⏎ ⎋); (4) every keypress gets feedback (unbound keys say so);
+  (5) design decisions are made to a professional standard proactively — the owner is
+  consulted for large-scale layout shape only.
   **Binding requirements from M0 spike findings F6–F8** (raw feathers controls are
   row-oriented and empty-state-hostile; the kit fixes each once, centrally): property
   rows encode label-above-controls layout with width caps internally; wrapped controls
