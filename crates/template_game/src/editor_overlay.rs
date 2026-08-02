@@ -16,6 +16,9 @@ pub struct EditorOverlayPlugin;
 
 impl Plugin for EditorOverlayPlugin {
     fn build(&self, app: &mut App) {
+        // User keymap layer (M1 acceptance: rebind without recompiling): overrides
+        // in ./editor-keymap.ron win over registry defaults; delete to restore.
+        app.insert_resource(KeymapPaths { user: Some("editor-keymap.ron".into()) });
         app.add_plugins(EditorCorePlugin).add_systems(
             Update,
             (sync_game_input, update_statusline).in_set(editor_core::EditorSet::Sync),
