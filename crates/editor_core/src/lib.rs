@@ -11,7 +11,6 @@ pub mod edits;
 pub mod gesture;
 pub mod insert;
 pub mod keymap_data;
-pub mod macros;
 pub mod modes;
 pub mod resolver;
 pub mod selection;
@@ -27,7 +26,6 @@ pub mod prelude {
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
     };
     pub use crate::keymap_data::KeymapPaths;
-    pub use crate::macros::MacroState;
     pub use crate::selection::{Selected, SelectionChanged};
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
     pub use crate::resolver::{
@@ -114,19 +112,6 @@ impl EditorFeature for CoreFeature {
                 .describe("Deselect everything")
                 .context("normal"),
         );
-        // Macros: the action stream is the recording surface (B11).
-        reg.action(
-            ActionDef::new("core.macro-record", "Record Macro")
-                .describe("Start/stop recording actions into the macro register")
-                .context("normal")
-                .bind("q"),
-        )
-        .action(
-            ActionDef::new("core.macro-replay", "Replay Macro")
-                .describe("Replay the recorded macro as one undoable step")
-                .context("normal")
-                .bind("shift+2"), // '@'
-        );
         // Move gesture: its overlay keymap layer + actions.
         reg.context(gesture::GESTURE_MOVE_CONTEXT);
         reg.action(
@@ -197,8 +182,6 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<insert::CursorGround>()
             .init_resource::<insert::KindCatalog>()
             .init_resource::<insert::KindJustPicked>()
-            .init_resource::<macros::MacroState>()
-            .init_resource::<macros::PendingReplay>()
             .init_resource::<edits::MergeFrameEntries>()
             .add_message::<selection::SelectionChanged>();
 
@@ -223,8 +206,6 @@ impl Plugin for EditorCorePlugin {
                     .chain()
                     .in_set(EditorSet::Input),
                 (
-                    macros::record_actions,
-                    macros::emit_replay,
                     resolver::apply_action_conventions,
                     edits::handle_history_actions,
                     selection::handle_selection_actions,

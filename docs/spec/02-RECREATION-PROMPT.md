@@ -249,12 +249,17 @@ the successor to v1's demo crates, which were the strongest evidence the v1 API 
 - **Discoverability**: which-key popup on held prefix/mode entry showing available bindings;
   every action searchable in the command palette with its current binding displayed; a
   generated cheat-sheet view.
-- **Macros**: vim-style record/replay (`q<reg>` record, `q` stop, `@<reg>` replay,
-  `<count>@<reg>` repeat) implemented *at the action layer* — a macro is a recorded sequence
-  of resolved actions (with their parameters), replayed through the same dispatch path as
-  live input. Because every feature's operations are actions over `EditQueue` edits, macros
-  work across all features by construction, replay is undoable as a single coalesced entry,
-  and macros double as the scripting/automation substrate for headless tests.
+- **Macros** *(deferred — owner decision, M2 2026-08-02)*: vim-style record/replay
+  (`q<reg>` record, `q` stop, `@<reg>` replay, `<count>@<reg>` repeat) implemented *at the
+  action layer* — a macro is a recorded sequence of resolved actions (with their
+  parameters), replayed through the same dispatch path as live input, undoable as a single
+  coalesced entry. **Precondition discovered in M2**: the action stream alone is not a
+  faithful recording surface — placement clicks and drag gestures are mouse input, not
+  actions, so a replay re-enters modes without reproducing the edits. Macros return only
+  after actions are *parameterized* (spatial inputs — placement position, drag delta —
+  carried as action arguments, i.e. gestures-as-data). Until then the coalescing machinery
+  (`MergeFrameEntries`) remains as the substrate for scripted batch invocations and
+  headless tests.
 
 ### Default keymap design
 Redesign from scratch — v1 bindings are reference input, not requirements. Principles:

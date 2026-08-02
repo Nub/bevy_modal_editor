@@ -40,7 +40,7 @@
 | `Esc` | Cancel gesture → clear pending count/register → walk home to Normal | `Esc` |
 | `u` / `Ctrl-r` | Undo / redo | same |
 | `.` | Repeat last edit action (with count) | same |
-| `q{a-z}` … `q` / `@{a-z}` / `@@` | Record / replay / replay-last macro | same |
+| `q{a-z}` … `q` / `@{a-z}` / `@@` | Record / replay / replay-last macro — **deferred** until actions are parameterized (gestures-as-data; see spec §macros); `q`/`@` stay reserved | same |
 | `"{a-z}` | Register prefix for next yank/paste | same |
 | `:` | Command palette (all actions, fuzzy; ex-style commands work: `:w` save, `:q` quit, `:e {scene}` open, `:w {name}` save-as) | ex commands |
 | `/` | **Contextual search** (see per-context tables) | search |

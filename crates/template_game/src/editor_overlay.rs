@@ -465,7 +465,6 @@ struct StatusData<'w> {
     modes: Res<'w, Modes>,
     pending: Res<'w, PendingKeys>,
     gesture: Res<'w, MoveGesture>,
-    macros: Res<'w, MacroState>,
     insert: Res<'w, InsertState>,
     kinds: Res<'w, KindCatalog>,
     flash: Res<'w, StatusFlash>,
@@ -524,16 +523,13 @@ fn update_statusbar(
         }
     }
     for mut text in &mut hint_text {
-        let mut hint = if gesture_active {
+        let hint = if gesture_active {
             "moving selection · x/y/z constrain · click ⏎ commit · ⎋ cancel".to_string()
         } else if let Some(kind_name) = inserting {
             format!("inserting {kind_name} · click place · ⇧click multi · ⎋ done")
         } else {
             mode_def.map(|m| m.statusline_hint.to_string()).unwrap_or_default()
         };
-        if data.macros.recording.is_some() {
-            hint = format!("● REC (q to stop) · {hint}");
-        }
         if text.0 != hint {
             text.0 = hint;
         }

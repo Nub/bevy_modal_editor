@@ -46,8 +46,9 @@ impl History {
     }
 }
 
-/// Armed by macro replay: all history entries created THIS frame merge into one
-/// (B11 — a replayed macro is a single undoable step).
+/// Batch-coalescing hook: when armed, all history entries created THIS frame merge
+/// into one undoable step. Retained for scripted/batch invocations (palette scripts,
+/// future macros — deferred per M2, see docs/M2-ACCEPTANCE.md B11).
 #[derive(Resource, Default)]
 pub struct MergeFrameEntries(pub bool);
 
