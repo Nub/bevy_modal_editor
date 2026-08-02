@@ -1,5 +1,10 @@
 # M1 Acceptance — "I can walk around my game, and the editor is inside it"
 
+> **CLOSED — owner-accepted 2026-08-02.** All eight executable tests green; owner
+> hands-on drove seven fix rounds (font-path asset resolution, wgpu debug-profile hang,
+> which-key popup redesign, typography/elevation design system) before acceptance.
+> Chrome now runs on the shared `ui_style` scale per the standing design bar.
+
 Written at milestone start (spec §8 guardrail 2). M1 is done when every test below is
 green and the owner has walked the level and toggled the editor by hand — not before.
 
