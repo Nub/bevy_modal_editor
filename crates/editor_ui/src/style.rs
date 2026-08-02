@@ -82,9 +82,11 @@ pub struct UiFonts {
     pub mono: Handle<Font>,
 }
 
-pub const SANS_PATH: &str = "fonts/Inter-Regular.ttf";
-pub const SANS_MEDIUM_PATH: &str = "fonts/Inter-Medium.ttf";
-pub const MONO_PATH: &str = "fonts/FiraCodeNerdFont-Regular.ttf";
+// Embedded (registered in `EditorUiPlugin`): the chrome fonts ship inside the crate —
+// games never copy font files into their asset folders.
+pub const SANS_PATH: &str = "embedded://editor_ui/fonts/Inter-Regular.ttf";
+pub const SANS_MEDIUM_PATH: &str = "embedded://editor_ui/fonts/Inter-Medium.ttf";
+pub const MONO_PATH: &str = "embedded://editor_ui/fonts/FiraCodeNerdFont-Regular.ttf";
 
 pub fn load_ui_fonts(mut commands: Commands, assets: Res<AssetServer>) {
     commands.insert_resource(UiFonts {

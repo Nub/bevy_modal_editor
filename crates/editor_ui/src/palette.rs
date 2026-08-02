@@ -5,8 +5,9 @@
 //! `visible_width` on the input (F7), `SelectAllOnFocus`, whole-box focus, and
 //! `KeyCapture` so the resolver stands down while typing.
 //!
-//! M1-minimal: substring match, top 8 rows, plain row rendering. The real fuzzy
-//! engine and widget-kit treatment land in `editor_ui`.
+//! The Commands view is SECTIONED (owner rule): true editor-global commands (save,
+//! open, play, undo…) lead; commands that belong to a mode are demoted into per-mode
+//! groups below — the preferred way to reach them is through their mode.
 
 use bevy::feathers::controls::{FeathersTextInput, FeathersTextInputContainer};
 use bevy::feathers::font_styles::InheritableFont;
@@ -21,7 +22,7 @@ use bevy::ui::px;
 use bevy::ui_widgets::SelectAllOnFocus;
 use editor_core::prelude::*;
 
-use crate::ui_style::{self as style, UiFonts};
+use crate::style::{self, UiFonts};
 
 const MAX_RESULTS: usize = 50;
 
@@ -72,7 +73,6 @@ impl Plugin for PalettePlugin {
                     update_title,
                     rebuild_results,
                     scroll_selected_into_view,
-                    probe_scroll.run_if(|| std::env::var("PALETTE_PROBE").is_ok()),
                 )
                     .chain()
                     .in_set(editor_core::EditorSet::Sync),
@@ -105,12 +105,12 @@ fn spawn_palette(mut commands: Commands) {
             (PaletteTitle Text("COMMANDS")
              template(|ctx| Ok(bevy::text::TextFont {
                  font: bevy::text::FontSource::Handle(
-                     ctx.resource::<AssetServer>().load(crate::ui_style::SANS_MEDIUM_PATH),
+                     ctx.resource::<AssetServer>().load(crate::style::SANS_MEDIUM_PATH),
                  ),
                  font_size: bevy::text::FontSize::Px(11.0),
                  ..Default::default()
              }))
-             TextColor({crate::ui_style::color::TEXT_DIM})),
+             TextColor({crate::style::color::TEXT_DIM})),
             // Search input: larger type than the results list, standard padding.
             (
                 @FeathersTextInputContainer
@@ -170,18 +170,55 @@ fn spawn_palette(mut commands: Commands) {
     });
 }
 
+struct ResultRow {
+    label: String,
+    binding: String,
+    action: ActionId,
+}
+
+/// One titled group of the results list. `title: None` renders as a flat list
+/// (the insert-kind palette — already a single category).
+struct ResultSection {
+    title: Option<String>,
+    rows: Vec<ResultRow>,
+}
+
+fn flat_len(sections: &[ResultSection]) -> usize {
+    sections.iter().map(|s| s.rows.len()).sum()
+}
+
+fn flat_get(sections: &[ResultSection], index: usize) -> Option<&ResultRow> {
+    sections.iter().flat_map(|s| &s.rows).nth(index)
+}
+
+/// Owner rule: a command whose context is a non-normal mode belongs to that mode's
+/// section — the preferred route to it is entering the mode, so it lists below the
+/// editor-global group.
+fn modal_section(def: &editor_api::actions::ActionDef, modes: &Modes) -> Option<String> {
+    def.contexts.iter().find_map(|context| {
+        if context.as_str() == "normal" {
+            return None;
+        }
+        modes
+            .get(&ModeId::new(context.as_str().to_string()))
+            .map(|mode| mode.name.to_uppercase())
+    })
+}
+
 /// Case-insensitive substring filter over id + name + description ("load" must find
-/// "Open Scene" via its describe text); hidden actions excluded; sorted by name so
-/// the list is deterministic, not registration-ordered.
-/// Returns (label, binding-hint, action id).
+/// "Open Scene" via its describe text); hidden actions excluded; rows sorted by name
+/// so the list is deterministic, not registration-ordered. Commands view: EDITOR
+/// section first, then per-mode sections alphabetically.
 fn filter_actions(
     catalog: &ActionCatalog,
     keymap: &ResolvedKeymap,
+    modes: &Modes,
     query: &str,
     filter: PaletteFilter,
-) -> Vec<(String, String, ActionId)> {
+) -> Vec<ResultSection> {
     let needle = query.to_lowercase();
-    let mut out = Vec::new();
+    let mut editor_rows = Vec::new();
+    let mut mode_groups: std::collections::BTreeMap<String, Vec<ResultRow>> = Default::default();
     for def in &catalog.actions {
         if def.flags.hidden {
             continue;
@@ -203,11 +240,35 @@ fn filter_actions(
             .find(|(_, action)| action == &def.id)
             .map(|(binding, _)| style::pretty_binding(binding))
             .unwrap_or_default();
-        out.push((def.name.to_string(), binding, def.id.clone()));
+        let row = ResultRow { label: def.name.to_string(), binding, action: def.id.clone() };
+        match filter {
+            PaletteFilter::InsertKinds => editor_rows.push(row),
+            PaletteFilter::Commands => match modal_section(def, modes) {
+                Some(section) => mode_groups.entry(section).or_default().push(row),
+                None => editor_rows.push(row),
+            },
+        }
     }
-    out.sort_by(|a, b| a.0.cmp(&b.0));
-    out.truncate(MAX_RESULTS);
-    out
+
+    editor_rows.sort_by(|a, b| a.label.cmp(&b.label));
+    let mut sections = vec![ResultSection {
+        title: (filter == PaletteFilter::Commands).then(|| "EDITOR".to_string()),
+        rows: editor_rows,
+    }];
+    for (title, mut rows) in mode_groups {
+        rows.sort_by(|a, b| a.label.cmp(&b.label));
+        sections.push(ResultSection { title: Some(title), rows });
+    }
+
+    // Overall cap (the list scrolls; this only guards pathological volumes).
+    let mut remaining = MAX_RESULTS;
+    for section in &mut sections {
+        let take = remaining.min(section.rows.len());
+        section.rows.truncate(take);
+        remaining -= take;
+    }
+    sections.retain(|s| !s.rows.is_empty());
+    sections
 }
 
 fn open_palette(
@@ -356,6 +417,7 @@ fn palette_keys(
     mut event: On<FocusedInput<KeyboardInput>>,
     catalog: Res<ActionCatalog>,
     keymap: Res<ResolvedKeymap>,
+    modes: Res<Modes>,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
     mut focus: ResMut<InputFocus>,
@@ -365,7 +427,8 @@ fn palette_keys(
     if !state.open || event.input.state != ButtonState::Pressed {
         return;
     }
-    let result_count = filter_actions(&catalog, &keymap, &state.query, state.filter).len();
+    let sections = filter_actions(&catalog, &keymap, &modes, &state.query, state.filter);
+    let result_count = flat_len(&sections);
     match event.input.key_code {
         KeyCode::ArrowDown => {
             if result_count > 0 {
@@ -378,10 +441,9 @@ fn palette_keys(
             event.propagate(false);
         }
         KeyCode::Enter => {
-            let results = filter_actions(&catalog, &keymap, &state.query, state.filter);
-            if let Some((_, _, action)) = results.get(state.selected) {
+            if let Some(row) = flat_get(&sections, state.selected) {
                 actions.write(ActionInvoked {
-                    action: action.clone(),
+                    action: row.action.clone(),
                     args: None,
                     source: InvocationSource::Palette,
                 });
@@ -394,60 +456,6 @@ fn palette_keys(
             event.propagate(false);
         }
         _ => {}
-    }
-}
-
-/// TEMP diagnostic (PALETTE_PROBE=1): auto-open the palette, walk the selection
-/// down, and log the real laid-out geometry every step.
-fn probe_scroll(
-    mut frames: Local<u32>,
-    mut writer: MessageWriter<ActionInvoked>,
-    mut state: ResMut<PaletteState>,
-    container: Option<
-        Single<(&Node, &ComputedNode, &UiGlobalTransform, &ScrollPosition), With<PaletteResults>>,
-    >,
-    row: Option<
-        Single<(&ComputedNode, &UiGlobalTransform), (With<SelectedRow>, Without<PaletteResults>)>,
-    >,
-) {
-    *frames += 1;
-    if *frames == 60 {
-        writer.write(ActionInvoked {
-            action: ActionId::new("core.toggle-editor".to_string()),
-            args: None,
-            source: InvocationSource::Test,
-        });
-    }
-    if *frames == 120 {
-        writer.write(ActionInvoked {
-            action: ActionId::new("core.palette".to_string()),
-            args: None,
-            source: InvocationSource::Test,
-        });
-    }
-    if *frames > 180 && *frames % 30 == 0 && state.open {
-        state.selected += 1;
-        if let Some(container) = &container {
-            let (node, cn, tf, scroll) = &**container;
-            info!(
-                "PROBE sel={} overflow={:?} cont_size={:?} content={:?} scroll={:?} tf={:?}",
-                state.selected,
-                node.overflow,
-                cn.size(),
-                cn.content_size,
-                scroll.0,
-                tf.translation,
-            );
-        } else {
-            info!("PROBE: no container");
-        }
-        match &row {
-            Some(row) => {
-                let (cn, tf) = &**row;
-                info!("PROBE row size={:?} tf={:?}", cn.size(), tf.translation);
-            }
-            None => info!("PROBE: no SelectedRow"),
-        }
     }
 }
 
@@ -493,6 +501,7 @@ fn rebuild_results(
     state: Res<PaletteState>,
     catalog: Res<ActionCatalog>,
     keymap: Res<ResolvedKeymap>,
+    modes: Res<Modes>,
     results: Single<Entity, With<PaletteResults>>,
     preview: Single<Entity, With<PalettePreview>>,
     fonts: Res<UiFonts>,
@@ -506,14 +515,34 @@ fn rebuild_results(
     if !state.open {
         return;
     }
-    let rows = filter_actions(&catalog, &keymap, &state.query, state.filter);
+    let sections = filter_actions(&catalog, &keymap, &modes, &state.query, state.filter);
 
-    // Left pane: the result list.
+    // Left pane: the sectioned result list. Headers are chrome, not results —
+    // selection indexes action rows only and skips straight over them.
     commands.entity(*results).with_children(|parent| {
-        for (i, (label, binding, _)) in rows.iter().enumerate() {
-            let selected = i == state.selected;
-            let mut row = parent
-                .spawn((
+        let mut flat_index = 0usize;
+        for (section_index, section) in sections.iter().enumerate() {
+            if let Some(title) = &section.title {
+                parent.spawn((
+                    Text::new(title.clone()),
+                    style::sans_medium(&fonts, style::font_size::XS),
+                    TextColor(style::color::TEXT_DIM),
+                    Node {
+                        padding: UiRect::horizontal(px(style::space::S)),
+                        margin: UiRect::top(px(if section_index == 0 {
+                            2.0
+                        } else {
+                            style::space::M
+                        })),
+                        flex_shrink: 0.0,
+                        ..default()
+                    },
+                ));
+            }
+            for row in &section.rows {
+                let selected = flat_index == state.selected;
+                flat_index += 1;
+                let mut entity = parent.spawn((
                     Node {
                         justify_content: JustifyContent::SpaceBetween,
                         align_items: AlignItems::Center,
@@ -523,26 +552,31 @@ fn rebuild_results(
                         flex_shrink: 0.0,
                         ..default()
                     },
-                    BackgroundColor(if selected { style::color::selection() } else { Color::NONE }),
+                    BackgroundColor(if selected {
+                        style::color::selection()
+                    } else {
+                        Color::NONE
+                    }),
                 ));
-            if selected {
-                row.insert(SelectedRow);
-            }
-            row.with_children(|row| {
-                    row.spawn((
-                        Text::new(label.clone()),
+                if selected {
+                    entity.insert(SelectedRow);
+                }
+                entity.with_children(|row_node| {
+                    row_node.spawn((
+                        Text::new(row.label.clone()),
                         style::sans(&fonts, style::font_size::M),
                     ));
-                    if !binding.is_empty() {
-                        row.spawn((
-                            Text::new(binding.clone()),
+                    if !row.binding.is_empty() {
+                        row_node.spawn((
+                            Text::new(row.binding.clone()),
                             style::mono(&fonts, style::font_size::S),
                             TextColor(style::color::TEXT_KEYS),
                         ));
                     }
                 });
+            }
         }
-        if rows.is_empty() {
+        if flat_index == 0 {
             parent.spawn((
                 Text::new("no matching actions"),
                 style::sans(&fonts, style::font_size::S),
@@ -554,9 +588,8 @@ fn rebuild_results(
 
     // Right pane: preview/docs for the selection. Actions have no visual preview, so
     // this shows documentation — the same surface previews assets/prefabs later.
-    let selected_def = rows
-        .get(state.selected)
-        .and_then(|(_, _, id)| catalog.get(id).cloned());
+    let selected_def =
+        flat_get(&sections, state.selected).and_then(|row| catalog.get(&row.action).cloned());
     commands.entity(*preview).with_children(|pane| {
         let Some(def) = selected_def else {
             pane.spawn((

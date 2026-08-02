@@ -1,0 +1,16 @@
+[package]
+name = "editor_ui"
+description = "Editor chrome (spec §2): command palette, status bar, which-key, style system"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Feathers is the widget substrate (spec §7); the editor build is the only build
+# that compiles this crate, so these are unconditional here — games opt in by
+# depending on editor_ui behind their own `editor` feature.
+bevy = { workspace = true, features = ["bevy_feathers"] }
+editor_api.workspace = true
+editor_core.workspace = true
+editor_scene.workspace = true

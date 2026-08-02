@@ -14,7 +14,7 @@ use bevy::window::PrimaryWindow;
 use editor_api::prelude::*;
 
 use crate::edits::HistoryRequests;
-use crate::resolver::{EditorState, OverlayContext};
+use crate::resolver::OverlayContext;
 use crate::selection::Selected;
 
 pub const GESTURE_MOVE_CONTEXT: ContextId = ContextId::new_static("gesture-move");

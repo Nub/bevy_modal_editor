@@ -37,6 +37,10 @@ Also: `docs/bsn-ledger.md` (BSN gaps + convergence plans), `spikes/README.md` (M
 ## Workspace (grows per spec §2)
 
 - `crates/editor_api` — the feature contract (semver-stable ecosystem surface)
+- `crates/editor_core` — the kernel: input resolver, modes, EditScope/undo
+- `crates/editor_scene` — versioned atomic scene I/O, play/pause/reset
+- `crates/editor_ui` — ALL editor chrome (palette, statusbar, which-key, style,
+  embedded fonts); games add `EditorUiPlugin` + register content, never own chrome
 - `crates/game_framework` — opinionated game patterns; never depends on editor crates
 - `crates/template_game` — the reference game; every milestone demos here.
   `--features editor` is the editor opt-in (compile-time flag, never release opt.)

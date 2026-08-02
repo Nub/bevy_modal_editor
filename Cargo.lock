@@ -2376,6 +2376,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "editor_ui"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "editor_api",
+ "editor_core",
+ "editor_scene",
+]
+
+[[package]]
 name = "either"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4867,7 +4877,7 @@ dependencies = [
  "bevy",
  "editor_api",
  "editor_core",
- "editor_scene",
+ "editor_ui",
  "game_framework",
 ]
 

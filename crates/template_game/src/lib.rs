@@ -5,7 +5,3 @@ pub mod game;
 
 #[cfg(feature = "editor")]
 pub mod editor_overlay;
-#[cfg(feature = "editor")]
-pub mod palette;
-#[cfg(feature = "editor")]
-pub mod ui_style;

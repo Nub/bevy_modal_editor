@@ -7,7 +7,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-bevy.workspace = true
+# Gizmos: the selection outline (interim) and viewport overlays draw through the
+# Gizmos API. 0.19's feature-profile rework dropped these from the defaults.
+bevy = { workspace = true, features = ["bevy_gizmos", "bevy_gizmos_render"] }
 editor_api.workspace = true
 game_framework.workspace = true
 serde.workspace = true

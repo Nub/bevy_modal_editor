@@ -12,19 +12,15 @@ bevy.workspace = true
 game_framework.workspace = true
 editor_api = { workspace = true, optional = true }
 editor_core = { workspace = true, optional = true }
-editor_scene = { workspace = true, optional = true }
+editor_ui = { workspace = true, optional = true }
 
 [features]
 # The editor is an opt-in game feature (spec §1): compile-time flag, never release
 # optimization. With the feature off, zero editor code exists in the artifact (CI
-# asserts this — M1 acceptance A6).
+# asserts this — M1 acceptance A6). editor_ui carries the whole chrome (and its
+# bevy feature requirements: feathers, gizmos) — the game declares only content.
 editor = [
     "dep:editor_api",
     "dep:editor_core",
-    "dep:editor_scene",
-    "bevy/bevy_feathers",
-    # 0.19 feature-profile rework dropped gizmos from defaults; the editor's
-    # selection outline (and future viewport overlays) need them.
-    "bevy/bevy_gizmos",
-    "bevy/bevy_gizmos_render",
+    "dep:editor_ui",
 ]
