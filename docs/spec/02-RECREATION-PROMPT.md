@@ -536,6 +536,14 @@ with progress UI.
   including the command palette itself (v1's flagship palette bypassed its own engine).
   Palette mode state is an enum with payload, not a field union. Matcher built once, results
   re-filtered only on query change.
+  **Surface layout (owner decision, M1)**: search field on top; below it two panes —
+  results list left, preview pane right. The preview shows visual previews for assets/
+  prefabs/materials and documentation + metadata for non-visual items (components,
+  actions). **v1 virtues are binding** (its palette was the best-designed part of v1's
+  UI): trait-driven items (label, category, keywords, enabled, suffix), category
+  grouping, pinned items requiring explicit navigation before Enter, typed `open_*`
+  mode methods, and the polish details (eat leftover Enter on open-frame, etc. — see
+  `01-REVIEW.md` keep-list).
 - **UI reads state, emits edit commands** (§5). Change detection via `PartialEq` derives —
   serializing to strings for comparison is banned (v1 did RON×2 per frame).
 - **Every panel keyboard-navigable**: focus model, j/k list navigation, field editing

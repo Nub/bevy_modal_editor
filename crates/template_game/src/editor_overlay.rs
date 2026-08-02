@@ -11,7 +11,7 @@ use bevy::ui::px;
 use editor_core::prelude::*;
 
 use crate::game::GameInputActive;
-use crate::ui_style::{self as style};
+use crate::ui_style::{self as style, UiFont};
 
 #[derive(Component, Default, Clone)]
 struct StatusBar;
@@ -45,54 +45,61 @@ impl Plugin for EditorOverlayPlugin {
     }
 }
 
-fn spawn_statusbar(mut commands: Commands) {
-    commands.spawn_scene(bsn! {
-        StatusBar
-        Node {
-            position_type: PositionType::Absolute,
-            left: px(0),
-            right: px(0),
-            bottom: px(0),
-            height: px(style::BAR_HEIGHT),
-            flex_direction: FlexDirection::Row,
-            align_items: AlignItems::Center,
-            column_gap: px(style::space::M),
-            padding: UiRect::horizontal(px(style::space::M)),
-        }
-        ThemeBackgroundColor(tokens::PANE_HEADER_BG)
-        GlobalZIndex(100)
-        Visibility::Hidden
-        Children [
-            // mode chip: accent-filled rounded tag
-            (
-                StatusModeChip
+fn spawn_statusbar(mut commands: Commands, font: Res<UiFont>) {
+    commands
+        .spawn((
+            StatusBar,
+            Node {
+                position_type: PositionType::Absolute,
+                left: px(0),
+                right: px(0),
+                bottom: px(0),
+                height: px(style::BAR_HEIGHT),
+                flex_direction: FlexDirection::Row,
+                align_items: AlignItems::Center,
+                column_gap: px(style::space::M),
+                padding: UiRect::horizontal(px(style::space::M)),
+                ..default()
+            },
+            ThemeBackgroundColor(tokens::PANE_HEADER_BG),
+            GlobalZIndex(100),
+            Visibility::Hidden,
+        ))
+        .with_children(|bar| {
+            bar.spawn((
+                StatusModeChip,
                 Node {
                     padding: UiRect::axes(px(style::space::S), px(2.0)),
                     align_items: AlignItems::Center,
-                    border_radius: {BorderRadius::all(px(style::radius::S))},
-                }
-                BackgroundColor({style::color::accent()})
-                Children [
-                    (StatusModeText Text("NORMAL") TextColor({style::color::TEXT_ON_ACCENT}))
-                ]
-            ),
-            (StatusHint Text("") ThemedText TextColor({style::color::TEXT_DIM})),
-            (Node { flex_grow: 1.0 }),
-            (
-                StatusKeys Text("")
-                template(|ctx| {
-                    Ok(bevy::text::TextFont {
-                        font: bevy::text::FontSource::Handle(
-                            ctx.resource::<AssetServer>()
-                                .load("fonts/FiraCodeNerdFont-Regular.ttf"),
-                        ),
-                        ..Default::default()
-                    })
-                })
-                TextColor({style::color::TEXT_KEYS})
-            ),
-        ]
-    });
+                    justify_content: JustifyContent::Center,
+                    border_radius: BorderRadius::all(px(style::radius::S)),
+                    ..default()
+                },
+                BackgroundColor(style::color::accent()),
+            ))
+            .with_children(|chip| {
+                chip.spawn((
+                    StatusModeText,
+                    Text::new("NORMAL"),
+                    style::sans(style::font_size::XS),
+                    TextColor(style::color::TEXT_ON_ACCENT),
+                ));
+            });
+            bar.spawn((
+                StatusHint,
+                Text::new(""),
+                ThemedText,
+                style::sans(style::font_size::S),
+                TextColor(style::color::TEXT_DIM),
+            ));
+            bar.spawn(Node { flex_grow: 1.0, ..default() });
+            bar.spawn((
+                StatusKeys,
+                Text::new(""),
+                style::mono(&font, style::font_size::S),
+                TextColor(style::color::TEXT_KEYS),
+            ));
+        });
 }
 
 /// Brief "unbound" readout — every keypress deserves feedback (design bar).

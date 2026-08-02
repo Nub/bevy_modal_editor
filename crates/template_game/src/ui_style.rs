@@ -19,7 +19,17 @@ pub mod radius {
     pub const L: f32 = 6.0;
 }
 
-pub const BAR_HEIGHT: f32 = 28.0;
+pub const BAR_HEIGHT: f32 = 30.0;
+
+/// Type scale (logical px). Chrome text never uses ad-hoc sizes.
+pub mod font_size {
+    /// Chips, badges, secondary metadata.
+    pub const XS: f32 = 11.0;
+    /// Status bar, hints, binding glyphs, list metadata.
+    pub const S: f32 = 13.0;
+    /// Body/list text.
+    pub const M: f32 = 14.0;
+}
 
 /// Semantic chrome colors derived from the feathers palette — never ad-hoc RGB.
 pub mod color {
@@ -46,8 +56,17 @@ pub fn load_ui_font(mut commands: Commands, assets: Res<AssetServer>) {
 }
 
 /// The one way chrome text adopts the UI font (0.19: `TextFont` takes a `FontSource`).
-pub fn text_font(font: &UiFont) -> TextFont {
-    TextFont { font: bevy::text::FontSource::Handle(font.0.clone()), ..Default::default() }
+pub fn mono(font: &UiFont, size: f32) -> TextFont {
+    TextFont {
+        font: bevy::text::FontSource::Handle(font.0.clone()),
+        font_size: bevy::text::FontSize::Px(size),
+        ..Default::default()
+    }
+}
+
+/// Default-family chrome text at a scale size.
+pub fn sans(size: f32) -> TextFont {
+    TextFont { font_size: bevy::text::FontSize::Px(size), ..Default::default() }
 }
 
 /// Key symbology (design bar: symbols over words). Falls back to the config-file

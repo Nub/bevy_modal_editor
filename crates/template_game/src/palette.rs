@@ -37,6 +37,8 @@ struct PaletteRoot;
 struct PaletteInput;
 #[derive(Component, Default, Clone)]
 struct PaletteResults;
+#[derive(Component, Default, Clone)]
+struct PalettePreview;
 
 pub struct PalettePlugin;
 
@@ -60,10 +62,10 @@ fn spawn_palette(mut commands: Commands) {
             position_type: PositionType::Absolute,
             left: percent(50),
             top: px(80),
-            margin: UiRect { left: px(-240) },
-            width: px(480),
+            margin: UiRect { left: px(-360) },
+            width: px(720),
             flex_direction: FlexDirection::Column,
-            row_gap: px(style::space::XS),
+            row_gap: px(style::space::S),
             padding: UiRect::all(px(style::space::S)),
             border_radius: {BorderRadius::all(px(style::radius::L))},
         }
@@ -89,7 +91,33 @@ fn spawn_palette(mut commands: Commands) {
                     )
                 ]
             ),
-            (PaletteResults Node { flex_direction: FlexDirection::Column }),
+            (
+                Node {
+                    flex_direction: FlexDirection::Row,
+                    column_gap: px(style::space::S),
+                    align_items: AlignItems::Stretch,
+                    min_height: px(220.0),
+                }
+                Children [
+                    (PaletteResults Node {
+                        flex_direction: FlexDirection::Column,
+                        flex_grow: 1.0,
+                        row_gap: px(2.0),
+                    }),
+                    (
+                        PalettePreview
+                        Node {
+                            width: px(340),
+                            flex_shrink: 0.0,
+                            flex_direction: FlexDirection::Column,
+                            row_gap: px(style::space::XS),
+                            padding: UiRect::all(px(style::space::S)),
+                            border_radius: {BorderRadius::all(px(style::radius::S))},
+                        }
+                        ThemeBackgroundColor(tokens::PANE_BODY_BG)
+                    ),
+                ]
+            ),
         ]
     });
 }
@@ -244,6 +272,7 @@ fn rebuild_results(
     catalog: Res<ActionCatalog>,
     keymap: Res<ResolvedKeymap>,
     results: Single<Entity, With<PaletteResults>>,
+    preview: Single<Entity, With<PalettePreview>>,
     font: Res<UiFont>,
     mut commands: Commands,
 ) {
@@ -251,11 +280,13 @@ fn rebuild_results(
         return;
     }
     commands.entity(*results).despawn_related::<Children>();
+    commands.entity(*preview).despawn_related::<Children>();
     if !state.open {
         return;
     }
     let rows = filter_actions(&catalog, &keymap, &state.query);
-    let keys_font = style::text_font(&font);
+
+    // Left pane: the result list.
     commands.entity(*results).with_children(|parent| {
         for (i, (label, binding, _)) in rows.iter().enumerate() {
             let selected = i == state.selected;
@@ -272,11 +303,14 @@ fn rebuild_results(
                     BackgroundColor(if selected { style::color::selection() } else { Color::NONE }),
                 ))
                 .with_children(|row| {
-                    row.spawn(Text::new(label.clone()));
+                    row.spawn((
+                        Text::new(label.clone()),
+                        style::sans(style::font_size::M),
+                    ));
                     if !binding.is_empty() {
                         row.spawn((
                             Text::new(binding.clone()),
-                            keys_font.clone(),
+                            style::mono(&font, style::font_size::S),
                             TextColor(style::color::TEXT_KEYS),
                         ));
                     }
@@ -285,9 +319,64 @@ fn rebuild_results(
         if rows.is_empty() {
             parent.spawn((
                 Text::new("no matching actions"),
+                style::sans(style::font_size::S),
                 TextColor(style::color::TEXT_DIM),
                 Node { padding: UiRect::all(px(style::space::S)), ..default() },
             ));
+        }
+    });
+
+    // Right pane: preview/docs for the selection. Actions have no visual preview, so
+    // this shows documentation — the same surface previews assets/prefabs later.
+    let selected_def = rows
+        .get(state.selected)
+        .and_then(|(_, _, id)| catalog.get(id).cloned());
+    commands.entity(*preview).with_children(|pane| {
+        let Some(def) = selected_def else {
+            pane.spawn((
+                Text::new("no selection"),
+                style::sans(style::font_size::S),
+                TextColor(style::color::TEXT_DIM),
+            ));
+            return;
+        };
+        pane.spawn((Text::new(def.name.to_string()), style::sans(style::font_size::M)));
+        pane.spawn((
+            Text::new(def.id.to_string()),
+            style::mono(&font, style::font_size::XS),
+            TextColor(style::color::TEXT_DIM),
+        ));
+        if !def.description.is_empty() {
+            pane.spawn((
+                Text::new(def.description.to_string()),
+                style::sans(style::font_size::S),
+                TextColor(style::color::TEXT_DIM),
+                Node { margin: UiRect::top(px(style::space::XS)), ..default() },
+            ));
+        }
+        let bindings: Vec<String> = keymap
+            .by_context
+            .iter()
+            .flat_map(|(context, entries)| {
+                entries.iter().filter(|(_, action)| action == &def.id).map(move |(binding, _)| {
+                    format!("{}  ·  {}", style::pretty_binding(binding), context)
+                })
+            })
+            .collect();
+        if !bindings.is_empty() {
+            pane.spawn((
+                Text::new("BINDINGS"),
+                style::sans(style::font_size::XS),
+                TextColor(style::color::TEXT_DIM),
+                Node { margin: UiRect::top(px(style::space::S)), ..default() },
+            ));
+            for line in bindings {
+                pane.spawn((
+                    Text::new(line),
+                    style::mono(&font, style::font_size::S),
+                    TextColor(style::color::TEXT_KEYS),
+                ));
+            }
         }
     });
 }
