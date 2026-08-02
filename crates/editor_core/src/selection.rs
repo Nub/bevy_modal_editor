@@ -20,7 +20,6 @@ pub fn select_entity(world: &mut World, entity: Entity, extend: bool) {
     if world.get::<SceneId>(entity).is_none() {
         return;
     }
-    info!("SELECT: {:?} extend={}", world.get::<SceneId>(entity), extend);
     if extend {
         // Toggle membership.
         if world.get::<Selected>(entity).is_some() {

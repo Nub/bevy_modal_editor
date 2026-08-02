@@ -56,7 +56,6 @@ pub(crate) fn handle_gesture_actions(
                 if matches!(*gesture, MoveGesture::Idle) {
                     let originals: Vec<(SceneId, Transform)> =
                         selected.iter().map(|(id, t)| (*id, *t)).collect();
-                    info!("GESTURE START: {} selected", originals.len());
                     if originals.is_empty() {
                         continue;
                     }
