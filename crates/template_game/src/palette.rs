@@ -9,6 +9,7 @@
 //! engine and widget-kit treatment land in `editor_ui`.
 
 use bevy::feathers::controls::{FeathersTextInput, FeathersTextInputContainer};
+use bevy::feathers::font_styles::InheritableFont;
 use bevy::feathers::theme::ThemeBackgroundColor;
 use bevy::feathers::tokens;
 use bevy::input::keyboard::KeyboardInput;
@@ -82,59 +83,30 @@ fn spawn_palette(mut commands: Commands) {
                  ..Default::default()
              }))
              TextColor({crate::ui_style::color::TEXT_DIM})),
-            // Search row: mode badge glyph + input.
+            // Search input: larger type than the results list, standard padding.
             (
+                @FeathersTextInputContainer
                 Node {
-                    flex_direction: FlexDirection::Row,
-                    column_gap: px(style::space::S),
+                    flex_grow: 0.0,
+                    height: px(36),
+                    justify_content: JustifyContent::FlexStart,
                     align_items: AlignItems::Center,
+                    padding: UiRect::axes(px(style::space::S), px(style::space::XS)),
                 }
+                InheritableFont { font_size: {bevy::text::FontSize::Px(16.0)} }
+                on(|_press: On<Pointer<Press>>,
+                    inner: Single<Entity, With<PaletteInput>>,
+                    mut focus: ResMut<InputFocus>| {
+                    focus.set(*inner, FocusCause::Pressed);
+                })
                 Children [
                     (
-                        Node {
-                            width: px(26),
-                            height: px(24),
-                            flex_shrink: 0.0,
-                            align_items: AlignItems::Center,
-                            justify_content: JustifyContent::Center,
-                            border_radius: {BorderRadius::all(px(style::radius::S))},
-                        }
-                        BackgroundColor({style::color::accent()})
-                        Children [
-                            (
-                                Text({style::glyph::SEARCH.to_string()})
-                                template(|ctx| Ok(bevy::text::TextFont {
-                                    font: bevy::text::FontSource::Handle(
-                                        ctx.resource::<AssetServer>()
-                                            .load("fonts/FiraCodeNerdFont-Regular.ttf"),
-                                    ),
-                                    font_size: bevy::text::FontSize::Px(13.0),
-                                    ..Default::default()
-                                }))
-                                TextColor({style::color::TEXT_ON_ACCENT})
-                            )
-                        ]
-                    ),
-                    (
-                        @FeathersTextInputContainer
-                        // Container defaults to centering its child; with a fixed-width
-                        // input that reads as a random left gap — pin to the start edge.
-                        Node { flex_grow: 1.0, justify_content: JustifyContent::FlexStart }
-                        on(|_press: On<Pointer<Press>>,
-                            inner: Single<Entity, With<PaletteInput>>,
-                            mut focus: ResMut<InputFocus>| {
-                            focus.set(*inner, FocusCause::Pressed);
-                        })
-                        Children [
-                            (
-                                @FeathersTextInput { @visible_width: 40f32 }
-                                PaletteInput
-                                SelectAllOnFocus
-                                on(update_query)
-                                on(palette_keys)
-                            )
-                        ]
-                    ),
+                        @FeathersTextInput { @visible_width: 40f32 }
+                        PaletteInput
+                        SelectAllOnFocus
+                        on(update_query)
+                        on(palette_keys)
+                    )
                 ]
             ),
             (
