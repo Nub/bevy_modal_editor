@@ -54,6 +54,9 @@ matrix nightly (spec §8).
 
 ## Current milestone
 
-**M0 — spikes** (`spikes/README.md`): editqueue-scale, cell-merge, feathers-shell,
-bsn-foundation. M0 is a hard gate with pre-written fallbacks; findings land in
-`FINDINGS.md` per spike.
+**M3 — "I can make it mine, and hand it to a friend"** (spec §10): reflection
+inspector, hierarchy panel, material assets + library, data-driven gameplay
+components, Rust hot code reload, minimal publish (`editor publish` → runnable zip).
+M0 (spikes), M1 (kernel: modes/resolver/keymap/palette), and M2 (graybox loop:
+EditScope/undo, scene I/O, selection/gestures/insert, play/reset —
+`docs/M2-ACCEPTANCE.md` PASSED 2026-08-02) are complete.

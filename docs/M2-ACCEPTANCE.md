@@ -1,5 +1,12 @@
 # M2 Acceptance — "I can graybox a level, play it, and iterate without fear"
 
+> **PASSED 2026-08-02.** All executable tests green (B1–B10; B11 deferred, see below);
+> owner hands-on checklist confirmed: selection with JFA outlines, pixel-true drag
+> with cancel/undo, insert with ghost + grid snap, atomic save/reload, play/reset
+> exact-restore. Landed beyond the letter of the gate: `editor_ui` crate extraction
+> (chrome out of the game), sectioned command palette, outliner reworked onto 0.19
+> render schedules (ledger #8).
+
 Written at milestone start (spec §8 guardrail 2). Scope from spec §10: scene foundation
 (component registration, `SceneId` UUIDs, versioned atomic save/load), `EditScope`/undo,
 selection, transform tools with the gizmo state machine, primitives + insert mode with
