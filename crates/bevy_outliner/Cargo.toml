@@ -1,0 +1,14 @@
+[package]
+name = "bevy_outliner"
+description = "JFA silhouette outlining for Bevy meshes (v1 port-gate carry)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bevy.workspace = true
+bytemuck = { version = "1", features = ["derive"] }
+
+[[example]]
+name = "basic"

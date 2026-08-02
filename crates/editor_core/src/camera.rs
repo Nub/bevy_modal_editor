@@ -40,18 +40,20 @@ pub(crate) fn editor_fly_camera(
         && mouse.as_ref().is_some_and(|m| m.pressed(MouseButton::Right));
     flying.0 = hold;
 
-    // Cursor policy while the editor owns input: locked during the hold, free after.
-    if hold != was_flying {
+    // Cursor policy while the editor owns input: locked during the hold, free
+    // otherwise — asserted continuously (idempotent), so entering the editor from the
+    // game's locked cursor always frees it (flow-audit: ownership handoff gaps).
+    if state.active {
         for mut options in &mut cursor {
-            if hold {
-                options.grab_mode = CursorGrabMode::Locked;
-                options.visible = false;
-            } else if state.active {
-                options.grab_mode = CursorGrabMode::None;
-                options.visible = true;
+            let (grab, visible) =
+                if hold { (CursorGrabMode::Locked, false) } else { (CursorGrabMode::None, true) };
+            if options.grab_mode != grab {
+                options.grab_mode = grab;
+                options.visible = visible;
             }
         }
     }
+    let _ = was_flying;
     if !hold {
         return;
     }

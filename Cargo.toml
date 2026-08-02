@@ -6,6 +6,9 @@ members = [
     "crates/editor_scene",
     "crates/game_framework",
     "crates/template_game",
+    # crates/bevy_outliner is carried (port gate passed for content) but EXCLUDED until
+    # its plumbing is re-architected: Bevy 0.19 REMOVED the render graph (ViewNode,
+    # Node3d) in favor of camera-driven render schedules — see docs/bsn-ledger.md #8.
     # M0 spikes (throwaway code, durable findings — see spikes/README.md)
     "spikes/editqueue-scale",
     "spikes/bsn-foundation",
