@@ -113,6 +113,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
+        app.init_resource::<inspector::InspectorGroups>();
         app.insert_resource(inspector::default_overrides());
         if !app.is_plugin_added::<bevy::input_focus::tab_navigation::TabNavigationPlugin>() {
             app.add_plugins(bevy::input_focus::tab_navigation::TabNavigationPlugin);
@@ -157,6 +158,7 @@ impl Plugin for EditorUiPlugin {
                 statusbar::spawn_statusbar,
                 which_key::spawn_which_key,
                 dock::spawn_docks,
+                dock::attach_scrollbars,
             )
                 .chain(),
         );

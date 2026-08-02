@@ -85,9 +85,27 @@ pub(crate) struct NumberSpec {
     pub field: InspectorField,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum GroupKind {
+    Tags,
+    ReadOnly,
+}
+
+/// Collapsed/expanded state of the noise-reduction groups (persists across
+/// rebuilds and selections).
+#[derive(Resource, Default)]
+pub(crate) struct InspectorGroups {
+    pub tags_open: bool,
+    pub readonly_open: bool,
+}
+
 pub(crate) enum RowSpec {
     /// WHAT is selected: entity name + id (+ multi-select count) — always first.
     Header { title: String, detail: String },
+    /// Collapsible group header (Tags / Read-only).
+    GroupHeader { title: String, count: usize, open: bool, group: GroupKind },
+    /// Compact name chips (group contents).
+    Chips(Vec<String>),
     Section(String),
     Triple { label: String, fields: Vec<NumberSpec> },
     Number { label: String, field: NumberSpec },
@@ -227,7 +245,11 @@ pub(crate) fn collect_inspector(world: &mut World) {
             (registered_index, short)
         });
 
+        let groups = world.resource::<InspectorGroups>();
+        let (tags_open, readonly_open) = (groups.tags_open, groups.readonly_open);
         let mut has_name = false;
+        let mut tags: Vec<String> = Vec::new();
+        let mut readonly: Vec<String> = Vec::new();
         for (type_id, type_path) in present {
             let Some(registration) = registry.get(type_id) else { continue };
             let Some(reflect_component) =
@@ -241,20 +263,52 @@ pub(crate) fn collect_inspector(world: &mut World) {
             let value = value.as_partial_reflect();
             let short = type_path.rsplit("::").next().unwrap_or(type_path);
             has_name |= short == "Name";
-            rows.push(RowSpec::Section(short.to_uppercase()));
+            // Policy read-only components go straight to the Read-only group.
             if READ_ONLY.contains(&short) {
-                rows.push(RowSpec::ReadOnly {
-                    label: short.to_string(),
-                    value: "(read-only)".into(),
-                });
+                readonly.push(short.to_string());
                 continue;
             }
+            let mut component_rows = Vec::new();
             let handled = overrides
                 .iter()
                 .find(|(id, _)| *id == type_id)
-                .is_some_and(|(_, f)| f(target, type_path, value, &mut rows));
+                .is_some_and(|(_, f)| f(target, type_path, value, &mut component_rows));
             if !handled {
-                walk_fields(target, type_path, "", value, &mut rows);
+                walk_fields(target, type_path, "", value, &mut component_rows);
+            }
+            if component_rows.is_empty() {
+                // Field-less marker: a TAG — name only, no section (owner).
+                tags.push(short.to_string());
+            } else if component_rows.iter().all(|r| matches!(r, RowSpec::ReadOnly { .. })) {
+                // Nothing editable in it: Read-only group, name only (owner).
+                readonly.push(short.to_string());
+            } else {
+                rows.push(RowSpec::Section(short.to_uppercase()));
+                rows.append(&mut component_rows);
+            }
+        }
+        tags.sort();
+        readonly.sort();
+        if !tags.is_empty() {
+            rows.push(RowSpec::GroupHeader {
+                title: "TAGS".into(),
+                count: tags.len(),
+                open: tags_open,
+                group: GroupKind::Tags,
+            });
+            if tags_open {
+                rows.push(RowSpec::Chips(tags));
+            }
+        }
+        if !readonly.is_empty() {
+            rows.push(RowSpec::GroupHeader {
+                title: "READ-ONLY".into(),
+                count: readonly.len(),
+                open: readonly_open,
+                group: GroupKind::ReadOnly,
+            });
+            if readonly_open {
+                rows.push(RowSpec::Chips(readonly));
             }
         }
         // Always offer a Name (owner: the field must exist even before the
@@ -632,6 +686,80 @@ pub(crate) fn render_inspector(
                     ))
                     .id();
                 commands.entity(detail_id).insert(ChildOf(header));
+            }
+            RowSpec::GroupHeader { title, count, open, group } => {
+                let glyph = if *open { "▾" } else { "▸" };
+                let group = *group;
+                let header = commands
+                    .spawn((
+                        Node {
+                            margin: UiRect::top(px(style::space::S)),
+                            padding: UiRect::axes(px(2.0), px(2.0)),
+                            column_gap: px(style::space::XS),
+                            align_items: AlignItems::Center,
+                            border_radius: BorderRadius::all(px(style::radius::S)),
+                            flex_shrink: 0.0,
+                            ..default()
+                        },
+                        BackgroundColor(Color::NONE),
+                    ))
+                    .observe(
+                        move |_press: On<Pointer<Press>>,
+                              mut groups: ResMut<InspectorGroups>,
+                              mut model: ResMut<InspectorModel>| {
+                            match group {
+                                GroupKind::Tags => groups.tags_open = !groups.tags_open,
+                                GroupKind::ReadOnly => {
+                                    groups.readonly_open = !groups.readonly_open
+                                }
+                            }
+                            model.dirty = true;
+                        },
+                    )
+                    .id();
+                commands.entity(header).insert(ChildOf(body_entity));
+                let text = commands
+                    .spawn((
+                        Text::new(format!("{glyph} {title} ({count})")),
+                        style::sans_medium(&fonts, ui.font_size_xs),
+                        TextColor(style::color::TEXT_DIM),
+                    ))
+                    .id();
+                commands.entity(text).insert(ChildOf(header));
+            }
+            RowSpec::Chips(names) => {
+                let wrap = commands
+                    .spawn(Node {
+                        flex_direction: FlexDirection::Row,
+                        flex_wrap: FlexWrap::Wrap,
+                        column_gap: px(style::space::XS),
+                        row_gap: px(style::space::XS),
+                        flex_shrink: 0.0,
+                        ..default()
+                    })
+                    .id();
+                commands.entity(wrap).insert(ChildOf(body_entity));
+                for name in names {
+                    let chip = commands
+                        .spawn((
+                            Node {
+                                padding: UiRect::axes(px(style::space::XS), px(1.0)),
+                                border_radius: BorderRadius::all(px(style::radius::S)),
+                                ..default()
+                            },
+                            BackgroundColor(style::color::selection()),
+                        ))
+                        .id();
+                    commands.entity(chip).insert(ChildOf(wrap));
+                    let text = commands
+                        .spawn((
+                            Text::new(name.clone()),
+                            style::mono(&fonts, ui.font_size_xs),
+                            TextColor(style::color::TEXT_KEYS),
+                        ))
+                        .id();
+                    commands.entity(text).insert(ChildOf(chip));
+                }
             }
             RowSpec::Section(title) => {
                 let header = commands

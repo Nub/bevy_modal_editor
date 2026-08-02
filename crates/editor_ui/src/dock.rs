@@ -3,10 +3,12 @@
 //! are filled by content renderers (hierarchy, properties) that target `PanelBody`;
 //! this module owns docking, headers, focus visuals, and click-to-focus.
 
+use bevy::feathers::controls::FeathersScrollbar;
 use bevy::feathers::theme::ThemeBackgroundColor;
 use bevy::feathers::tokens;
 use bevy::prelude::*;
 use bevy::ui::px;
+use bevy::ui_widgets::ControlOrientation;
 use editor_core::prelude::*;
 
 use crate::style::{self, UiFonts};
@@ -130,6 +132,8 @@ pub(crate) fn spawn_docks(
                         card.spawn((
                             PanelBody(id.clone()),
                             bevy::input_focus::tab_navigation::TabGroup::default(),
+                            // Wheel scrolling for every panel body.
+                            bevy::ui_widgets::ScrollArea,
                             Node {
                                 flex_direction: FlexDirection::Column,
                                 row_gap: px(style::space::XS),
@@ -151,6 +155,42 @@ pub(crate) fn spawn_docks(
                     });
                 }
             });
+    }
+}
+
+/// Marks cards whose scrollbar overlay exists.
+#[derive(Component)]
+pub(crate) struct ScrollbarAttached;
+
+/// Startup pass after `spawn_docks`: every panel body gets a feathers scrollbar
+/// overlay (kit-first) pinned to its card's right edge, targeting the body's
+/// `ScrollPosition`.
+pub(crate) fn attach_scrollbars(
+    cards: Query<(Entity, &Children), (With<PanelCard>, Without<ScrollbarAttached>)>,
+    bodies: Query<Entity, With<PanelBody>>,
+    mut commands: Commands,
+) {
+    for (card, children) in &cards {
+        let Some(body) = children.iter().find(|child| bodies.get(*child).is_ok()) else {
+            continue;
+        };
+        let scrollbar = commands
+            .spawn_scene(bsn! {
+                @FeathersScrollbar {
+                    @target: {bevy::ecs::template::EntityTemplate::Entity(body)},
+                    @orientation: {ControlOrientation::Vertical},
+                }
+                Node {
+                    position_type: PositionType::Absolute,
+                    right: px(1),
+                    top: px(34),
+                    bottom: px(1),
+                    width: px(6),
+                }
+            })
+            .id();
+        commands.entity(scrollbar).insert(ChildOf(card));
+        commands.entity(card).insert(ScrollbarAttached);
     }
 }
 
