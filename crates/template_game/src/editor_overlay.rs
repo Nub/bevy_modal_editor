@@ -447,6 +447,8 @@ fn update_statusbar(
     modes: Res<Modes>,
     pending: Res<PendingKeys>,
     gesture: Res<MoveGesture>,
+    insert: Res<InsertState>,
+    kinds: Res<KindCatalog>,
     flash: Res<StatusFlash>,
     dirty: Res<editor_scene::SceneDirty>,
     time: Res<Time>,
@@ -475,12 +477,20 @@ fn update_statusbar(
         return;
     }
 
-    // An active gesture owns the chip + hint (owner feedback: "w" must show state).
+    // The bar always states the current activity (owner rule): an active gesture or
+    // an armed insert kind owns the chip + hint; the plain mode otherwise.
     let gesture_active = !matches!(*gesture, MoveGesture::Idle);
+    let inserting = (mode.0 == MODE_INSERT)
+        .then(|| insert.kind.as_ref())
+        .flatten()
+        .and_then(|id| kinds.get(id))
+        .map(|k| k.display_name);
     let mode_def = modes.get(&mode.0);
     for mut text in &mut mode_text {
         let name = if gesture_active {
             "MOVE".to_string()
+        } else if inserting.is_some() {
+            "INSERT".to_string()
         } else {
             mode_def.map(|m| m.name.to_uppercase()).unwrap_or_else(|| "?".into())
         };
@@ -490,7 +500,9 @@ fn update_statusbar(
     }
     for mut text in &mut hint_text {
         let hint = if gesture_active {
-            "x/y/z constrain · click ⏎ commit · ⎋ cancel".to_string()
+            "moving selection · x/y/z constrain · click ⏎ commit · ⎋ cancel".to_string()
+        } else if let Some(kind_name) = inserting {
+            format!("inserting {kind_name} · click place · ⇧click multi · ⎋ done")
         } else {
             mode_def.map(|m| m.statusline_hint.to_string()).unwrap_or_default()
         };
