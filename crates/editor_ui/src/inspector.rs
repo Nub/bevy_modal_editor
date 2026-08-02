@@ -715,7 +715,7 @@ pub(crate) fn stamp_tab_indices(
             Without<bevy::input_focus::tab_navigation::TabIndex>,
         ),
     >,
-    geometry: Query<&UiGlobalTransform>,
+    geometry: Query<(&ComputedNode, &UiGlobalTransform)>,
     parents: Query<&ChildOf>,
     bodies: Query<&PanelBody>,
     mut commands: Commands,
@@ -733,8 +733,14 @@ pub(crate) fn stamp_tab_indices(
             }
         };
         if inside {
-            let pos = geometry.get(entity).map(|t| t.translation).unwrap_or_default();
-            candidates.push((entity, pos));
+            // Freshly spawned widgets have zeroed geometry until layout runs —
+            // stamping now would sort every field at (0,0) and Tab order would be
+            // garbage. Defer the WHOLE batch until all candidates are laid out.
+            let Ok((node, transform)) = geometry.get(entity) else { return };
+            if node.size() == Vec2::ZERO {
+                return;
+            }
+            candidates.push((entity, transform.translation));
         }
     }
     if candidates.is_empty() {
