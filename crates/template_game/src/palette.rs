@@ -55,6 +55,7 @@ impl Plugin for PalettePlugin {
                     handle_open_action,
                     open_on_insert_mode,
                     close_when_editor_leaves,
+                    close_when_focus_leaves,
                     update_title,
                     rebuild_results,
                 )
@@ -275,6 +276,25 @@ fn handle_open_action(
         if invoked.action.as_str() == "core.palette" && !state.open {
             open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
         }
+        // Escape always backs out (even when it pierced key capture).
+        if invoked.action.as_str() == "core.escape-home" && state.open {
+            close_palette(&mut state, &mut capture, &mut focus, &mut root);
+        }
+    }
+}
+
+/// Standard modal behavior: focus leaving the palette input (click-away, focus steal)
+/// closes it — otherwise KeyCapture would trap the keyboard with no visible owner.
+fn close_when_focus_leaves(
+    focus_state: Res<InputFocus>,
+    input: Single<Entity, With<PaletteInput>>,
+    mut state: ResMut<PaletteState>,
+    mut capture: ResMut<KeyCapture>,
+    mut focus: ResMut<InputFocus>,
+    mut root: Single<&mut Visibility, With<PaletteRoot>>,
+) {
+    if state.open && focus_state.get() != Some(*input) {
+        close_palette(&mut state, &mut capture, &mut focus, &mut root);
     }
 }
 

@@ -281,9 +281,14 @@ fn compute_which_key(
     keymap: Res<ResolvedKeymap>,
     catalog: Res<ActionCatalog>,
     mut unresolved: MessageReader<KeysUnresolved>,
+    mut actions: MessageReader<ActionInvoked>,
     time: Res<Time>,
     mut which_key: ResMut<WhichKey>,
 ) {
+    // Escape dismisses the popup instantly (universal backout).
+    if actions.read().any(|a| a.action.as_str() == "core.escape-home") {
+        which_key.until = None;
+    }
     let now = time.elapsed_secs();
     let contexts = active_contexts(&state, &mode, &overlay);
 

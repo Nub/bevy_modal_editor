@@ -154,10 +154,19 @@ pub fn resolve_input(
     mut actions: MessageWriter<ActionInvoked>,
     mut unresolved: MessageWriter<KeysUnresolved>,
 ) {
+    let Some(keys) = keys else { return };
     if capture.0 {
+        // Escape is the universal backout: it pierces text-field capture as a forced
+        // escape-home so no window/state can ever trap the keyboard.
+        if keys.just_pressed(KeyCode::Escape) {
+            actions.write(ActionInvoked {
+                action: ActionId::new_static("core.escape-home"),
+                args: None,
+                source: InvocationSource::Key,
+            });
+        }
         return;
     }
-    let Some(keys) = keys else { return };
     let modifiers = current_modifiers(&keys);
 
     for key in keys.get_just_pressed() {
