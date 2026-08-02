@@ -118,9 +118,13 @@ pub(crate) fn spawn_docks(
                                 // never square-clip its border radius (owner call —
                                 // clipped corners are a review rejection).
                                 border_radius: BorderRadius::top(px(style::radius::L - 1.0)),
+                                // Fixed header, scrolling content: a hairline
+                                // delineates the boundary (owner).
+                                border: UiRect::bottom(px(1.0)),
                                 ..default()
                             },
                             ThemeBackgroundColor(tokens::PANE_HEADER_BG),
+                            BorderColor::all(style::HAIRLINE),
                         ))
                         .with_children(|header| {
                             header.spawn((
