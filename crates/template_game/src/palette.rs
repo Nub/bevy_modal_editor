@@ -286,14 +286,13 @@ fn handle_open_action(
 /// Standard modal behavior: focus leaving the palette input (click-away, focus steal)
 /// closes it — otherwise KeyCapture would trap the keyboard with no visible owner.
 fn close_when_focus_leaves(
-    focus_state: Res<InputFocus>,
     input: Single<Entity, With<PaletteInput>>,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
     mut focus: ResMut<InputFocus>,
     mut root: Single<&mut Visibility, With<PaletteRoot>>,
 ) {
-    if state.open && focus_state.get() != Some(*input) {
+    if state.open && focus.get() != Some(*input) {
         close_palette(&mut state, &mut capture, &mut focus, &mut root);
     }
 }
