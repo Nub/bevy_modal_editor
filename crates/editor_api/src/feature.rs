@@ -9,6 +9,7 @@ use crate::actions::ActionDef;
 use crate::ids::{ActionId, ContextId, FeatureId, ModeId, GLOBAL_CONTEXT};
 use crate::keymap::{find_conflicts, Binding};
 use bevy::prelude::*;
+use bevy::reflect::GetTypeRegistration;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -59,10 +60,22 @@ impl ModeDef {
 /// Collects one feature's declarations. Owned by the kernel during registration; the
 /// grow-only RFC surface (panels, components, kinds, gizmos, validators, pipeline)
 /// lands as those subsystems arrive in later milestones.
+/// A registered editor component: participates in serialization, despawn capture,
+/// dirty tracking, and (later) inspector metadata — one call registers everything
+/// (spec §5: one registration point per component).
+#[derive(Clone)]
+pub struct ComponentReg {
+    pub type_id: std::any::TypeId,
+    pub type_path: &'static str,
+    /// Registers the type into the world's `AppTypeRegistry` at host time.
+    pub register: fn(&AppTypeRegistry),
+}
+
 #[derive(Default)]
 pub struct FeatureRegistry {
     pub(crate) actions: Vec<(FeatureId, ActionDef)>,
     pub(crate) modes: Vec<(FeatureId, ModeDef)>,
+    pub(crate) components: Vec<(FeatureId, ComponentReg)>,
     current_feature: Option<FeatureId>,
 }
 
@@ -75,6 +88,25 @@ impl FeatureRegistry {
     pub fn mode(&mut self, def: ModeDef) -> &mut Self {
         let feature = self.current().clone();
         self.modes.push((feature, def));
+        self
+    }
+    /// Register an editor component (spec §5). Bounds match BSN blanket-template
+    /// compatibility (spike 2): reflected + Default + Clone.
+    pub fn component<T>(&mut self) -> &mut Self
+    where
+        T: Component + bevy::reflect::Reflect + GetTypeRegistration + bevy::reflect::TypePath,
+    {
+        let feature = self.current().clone();
+        self.components.push((
+            feature,
+            ComponentReg {
+                type_id: std::any::TypeId::of::<T>(),
+                type_path: T::type_path(),
+                register: |registry: &AppTypeRegistry| {
+                    registry.write().register::<T>();
+                },
+            },
+        ));
         self
     }
     fn current(&self) -> &FeatureId {
@@ -126,6 +158,7 @@ pub struct ValidatedFeatures {
     pub actions: Vec<(FeatureId, ActionDef)>,
     pub modes: Vec<(FeatureId, ModeDef)>,
     pub bindings: Vec<CompiledBinding>,
+    pub components: Vec<(FeatureId, ComponentReg)>,
 }
 
 impl FeatureRegistry {
@@ -220,7 +253,12 @@ impl FeatureRegistry {
         }
 
         if errors.is_empty() {
-            Ok(ValidatedFeatures { actions: self.actions, modes: self.modes, bindings })
+            Ok(ValidatedFeatures {
+                actions: self.actions,
+                modes: self.modes,
+                bindings,
+                components: self.components,
+            })
         } else {
             Err(errors)
         }

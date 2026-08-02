@@ -218,10 +218,10 @@ mod tests {
         }
         fn register(&self, reg: &mut FeatureRegistry) {
             reg.mode(ModeDef::new("insert", "Insert"))
-                .action(ActionDef::new("test.undo", "Undo").context("normal").bind("u"))
+                .action(ActionDef::new("test.undo", "Undo").context("normal").bind("x"))
                 .action(ActionDef::new("test.top", "Top").context("normal").bind("g g"))
                 .action(
-                    ActionDef::new("test.place", "Place").context("insert").bind("u"),
+                    ActionDef::new("test.place", "Place").context("insert").bind("x"),
                 )
                 .action(ActionDef::new("mode.insert", "Insert Mode").context("normal").bind("i"));
         }
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn key_resolves_to_action_in_mode() {
         let mut app = test_app();
-        press(&mut app, KeyCode::KeyU);
+        press(&mut app, KeyCode::KeyX);
         let actions = drain_actions(&mut app);
         assert_eq!(actions, vec![ActionId::new_static("test.undo")]);
     }
@@ -296,7 +296,7 @@ mod tests {
             app.world().resource::<CurrentMode>().0,
             ModeId::new_static("insert")
         );
-        press(&mut app, KeyCode::KeyU);
+        press(&mut app, KeyCode::KeyX);
         let actions = drain_actions(&mut app);
         assert_eq!(actions, vec![ActionId::new_static("test.place")]);
         // Esc walks home

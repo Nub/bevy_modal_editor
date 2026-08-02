@@ -6,6 +6,7 @@
 //! M1 scope: feature host, modes, resolver, keymap layering, which-key data.
 //! The `EditQueue` (M2) and panel shell (`editor_ui`) build on top.
 
+pub mod edits;
 pub mod keymap_data;
 pub mod modes;
 pub mod resolver;
@@ -14,6 +15,7 @@ use bevy::prelude::*;
 use editor_api::prelude::*;
 
 pub mod prelude {
+    pub use crate::edits::{EditorComponents, History, HistoryRequests};
     pub use crate::keymap_data::KeymapPaths;
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
     pub use crate::resolver::{
@@ -58,6 +60,18 @@ impl EditorFeature for CoreFeature {
                     .context("normal")
                     .bind("shift+semicolon") // ':'
                     .bind("space p"), // leader style — also demos which-key
+            )
+            .action(
+                ActionDef::new("core.undo", "Undo")
+                    .describe("Undo the last edit")
+                    .context("normal")
+                    .bind("u"),
+            )
+            .action(
+                ActionDef::new("core.redo", "Redo")
+                    .describe("Redo the last undone edit")
+                    .context("normal")
+                    .bind("ctrl+r"),
             );
     }
 }
@@ -69,10 +83,19 @@ impl Plugin for EditorCorePlugin {
         app.add_message::<ActionInvoked>()
             .add_message::<modes::ModeChanged>()
             .add_message::<resolver::KeysUnresolved>()
+            .add_message::<Edited>()
             .init_resource::<resolver::EditorState>()
             .init_resource::<resolver::PendingKeys>()
             .init_resource::<resolver::KeyCapture>()
-            .init_resource::<keymap_data::KeymapPaths>();
+            .init_resource::<keymap_data::KeymapPaths>()
+            .init_resource::<EditQueue>()
+            .init_resource::<SceneIndex>()
+            .init_resource::<edits::EditorComponents>()
+            .init_resource::<edits::History>()
+            .init_resource::<edits::HistoryRequests>();
+
+        app.add_observer(edits::index_on_add);
+        app.add_observer(edits::index_on_remove);
 
         app.add_editor_feature(CoreFeature);
 
@@ -88,7 +111,9 @@ impl Plugin for EditorCorePlugin {
             Update,
             (
                 resolver::resolve_input.in_set(EditorSet::Input),
-                resolver::apply_action_conventions.in_set(EditorSet::Tools),
+                (resolver::apply_action_conventions, edits::handle_history_actions)
+                    .in_set(EditorSet::Tools),
+                edits::apply_edits.in_set(EditorSet::Mutate),
             ),
         );
     }
@@ -123,6 +148,17 @@ fn host_features(world: &mut World) {
         Ok(k) => k,
         Err(e) => panic!("keymap load failed: {e}"),
     };
+
+    // Component registrations: reflection + the capture set, in one place (spec §5).
+    {
+        let registry = world.resource::<AppTypeRegistry>().clone();
+        for (_, reg) in &validated.components {
+            (reg.register)(&registry);
+        }
+        world.insert_resource(edits::EditorComponents {
+            types: validated.components.iter().map(|(_, r)| r.clone()).collect(),
+        });
+    }
 
     world.insert_resource(modes::Modes::from_validated(&validated));
     world.insert_resource(modes::CurrentMode(MODE_NORMAL));

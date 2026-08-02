@@ -8,13 +8,13 @@
 //! (M2); actions are data invoked as `ActionInvoked` events; no side doors.
 
 pub mod actions;
+pub mod edits;
 pub mod feature;
 pub mod ids;
 pub mod keymap;
 
 // Arriving with their milestones (RFC §2 layout):
-// pub mod edits;       // M2: EditScope, Transaction, EditOp
-// pub mod components;  // M2: ComponentOpts, migrators, PropertyHint
+// pub mod components;  // M2+: ComponentOpts, migrators, PropertyHint
 // pub mod kinds;       // M2: EntityKindDef, PreviewMode
 // pub mod panels;      // M1 (editor_ui shell): PanelDecl, Placement
 // pub mod gizmos;      // M2: GizmoCtx, HandleId
@@ -26,6 +26,7 @@ pub mod keymap;
 
 pub mod prelude {
     pub use crate::actions::{ActionDef, ActionFlags, ActionInvoked, InvocationSource};
+    pub use crate::edits::{EditQueue, EditScope, Edited, Op, SceneIndex, Transaction};
     pub use crate::feature::{
         EditorAppExt, EditorFeature, FeatureManifest, FeatureRegistry, ModeDef,
         PendingFeatures, RegistryError, ValidatedFeatures,
