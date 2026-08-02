@@ -15,23 +15,29 @@
 
 use bevy::feathers::{
     controls::{
-        FeathersCheckbox, FeathersNumberInput, FeathersSlider, FeathersTextInput,
-        FeathersTextInputContainer,
+        FeathersCheckbox, FeathersNumberInput, FeathersScrollbar, FeathersSlider,
+        FeathersTextInput, FeathersTextInputContainer, NumberInputValue, UpdateNumberInput,
     },
     dark_theme::create_dark_theme,
-    theme::{ThemeBackgroundColor, ThemedText, UiTheme},
+    theme::{ThemeBackgroundColor, ThemeToken, ThemedText, UiTheme},
     tokens, FeathersPlugins,
 };
 use bevy::input_focus::tab_navigation::TabGroup;
+use bevy::input_focus::{FocusCause, FocusLost, InputFocus};
 use bevy::prelude::*;
 use bevy::scene::SpawnListSystem;
 use bevy::text::TextEditChange;
 use bevy::ui::{px, percent, Checked, ScrollPosition};
 use bevy::ui_widgets::{
-    checkbox_self_update, slider_self_update, ScrollArea, SliderPrecision, SliderStep, ValueChange,
+    checkbox_self_update, slider_self_update, ControlOrientation, ScrollArea, SliderPrecision,
+    SliderStep, ValueChange,
 };
 use bevy::window::SystemCursorIcon;
 use bevy::feathers::cursor::EntityCursor;
+
+/// Owner call: input frames read as backgrounds, not borders (borders look like
+/// buttons). Custom theme token, registered at startup.
+const INPUT_BG: ThemeToken = ThemeToken::new_static("spike.input.bg");
 
 const TOTAL_ROWS: usize = 10_000;
 const ROW_HEIGHT: f32 = 24.0;
@@ -64,17 +70,27 @@ struct LeftPane;
 struct StatusText;
 #[derive(Component, Default, Clone)]
 struct NameInput;
+#[derive(Component, Default, Clone)]
+struct AxisInput;
 
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, FeathersPlugins))
-        .insert_resource(UiTheme(create_dark_theme()))
+        .insert_resource(UiTheme({
+            let mut props = create_dark_theme();
+            props.color.insert(INPUT_BG, Color::srgb(0.22, 0.22, 0.24));
+            props
+        }))
         .insert_resource(ListData {
             items: (0..TOTAL_ROWS).map(|i| format!("Entity {i:05}  (Cube)")).collect(),
         })
         .init_resource::<DemoState>()
         .add_systems(Startup, shell.spawn())
-        .add_systems(Update, (virtualize_list, update_status, report_entity_count, seed_name))
+        .add_systems(
+            Update,
+            (virtualize_list, update_status, report_entity_count, seed_name, seed_axis_inputs),
+        )
+        .add_observer(axis_empty_blur_reset)
         .run();
 }
 
@@ -110,21 +126,38 @@ fn root() -> impl Scene {
                             (Text("HIERARCHY — 10,000 rows, virtualized") ThemedText
                              Node { padding: UiRect::all(px(6)), flex_shrink: 0.0 }),
                             (
-                                VirtualScroll
-                                Node {
-                                    flex_grow: 1.0,
-                                    min_height: px(0),
-                                    overflow: Overflow::scroll_y(),
-                                    flex_direction: FlexDirection::Column,
-                                }
-                                ScrollArea
+                                Node { flex_grow: 1.0, min_height: px(0) }
                                 Children [
-                                    (TopSpacer Node { height: px(0), flex_shrink: 0.0 }),
-                                    {rows},
-                                    (BottomSpacer Node {
-                                        height: px((TOTAL_ROWS - VISIBLE_ROWS) as f32 * ROW_HEIGHT),
-                                        flex_shrink: 0.0,
-                                    }),
+                                    (
+                                        #scroll
+                                        VirtualScroll
+                                        Node {
+                                            width: percent(100),
+                                            height: percent(100),
+                                            overflow: Overflow::scroll_y(),
+                                            flex_direction: FlexDirection::Column,
+                                            padding: UiRect { right: px(10) },
+                                        }
+                                        ScrollArea
+                                        Children [
+                                            (TopSpacer Node { height: px(0), flex_shrink: 0.0 }),
+                                            {rows},
+                                            (BottomSpacer Node {
+                                                height: px((TOTAL_ROWS - VISIBLE_ROWS) as f32 * ROW_HEIGHT),
+                                                flex_shrink: 0.0,
+                                            }),
+                                        ]
+                                    ),
+                                    (
+                                        @FeathersScrollbar {
+                                            @target: #scroll,
+                                            @orientation: {ControlOrientation::Vertical},
+                                        }
+                                        Node {
+                                            position_type: PositionType::Absolute,
+                                            right: px(0), top: px(0), bottom: px(0), width: px(6),
+                                        }
+                                    ),
                                 ]
                             ),
                         ]
@@ -175,6 +208,8 @@ fn axis_input(label: &'static str, sigil: bevy::feathers::theme::ThemeToken) -> 
             @sigil_color: {sigil},
             @label_text: {Some(label)},
         }
+        AxisInput
+        ThemeBackgroundColor(INPUT_BG)
         Node { flex_grow: 1.0, max_width: px(110) }
     }
 }
@@ -197,6 +232,17 @@ fn inspector_pane() -> impl Scene {
             (Text("Name") ThemedText),
             (
                 @FeathersTextInputContainer
+                // Container ships flex_grow: 1.0 (row-oriented) — zero it in column
+                // context. Frame legibility via background, not border (owner call).
+                Node { flex_grow: 0.0 }
+                ThemeBackgroundColor(INPUT_BG)
+                // Whole-box click focuses the inner editable text (upstream only
+                // focuses on glyph hits).
+                on(|_press: On<Pointer<Press>>,
+                    inner: Single<Entity, With<NameInput>>,
+                    mut focus: ResMut<InputFocus>| {
+                    focus.set(*inner, FocusCause::Pressed);
+                })
                 Children [
                     (
                         // visible_width is required: an EMPTY EditableText without it
@@ -219,7 +265,6 @@ fn inspector_pane() -> impl Scene {
                     flex_direction: FlexDirection::Row,
                     column_gap: px(6),
                     align_items: AlignItems::Center,
-                    justify_content: JustifyContent::SpaceBetween,
                 }
                 Children [
                     (
@@ -281,6 +326,41 @@ fn virtualize_list(
         if text.0 != data.items[idx] {
             text.0 = data.items[idx].clone();
         }
+    }
+}
+
+/// Seed number inputs with their default value — feathers number inputs start EMPTY
+/// (and `emit_value_change` early-returns on empty text), so unseeded fields show
+/// nothing at default. Gallery idiom: push via UpdateNumberInput.
+fn seed_axis_inputs(
+    q: Query<Entity, (With<AxisInput>, Added<FeathersNumberInput>)>,
+    mut commands: Commands,
+) {
+    for entity in &q {
+        commands.trigger(UpdateNumberInput { entity, value: NumberInputValue::F32(0.0) });
+    }
+}
+
+/// Upstream gap workaround: emptying a number field and blurring leaves it blank
+/// forever (empty text emits no ValueChange). Reset to default on blur-while-empty.
+fn axis_empty_blur_reset(
+    focus_lost: On<FocusLost>,
+    q_text: Query<&bevy::text::EditableText>,
+    q_parent: Query<&ChildOf>,
+    q_axis: Query<(), With<AxisInput>>,
+    mut commands: Commands,
+) {
+    let text_entity = focus_lost.event_target();
+    let Ok(text) = q_text.get(text_entity) else { return };
+    if !text.value().to_string().trim().is_empty() {
+        return;
+    }
+    let Ok(parent) = q_parent.get(text_entity) else { return };
+    if q_axis.get(parent.parent()).is_ok() {
+        commands.trigger(UpdateNumberInput {
+            entity: parent.parent(),
+            value: NumberInputValue::F32(0.0),
+        });
     }
 }
 
