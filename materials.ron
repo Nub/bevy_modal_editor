@@ -1,0 +1,12 @@
+(
+    format_version: 1,
+    materials: [
+        (
+            id: "e311a80b-bd5d-4168-a01f-f64b5b3e6006",
+            name: "Material 1",
+            base_color: (1.0, 0.8, 0.8, 1.0),
+            metallic: 0.0,
+            roughness: 0.6,
+        ),
+    ],
+)

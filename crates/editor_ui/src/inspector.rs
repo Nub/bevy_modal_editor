@@ -263,11 +263,16 @@ pub(crate) fn collect_inspector(world: &mut World) {
             }
             present.push((type_id, type_path));
         }
+        // Fixed positions for the everyday components (owner: Transform is so
+        // common it always leads); then registered order; then alphabetical.
+        const PINNED: &[&str] = &["Transform", "Name"];
         present.sort_by_key(|(type_id, type_path)| {
+            let short = type_path.rsplit("::").next().unwrap_or(type_path).to_string();
+            let pinned_index =
+                PINNED.iter().position(|p| *p == short).unwrap_or(usize::MAX);
             let registered_index =
                 registered.iter().position(|r| r.type_id == *type_id).unwrap_or(usize::MAX);
-            let short = type_path.rsplit("::").next().unwrap_or(type_path).to_string();
-            (registered_index, short)
+            (pinned_index, registered_index, short)
         });
 
         let groups = world.resource::<InspectorGroups>();
