@@ -12,9 +12,10 @@ bevy.workspace = true
 game_framework.workspace = true
 editor_api = { workspace = true, optional = true }
 editor_core = { workspace = true, optional = true }
+editor_scene = { workspace = true, optional = true }
 
 [features]
 # The editor is an opt-in game feature (spec §1): compile-time flag, never release
 # optimization. With the feature off, zero editor code exists in the artifact (CI
 # asserts this — M1 acceptance A6).
-editor = ["dep:editor_api", "dep:editor_core", "bevy/bevy_feathers"]
+editor = ["dep:editor_api", "dep:editor_core", "dep:editor_scene", "bevy/bevy_feathers"]

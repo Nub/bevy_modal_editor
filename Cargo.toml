@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/editor_api",
     "crates/editor_core",
+    "crates/editor_scene",
     "crates/game_framework",
     "crates/template_game",
     # M0 spikes (throwaway code, durable findings — see spikes/README.md)
@@ -27,6 +28,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 editor_api = { path = "crates/editor_api" }
 editor_core = { path = "crates/editor_core" }
+editor_scene = { path = "crates/editor_scene" }
 game_framework = { path = "crates/game_framework" }
 
 # Dev-profile tuning: without this, debug builds are unusable — wgpu-core's

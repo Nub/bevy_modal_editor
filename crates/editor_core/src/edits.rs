@@ -39,6 +39,11 @@ impl History {
     pub fn undo_labels(&self) -> impl Iterator<Item = &str> {
         self.undo.iter().rev().map(|e| e.label.as_str())
     }
+    /// Loading/restoring a scene invalidates history wholesale.
+    pub fn clear(&mut self) {
+        self.undo.clear();
+        self.redo.clear();
+    }
 }
 
 /// Undo/redo requests, set by the action handler (Tools), consumed at Mutate.

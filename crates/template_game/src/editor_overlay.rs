@@ -33,7 +33,7 @@ impl Plugin for EditorOverlayPlugin {
         app.insert_resource(KeymapPaths { user: Some("editor-keymap.ron".into()) });
         app.add_plugins(FeathersPlugins)
             .insert_resource(UiTheme(create_dark_theme()));
-        app.add_plugins((EditorCorePlugin, crate::palette::PalettePlugin))
+        app.add_plugins((EditorCorePlugin, editor_scene::EditorScenePlugin, crate::palette::PalettePlugin))
             .add_systems(
                 Update,
                 (sync_game_input, compute_which_key, update_statusbar, rebuild_which_key)

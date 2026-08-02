@@ -1,0 +1,18 @@
+[package]
+name = "editor_scene"
+description = "Versioned scene serialization, stable IDs, atomic scene I/O"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bevy.workspace = true
+editor_api.workspace = true
+editor_core.workspace = true
+serde.workspace = true
+ron.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
