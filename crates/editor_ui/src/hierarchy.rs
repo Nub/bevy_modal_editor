@@ -90,12 +90,30 @@ pub(crate) fn build_rows(
     rows
 }
 
+/// The local `Transform` that keeps `target`'s WORLD pose unchanged under its new
+/// parent — reparenting must never make an entity visually jump. Rides in the same
+/// transaction as the `Reparent` op (one undo entry restores both).
+fn world_preserving_local(
+    index: &SceneIndex,
+    globals: &Query<&GlobalTransform>,
+    target: SceneId,
+    new_parent: Option<SceneId>,
+) -> Option<Transform> {
+    let child_global = *globals.get(index.get(&target)?).ok()?;
+    let parent_affine = match new_parent {
+        Some(parent) => globals.get(index.get(&parent)?).ok()?.affine().inverse(),
+        None => return Some(child_global.compute_transform()),
+    };
+    Some(Transform::from_matrix((parent_affine * child_global.affine()).into()))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_hierarchy_actions(
     mut reader: MessageReader<ActionInvoked>,
     entities: Query<(Entity, &SceneId, Option<&ChildOf>, Option<&Name>)>,
     scene_ids: Query<&SceneId>,
     index: Res<SceneIndex>,
+    globals: Query<&GlobalTransform>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     mut state: ResMut<HierarchyState>,
     mut edits: EditScope,
@@ -165,17 +183,26 @@ pub(crate) fn handle_hierarchy_actions(
                 if let Some(sibling) = sibling {
                     let target = sibling.id;
                     state.collapsed.remove(&target);
-                    edits
-                        .transaction("Reparent")
-                        .reparent(row.id, Some(target))
-                        .commit();
+                    let mut tx = edits.transaction("Reparent").reparent(row.id, Some(target));
+                    if let Some(local) =
+                        world_preserving_local(&index, &globals, row.id, Some(target))
+                    {
+                        tx = tx.set(row.id, local);
+                    }
+                    tx.commit();
                 }
             }
             "hierarchy.reparent-out" => {
                 // '<': outdent to the grandparent (root if the parent is a root).
                 if let Some(parent) = row.parent {
                     let grandparent = rows.iter().find(|r| r.id == parent).and_then(|r| r.parent);
-                    edits.transaction("Reparent").reparent(row.id, grandparent).commit();
+                    let mut tx = edits.transaction("Reparent").reparent(row.id, grandparent);
+                    if let Some(local) =
+                        world_preserving_local(&index, &globals, row.id, grandparent)
+                    {
+                        tx = tx.set(row.id, local);
+                    }
+                    tx.commit();
                 }
             }
             _ => {}
