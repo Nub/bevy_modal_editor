@@ -1287,10 +1287,19 @@ fn field_drag_end(
 #[derive(Component)]
 pub(crate) struct TabOrdered;
 
-/// Tab cycles fields (owner): stamp `TabIndex` on every focusable text input under
-/// the inspector body in geometric order (top→bottom, left→right).
+/// Tab cycles fields (owner): stamp `TabIndex` on EVERY focusable widget under
+/// the inspector body — text inputs AND checkboxes — in geometric order
+/// (top→bottom, left→right). Feathers factory-stamps TabIndex(0) on its widgets;
+/// anything we miss keeps that zero and ties itself to the front of the order
+/// (the Name→checkbox jump), so the query must cover every focusable kind.
 pub(crate) fn stamp_tab_indices(
-    unstamped: Query<Entity, (With<bevy::text::EditableText>, Without<TabOrdered>)>,
+    unstamped: Query<
+        Entity,
+        (
+            Or<(With<bevy::text::EditableText>, With<bevy::ui_widgets::Checkbox>)>,
+            Without<TabOrdered>,
+        ),
+    >,
     geometry: Query<(&ComputedNode, &UiGlobalTransform)>,
     parents: Query<&ChildOf>,
     bodies: Query<&PanelBody>,
