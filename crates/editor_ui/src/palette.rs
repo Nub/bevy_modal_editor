@@ -51,6 +51,9 @@ struct PaletteResults;
 struct PalettePreview;
 #[derive(Component, Default, Clone)]
 struct PaletteTitle;
+/// The search input container — its font size follows `EditorSettings`.
+#[derive(Component, Default, Clone)]
+struct PaletteSearchBox;
 /// Marks the highlighted result row (scroll-follow target).
 #[derive(Component)]
 struct SelectedRow;
@@ -69,6 +72,7 @@ impl Plugin for PalettePlugin {
                     close_when_editor_leaves,
                     close_when_focus_leaves,
                     update_title,
+                    apply_search_font_setting,
                     rebuild_results,
                     scroll_selected_into_view,
                 )
@@ -121,12 +125,8 @@ fn spawn_palette(mut commands: Commands) {
                     align_items: AlignItems::Center,
                     padding: UiRect::axes(px(style::space::S), px(style::space::XS)),
                 }
-                template(|ctx| Ok(InheritableFont {
-                    font_size: bevy::text::FontSize::Px(
-                        ctx.resource::<EditorSettings>().ui.font_size_search,
-                    ),
-                    ..Default::default()
-                }))
+                PaletteSearchBox
+                InheritableFont { font_size: {bevy::text::FontSize::Px(16.0)} }
                 on(|_press: On<Pointer<Press>>,
                     inner: Single<Entity, With<PaletteInput>>,
                     mut focus: ResMut<InputFocus>| {
@@ -503,6 +503,21 @@ fn scroll_selected_into_view(
     } else if top + row_h > scroll.0.y + cont_h {
         scroll.0.y = (top + row_h - cont_h).clamp(0.0, max_scroll);
     }
+}
+
+/// The search box's type size follows settings (applied post-spawn because the
+/// feathers container already carries an `InheritableFont` — a template patch on the
+/// same component would DUPLICATE it in the spawn bundle, which panics; a static
+/// patch merges, then this system owns the live value).
+fn apply_search_font_setting(
+    settings: Res<EditorSettings>,
+    search: Option<Single<&mut InheritableFont, With<PaletteSearchBox>>>,
+) {
+    if !settings.is_changed() {
+        return;
+    }
+    let Some(mut font) = search.map(Single::into_inner) else { return };
+    font.font_size = bevy::text::FontSize::Px(settings.ui.font_size_search);
 }
 
 fn rebuild_results(
