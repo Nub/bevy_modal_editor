@@ -28,3 +28,13 @@ uuid = { version = "1", features = ["v4", "serde"] }
 editor_api = { path = "crates/editor_api" }
 editor_core = { path = "crates/editor_core" }
 game_framework = { path = "crates/game_framework" }
+
+# Dev-profile tuning: without this, debug builds are unusable — wgpu-core's
+# debug-assertions lock-tracing captures a symbolicated backtrace on every GPU lock
+# (diagnosed via `sample` during M1: first frame never completes on macOS).
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+debug-assertions = false
