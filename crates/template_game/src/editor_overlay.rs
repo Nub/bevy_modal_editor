@@ -11,7 +11,7 @@ use bevy::ui::px;
 use editor_core::prelude::*;
 
 use crate::game::GameInputActive;
-use crate::ui_style::{self as style, UiFont};
+use crate::ui_style::{self as style, UiFonts};
 
 #[derive(Component, Default, Clone)]
 struct StatusBar;
@@ -41,11 +41,11 @@ impl Plugin for EditorOverlayPlugin {
                     .in_set(editor_core::EditorSet::Sync),
             );
         app.init_resource::<WhichKey>();
-        app.add_systems(Startup, (style::load_ui_font, spawn_statusbar, spawn_which_key).chain());
+        app.add_systems(Startup, (style::load_ui_fonts, spawn_statusbar, spawn_which_key).chain());
     }
 }
 
-fn spawn_statusbar(mut commands: Commands, font: Res<UiFont>) {
+fn spawn_statusbar(mut commands: Commands, fonts: Res<UiFonts>) {
     commands
         .spawn((
             StatusBar,
@@ -80,7 +80,7 @@ fn spawn_statusbar(mut commands: Commands, font: Res<UiFont>) {
                 chip.spawn((
                     StatusModeText,
                     Text::new("NORMAL"),
-                    style::sans(style::font_size::XS),
+                    style::sans_medium(&fonts, style::font_size::XS),
                     TextColor(style::color::TEXT_ON_ACCENT),
                 ));
             });
@@ -88,14 +88,14 @@ fn spawn_statusbar(mut commands: Commands, font: Res<UiFont>) {
                 StatusHint,
                 Text::new(""),
                 ThemedText,
-                style::sans(style::font_size::S),
+                style::sans(&fonts, style::font_size::S),
                 TextColor(style::color::TEXT_DIM),
             ));
             bar.spawn(Node { flex_grow: 1.0, ..default() });
             bar.spawn((
                 StatusKeys,
                 Text::new(""),
-                style::mono(&font, style::font_size::S),
+                style::mono(&fonts, style::font_size::S),
                 TextColor(style::color::TEXT_KEYS),
             ));
         });
@@ -230,7 +230,7 @@ fn compute_which_key(
 fn rebuild_which_key(
     mut which_key: ResMut<WhichKey>,
     panel: Single<(Entity, &mut Visibility), With<WhichKeyPanel>>,
-    font: Res<UiFont>,
+    fonts: Res<UiFonts>,
     mut commands: Commands,
 ) {
     if !which_key.dirty {
@@ -250,12 +250,12 @@ fn rebuild_which_key(
     let header_color =
         if content.header_warn { style::color::TEXT_WARN } else { style::color::TEXT_DIM };
     let entries = content.entries.clone();
-    let key_font = style::mono(&font, style::font_size::S);
+    let key_font = style::mono(&fonts, style::font_size::S);
 
     commands.entity(panel_entity).with_children(|panel| {
         panel.spawn((
             Text::new(header),
-            style::mono(&font, style::font_size::XS),
+            style::mono(&fonts, style::font_size::XS),
             TextColor(header_color),
         ));
         panel
@@ -294,7 +294,7 @@ fn rebuild_which_key(
                         });
                         cell.spawn((
                             Text::new(name),
-                            style::sans(style::font_size::S),
+                            style::sans(&fonts, style::font_size::S),
                             TextColor(style::color::TEXT_DIM),
                         ));
                     });
@@ -302,7 +302,7 @@ fn rebuild_which_key(
                 if content.entries.is_empty() {
                     grid.spawn((
                         Text::new("nothing bound in this context"),
-                        style::sans(style::font_size::S),
+                        style::sans(&fonts, style::font_size::S),
                         TextColor(style::color::TEXT_DIM),
                     ));
                 }

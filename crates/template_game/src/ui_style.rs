@@ -57,27 +57,49 @@ pub mod color {
     }
 }
 
-/// The editor's icon-capable UI font (FiraCode Nerd Font, OFL). Loaded once at
-/// startup; every chrome text that shows keys/symbols uses it.
+/// The editor's chrome fonts, loaded once at startup: Inter for UI text (modern,
+/// OFL) and FiraCode Nerd Font for keys/glyph symbology. Never use Bevy's built-in
+/// default font (a Fira Mono subset) for chrome.
 #[derive(Resource, Clone)]
-pub struct UiFont(pub Handle<Font>);
-
-pub fn load_ui_font(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(UiFont(assets.load("fonts/FiraCodeNerdFont-Regular.ttf")));
+pub struct UiFonts {
+    pub sans: Handle<Font>,
+    pub sans_medium: Handle<Font>,
+    pub mono: Handle<Font>,
 }
 
-/// The one way chrome text adopts the UI font (0.19: `TextFont` takes a `FontSource`).
-pub fn mono(font: &UiFont, size: f32) -> TextFont {
+pub const SANS_PATH: &str = "fonts/Inter-Regular.ttf";
+pub const SANS_MEDIUM_PATH: &str = "fonts/Inter-Medium.ttf";
+pub const MONO_PATH: &str = "fonts/FiraCodeNerdFont-Regular.ttf";
+
+pub fn load_ui_fonts(mut commands: Commands, assets: Res<AssetServer>) {
+    commands.insert_resource(UiFonts {
+        sans: assets.load(SANS_PATH),
+        sans_medium: assets.load(SANS_MEDIUM_PATH),
+        mono: assets.load(MONO_PATH),
+    });
+}
+
+fn text_font(handle: &Handle<Font>, size: f32) -> TextFont {
     TextFont {
-        font: bevy::text::FontSource::Handle(font.0.clone()),
+        font: bevy::text::FontSource::Handle(handle.clone()),
         font_size: bevy::text::FontSize::Px(size),
         ..Default::default()
     }
 }
 
-/// Default-family chrome text at a scale size.
-pub fn sans(size: f32) -> TextFont {
-    TextFont { font_size: bevy::text::FontSize::Px(size), ..Default::default() }
+/// Glyph/key text (mono, nerd symbols).
+pub fn mono(fonts: &UiFonts, size: f32) -> TextFont {
+    text_font(&fonts.mono, size)
+}
+
+/// Body chrome text.
+pub fn sans(fonts: &UiFonts, size: f32) -> TextFont {
+    text_font(&fonts.sans, size)
+}
+
+/// Emphasized chrome text (titles, chips, selected labels).
+pub fn sans_medium(fonts: &UiFonts, size: f32) -> TextFont {
+    text_font(&fonts.sans_medium, size)
 }
 
 /// Key symbology (design bar: symbols over words). Falls back to the config-file

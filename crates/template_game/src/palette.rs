@@ -21,7 +21,7 @@ use bevy::ui::px;
 use bevy::ui_widgets::SelectAllOnFocus;
 use editor_core::prelude::*;
 
-use crate::ui_style::{self as style, UiFont};
+use crate::ui_style::{self as style, UiFonts};
 
 const MAX_RESULTS: usize = 8;
 
@@ -78,7 +78,10 @@ fn spawn_palette(mut commands: Commands) {
         Children [
             // Mode title (v1 lineage): what this palette is browsing, uppercase, dim.
             (PaletteTitle Text("COMMANDS")
-             template(|_ctx| Ok(bevy::text::TextFont {
+             template(|ctx| Ok(bevy::text::TextFont {
+                 font: bevy::text::FontSource::Handle(
+                     ctx.resource::<AssetServer>().load(crate::ui_style::SANS_MEDIUM_PATH),
+                 ),
                  font_size: bevy::text::FontSize::Px(11.0),
                  ..Default::default()
              }))
@@ -291,7 +294,7 @@ fn rebuild_results(
     keymap: Res<ResolvedKeymap>,
     results: Single<Entity, With<PaletteResults>>,
     preview: Single<Entity, With<PalettePreview>>,
-    font: Res<UiFont>,
+    fonts: Res<UiFonts>,
     mut commands: Commands,
 ) {
     if !state.is_changed() {
@@ -323,12 +326,12 @@ fn rebuild_results(
                 .with_children(|row| {
                     row.spawn((
                         Text::new(label.clone()),
-                        style::sans(style::font_size::M),
+                        style::sans(&fonts, style::font_size::M),
                     ));
                     if !binding.is_empty() {
                         row.spawn((
                             Text::new(binding.clone()),
-                            style::mono(&font, style::font_size::S),
+                            style::mono(&fonts, style::font_size::S),
                             TextColor(style::color::TEXT_KEYS),
                         ));
                     }
@@ -337,7 +340,7 @@ fn rebuild_results(
         if rows.is_empty() {
             parent.spawn((
                 Text::new("no matching actions"),
-                style::sans(style::font_size::S),
+                style::sans(&fonts, style::font_size::S),
                 TextColor(style::color::TEXT_DIM),
                 Node { padding: UiRect::all(px(style::space::S)), ..default() },
             ));
@@ -353,21 +356,21 @@ fn rebuild_results(
         let Some(def) = selected_def else {
             pane.spawn((
                 Text::new("no selection"),
-                style::sans(style::font_size::S),
+                style::sans(&fonts, style::font_size::S),
                 TextColor(style::color::TEXT_DIM),
             ));
             return;
         };
-        pane.spawn((Text::new(def.name.to_string()), style::sans(style::font_size::M)));
+        pane.spawn((Text::new(def.name.to_string()), style::sans_medium(&fonts, style::font_size::M)));
         pane.spawn((
             Text::new(def.id.to_string()),
-            style::mono(&font, style::font_size::XS),
+            style::mono(&fonts, style::font_size::XS),
             TextColor(style::color::TEXT_DIM),
         ));
         if !def.description.is_empty() {
             pane.spawn((
                 Text::new(def.description.to_string()),
-                style::sans(style::font_size::S),
+                style::sans(&fonts, style::font_size::S),
                 TextColor(style::color::TEXT_DIM),
                 Node { margin: UiRect::top(px(style::space::XS)), ..default() },
             ));
@@ -384,14 +387,14 @@ fn rebuild_results(
         if !bindings.is_empty() {
             pane.spawn((
                 Text::new("BINDINGS"),
-                style::sans(style::font_size::XS),
+                style::sans(&fonts, style::font_size::XS),
                 TextColor(style::color::TEXT_DIM),
                 Node { margin: UiRect::top(px(style::space::S)), ..default() },
             ));
             for line in bindings {
                 pane.spawn((
                     Text::new(line),
-                    style::mono(&font, style::font_size::S),
+                    style::mono(&fonts, style::font_size::S),
                     TextColor(style::color::TEXT_KEYS),
                 ));
             }
