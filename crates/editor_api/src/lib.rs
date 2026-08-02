@@ -1,26 +1,38 @@
 //! `editor_api` — the contract through which any crate provides editor features.
 //!
-//! Design authority: `docs/spec/04-EDITOR-API.md`. This crate is the semver-stable
-//! ecosystem surface; it depends on Bevy only and never on `editor_core`/`editor_ui`.
+//! Design authority: `docs/spec/04-EDITOR-API.md` (shapes confirmed by the M0 spikes).
+//! This crate is the semver-stable ecosystem surface; it depends on Bevy only and
+//! never on `editor_core`/`editor_ui`.
 //!
-//! Module skeleton mirrors the RFC (§2). Types land here as the M0 spikes prove them —
-//! the `EditQueue` spike defines `edits`, the BSN spike informs `components`.
-//!
-//! Guardrail reminder (spec §8, §11): every mutation flows through `EditScope`
-//! transactions; actions are data invoked as events; no side doors.
+//! Guardrails (spec §8, §11): every mutation flows through `EditScope` transactions
+//! (M2); actions are data invoked as `ActionInvoked` events; no side doors.
 
-// RFC §2 layout — modules are introduced with their first real types:
-// pub mod feature;     // EditorFeature, FeatureManifest, FeatureRegistry
-// pub mod ids;         // FeatureId, ActionId, ContextId, ModeId, PanelId, SceneId
-// pub mod actions;     // ActionDef, ActionInvoked, ParamsSpec, ActionFlags
-// pub mod keymap;      // Binding, KeySequence, context layering
-// pub mod edits;       // EditScope, Transaction, EditOp, EditError
-// pub mod components;  // ComponentOpts, migrators, PropertyHint
-// pub mod kinds;       // EntityKindDef, PreviewMode
-// pub mod panels;      // PanelDecl, Placement, PanelContent
-// pub mod gizmos;      // GizmoCtx, HandleId
-// pub mod validate;    // ValidatorDef, Problem, Severity
-// pub mod pipeline;    // ImporterDef, ProcessorDef, BakerDef, AssetKindDef
-// pub mod conformance; // feature-crate CI harness
+pub mod actions;
+pub mod feature;
+pub mod ids;
+pub mod keymap;
+
+// Arriving with their milestones (RFC §2 layout):
+// pub mod edits;       // M2: EditScope, Transaction, EditOp
+// pub mod components;  // M2: ComponentOpts, migrators, PropertyHint
+// pub mod kinds;       // M2: EntityKindDef, PreviewMode
+// pub mod panels;      // M1 (editor_ui shell): PanelDecl, Placement
+// pub mod gizmos;      // M2: GizmoCtx, HandleId
+// pub mod validate;    // M3: ValidatorDef, Problem, Severity
+// pub mod pipeline;    // M4: ImporterDef, ProcessorDef, BakerDef, AssetKindDef
+// pub mod conformance; // grows with each subsystem
 // #[cfg(feature = "ui")]
-// pub mod ui;          // PanelUi, PanelCtx, WidgetKit (bevy_ui/feathers)
+// pub mod ui;          // M1 (editor_ui shell): PanelUi, PanelCtx, WidgetKit
+
+pub mod prelude {
+    pub use crate::actions::{ActionDef, ActionFlags, ActionInvoked, InvocationSource};
+    pub use crate::feature::{
+        EditorAppExt, EditorFeature, FeatureManifest, FeatureRegistry, ModeDef,
+        PendingFeatures, RegistryError, ValidatedFeatures,
+    };
+    pub use crate::ids::{
+        ActionId, ContextId, EntityKindId, FeatureId, ModeId, PanelId, SceneId,
+        GLOBAL_CONTEXT,
+    };
+    pub use crate::keymap::{Binding, Chord, Modifiers};
+}

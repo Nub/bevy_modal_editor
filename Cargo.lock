@@ -2346,6 +2346,7 @@ name = "editor_api"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "serde",
  "uuid",
 ]
 

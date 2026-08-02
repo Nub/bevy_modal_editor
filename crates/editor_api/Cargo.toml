@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 bevy.workspace = true
 uuid.workspace = true
+serde.workspace = true
 
 [features]
 # Panel/widget-kit surface (bevy_ui + feathers). Core contract stays UI-free.
