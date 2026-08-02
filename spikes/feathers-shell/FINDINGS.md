@@ -51,6 +51,16 @@ status bar proving widget→state value flow.
    `flex_grow: 0.0` in column contexts. Both are context-dependent defaults a panel
    author must know — more evidence the widget kit wraps these controls with
    editor-correct defaults rather than exposing them raw.
+8. **Owner-testing round 3 (all fixed in-spike; each is widget-kit backlog):**
+   number inputs start EMPTY and empty text emits no `ValueChange` on blur (upstream
+   `emit_value_change` early-returns) — seeded via `UpdateNumberInput` + a blur-reset
+   observer; text inputs only focus on glyph hits, not the whole box — container-level
+   focus-forwarding observer added; input frames need background-based styling (owner
+   preference: borders read as buttons) — done via the custom theme-token API, which
+   works exactly as documented; `FeathersScrollbar` composes over the hand-virtualized
+   scroll area (spacers give it correct content height). Recurring theme across F6–F8:
+   feathers controls are row-oriented and empty-state-hostile out of the box; the
+   `editor_ui` widget kit owns fixing that once, centrally.
 
 ## Awaiting owner judgment (run: `cargo run -p spike_feathers_shell --release`)
 
