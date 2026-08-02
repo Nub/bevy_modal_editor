@@ -653,6 +653,14 @@ pub(crate) fn probe_inspector(
             }
         }
     }
+    if *frames == 400 && std::env::var("RELOAD_PROBE").is_ok() {
+        writer.write(ActionInvoked {
+            action: ActionId::new_static("editor.reload"),
+            args: None,
+            source: InvocationSource::Test,
+        });
+        info!("PROBE reload triggered");
+    }
     if *frames > 150 && *frames % 60 == 0 {
         info!(
             "PROBE rows={} gen={} dirty={}",

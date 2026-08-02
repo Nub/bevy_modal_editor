@@ -7,6 +7,7 @@
 use bevy::prelude::*;
 use editor_core::prelude::*;
 use editor_scene::materials::{MaterialLibrary, MaterialRef};
+use editor_scene::session::EditorSession;
 use std::collections::HashMap;
 
 use crate::game::{GameInputActive, Primitive, PrimitiveKind, Spinner};
@@ -65,9 +66,11 @@ impl Plugin for EditorOverlayPlugin {
         app.add_plugins(editor_ui::EditorUiPlugin);
         app.add_editor_feature(GameFeature);
         app.init_resource::<MaterialHandles>();
+        app.add_systems(Startup, arm_session_restore);
         app.add_systems(
             Update,
-            (sync_game_input, sync_material_refs).in_set(editor_core::EditorSet::Sync),
+            (sync_game_input, sync_material_refs, drive_session_restore)
+                .in_set(editor_core::EditorSet::Sync),
         );
     }
 }
@@ -162,4 +165,93 @@ fn sync_game_input(
             }
         }
     }
+}
+
+
+// ---------------------------------------------------------------------------
+// Fast-relaunch session restore (M3-C8 fallback): a fresh sidecar written by
+// `editor.reload` drives boot straight back into the editing context — menu
+// skipped, scene reloaded, editor active, selection and camera restored.
+// ---------------------------------------------------------------------------
+
+enum RestoreStage {
+    SkipMenu,
+    WaitLevel,
+    Settle,
+    Apply,
+}
+
+#[derive(Resource)]
+struct SessionRestore {
+    session: EditorSession,
+    stage: RestoreStage,
+}
+
+fn arm_session_restore(mut commands: Commands) {
+    if let Some(session) = editor_scene::session::take_session() {
+        info!("fast-relaunch: restoring editor session");
+        commands.insert_resource(SessionRestore { session, stage: RestoreStage::SkipMenu });
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drive_session_restore(
+    restore: Option<ResMut<SessionRestore>>,
+    app_state: Res<State<game_framework::AppState>>,
+    mut next: ResMut<NextState<game_framework::AppState>>,
+    index: Res<SceneIndex>,
+    mut editor_state: ResMut<EditorState>,
+    mut actions: MessageWriter<ActionInvoked>,
+    mut changed: MessageWriter<SelectionChanged>,
+    mut cameras: Query<(&Camera, &mut Transform, Option<&bevy::camera::RenderTarget>)>,
+    mut commands: Commands,
+) {
+    let Some(mut restore) = restore else { return };
+    match restore.stage {
+        RestoreStage::SkipMenu => {
+            next.set(game_framework::AppState::LoadingLevel);
+            restore.stage = RestoreStage::WaitLevel;
+        }
+        RestoreStage::WaitLevel => {
+            if *app_state.get() == game_framework::AppState::InGame && !index.is_empty() {
+                restore.stage = if restore.session.scene_path.exists() {
+                    invoke_open_scene(&mut actions);
+                    RestoreStage::Settle
+                } else {
+                    RestoreStage::Apply
+                };
+            }
+        }
+        RestoreStage::Settle => restore.stage = RestoreStage::Apply,
+        RestoreStage::Apply => {
+            editor_state.active = restore.session.editor_active;
+            for id in &restore.session.selection {
+                if let Some(entity) = index.get(id) {
+                    commands.entity(entity).insert(Selected);
+                }
+            }
+            if !restore.session.selection.is_empty() {
+                changed.write(SelectionChanged);
+            }
+            if let Some(matrix) = restore.session.camera {
+                let target = Transform::from_matrix(Mat4::from_cols_array(&matrix));
+                if let Some((_, mut transform, _)) = cameras
+                    .iter_mut()
+                    .find(|(c, _, t)| is_viewport_camera(c, t.as_deref()))
+                {
+                    *transform = target;
+                }
+            }
+            commands.remove_resource::<SessionRestore>();
+            info!("fast-relaunch: session restored");
+        }
+    }
+}
+
+fn invoke_open_scene(actions: &mut MessageWriter<ActionInvoked>) {
+    actions.write(ActionInvoked {
+        action: ActionId::new_static("scene.open"),
+        args: None,
+        source: InvocationSource::Test,
+    });
 }
