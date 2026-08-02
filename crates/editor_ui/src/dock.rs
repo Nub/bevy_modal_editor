@@ -86,7 +86,6 @@ pub(crate) fn spawn_docks(
                             min_height: px(0),
                             border: UiRect::all(px(1.0)),
                             border_radius: BorderRadius::all(px(style::radius::L)),
-                            overflow: Overflow::clip(),
                             ..default()
                         },
                         ThemeBackgroundColor(tokens::WINDOW_BG),
@@ -111,6 +110,10 @@ pub(crate) fn spawn_docks(
                                 align_items: AlignItems::Center,
                                 column_gap: px(style::space::S),
                                 flex_shrink: 0.0,
+                                // Round the header's own top corners: the card must
+                                // never square-clip its border radius (owner call —
+                                // clipped corners are a review rejection).
+                                border_radius: BorderRadius::top(px(style::radius::L - 1.0)),
                                 ..default()
                             },
                             ThemeBackgroundColor(tokens::PANE_HEADER_BG),

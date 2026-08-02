@@ -4,11 +4,12 @@
 //! viewport). Docking, chrome, and rendering live in `editor_ui`; the kernel never
 //! draws.
 //!
-//! Navigation is spatial (keymap doc: `Ctrl-h/j/k/l` focus panel left/down/up/right,
-//! viewport at the center): Left dock ← viewport → Right dock, Bottom dock below;
-//! repeated up/down steps through a dock's stack. Escape returns focus to the
+//! Navigation is spatial (keymap doc: `Ctrl-h/j/k/l` focus panel left/down/up/right)
+//! with one owner-driven refinement: horizontal moves jump dock → dock DIRECTLY —
+//! the viewport is never an invisible intermediate stop (with two side docks that
+//! read as "press it twice" and "nothing is focused"). Escape returns focus to the
 //! viewport (handled with the other escape layers in the resolver — one layer per
-//! press).
+//! press); vertical moves step through a dock's stack, then the bottom dock.
 
 use bevy::prelude::*;
 use editor_api::prelude::*;
@@ -131,10 +132,16 @@ fn step_focus(focus: &mut PanelFocus, catalog: &PanelCatalog, states: &PanelStat
                 return;
             };
             match (decl.placement, dir) {
-                // Toward the center: back to the viewport.
-                (Placement::Left, Dir::Right)
-                | (Placement::Right, Dir::Left)
-                | (Placement::Bottom, Dir::Up) => None,
+                // Horizontal: jump straight to the opposite dock — never strand
+                // focus on the invisible viewport stop (owner). Stay if it's empty.
+                (Placement::Left, Dir::Right) => {
+                    first_open(catalog, states, Placement::Right).or_else(|| Some(current.clone()))
+                }
+                (Placement::Right, Dir::Left) => {
+                    first_open(catalog, states, Placement::Left).or_else(|| Some(current.clone()))
+                }
+                // Up from the bottom dock: back to the viewport.
+                (Placement::Bottom, Dir::Up) => None,
                 // Within the dock stack; falling off the bottom reaches the bottom dock.
                 (placement, Dir::Down) => dock_neighbor(catalog, states, current, 1)
                     .or_else(|| {
@@ -233,11 +240,13 @@ mod tests {
         assert!(contexts.contains(&ContextId::new_static("hierarchy-test")));
         assert!(!contexts.iter().any(|c| c.as_str() == "normal"));
 
-        // Right from a Left panel = viewport; right again = the Right dock.
-        invoke(&mut app, "panel.focus-right");
-        assert_eq!(focused(&app), None);
+        // Right from a Left panel jumps STRAIGHT to the Right dock (owner: the
+        // viewport is never an invisible intermediate stop horizontally).
         invoke(&mut app, "panel.focus-right");
         assert_eq!(focused(&app).as_deref(), Some("inspector-test"));
+        invoke(&mut app, "panel.focus-left");
+        assert_eq!(focused(&app).as_deref(), Some("hierarchy-test"));
+        invoke(&mut app, "panel.focus-right");
 
         // Escape walks home: panel focus is the first layer.
         invoke(&mut app, "core.escape-home");
