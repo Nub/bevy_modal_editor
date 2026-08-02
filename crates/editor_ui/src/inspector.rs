@@ -643,11 +643,15 @@ fn queue_set(commands: &mut Commands, field: InspectorField, new_value: f32, ges
 }
 
 /// A COMPLETED typed edit (`is_final` — Enter or focus loss) commits one undo
-/// entry and RELEASES keyboard focus (feathers keeps it — without this, u/Escape
-/// stay captured after Enter and the editor feels dead).
+/// entry. Focus is released ONLY when it is still inside the committing field
+/// (the Enter case — feathers keeps it, which left the keyboard captured). When
+/// the commit was CAUSED by focus moving on (Tab, click into the next field),
+/// the new focus must survive — clearing unconditionally raced tab navigation
+/// and dropped focus entirely (owner-diagnosed).
 fn commit_number(
     change: On<ValueChange<f32>>,
     fields: Query<&InspectorField>,
+    parents: Query<&ChildOf>,
     mut focus: ResMut<InputFocus>,
     mut commands: Commands,
 ) {
@@ -656,7 +660,22 @@ fn commit_number(
     }
     let Ok(field) = fields.get(change.source) else { return };
     queue_set(&mut commands, field.clone(), change.value, None);
-    focus.clear();
+
+    let still_ours = focus.get().is_some_and(|focused| {
+        let mut current = focused;
+        loop {
+            if current == change.source {
+                break true;
+            }
+            match parents.get(current) {
+                Ok(parent) => current = parent.parent(),
+                Err(_) => break false,
+            }
+        }
+    });
+    if still_ours {
+        focus.clear();
+    }
 }
 
 /// Slide-editing (owner): horizontal drag on a number field live-edits through
