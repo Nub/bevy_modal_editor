@@ -34,6 +34,15 @@ status bar proving widget→state value flow.
    uses the same `Box<dyn SceneList>` splicing the BSN spike validated.
 5. API drift notes: markers used in `bsn!` need `Default + Clone`; `EntityCursor` lives
    at `bevy::feathers::cursor`; pane token is `PANE_BODY_BG`.
+6. **Layout footgun (hit during owner testing, then fixed): inline labels beside
+   `EditableText`-based inputs overflow.** The inputs have large intrinsic min-widths
+   (parley measure + flexbox `min_width: auto`), so a `[label | input | input | input]`
+   row spills over its label and can overlap neighboring rows — overlapped widgets then
+   eat each other's pointer events (this masqueraded as "slider doesn't work"). The
+   feathers idiom (per the gallery) is label-above-controls plus `max_width` caps on
+   number inputs. **Widget-kit consequence: the `editor_ui` property-row widget must
+   encode this layout internally** so panel authors can never reproduce the bug — the
+   exact "coherent by construction" argument from spec §7.
 
 ## Awaiting owner judgment (run: `cargo run -p spike_feathers_shell --release`)
 
