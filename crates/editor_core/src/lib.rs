@@ -17,8 +17,8 @@ pub mod prelude {
     pub use crate::keymap_data::KeymapPaths;
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
     pub use crate::resolver::{
-        active_contexts, which_key_continuations, ActionCatalog, EditorState, PendingKeys,
-        ResolvedKeymap,
+        active_contexts, which_key_continuations, ActionCatalog, EditorState, KeyCapture,
+        PendingKeys, ResolvedKeymap,
     };
     pub use crate::EditorCorePlugin;
     pub use editor_api::prelude::*;
@@ -69,6 +69,7 @@ impl Plugin for EditorCorePlugin {
             .add_message::<modes::ModeChanged>()
             .init_resource::<resolver::EditorState>()
             .init_resource::<resolver::PendingKeys>()
+            .init_resource::<resolver::KeyCapture>()
             .init_resource::<keymap_data::KeymapPaths>();
 
         app.add_editor_feature(CoreFeature);
@@ -83,7 +84,10 @@ impl Plugin for EditorCorePlugin {
         app.add_systems(PreStartup, host_features);
         app.add_systems(
             Update,
-            (resolver::resolve_input.in_set(EditorSet::Input),),
+            (
+                resolver::resolve_input.in_set(EditorSet::Input),
+                resolver::apply_action_conventions.in_set(EditorSet::Tools),
+            ),
         );
     }
 }

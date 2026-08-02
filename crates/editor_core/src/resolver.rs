@@ -26,6 +26,11 @@ pub struct EditorState {
 #[derive(Resource, Default)]
 pub struct PendingKeys(pub Vec<Chord>);
 
+/// When true, a text field (palette, rename box) owns the keyboard and the resolver
+/// stands down entirely. UI shell code sets/clears this.
+#[derive(Resource, Default)]
+pub struct KeyCapture(pub bool);
+
 /// Palette/cheat-sheet data: every registered action (A8's sibling — derived, never
 /// hand-maintained).
 #[derive(Resource)]
@@ -124,13 +129,16 @@ pub fn which_key_continuations(
 pub fn resolve_input(
     keys: Res<ButtonInput<KeyCode>>,
     keymap: Res<ResolvedKeymapData>,
-    modes: Res<Modes>,
-    mut state: ResMut<EditorState>,
+    capture: Res<KeyCapture>,
+    state: Res<EditorState>,
     mut mode: ResMut<CurrentMode>,
     mut pending: ResMut<PendingKeys>,
     mut actions: MessageWriter<ActionInvoked>,
     mut mode_changed: MessageWriter<ModeChanged>,
 ) {
+    if capture.0 {
+        return;
+    }
     let modifiers = current_modifiers(&keys);
 
     for key in keys.get_just_pressed() {
@@ -153,18 +161,6 @@ pub fn resolve_input(
         match resolve_sequence(&keymap, &contexts, &pending.0) {
             Resolution::Exact(action) => {
                 pending.0.clear();
-                // Kernel-owned actions short-circuit here; everything else broadcasts.
-                if action.as_str() == "core.toggle-editor" {
-                    state.active = !state.active;
-                }
-                // Mode entry actions: any action named "mode.<id>" switches mode if
-                // the mode exists (registered convention, not hand-maintained).
-                if let Some(mode_id) = action.as_str().strip_prefix("mode.") {
-                    let target = ModeId::new(mode_id.to_string());
-                    if modes.get(&target).is_some() {
-                        set_mode(target, &mut mode, &mut mode_changed);
-                    }
-                }
                 actions.write(ActionInvoked {
                     action,
                     args: None,
@@ -173,6 +169,29 @@ pub fn resolve_input(
             }
             Resolution::Prefix => { /* keep collecting; which-key shows continuations */ }
             Resolution::None => pending.0.clear(),
+        }
+    }
+}
+
+/// Kernel conventions, applied to actions from ANY invocation source (EditorSet::Tools):
+/// `core.toggle-editor` flips ownership; `mode.<id>` enters a registered mode. Derived
+/// from the registry — no hand-maintained switch (v1 anti-pattern).
+pub fn apply_action_conventions(
+    mut reader: MessageReader<ActionInvoked>,
+    modes: Res<Modes>,
+    mut state: ResMut<EditorState>,
+    mut mode: ResMut<CurrentMode>,
+    mut mode_changed: MessageWriter<ModeChanged>,
+) {
+    for invoked in reader.read() {
+        if invoked.action.as_str() == "core.toggle-editor" {
+            state.active = !state.active;
+        }
+        if let Some(mode_id) = invoked.action.as_str().strip_prefix("mode.") {
+            let target = ModeId::new(mode_id.to_string());
+            if modes.get(&target).is_some() {
+                set_mode(target, &mut mode, &mut mode_changed);
+            }
         }
     }
 }

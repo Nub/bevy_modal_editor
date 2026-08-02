@@ -17,4 +17,4 @@ editor_core = { workspace = true, optional = true }
 # The editor is an opt-in game feature (spec §1): compile-time flag, never release
 # optimization. With the feature off, zero editor code exists in the artifact (CI
 # asserts this — M1 acceptance A6).
-editor = ["dep:editor_api", "dep:editor_core"]
+editor = ["dep:editor_api", "dep:editor_core", "bevy/bevy_feathers"]
