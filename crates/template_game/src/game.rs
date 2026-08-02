@@ -84,6 +84,7 @@ pub struct GamePlugin;
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Primitive>();
+        app.register_type::<Spinner>();
         app.init_resource::<GameInputActive>()
             .add_systems(Startup, (init_primitive_assets, leave_boot))
             .add_observer(on_primitive_added)
@@ -93,7 +94,7 @@ impl Plugin for GamePlugin {
             .add_systems(OnEnter(AppState::LoadingLevel), spawn_level)
             .add_systems(
                 Update,
-                (player_look, player_walk, sync_cursor_grab)
+                (player_look, player_walk, sync_cursor_grab, spin)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -129,6 +130,40 @@ fn menu_start(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppSta
     }
 }
 
+/// A DATA-DRIVEN gameplay component (M3-C7, spec §"designer surface"): plain
+/// reflected data the game registers like any component — the editor needs zero
+/// code for it (inspector edits, undo, serialization all fall out of registration).
+/// Enabled boxes spin during play; designers tune it entirely from the inspector.
+#[derive(Component, Reflect, Clone, PartialEq, Debug)]
+#[reflect(Component)]
+pub struct Spinner {
+    pub enabled: bool,
+    pub degrees_per_sec: f32,
+}
+
+impl Default for Spinner {
+    fn default() -> Self {
+        Self { enabled: false, degrees_per_sec: 45.0 }
+    }
+}
+
+/// Gameplay behavior for `Spinner` — runs only while the game owns input, so
+/// editing values in the editor never fights a live rotation.
+fn spin(
+    game_input: Res<GameInputActive>,
+    time: Res<Time>,
+    mut spinners: Query<(&Spinner, &mut Transform)>,
+) {
+    if !game_input.0 {
+        return;
+    }
+    for (spinner, mut transform) in &mut spinners {
+        if spinner.enabled {
+            transform.rotate_y(spinner.degrees_per_sec.to_radians() * time.delta_secs());
+        }
+    }
+}
+
 /// M1 graybox: ground, some boxes, a light, the player camera. Loading is synchronous
 /// here; the real async level service arrives in later milestones.
 fn spawn_level(
@@ -155,6 +190,8 @@ fn spawn_level(
             #[cfg(feature = "editor")]
             editor_api::prelude::SceneId::random(),
             Primitive { kind: PrimitiveKind::Cube, size },
+            Spinner::default(),
+            Name::new("Box"),
             Transform::from_xyz(x, size / 2.0, z),
         ));
     }

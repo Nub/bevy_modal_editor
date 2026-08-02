@@ -7,6 +7,7 @@
 //! The `EditQueue` (M2) and panel shell (`editor_ui`) build on top.
 
 pub mod camera;
+pub mod clipboard;
 pub mod edits;
 pub mod gesture;
 pub mod insert;
@@ -21,6 +22,7 @@ use bevy::prelude::*;
 use editor_api::prelude::*;
 
 pub mod prelude {
+    pub use crate::clipboard::EditorClipboard;
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
     pub use crate::camera::{is_viewport_camera, FlyingCamera};
     pub use crate::settings::EditorSettings;
@@ -124,6 +126,27 @@ impl EditorFeature for CoreFeature {
             );
         // Escape as data: global binding the conventions system (and features) react to.
         reg.action(ActionDef::new("core.escape-home", "Escape").bind("escape").hidden());
+        // Selection is the text object (keymap doc): d cut, y yank, p paste.
+        reg.action(
+            ActionDef::new("select.delete", "Delete Selection")
+                .describe("Delete (cut) the selected entities")
+                .context("normal")
+                .bind("d")
+                .edit(),
+        )
+        .action(
+            ActionDef::new("select.yank", "Yank Selection")
+                .describe("Copy the selected entities to the clipboard")
+                .context("normal")
+                .bind("y"),
+        )
+        .action(
+            ActionDef::new("select.paste", "Paste")
+                .describe("Paste clipboard entities as new copies")
+                .context("normal")
+                .bind("p")
+                .edit(),
+        );
         // Selection.
         reg.action(
             ActionDef::new("select.all", "Select All")
@@ -212,6 +235,9 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<panels::PanelStates>()
             .init_resource::<panels::PanelFocus>()
             .init_resource::<edits::MergeFrameEntries>()
+            .init_resource::<clipboard::EditorClipboard>()
+            .init_resource::<clipboard::ClipboardRequests>()
+            .init_resource::<clipboard::PendingPasteSelect>()
             .add_message::<selection::SelectionChanged>();
 
         app.add_observer(edits::index_on_add);
@@ -237,6 +263,8 @@ impl Plugin for EditorCorePlugin {
                 (
                     resolver::apply_action_conventions,
                     panels::handle_panel_actions,
+                    clipboard::collect_clipboard_actions,
+                    clipboard::perform_clipboard,
                     edits::handle_history_actions,
                     selection::handle_selection_actions,
                     gesture::handle_gesture_actions,
@@ -254,6 +282,7 @@ impl Plugin for EditorCorePlugin {
                     .chain()
                     .in_set(EditorSet::Tools),
                 edits::apply_edits.in_set(EditorSet::Mutate),
+                clipboard::select_pasted.in_set(EditorSet::Sync),
             ),
         );
     }

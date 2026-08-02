@@ -7,7 +7,7 @@
 use bevy::prelude::*;
 use editor_core::prelude::*;
 
-use crate::game::{GameInputActive, Primitive, PrimitiveKind};
+use crate::game::{GameInputActive, Primitive, PrimitiveKind, Spinner};
 
 /// The game's editor-facing registration: which components serialize, what can be
 /// placed. Lives editor-side; the game module stays editor-free.
@@ -19,6 +19,7 @@ fn cube_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>
         Box::new(Transform::from_translation(position + Vec3::Y * 0.5))
             .into_partial_reflect(),
         Box::new(Primitive { kind: PrimitiveKind::Cube, size: 1.0 }).into_partial_reflect(),
+        Box::new(Spinner::default()).into_partial_reflect(),
         Box::new(Name::new("Cube")).into_partial_reflect(),
     ]
 }
@@ -40,6 +41,7 @@ impl EditorFeature for GameFeature {
     fn register(&self, reg: &mut FeatureRegistry) {
         reg.component::<Transform>()
             .component::<Primitive>()
+            .component::<Spinner>()
             .component::<Name>()
             .entity_kind(EntityKindDef {
                 id: EntityKindId::new_static("primitive.cube"),

@@ -176,11 +176,60 @@ pub(crate) fn collect_inspector(world: &mut World) {
         rows.push(RowSpec::Header { title, detail });
 
         let registry = world.resource::<AppTypeRegistry>().clone();
-        let components = world.resource::<EditorComponents>().types.clone();
+        let registered = world.resource::<EditorComponents>().types.clone();
         let overrides = world.resource::<InspectorOverrides>().0.clone();
         let registry = registry.read();
-        for reg in &components {
-            let Some(registration) = registry.get(reg.type_id) else { continue };
+
+        // The FULL archetype (owner: see and edit ALL components unless marked):
+        // every reflectable component on the entity, registered (serialized) types
+        // first in registration order, the rest alphabetically. A small policy
+        // keeps chrome out: editor-internal markers hide; derived/asset-handle
+        // components render read-only.
+        const HIDDEN: &[&str] = &[
+            "SceneId",
+            "Selected",
+            "MeshOutline",
+            "HasSilhouetteMesh",
+            "GhostApplied",
+            "InsertPreview",
+            "PreviewEntity",
+            "ChildOf",
+            "Children",
+            "TabOrdered",
+        ];
+        const READ_ONLY: &[&str] = &[
+            "GlobalTransform",
+            "InheritedVisibility",
+            "ViewVisibility",
+            "Mesh3d",
+            "MeshMaterial3d",
+            "Aabb",
+        ];
+        let mut present: Vec<(TypeId, &'static str)> = Vec::new();
+        for &component_id in world.entity(entity).archetype().components() {
+            let Some(info) = world.components().get_info(component_id) else { continue };
+            let Some(type_id) = info.type_id() else { continue };
+            let Some(registration) = registry.get(type_id) else { continue };
+            if registration.data::<bevy::ecs::reflect::ReflectComponent>().is_none() {
+                continue;
+            }
+            let type_path = registration.type_info().type_path();
+            let short = type_path.rsplit("::").next().unwrap_or(type_path);
+            if HIDDEN.contains(&short) {
+                continue;
+            }
+            present.push((type_id, type_path));
+        }
+        present.sort_by_key(|(type_id, type_path)| {
+            let registered_index =
+                registered.iter().position(|r| r.type_id == *type_id).unwrap_or(usize::MAX);
+            let short = type_path.rsplit("::").next().unwrap_or(type_path).to_string();
+            (registered_index, short)
+        });
+
+        let mut has_name = false;
+        for (type_id, type_path) in present {
+            let Some(registration) = registry.get(type_id) else { continue };
             let Some(reflect_component) =
                 registration.data::<bevy::ecs::reflect::ReflectComponent>()
             else {
@@ -190,15 +239,38 @@ pub(crate) fn collect_inspector(world: &mut World) {
                 continue;
             };
             let value = value.as_partial_reflect();
-            let short = reg.type_path.rsplit("::").next().unwrap_or(reg.type_path);
+            let short = type_path.rsplit("::").next().unwrap_or(type_path);
+            has_name |= short == "Name";
             rows.push(RowSpec::Section(short.to_uppercase()));
+            if READ_ONLY.contains(&short) {
+                rows.push(RowSpec::ReadOnly {
+                    label: short.to_string(),
+                    value: "(read-only)".into(),
+                });
+                continue;
+            }
             let handled = overrides
                 .iter()
-                .find(|(id, _)| *id == reg.type_id)
-                .is_some_and(|(_, f)| f(target, reg.type_path, value, &mut rows));
+                .find(|(id, _)| *id == type_id)
+                .is_some_and(|(_, f)| f(target, type_path, value, &mut rows));
             if !handled {
-                walk_fields(target, reg.type_path, "", value, &mut rows);
+                walk_fields(target, type_path, "", value, &mut rows);
             }
+        }
+        // Always offer a Name (owner: the field must exist even before the
+        // component does — committing INSERTS it via the same Set path).
+        if !has_name {
+            rows.push(RowSpec::Section("NAME".into()));
+            rows.push(RowSpec::TextField {
+                label: "Name".into(),
+                value: String::new(),
+                field: InspectorField {
+                    target,
+                    type_path: "bevy_ecs::name::Name",
+                    path: String::new(),
+                    kind: FieldKind::NameText,
+                },
+            });
         }
     }
     let mut model = world.resource_mut::<InspectorModel>();
@@ -369,6 +441,10 @@ pub(crate) fn probe_inspector(
     body: Query<(Entity, &PanelBody)>,
     children: Query<&Children>,
     mut selected_once: Local<bool>,
+    name_field: Query<(Entity, &InspectorField)>,
+    children_q: Query<&Children>,
+    editable_q: Query<&bevy::text::EditableText>,
+    mut focus_res: ResMut<InputFocus>,
     mut commands: Commands,
 ) {
     *frames += 1;
@@ -405,6 +481,49 @@ pub(crate) fn probe_inspector(
             info!("PROBE selected {entity:?}");
         }
     }
+    if *frames == 240 {
+        // Drive the Name field: focus inner editable, then type via key events.
+        let name_container = name_field
+            .iter()
+            .find(|(_, f)| f.kind == FieldKind::NameText)
+            .map(|(e, _)| e);
+        if let Some((container, inner)) = name_container.and_then(|c| {
+            find_editable(&children_q, &editable_q, c).map(|inner| (c, inner))
+        }) {
+            info!("PROBE name field container={container:?} inner={inner:?}");
+            focus_res.set(inner, bevy::input_focus::FocusCause::Navigated);
+        } else {
+            info!("PROBE no name field found");
+        }
+    }
+    if *frames == 270 || *frames == 272 {
+        if let Ok(window) = window.single() {
+            key_events.write(bevy::input::keyboard::KeyboardInput {
+                key_code: KeyCode::KeyZ,
+                logical_key: bevy::input::keyboard::Key::Character("z".into()),
+                state: if *frames == 270 {
+                    bevy::input::ButtonState::Pressed
+                } else {
+                    bevy::input::ButtonState::Released
+                },
+                text: (*frames == 270).then(|| "z".into()),
+                repeat: false,
+                window,
+            });
+        }
+    }
+    if *frames == 300 {
+        for (container, field) in name_field.iter() {
+            if field.kind != FieldKind::NameText {
+                continue;
+            }
+            if let Some(inner) = find_editable(&children_q, &editable_q, container) {
+                if let Ok(text) = editable_q.get(inner) {
+                    info!("PROBE name field text now: {:?}", text.value().to_string());
+                }
+            }
+        }
+    }
     if *frames > 150 && *frames % 60 == 0 {
         let body_children = body
             .iter()
@@ -418,6 +537,23 @@ pub(crate) fn probe_inspector(
             body_children
         );
     }
+}
+
+fn find_editable(
+    children: &Query<&Children>,
+    editable: &Query<&bevy::text::EditableText>,
+    root: Entity,
+) -> Option<Entity> {
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if editable.get(entity).is_ok() {
+            return Some(entity);
+        }
+        if let Ok(kids) = children.get(entity) {
+            stack.extend(kids.iter());
+        }
+    }
+    None
 }
 
 /// Anything that changes the selection or the scene marks the inspector dirty.
@@ -688,10 +824,15 @@ fn queue_set(
         else {
             return;
         };
-        let Some(current) = reflect_component.reflect(world.entity(entity)) else { return };
+        // NameText INSERTS when absent — every other kind edits an existing value.
+        let current = reflect_component.reflect(world.entity(entity));
+        if current.is_none() && !matches!(field.kind, FieldKind::NameText) {
+            return;
+        }
 
         let boxed: Box<dyn PartialReflect> = match (field.kind, new_value) {
             (FieldKind::Direct, FieldNewValue::F32(new_value)) => {
+                let Some(current) = current else { return };
                 let mut dynamic = current.as_partial_reflect().to_dynamic();
                 let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
                 let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
@@ -702,6 +843,7 @@ fn queue_set(
                 dynamic
             }
             (FieldKind::Bool, FieldNewValue::Bool(new_value)) => {
+                let Some(current) = current else { return };
                 let mut dynamic = current.as_partial_reflect().to_dynamic();
                 let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
                 let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
@@ -712,6 +854,7 @@ fn queue_set(
                 dynamic
             }
             (FieldKind::Str, FieldNewValue::Text(new_value)) => {
+                let Some(current) = current else { return };
                 let mut dynamic = current.as_partial_reflect().to_dynamic();
                 let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
                 let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
@@ -726,6 +869,7 @@ fn queue_set(
                 Box::new(Name::new(new_value))
             }
             (FieldKind::EulerDeg(axis), FieldNewValue::F32(new_value)) => {
+                let Some(current) = current else { return };
                 let Some(transform) =
                     current.as_partial_reflect().try_downcast_ref::<Transform>()
                 else {
