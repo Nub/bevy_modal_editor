@@ -7,6 +7,7 @@ members = [
     # M0 spikes (throwaway code, durable findings — see spikes/README.md)
     "spikes/editqueue-scale",
     "spikes/bsn-foundation",
+    "spikes/feathers-shell",
 ]
 
 [workspace.package]
