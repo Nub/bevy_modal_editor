@@ -93,6 +93,12 @@ impl EditorFeature for CoreFeature {
                     .bind("space p"), // leader style — also demos which-key
             )
             .action(
+                ActionDef::new("core.find-object", "Find Object")
+                    .describe("Search scene entities by name and select")
+                    .context("normal")
+                    .bind("space f"),
+            )
+            .action(
                 ActionDef::new("panel.focus-left", "Focus Panel Left")
                     .describe("Move focus toward the left dock")
                     .bind("ctrl+h"),

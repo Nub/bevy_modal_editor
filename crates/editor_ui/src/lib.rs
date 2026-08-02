@@ -15,6 +15,7 @@ mod hierarchy;
 mod inspector;
 mod outline;
 mod palette;
+mod palette_engine;
 mod statusbar;
 mod which_key;
 
