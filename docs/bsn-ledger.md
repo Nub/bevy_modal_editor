@@ -12,5 +12,8 @@ and the convergence plan.
 | 4 | No editing model (no undo/transactions) | `EditQueue`/`EditScope` (spec §5); EditOps express changes as BSN-style patches | None expected — editing is our domain; shared patch representation is the bridge | Permanent by design |
 | 5 | Cell partitioning / streaming layout | Level-as-directory-of-cells, each cell a BSN-semantic document (spec §9) | Cells could become `.bsn` files individually once #1 closes | Open |
 
+| 6 | No scene hot reload or retained reconciliation — `AssetEvent::Modified` ignored, `ScenePatch::resolve` is destructive one-shot (spike 2) | Editor owns re-stamping prefab instances on source change via regenerate hooks (spec §6 already assumed this) | Adopt upstream reconciliation if BSN grows it | Open |
+| 7 | BSN patches are closures — inherently unserializable; and no `Vec<S>: Scene` for runtime-counted patch lists (spike 2) | Serializable `ReflectPatch` is our delta source of truth; BSN closures generated from it via the registration fn-table; lists fold into nested boxed tuples | When `.bsn` ships, the same fn-table feeds its loader; revisit if upstream adds a dynamic patch type | Open |
+
 Add entries as spikes and milestones discover them. Deleting an entry requires the
 upstream feature to be adopted and the gap-filler removed.
