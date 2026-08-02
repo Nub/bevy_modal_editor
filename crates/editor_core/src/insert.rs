@@ -56,6 +56,9 @@ pub struct KindJustPicked(pub bool);
 
 #[derive(Component)]
 pub(crate) struct PreviewEntity {
+    /// Which kind this ghost represents — a mismatch with `InsertState.kind`
+    /// rebuilds the ghost (switching Cube→Sphere must switch the preview).
+    kind: EntityKindId,
     /// Kind placement offset (e.g. +Y half-height): ghost translation = target +
     /// offset, so preview and final placement are always identical.
     offset: Vec3,
@@ -142,11 +145,19 @@ pub(crate) fn sync_preview(world: &mut World) {
     let target = grid_target.unwrap();
 
     if let Some(&entity) = existing.first() {
-        let offset = world.get::<PreviewEntity>(entity).map(|p| p.offset).unwrap_or(Vec3::ZERO);
-        if let Some(mut transform) = world.get_mut::<Transform>(entity) {
-            transform.translation = target + offset;
+        let preview_kind = world.get::<PreviewEntity>(entity).map(|p| p.kind.clone());
+        if preview_kind.as_ref() == kind_id.as_ref() {
+            let offset =
+                world.get::<PreviewEntity>(entity).map(|p| p.offset).unwrap_or(Vec3::ZERO);
+            if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+                transform.translation = target + offset;
+            }
+            return;
         }
-        return;
+        // Kind switched: rebuild the ghost below.
+        for entity in existing {
+            world.entity_mut(entity).despawn();
+        }
     }
 
     // Spawn the ghost: semantic components (via reflection) + preview markers.
@@ -160,7 +171,9 @@ pub(crate) fn sync_preview(world: &mut World) {
     let components = (kind.components)(target);
     let registry_arc = world.resource::<AppTypeRegistry>().clone();
     let registry = registry_arc.read();
-    let entity = world.spawn((PreviewEntity { offset: Vec3::ZERO }, InsertPreview)).id();
+    let entity = world
+        .spawn((PreviewEntity { kind: kind.id.clone(), offset: Vec3::ZERO }, InsertPreview))
+        .id();
     for value in components {
         let Some(info) = value.get_represented_type_info() else { continue };
         let Some(registration) = registry.get(info.type_id()) else { continue };
@@ -245,18 +258,54 @@ mod tests {
         ]
     }
 
+    fn sphere_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
+        vec![
+            Box::new(Transform::from_translation(position + Vec3::Y * 0.25))
+                .into_partial_reflect(),
+            Box::new(Marker { tag: 9 }).into_partial_reflect(),
+        ]
+    }
+
     struct TestFeature;
     impl EditorFeature for TestFeature {
         fn manifest(&self) -> FeatureManifest {
             FeatureManifest::new("test", "Test")
         }
         fn register(&self, reg: &mut FeatureRegistry) {
-            reg.component::<Transform>().component::<Marker>().entity_kind(EntityKindDef {
-                id: EntityKindId::new_static("test-cube"),
-                display_name: "Test Cube",
-                components: cube_components,
-            });
+            reg.component::<Transform>()
+                .component::<Marker>()
+                .entity_kind(EntityKindDef {
+                    id: EntityKindId::new_static("test-cube"),
+                    display_name: "Test Cube",
+                    components: cube_components,
+                })
+                .entity_kind(EntityKindDef {
+                    id: EntityKindId::new_static("test-sphere"),
+                    display_name: "Test Sphere",
+                    components: sphere_components,
+                });
         }
+    }
+
+    // Regression (owner bug): switching kinds must rebuild the ghost.
+    #[test]
+    fn switching_kind_rebuilds_ghost() {
+        let mut app = test_app();
+        invoke(&mut app, "insert.kind.test-cube");
+        app.world_mut().resource_mut::<CursorGround>().0 = Some(Vec3::new(1.0, 0.0, 1.0));
+        app.update();
+        {
+            let world = app.world_mut();
+            let mut q = world.query_filtered::<&Marker, With<InsertPreview>>();
+            assert_eq!(q.single(world).unwrap().tag, 7, "cube ghost");
+        }
+        invoke(&mut app, "insert.kind.test-sphere");
+        app.update();
+        let world = app.world_mut();
+        let mut q = world.query_filtered::<(&Marker, &Transform), With<InsertPreview>>();
+        let (marker, transform) = q.single(world).expect("exactly one ghost");
+        assert_eq!(marker.tag, 9, "sphere ghost after switch");
+        assert_eq!(transform.translation.y, 0.25, "new kind's offset applies");
     }
 
     fn test_app() -> App {
