@@ -7,11 +7,17 @@ editor session on Bevy 0.19, preserving scene/selection/history?
 
 | Approach | Verdict | Why |
 |---|---|---|
-| `dexterous_developer` | ❌ not now | Tracks specific Bevy releases; no 0.19 support at evaluation time (0.19 is weeks old). Reload boundary requires restructuring systems into reloadable libraries — a large architectural buy-in to make BEFORE the crate proves out on our pin. |
-| Subsecond / dioxus hot-patching | ❌ not now | Bevy integration demonstrated experimentally on 0.16-era; jump-table patching of a a full Bevy app on 0.19 + wgpu/Metal unproven. Watch — this is the most promising long-term path. |
+| **Bevy built-in `hotpatching`** (subsecond, official since 0.17 — owner-supplied correction: bevy.org/news/bevy-0-17 "hot-patching systems in a running app") | ✅ EXISTS on our 0.19 pin (`bevy/hotpatching` feature, `bevy_app/hotpatch.rs`, official example `hotpatching_systems`) | Patches SYSTEM BODIES in a running app via the dioxus `dx` CLI toolchain. Limits: function-body changes only — struct/layout/schedule changes still require a restart. **Deferred by owner decision to a later milestone**; adoption path is concrete: enable `bevy/hotpatching` under the editor feature + document the `dx`-driven dev loop. |
+| `dexterous_developer` | ❌ not now | Tracks specific Bevy releases; reload boundary requires restructuring systems into reloadable libraries — superseded by the built-in path above. |
 | Hand-rolled dylib swap | ❌ rejected | No stable Rust ABI: any type crossing the boundary (all of Bevy) is UB on mismatch. The failure mode is silent corruption, which is worse than restarting. |
 
-## Decision: invoke the pre-written fallback (per the C8 gate)
+## Decision: fast-relaunch now; built-in hotpatching later (owner call)
+
+The original write-up wrongly dismissed subsecond as unproven — Bevy has shipped
+it as the official `hotpatching` feature since 0.17. It remains deferred (owner,
+2026-08-02) because it needs the `dx` toolchain in the dev loop and covers only
+system-body edits; fast-relaunch below covers the rest (layout changes, plain
+`cargo watch` workflows) and stays valuable alongside it.
 
 **Fast-relaunch**: one action saves everything, restarts the (freshly rebuilt)
 binary, and restores the session — scene, selection, camera, editor state —
