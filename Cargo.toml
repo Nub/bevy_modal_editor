@@ -4,6 +4,7 @@ members = [
     "crates/editor_api",
     "crates/editor_core",
     "crates/editor_scene",
+    "crates/editor_publish",
     "crates/editor_ui",
     "crates/game_framework",
     "crates/template_game",

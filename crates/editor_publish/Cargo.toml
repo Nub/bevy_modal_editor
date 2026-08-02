@@ -1,0 +1,15 @@
+[package]
+name = "editor_publish"
+description = "`editor publish` (M3-C9): build the editor-stripped release, verify stripping, package a runnable zip"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "editor"
+path = "src/main.rs"
+
+[dependencies]
+zip = { version = "2", default-features = false, features = ["deflate"] }

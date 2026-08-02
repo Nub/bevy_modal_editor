@@ -35,6 +35,27 @@ jobs:
         run: cargo check -p template_game --no-default-features
       - name: editor strips (no editor crates in the release dep graph)  # M1 A6
         run: |
-          if cargo tree -p template_game --no-default-features -e normal | grep -E "editor_(api|core|ui)"; then
+          if cargo tree -p template_game --no-default-features -e normal | grep -E "editor_(api|core|scene|ui)"; then
             echo "editor crates leaked into the editor-less build" && exit 1
           fi
+
+  # M3-C9: every merge to v2 publishes a runnable editor-stripped artifact.
+  publish:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: System deps (bevy on linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - name: editor publish
+        run: cargo run -p editor_publish -- publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: template_game-publish
+          path: target/publish/*.zip
+          retention-days: 30
