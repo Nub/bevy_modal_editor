@@ -133,10 +133,13 @@ fn spawn_which_key(mut commands: Commands) {
             flex_direction: FlexDirection::Column,
             row_gap: px(style::space::S),
             padding: UiRect::all(px(style::space::M)),
+            border: UiRect::all(px(1.0)),
             border_radius: BorderRadius::all(px(style::radius::L)),
             ..default()
         },
         ThemeBackgroundColor(tokens::WINDOW_BG),
+        BorderColor::all(style::HAIRLINE),
+        style::floating_shadow(),
         GlobalZIndex(150),
         Visibility::Hidden,
     ));

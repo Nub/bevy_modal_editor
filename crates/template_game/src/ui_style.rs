@@ -57,6 +57,21 @@ pub mod color {
     }
 }
 
+/// Elevation for floating surfaces (palette, which-key, future popups): drop shadow
+/// + hairline edge. One treatment, applied by every floating panel.
+pub fn floating_shadow() -> bevy::ui::BoxShadow {
+    bevy::ui::BoxShadow::new(
+        Color::BLACK.with_alpha(0.55),
+        bevy::ui::px(0),
+        bevy::ui::px(10),
+        bevy::ui::px(4),
+        bevy::ui::px(28),
+    )
+}
+
+/// Hairline edge color for floating surfaces (subtle light line, not a widget border).
+pub const HAIRLINE: Color = Color::srgba(1.0, 1.0, 1.0, 0.09);
+
 /// The editor's chrome fonts, loaded once at startup: Inter for UI text (modern,
 /// OFL) and FiraCode Nerd Font for keys/glyph symbology. Never use Bevy's built-in
 /// default font (a Fira Mono subset) for chrome.
