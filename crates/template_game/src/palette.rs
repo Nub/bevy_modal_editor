@@ -72,6 +72,7 @@ impl Plugin for PalettePlugin {
                     update_title,
                     rebuild_results,
                     scroll_selected_into_view,
+                    probe_scroll.run_if(|| std::env::var("PALETTE_PROBE").is_ok()),
                 )
                     .chain()
                     .in_set(editor_core::EditorSet::Sync),
@@ -396,6 +397,60 @@ fn palette_keys(
     }
 }
 
+/// TEMP diagnostic (PALETTE_PROBE=1): auto-open the palette, walk the selection
+/// down, and log the real laid-out geometry every step.
+fn probe_scroll(
+    mut frames: Local<u32>,
+    mut writer: MessageWriter<ActionInvoked>,
+    mut state: ResMut<PaletteState>,
+    container: Option<
+        Single<(&Node, &ComputedNode, &UiGlobalTransform, &ScrollPosition), With<PaletteResults>>,
+    >,
+    row: Option<
+        Single<(&ComputedNode, &UiGlobalTransform), (With<SelectedRow>, Without<PaletteResults>)>,
+    >,
+) {
+    *frames += 1;
+    if *frames == 60 {
+        writer.write(ActionInvoked {
+            action: ActionId::new("core.toggle-editor".to_string()),
+            args: None,
+            source: InvocationSource::Test,
+        });
+    }
+    if *frames == 120 {
+        writer.write(ActionInvoked {
+            action: ActionId::new("core.palette".to_string()),
+            args: None,
+            source: InvocationSource::Test,
+        });
+    }
+    if *frames > 180 && *frames % 30 == 0 && state.open {
+        state.selected += 1;
+        if let Some(container) = &container {
+            let (node, cn, tf, scroll) = &**container;
+            info!(
+                "PROBE sel={} overflow={:?} cont_size={:?} content={:?} scroll={:?} tf={:?}",
+                state.selected,
+                node.overflow,
+                cn.size(),
+                cn.content_size,
+                scroll.0,
+                tf.translation,
+            );
+        } else {
+            info!("PROBE: no container");
+        }
+        match &row {
+            Some(row) => {
+                let (cn, tf) = &**row;
+                info!("PROBE row size={:?} tf={:?}", cn.size(), tf.translation);
+            }
+            None => info!("PROBE: no SelectedRow"),
+        }
+    }
+}
+
 /// Keyboard-first: arrow navigation must never walk the highlight out of the
 /// scrollable viewport. Reads the laid-out geometry (one frame behind a rebuild,
 /// imperceptible) and clamps the container's scroll so the row stays visible.
@@ -411,6 +466,11 @@ fn scroll_selected_into_view(
     let Some(row) = row else { return };
     let (cont_node, cont_tf, mut scroll) = container.into_inner();
     let (row_node, row_tf) = *row;
+    // A row spawned THIS frame has default (zeroed) geometry until layout runs —
+    // using it would corrupt the scroll. Follow next frame instead.
+    if row_node.size() == Vec2::ZERO {
+        return;
+    }
     let scale = cont_node.inverse_scale_factor();
     let cont_h = cont_node.size().y * scale;
     let row_h = row_node.size().y * scale;
@@ -421,10 +481,11 @@ fn scroll_selected_into_view(
         - (cont_tf.translation.y - cont_node.size().y / 2.0))
         * scale;
     let top = visible_top + scroll.0.y;
+    let max_scroll = ((cont_node.content_size.y - cont_node.size().y) * scale).max(0.0);
     if top < scroll.0.y {
-        scroll.0.y = top;
+        scroll.0.y = top.clamp(0.0, max_scroll);
     } else if top + row_h > scroll.0.y + cont_h {
-        scroll.0.y = top + row_h - cont_h;
+        scroll.0.y = (top + row_h - cont_h).clamp(0.0, max_scroll);
     }
 }
 
