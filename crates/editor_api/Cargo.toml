@@ -1,0 +1,15 @@
+[package]
+name = "editor_api"
+description = "The editor feature contract: how any crate provides editor interfaces"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bevy.workspace = true
+uuid.workspace = true
+
+[features]
+# Panel/widget-kit surface (bevy_ui + feathers). Core contract stays UI-free.
+ui = []

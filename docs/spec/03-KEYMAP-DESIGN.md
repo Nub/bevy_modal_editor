@@ -1,0 +1,196 @@
+# Keymap Design — v2 Default Bindings
+
+> Design deliverable required by `02-RECREATION-PROMPT.md` §4 — reviewed and resolved with
+> the project owner 2026-08-01 (see final section). Ships in the new repo as
+> `docs/keymap-design.md` and as the default keymap data file. Everything here is a *default*
+> — all bindings are user-remappable data.
+
+## Design principles
+
+1. **Vim keys keep their meaning; context supplies the object.** `/` always means search —
+   *what* it searches depends on focus (viewport → objects, hierarchy → tree filter,
+   inspector → components). `i` always means insert, `d` delete, `y`/`p` yank/paste,
+   `u` undo. A user who knows vim should be able to *guess* correctly.
+2. **The selection is the text object.** Vim operators act on the object under/around the
+   cursor; the editor's equivalent is the current selection. `d` deletes it, `y` yanks it,
+   transform operators move it. Visual mode (`v`) grows it.
+3. **Counts, registers, repeat, macros apply uniformly** because everything is an action:
+   `3p` pastes three copies, `"ay` yanks into register *a*, `.` repeats the last edit,
+   `q a … q` / `@a` records/replays.
+4. **Industry conventions win where vim has no analogue.** RMB-held WASD flight, W/E/R
+   transform tools (Maya/Unity/Unreal standard), scroll zoom. Deviations from *both* vim and
+   industry require written rationale below.
+5. **Chord depth ∝ rarity.** Single keys for per-minute actions, `g`-prefix and leader menus
+   for per-session actions, the command palette for everything (`:` reaches all actions).
+
+## Modifier philosophy
+
+- **Shift** = variant/inverse of the same idea (`n`/`N`, `'x`/`'X` = ±axis view, `p`/`P`).
+- **Ctrl** = window/system-level (redo, save-as, panel focus cycling).
+- **Space** = leader; opens a which-key menu tree for discoverable, rarer commands.
+- Numbers are **count prefixes only** — never bare commands (v1 used 1–9 for views/marks;
+  those move to `'` marks, freeing counts).
+
+---
+
+## Global (all contexts)
+
+| Key | Action | Vim analogue |
+|---|---|---|
+| `Esc` | Cancel gesture → clear pending count/register → walk home to Normal | `Esc` |
+| `u` / `Ctrl-r` | Undo / redo | same |
+| `.` | Repeat last edit action (with count) | same |
+| `q{a-z}` … `q` / `@{a-z}` / `@@` | Record / replay / replay-last macro | same |
+| `"{a-z}` | Register prefix for next yank/paste | same |
+| `:` | Command palette (all actions, fuzzy; ex-style commands work: `:w` save, `:q` quit, `:e {scene}` open, `:w {name}` save-as) | ex commands |
+| `/` | **Contextual search** (see per-context tables) | search |
+| `n` / `N` | Next / previous search result | same |
+| `?` | Cheat sheet / keymap browser for current context | (help) |
+| `Space` | Leader menu (which-key): `Space f` find, `Space p` play controls, `Space t` toggles (grid, gizmos, physics debug, shading), `Space w` window/panel ops | leader |
+| `m{a-z}` / `'{a-z}` | Set / jump camera mark (marks store position + orientation) | marks |
+| `''` | Jump back to previous camera position (auto-stack) | `''` |
+| `'x` `'y` `'z` / `'X` `'Y` `'Z` | Ortho view down ±axis (orthographic toggle included) | mark-like |
+| `Ctrl-h/j/k/l` | Focus panel left/down/up/right (viewport ↔ hierarchy ↔ inspector …) | window nav |
+| `F5` / `F6` / `F7` | Play / Pause / Reset (also `Space p p`, `Space p r`) | — |
+
+**Rationale — marks over numbers**: v1 bound ortho views and camera marks to 1–9, which
+kills count prefixes. Vim's own mark grammar is strictly better: 26 named slots, `''` for
+jump-back, and `'x/'y/'z` reads as "go to the X view."
+
+---
+
+## Normal (viewport) — navigate & select
+
+| Key | Action | Rationale |
+|---|---|---|
+| `h` `j` `k` `l` | Selection motion: `h`/`l` prev/next sibling, `k` parent, `j` first child | Spatial-ish tree walking without leaving the viewport; matches hierarchy keys |
+| `v` | Visual mode: subsequent clicks/motions extend selection | visual mode |
+| `V` | Box-select (drag) | visual-block flavor |
+| `*` | Select all instances of the selected thing (same prefab / same kind) | vim `*` = "find this word everywhere" |
+| `gv` | Reselect previous selection | same |
+| `gp` | Select parent group/prefab root | — |
+| `gd` | Go to definition: open source prefab / asset of selection | vim `gd` |
+| `gi` | Jump to last insert location and re-enter Insert | vim `gi` |
+| `gg` / `G` | Select first / last root entity (hierarchy order) | same |
+| `zz` | Frame selection (center view) | vim `zz` centers |
+| `zf` | Frame whole scene | fold-ish mnemonic: "frame" |
+| `i` | **Insert mode**: place new entities (palette picks what) | insert |
+| `a` | Insert as *child of selection* ("append into") | vim `a` appends after |
+| `d` / `x` | Delete selection (to register) | same |
+| `y` / `p` / `P` | Yank / paste at cursor raycast / paste in place | same |
+| `o` | New sibling after selection (empty group / repeat last kind) | open line |
+| `cw` | Rename selection | change word |
+| `cr` | Change-replace: swap selected instance's prefab/kind, keep transform + overrides | `c` change namespace + `r` replace |
+| `w` / `e` / `r` | Transform gestures: move / rotate / scale — see below | Maya/Unity/Unreal/Godot W/E/R, adopted exactly; entity-replace yields `r` to scale because scale is frequent and replace is rare |
+| `Enter` | **Descend** into selection: group → group scope, prefab → isolated prefab edit (own undo scope), feature entity → its sub-editor (spline → control points). `Esc` ascends one level | the fractal rule: Enter goes inside, Esc comes out |
+| `Tab` | Cycle gizmo tool shown on selection (move → rotate → scale) | — |
+| RMB-hold + `WASDQE` + mouse | Fly camera (industry standard); scroll = speed | — |
+| MMB / `Alt`+LMB | Orbit selection; scroll = dolly/zoom | industry |
+| `/` | Find object palette (fuzzy over names/kinds/tags); Enter selects, `n`/`N` walk matches | search |
+
+**Transform gestures (Blender-style modal, vim-friendly):** pressing `w`/`e`/`r` starts an
+immediate modal gesture on the selection: mouse moves it; `x`/`y`/`z` constrain to axis
+(double-tap = plane, i.e. exclude axis — Blender `Shift+X`); typed digits set an exact
+amount (`w x 2.5 Enter` = move +2.5 on X); `Enter`/click commits, `Esc` cancels and restores.
+One undo entry per gesture. Counts compose: `3.` repeats a nudge three times.
+
+**Multi-select pivot:** rotate/scale gestures pivot on the **selection median** by default
+(DCC convention); `,` mid-gesture — or `Space t p` globally — toggles individual-origins
+(each entity transforms in place, e.g. spinning 50 trees). Current pivot mode is always
+visible in the status line.
+**Rationale**: this merges vim's verb-grammar ("operator, then refinement, then commit")
+with Blender's proven modal manipulation, and it's exactly the gizmo state machine the spec
+mandates (Hover → Drag → Commit/Cancel).
+
+**Snap & placement**: during any gesture or insert preview — `s` cycles snap sub-mode
+(Surface/Center/Aligned/Vertex), `Alt` holds edge-snap with guides, `Ctrl` holds grid snap.
+
+---
+
+## Insert mode — place entities
+
+Entered via `i`/`a`/`o`/`gi`. Ghost preview follows the surface raycast.
+
+| Key | Action |
+|---|---|
+| `i` or `/` | Reopen picker palette (change what's being placed) |
+| LMB | Place; **Shift+LMB place-and-continue** (v1 behavior, kept) |
+| `Enter` | Place at current preview and stay in Insert |
+| `[` / `]` | Rotate preview 90° CCW/CW around surface normal (count-able: `3]`) |
+| `s` / scroll | Cycle snap sub-mode |
+| `Esc` | Back to Normal |
+
+---
+
+## Hierarchy panel (focus context)
+
+| Key | Action | Vim analogue |
+|---|---|---|
+| `j` / `k` | Down / up | same |
+| `h` / `l` | Collapse / expand (or jump to parent when leaf) | tree-plugin convention |
+| `gg` / `G` / `{count}G` | Top / bottom / go to line | same |
+| `zo` `zc` `za` / `zR` `zM` | Open/close/toggle fold; open/close all | folds |
+| `/` | Filter tree (live); `n`/`N` walk matches | search |
+| `Enter` | Select in viewport; `zz` then frames it | — |
+| `dd` / `yy` / `p` / `P` | Delete / yank row's entity / paste as sibling / paste as child | line ops |
+| `o` / `O` | New sibling below / above | open line |
+| `i` | Insert child under cursor row | contextual insert |
+| `cw` | Rename | change word |
+| `>` / `<` | Reparent: indent into previous sibling / outdent to grandparent | indent |
+| `J` / `K` | Move entity down/up among siblings | (visual move) |
+| `v` | Visual row-range selection | same |
+
+---
+
+## Inspector panel (focus context)
+
+| Key | Action | Vim analogue |
+|---|---|---|
+| `j` / `k` | Next / previous field or component header | same |
+| `h` / `l` | Collapse / expand component section | tree convention |
+| `i` or `Enter` | Edit focused field (Esc/Enter leaves field edit) | insert |
+| `/` | Search fields & components of this entity | search |
+| `a` | Add component (palette) | append |
+| `dd` | Remove focused component | delete line |
+| `yy` / `p` | Copy component values / paste onto matching component | line ops |
+| `gd` | Go to definition (open component's docs/source info) | same |
+| `J` / `K` on numeric field | Nudge value down/up (count-able, `Ctrl` = fine step) | — |
+| `gr` | Revert focused field's prefab override; `ga` apply override to prefab | — |
+
+---
+
+## Feature-crate contexts (pattern, not exhaustive)
+
+Feature crates register their own layers through `editor_api`, following the same grammar.
+Example — spline editing (entered by `Enter` on a selected spline, "go into it"):
+`h`/`l` prev/next control point, `i`/`a` insert point before/after, `d` delete point,
+`w` move point (same modal gesture), `Tab` cycle spline type, `s` toggle closed,
+`Esc` back out to object level. Blockout, VFX, scatter follow suit. The which-key popup
+and `?` cheat sheet make each layer self-documenting; CI rejects a feature keymap that
+conflicts with a reserved global key.
+
+---
+
+## Reserved / deliberately unbound
+
+- Bare number keys (count prefixes only).
+- `f`/`F`/`;`/`,` — reserved for a future "hop to entity by label" motion (vim `f` char-hop;
+  likely an avy/leap-style overlay). Don't spend them.
+- `c` beyond `cw`/`cr` — reserved as the change-operator namespace.
+- `Z` — reserved (`ZZ` save-and-quit is tempting; decide later).
+
+## Resolved decisions (owner review, 2026-08-01)
+
+Formerly the open questions; all four settled:
+
+1. **Transform keys: exact W/E/R** (move/rotate/scale), matching every major DCC.
+   Entity-replace moved to `cr` in the change namespace — frequency beats mnemonic purity.
+2. **Viewport `hjkl` = selection-tree motion**, not camera. Camera control is already rich
+   (RMB-fly, orbit, marks, `zz`); mouseless selection is the flagship keyboard-first win.
+   Flagged for playtest validation — if it doesn't earn its keys in practice, revisit.
+3. **Multi-select pivot: median by default**, individual-origins behind `,` (mid-gesture)
+   / `Space t p` (global), pivot mode shown in the status line.
+4. **The fractal descend rule is universal**: `Enter` goes inside whatever is selected
+   (group scope, prefab isolation edit, feature sub-editors); `Esc` ascends one level, and
+   only walks mode/scope levels it entered — it never discards uncommitted work without
+   the gesture-cancel semantics defined above. Prefab edit mode needs no dedicated key.

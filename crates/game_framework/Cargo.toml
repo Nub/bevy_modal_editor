@@ -1,0 +1,11 @@
+[package]
+name = "game_framework"
+description = "Opinionated game patterns: app lifecycle, level loading, settings, session flow"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bevy.workspace = true
+serde.workspace = true

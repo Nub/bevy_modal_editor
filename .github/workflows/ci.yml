@@ -1,0 +1,35 @@
+# Tiered CI (spec §8): this is the per-PR fast lane. The nightly full matrix
+# (Windows + Linux primary, macOS dev-support, feature combinations, migration corpus,
+# publish smoke) is added as those artifacts start existing (M2+).
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [v2]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fast-lane:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: System deps (bevy on linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: clippy (editor feature on)
+        run: cargo clippy --workspace --all-features -- -D warnings
+      - name: test
+        run: cargo test --workspace --all-features
+      - name: editor strips (template_game builds without editor feature)
+        run: cargo check -p template_game --no-default-features

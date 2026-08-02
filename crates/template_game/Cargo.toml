@@ -1,0 +1,18 @@
+[package]
+name = "template_game"
+description = "Reference game: living documentation, integration test, and starter kit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+bevy.workspace = true
+game_framework.workspace = true
+
+[features]
+# The editor is an opt-in game feature (spec §1): compile-time flag, never release
+# optimization. Wired to EditorPlugin in M1; declared from day one so the strip test
+# exists before the editor does.
+editor = []
