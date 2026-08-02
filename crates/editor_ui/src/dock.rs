@@ -139,7 +139,14 @@ pub(crate) fn spawn_docks(
                                 row_gap: px(style::space::XS),
                                 flex_grow: 1.0,
                                 min_height: px(0),
-                                padding: UiRect::all(px(style::space::S)),
+                                // Extra right padding: content never runs under
+                                // the scrollbar overlay (bar + inset + breathing).
+                                padding: UiRect {
+                                    left: px(style::space::S),
+                                    right: px(style::space::M + style::space::XS),
+                                    top: px(style::space::S),
+                                    bottom: px(style::space::S),
+                                },
                                 overflow: Overflow::scroll_y(),
                                 ..default()
                             },
@@ -182,9 +189,9 @@ pub(crate) fn attach_scrollbars(
                 }
                 Node {
                     position_type: PositionType::Absolute,
-                    right: px(1),
-                    top: px(34),
-                    bottom: px(1),
+                    right: px(style::space::XS),
+                    top: px(38),
+                    bottom: px(style::space::XS),
                     width: px(6),
                 }
             })
