@@ -51,7 +51,13 @@ impl Plugin for PalettePlugin {
             .add_systems(Startup, spawn_palette)
             .add_systems(
                 Update,
-                (handle_open_action, close_when_editor_leaves, rebuild_results)
+                (
+                    handle_open_action,
+                    open_on_insert_mode,
+                    close_when_editor_leaves,
+                    update_title,
+                    rebuild_results,
+                )
                     .chain()
                     .in_set(editor_core::EditorSet::Sync),
             );
@@ -154,6 +160,8 @@ fn filter_actions(
     query: &str,
 ) -> Vec<(String, String, ActionId)> {
     let needle = query.to_lowercase();
+    // The insert-mode prefill "insert:" narrows to placeable kinds.
+    let needle = if needle == "insert:" { "insert.kind.".to_string() } else { needle };
     let mut out = Vec::new();
     for def in &catalog.actions {
         if def.flags.hidden {
@@ -202,6 +210,49 @@ fn close_palette(
     capture.0 = false;
     focus.clear();
     *root_vis = Visibility::Hidden;
+}
+
+/// Entering insert mode auto-opens the palette prefilled with the insert query so
+/// you search kinds immediately (owner direction).
+fn open_on_insert_mode(
+    mut modes: MessageReader<ModeChanged>,
+    mut state: ResMut<PaletteState>,
+    mut capture: ResMut<KeyCapture>,
+    mut focus: ResMut<InputFocus>,
+    input: Single<Entity, With<PaletteInput>>,
+    mut editable: Query<&mut bevy::text::EditableText>,
+    mut root: Single<&mut Visibility, With<PaletteRoot>>,
+) {
+    for change in modes.read() {
+        if change.to == editor_core::prelude::MODE_INSERT && !state.open {
+            open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
+            state.query = "insert:".into();
+            if let Ok(mut text) = editable.get_mut(*input) {
+                text.queue_edit(bevy::text::TextEdit::SelectAll);
+                text.queue_edit(bevy::text::TextEdit::Insert("insert:".into()));
+            }
+        }
+    }
+}
+
+/// Mode-aware title (the v1-lineage header): what this palette is browsing.
+fn update_title(
+    mode: Res<CurrentMode>,
+    mut title: Query<&mut Text, With<PaletteTitle>>,
+) {
+    if !mode.is_changed() {
+        return;
+    }
+    let label = if mode.0 == editor_core::prelude::MODE_INSERT {
+        "INSERT OBJECT"
+    } else {
+        "COMMANDS"
+    };
+    for mut text in &mut title {
+        if text.0 != label {
+            text.0 = label.to_string();
+        }
+    }
 }
 
 fn handle_open_action(

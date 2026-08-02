@@ -22,6 +22,17 @@ struct StatusHint;
 #[derive(Component, Default, Clone)]
 struct StatusKeys;
 #[derive(Component, Default, Clone)]
+struct StatusDirty;
+
+/// Transient status feedback (save/load results). Shown in the keys slot when no
+/// sequence is pending.
+#[derive(Resource, Default)]
+struct StatusFlash {
+    text: String,
+    success: bool,
+    until: f32,
+}
+#[derive(Component, Default, Clone)]
 struct WhichKeyPanel;
 
 /// The game's editor-facing registration: which components serialize, what can be
@@ -115,6 +126,7 @@ impl Plugin for EditorOverlayPlugin {
                 (
                     sync_game_input,
                     apply_ghost_material,
+                    collect_io_feedback,
                     compute_which_key,
                     update_statusbar,
                     rebuild_which_key,
@@ -123,6 +135,7 @@ impl Plugin for EditorOverlayPlugin {
                     .in_set(editor_core::EditorSet::Sync),
             );
         app.init_resource::<WhichKey>();
+        app.init_resource::<StatusFlash>();
         app.add_systems(
             Startup,
             (style::load_ui_fonts, init_ghost_material, spawn_statusbar, spawn_which_key).chain(),
@@ -169,6 +182,13 @@ fn spawn_statusbar(mut commands: Commands, fonts: Res<UiFonts>) {
                     TextColor(style::color::TEXT_ON_ACCENT),
                 ));
             });
+            bar.spawn((
+                StatusDirty,
+                Text::new("●"),
+                style::sans(&fonts, style::font_size::S),
+                TextColor(style::color::TEXT_WARN),
+                Visibility::Hidden,
+            ));
             bar.spawn((
                 StatusHint,
                 Text::new(""),
@@ -399,6 +419,18 @@ fn rebuild_which_key(
     });
 }
 
+fn collect_io_feedback(
+    mut reader: MessageReader<editor_scene::SceneIoFeedback>,
+    time: Res<Time>,
+    mut flash: ResMut<StatusFlash>,
+) {
+    for feedback in reader.read() {
+        flash.text = feedback.message.clone();
+        flash.success = feedback.success;
+        flash.until = time.elapsed_secs() + 3.0;
+    }
+}
+
 /// The editor owns input while active; the game module knows nothing about the
 /// editor — it just honors `GameInputActive`.
 fn sync_game_input(state: Res<EditorState>, mut game_input: ResMut<GameInputActive>) {
@@ -414,6 +446,10 @@ fn update_statusbar(
     mode: Res<CurrentMode>,
     modes: Res<Modes>,
     pending: Res<PendingKeys>,
+    gesture: Res<MoveGesture>,
+    flash: Res<StatusFlash>,
+    dirty: Res<editor_scene::SceneDirty>,
+    time: Res<Time>,
     mut bar: Query<&mut Visibility, With<StatusBar>>,
     mut mode_text: Query<
         &mut Text,
@@ -424,8 +460,12 @@ fn update_statusbar(
         (With<StatusHint>, Without<StatusModeText>, Without<StatusKeys>),
     >,
     mut keys_text: Query<
-        &mut Text,
+        (&mut Text, &mut TextColor),
         (With<StatusKeys>, Without<StatusModeText>, Without<StatusHint>),
+    >,
+    mut dirty_dot: Query<
+        &mut Visibility,
+        (With<StatusDirty>, Without<StatusBar>),
     >,
 ) {
     for mut visibility in &mut bar {
@@ -435,24 +475,51 @@ fn update_statusbar(
         return;
     }
 
+    // An active gesture owns the chip + hint (owner feedback: "w" must show state).
+    let gesture_active = !matches!(*gesture, MoveGesture::Idle);
     let mode_def = modes.get(&mode.0);
     for mut text in &mut mode_text {
-        let name = mode_def.map(|m| m.name.to_uppercase()).unwrap_or_else(|| "?".into());
+        let name = if gesture_active {
+            "MOVE".to_string()
+        } else {
+            mode_def.map(|m| m.name.to_uppercase()).unwrap_or_else(|| "?".into())
+        };
         if text.0 != name {
             text.0 = name;
         }
     }
     for mut text in &mut hint_text {
-        let hint = mode_def.map(|m| m.statusline_hint.to_string()).unwrap_or_default();
+        let hint = if gesture_active {
+            "x/y/z constrain · click ⏎ commit · ⎋ cancel".to_string()
+        } else {
+            mode_def.map(|m| m.statusline_hint.to_string()).unwrap_or_default()
+        };
         if text.0 != hint {
             text.0 = hint;
         }
     }
-    // The bar shows only the pending glyphs; the which-key popup carries the options.
-    for mut text in &mut keys_text {
-        let pending_text = style::pretty_chords(&pending.0);
-        if text.0 != pending_text {
-            text.0 = pending_text;
+    for mut visibility in &mut dirty_dot {
+        *visibility = if dirty.0 { Visibility::Visible } else { Visibility::Hidden };
+    }
+    // Keys slot: pending glyphs win; otherwise transient save/load feedback.
+    for (mut text, mut color) in &mut keys_text {
+        if !pending.0.is_empty() {
+            let pending_text = style::pretty_chords(&pending.0);
+            if text.0 != pending_text {
+                text.0 = pending_text;
+                color.0 = style::color::TEXT_KEYS;
+            }
+        } else if time.elapsed_secs() < flash.until {
+            if text.0 != flash.text {
+                text.0 = flash.text.clone();
+                color.0 = if flash.success {
+                    Color::srgb(0.55, 0.78, 0.55)
+                } else {
+                    style::color::TEXT_WARN
+                };
+            }
+        } else if !text.0.is_empty() {
+            text.0.clear();
         }
     }
 }

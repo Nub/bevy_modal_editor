@@ -258,6 +258,13 @@ impl Default for SceneFile {
 #[derive(Resource, Default)]
 pub struct SceneDirty(pub bool);
 
+/// UI-facing result of a save/load — logging is not user feedback (design bar).
+#[derive(Message, Debug)]
+pub struct SceneIoFeedback {
+    pub message: String,
+    pub success: bool,
+}
+
 #[derive(Resource, Default)]
 struct SceneIoRequests {
     save: bool,
@@ -311,23 +318,34 @@ fn perform_scene_io(world: &mut World) {
     }
     let path = world.resource::<SceneFile>().0.clone();
     if requests.save {
-        match save_scene_file(world, &path) {
+        let feedback = match save_scene_file(world, &path) {
             Ok(()) => {
                 world.resource_mut::<SceneDirty>().0 = false;
-                info!("scene saved: {}", path.display());
+                SceneIoFeedback {
+                    message: format!("saved {}", path.display()),
+                    success: true,
+                }
             }
-            Err(e) => error!("save failed: {e}"),
-        }
+            Err(e) => SceneIoFeedback { message: format!("save failed: {e}"), success: false },
+        };
+        world.write_message(feedback);
     }
     if requests.open {
-        match load_scene_file(world, &path) {
+        let feedback = match load_scene_file(world, &path) {
             Ok(count) => {
                 world.resource_mut::<SceneDirty>().0 = false;
-                info!("scene loaded: {} entities from {}", count, path.display());
+                SceneIoFeedback {
+                    message: format!("loaded {count} entities from {}", path.display()),
+                    success: true,
+                }
             }
             // Non-destructive: the current scene is still intact on failure.
-            Err(e) => error!("load failed (scene unchanged): {e}"),
-        }
+            Err(e) => SceneIoFeedback {
+                message: format!("load failed (scene unchanged): {e}"),
+                success: false,
+            },
+        };
+        world.write_message(feedback);
     }
 }
 
@@ -337,7 +355,8 @@ impl Plugin for EditorScenePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<SceneFile>()
             .init_resource::<SceneDirty>()
-            .init_resource::<SceneIoRequests>();
+            .init_resource::<SceneIoRequests>()
+            .add_message::<SceneIoFeedback>();
         app.add_editor_feature(ScenesFeature);
         app.add_systems(
             Update,
