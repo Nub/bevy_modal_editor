@@ -16,7 +16,10 @@ use editor_api::prelude::*;
 pub mod prelude {
     pub use crate::keymap_data::KeymapPaths;
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
-    pub use crate::resolver::{which_key_continuations, EditorState, PendingKeys, ResolvedKeymap};
+    pub use crate::resolver::{
+        active_contexts, which_key_continuations, ActionCatalog, EditorState, PendingKeys,
+        ResolvedKeymap,
+    };
     pub use crate::EditorCorePlugin;
     pub use editor_api::prelude::*;
 }

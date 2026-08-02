@@ -33,3 +33,8 @@ jobs:
         run: cargo test --workspace --all-features
       - name: editor strips (template_game builds without editor feature)
         run: cargo check -p template_game --no-default-features
+      - name: editor strips (no editor crates in the release dep graph)  # M1 A6
+        run: |
+          if cargo tree -p template_game --no-default-features -e normal | grep -E "editor_(api|core|ui)"; then
+            echo "editor crates leaked into the editor-less build" && exit 1
+          fi

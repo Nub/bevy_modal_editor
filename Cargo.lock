@@ -4852,6 +4852,8 @@ name = "template_game"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "editor_api",
+ "editor_core",
  "game_framework",
 ]
 
