@@ -458,19 +458,25 @@ fn sync_game_input(
     }
 }
 
+#[derive(bevy::ecs::system::SystemParam)]
+struct StatusData<'w> {
+    state: Res<'w, EditorState>,
+    mode: Res<'w, CurrentMode>,
+    modes: Res<'w, Modes>,
+    pending: Res<'w, PendingKeys>,
+    gesture: Res<'w, MoveGesture>,
+    macros: Res<'w, MacroState>,
+    insert: Res<'w, InsertState>,
+    kinds: Res<'w, KindCatalog>,
+    flash: Res<'w, StatusFlash>,
+    dirty: Res<'w, editor_scene::SceneDirty>,
+    time: Res<'w, Time>,
+}
+
 #[allow(clippy::type_complexity)]
 fn update_statusbar(
-    state: Res<EditorState>,
-    mode: Res<CurrentMode>,
-    modes: Res<Modes>,
-    pending: Res<PendingKeys>,
-    gesture: Res<MoveGesture>,
+    data: StatusData,
     selected: Query<(), With<Selected>>,
-    insert: Res<InsertState>,
-    kinds: Res<KindCatalog>,
-    flash: Res<StatusFlash>,
-    dirty: Res<editor_scene::SceneDirty>,
-    time: Res<Time>,
     mut bar: Query<&mut Visibility, With<StatusBar>>,
     mut mode_text: Query<
         &mut Text,
@@ -490,21 +496,21 @@ fn update_statusbar(
     >,
 ) {
     for mut visibility in &mut bar {
-        *visibility = if state.active { Visibility::Visible } else { Visibility::Hidden };
+        *visibility = if data.state.active { Visibility::Visible } else { Visibility::Hidden };
     }
-    if !state.active {
+    if !data.state.active {
         return;
     }
 
     // The bar always states the current activity (owner rule): an active gesture or
     // an armed insert kind owns the chip + hint; the plain mode otherwise.
-    let gesture_active = !matches!(*gesture, MoveGesture::Idle);
-    let inserting = (mode.0 == MODE_INSERT)
-        .then(|| insert.kind.as_ref())
+    let gesture_active = !matches!(*data.gesture, MoveGesture::Idle);
+    let inserting = (data.mode.0 == MODE_INSERT)
+        .then(|| data.insert.kind.as_ref())
         .flatten()
-        .and_then(|id| kinds.get(id))
+        .and_then(|id| data.kinds.get(id))
         .map(|k| k.display_name);
-    let mode_def = modes.get(&mode.0);
+    let mode_def = data.modes.get(&data.mode.0);
     for mut text in &mut mode_text {
         let name = if gesture_active {
             "MOVE".to_string()
@@ -518,33 +524,36 @@ fn update_statusbar(
         }
     }
     for mut text in &mut hint_text {
-        let hint = if gesture_active {
+        let mut hint = if gesture_active {
             "moving selection · x/y/z constrain · click ⏎ commit · ⎋ cancel".to_string()
         } else if let Some(kind_name) = inserting {
             format!("inserting {kind_name} · click place · ⇧click multi · ⎋ done")
         } else {
             mode_def.map(|m| m.statusline_hint.to_string()).unwrap_or_default()
         };
+        if data.macros.recording.is_some() {
+            hint = format!("● REC (q to stop) · {hint}");
+        }
         if text.0 != hint {
             text.0 = hint;
         }
     }
     for mut visibility in &mut dirty_dot {
-        *visibility = if dirty.0 { Visibility::Visible } else { Visibility::Hidden };
+        *visibility = if data.dirty.0 { Visibility::Visible } else { Visibility::Hidden };
     }
     // Keys slot: pending glyphs win; then selection count; then transient feedback.
     let selection_count = selected.iter().count();
     for (mut text, mut color) in &mut keys_text {
-        if !pending.0.is_empty() {
-            let pending_text = style::pretty_chords(&pending.0);
+        if !data.pending.0.is_empty() {
+            let pending_text = style::pretty_chords(&data.pending.0);
             if text.0 != pending_text {
                 text.0 = pending_text;
                 color.0 = style::color::TEXT_KEYS;
             }
-        } else if time.elapsed_secs() < flash.until {
-            if text.0 != flash.text {
-                text.0 = flash.text.clone();
-                color.0 = if flash.success {
+        } else if data.time.elapsed_secs() < data.flash.until {
+            if text.0 != data.flash.text {
+                text.0 = data.flash.text.clone();
+                color.0 = if data.flash.success {
                     Color::srgb(0.55, 0.78, 0.55)
                 } else {
                     style::color::TEXT_WARN

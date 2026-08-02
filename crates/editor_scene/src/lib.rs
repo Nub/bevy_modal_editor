@@ -109,7 +109,7 @@ pub fn capture_scene(world: &World) -> SceneSnapshot {
 /// Replace the current scene with the snapshot. Only called with a fully-resolved
 /// snapshot, so it cannot fail partway (B5's non-destructive guarantee lives in
 /// `SceneSnapshot::from_ron`, which resolves BEFORE anyone calls this).
-pub fn apply_scene(world: &mut World, snapshot: &SceneSnapshot) {
+pub fn apply_scene(world: &mut World, snapshot: &SceneSnapshot, clear_history: bool) {
     let registry_arc = world.resource::<AppTypeRegistry>().clone();
     let registry = registry_arc.read();
 
@@ -153,8 +153,11 @@ pub fn apply_scene(world: &mut World, snapshot: &SceneSnapshot) {
         }
     }
 
-    // A loaded/restored scene starts with clean history.
-    world.resource_mut::<History>().clear();
+    // A loaded scene starts with clean history; play-reset PRESERVES it (B10 —
+    // SceneId-targeted ops survive respawn).
+    if clear_history {
+        world.resource_mut::<History>().clear();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +239,7 @@ pub fn load_scene_file(world: &mut World, path: &Path) -> Result<usize, SceneErr
         let registry = registry_arc.read();
         SceneSnapshot::from_ron(&text, &registry)?
     };
-    apply_scene(world, &snapshot);
+    apply_scene(world, &snapshot, true);
     Ok(snapshot.len())
 }
 
@@ -349,6 +352,84 @@ fn perform_scene_io(world: &mut World) {
     }
 }
 
+pub mod play;
+
+#[cfg(test)]
+pub(crate) mod tests_support {
+    use super::*;
+    use editor_core::EditorCorePlugin;
+
+    #[derive(Component, Reflect, Default, Clone, PartialEq, Debug)]
+    #[reflect(Component)]
+    pub struct Health {
+        pub current: f32,
+        pub max: f32,
+    }
+
+    pub struct TestFeature;
+    impl EditorFeature for TestFeature {
+        fn manifest(&self) -> FeatureManifest {
+            FeatureManifest::new("test-support", "Test Support")
+        }
+        fn register(&self, reg: &mut FeatureRegistry) {
+            reg.component::<Health>().component::<Transform>();
+        }
+    }
+
+    pub fn scene_test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(EditorCorePlugin);
+        app.add_plugins(crate::EditorScenePlugin);
+        app.add_editor_feature(TestFeature);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.init_resource::<ButtonInput<MouseButton>>();
+        app.finish();
+        app.update();
+        app.world_mut().resource_mut::<editor_core::prelude::EditorState>().active = true;
+        app
+    }
+
+    pub fn invoke(app: &mut App, action: &str) {
+        app.world_mut().write_message(ActionInvoked {
+            action: ActionId::new(action.to_string()),
+            args: None,
+            source: InvocationSource::Test,
+        });
+        app.update();
+    }
+
+    pub fn spawn_test_scene(app: &mut App) -> (SceneId, SceneId) {
+        let a = SceneId::random();
+        let b = SceneId::random();
+        {
+            let mut queue = app.world_mut().resource_mut::<EditQueue>();
+            queue.0.push(Transaction {
+                label: "setup".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: a,
+                        components: vec![
+                            Box::new(Health { current: 7.5, max: 10.0 }).into_partial_reflect(),
+                            Box::new(Transform::from_xyz(1.0, 2.0, 3.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Spawn { id: b, components: vec![] },
+                ],
+            });
+        }
+        app.update();
+        (a, b)
+    }
+
+    pub fn scene_ron(app: &mut App) -> String {
+        let world = app.world_mut();
+        let registry_arc = world.resource::<AppTypeRegistry>().clone();
+        let registry = registry_arc.read();
+        capture_scene(world).to_ron(&registry).unwrap()
+    }
+}
+
 pub struct EditorScenePlugin;
 
 impl Plugin for EditorScenePlugin {
@@ -356,13 +437,17 @@ impl Plugin for EditorScenePlugin {
         app.init_resource::<SceneFile>()
             .init_resource::<SceneDirty>()
             .init_resource::<SceneIoRequests>()
+            .init_resource::<play::PlayState>()
+            .init_resource::<play::PlayRequests>()
             .add_message::<SceneIoFeedback>();
         app.add_editor_feature(ScenesFeature);
+        app.add_editor_feature(play::PlayFeature);
         app.add_systems(
             Update,
             (
-                (collect_io_actions, track_dirty).in_set(editor_core::EditorSet::Tools),
-                perform_scene_io.in_set(editor_core::EditorSet::Sync),
+                (collect_io_actions, track_dirty, play::collect_play_actions)
+                    .in_set(editor_core::EditorSet::Tools),
+                (perform_scene_io, play::perform_play).in_set(editor_core::EditorSet::Sync),
             ),
         );
     }
@@ -782,7 +867,7 @@ mod tests {
             let registry = registry_arc.read();
             let snapshot = SceneSnapshot::from_ron(&first, &registry).unwrap();
             drop(registry);
-            apply_scene(world, &snapshot);
+            apply_scene(world, &snapshot, true);
         }
         let second = scene_ron(&mut app2);
         assert_eq!(first, second, "byte-identical round trip");

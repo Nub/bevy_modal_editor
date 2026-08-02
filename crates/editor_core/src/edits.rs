@@ -46,6 +46,11 @@ impl History {
     }
 }
 
+/// Armed by macro replay: all history entries created THIS frame merge into one
+/// (B11 — a replayed macro is a single undoable step).
+#[derive(Resource, Default)]
+pub struct MergeFrameEntries(pub bool);
+
 /// Undo/redo requests, set by the action handler (Tools), consumed at Mutate.
 #[derive(Resource, Default)]
 pub struct HistoryRequests {
@@ -240,6 +245,7 @@ pub fn apply_edits(world: &mut World) {
     let registry = registry_arc.read();
     let editor_components = std::mem::take(&mut *world.resource_mut::<EditorComponents>());
     let mut touched: Vec<SceneId> = Vec::new();
+    let depth_before_queue = world.resource::<History>().undo.len();
 
     for transaction in queue {
         let inverse =
@@ -269,6 +275,23 @@ pub fn apply_edits(world: &mut World) {
         if matches {
             let entry = world.resource_mut::<History>().undo.pop().unwrap();
             apply_ops(world, &registry, &editor_components, entry.inverse, &mut touched);
+        }
+    }
+
+    // Macro replay: merge every entry the queue just produced into one step.
+    if std::mem::take(&mut world.resource_mut::<MergeFrameEntries>().0) {
+        let mut history = world.resource_mut::<History>();
+        if history.undo.len() > depth_before_queue + 1 {
+            let tail: Vec<HistoryEntry> = history.undo.split_off(depth_before_queue);
+            let mut inverse = Vec::new();
+            for entry in tail.into_iter().rev() {
+                inverse.extend(entry.inverse);
+            }
+            history.undo.push(HistoryEntry {
+                label: "Replay macro".to_string(),
+                gesture: None,
+                inverse,
+            });
         }
     }
 

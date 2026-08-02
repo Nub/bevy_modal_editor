@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn unbound_key_emits_nothing() {
         let mut app = test_app();
-        press(&mut app, KeyCode::KeyQ);
+        press(&mut app, KeyCode::KeyN); // n: unbound in every context
         assert!(drain_actions(&mut app).is_empty());
     }
 
