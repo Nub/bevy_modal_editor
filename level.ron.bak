@@ -1,0 +1,89 @@
+(
+    format_version: 1,
+    entities: [
+        (
+            id: "4d4b10f2-9017-47b3-9166-39077521eee2",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (4.0, 1.0, -6.0),
+                        rotation: (0.0, 0.0, 0.0, 1.0),
+                        scale: (1.0, 1.0, 1.0),
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Primitive",
+                    value: (
+                        kind: Cube,
+                        size: 2.0,
+                    ),
+                ),
+            ],
+        ),
+        (
+            id: "4d57bb39-c00e-4a39-a9a2-4e455352656c",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (1.9162173, 1.5, -9.865379),
+                        rotation: (0.0, 0.0, 0.0, 1.0),
+                        scale: (1.0, 1.0, 1.0),
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Primitive",
+                    value: (
+                        kind: Cube,
+                        size: 3.0,
+                    ),
+                ),
+            ],
+        ),
+        (
+            id: "8797223e-ad67-49d8-8676-71ef2d30bbf0",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (0.0, 1.25, -10.0),
+                        rotation: (0.0, 0.0, 0.0, 1.0),
+                        scale: (1.0, 1.0, 1.0),
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Primitive",
+                    value: (
+                        kind: Cube,
+                        size: 2.5,
+                    ),
+                ),
+            ],
+        ),
+        (
+            id: "f55e5166-76e0-44f1-87d2-adc0e41c5482",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (7.0, 0.75, 2.0),
+                        rotation: (0.0, 0.0, 0.0, 1.0),
+                        scale: (1.0, 1.0, 1.0),
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Primitive",
+                    value: (
+                        kind: Cube,
+                        size: 1.5,
+                    ),
+                ),
+            ],
+        ),
+    ],
+)

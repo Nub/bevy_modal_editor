@@ -23,7 +23,7 @@ use editor_core::prelude::*;
 
 use crate::ui_style::{self as style, UiFonts};
 
-const MAX_RESULTS: usize = 8;
+const MAX_RESULTS: usize = 50;
 
 /// What this palette is browsing (v1's typed open-modes, spec §7): filters are
 /// structural, never query-string hacks.
@@ -52,6 +52,9 @@ struct PaletteResults;
 struct PalettePreview;
 #[derive(Component, Default, Clone)]
 struct PaletteTitle;
+/// Marks the highlighted result row (scroll-follow target).
+#[derive(Component)]
+struct SelectedRow;
 
 pub struct PalettePlugin;
 
@@ -68,6 +71,7 @@ impl Plugin for PalettePlugin {
                     close_when_focus_leaves,
                     update_title,
                     rebuild_results,
+                    scroll_selected_into_view,
                 )
                     .chain()
                     .in_set(editor_core::EditorSet::Sync),
@@ -144,6 +148,8 @@ fn spawn_palette(mut commands: Commands) {
                         flex_direction: FlexDirection::Column,
                         flex_grow: 1.0,
                         row_gap: px(2.0),
+                        max_height: px(360.0),
+                        overflow: Overflow::scroll_y(),
                     }),
                     (
                         PalettePreview
@@ -163,7 +169,9 @@ fn spawn_palette(mut commands: Commands) {
     });
 }
 
-/// Case-insensitive substring filter over id + name; hidden actions excluded.
+/// Case-insensitive substring filter over id + name + description ("load" must find
+/// "Open Scene" via its describe text); hidden actions excluded; sorted by name so
+/// the list is deterministic, not registration-ordered.
 /// Returns (label, binding-hint, action id).
 fn filter_actions(
     catalog: &ActionCatalog,
@@ -182,7 +190,8 @@ fn filter_actions(
             PaletteFilter::InsertKinds if !is_kind => continue,
             _ => {}
         }
-        let hay = format!("{} {}", def.id.as_str(), def.name).to_lowercase();
+        let hay =
+            format!("{} {} {}", def.id.as_str(), def.name, def.description).to_lowercase();
         if !needle.is_empty() && !hay.contains(&needle) {
             continue;
         }
@@ -194,10 +203,9 @@ fn filter_actions(
             .map(|(binding, _)| style::pretty_binding(binding))
             .unwrap_or_default();
         out.push((def.name.to_string(), binding, def.id.clone()));
-        if out.len() >= MAX_RESULTS {
-            break;
-        }
     }
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.truncate(MAX_RESULTS);
     out
 }
 
@@ -388,6 +396,36 @@ fn palette_keys(
     }
 }
 
+/// Keyboard-first: arrow navigation must never walk the highlight out of the
+/// scrollable viewport. Reads the laid-out geometry (one frame behind a rebuild,
+/// imperceptible) and clamps the container's scroll so the row stays visible.
+fn scroll_selected_into_view(
+    container: Single<
+        (&ComputedNode, &GlobalTransform, &mut ScrollPosition),
+        With<PaletteResults>,
+    >,
+    row: Option<
+        Single<(&ComputedNode, &GlobalTransform), (With<SelectedRow>, Without<PaletteResults>)>,
+    >,
+) {
+    let Some(row) = row else { return };
+    let (cont_node, cont_tf, mut scroll) = container.into_inner();
+    let (row_node, row_tf) = *row;
+    let scale = cont_node.inverse_scale_factor();
+    let cont_h = cont_node.size().y * scale;
+    let row_h = row_node.size().y * scale;
+    // Row top in content coordinates (logical px): visible offset plus current scroll.
+    let visible_top = ((row_tf.translation().y - row_node.size().y / 2.0)
+        - (cont_tf.translation().y - cont_node.size().y / 2.0))
+        * scale;
+    let top = visible_top + scroll.0.y;
+    if top < scroll.0.y {
+        scroll.0.y = top;
+    } else if top + row_h > scroll.0.y + cont_h {
+        scroll.0.y = top + row_h - cont_h;
+    }
+}
+
 fn rebuild_results(
     state: Res<PaletteState>,
     catalog: Res<ActionCatalog>,
@@ -411,7 +449,7 @@ fn rebuild_results(
     commands.entity(*results).with_children(|parent| {
         for (i, (label, binding, _)) in rows.iter().enumerate() {
             let selected = i == state.selected;
-            parent
+            let mut row = parent
                 .spawn((
                     Node {
                         justify_content: JustifyContent::SpaceBetween,
@@ -419,11 +457,15 @@ fn rebuild_results(
                         padding: UiRect::axes(px(style::space::S), px(style::space::XS)),
                         column_gap: px(style::space::M),
                         border_radius: BorderRadius::all(px(style::radius::S)),
+                        flex_shrink: 0.0,
                         ..default()
                     },
                     BackgroundColor(if selected { style::color::selection() } else { Color::NONE }),
-                ))
-                .with_children(|row| {
+                ));
+            if selected {
+                row.insert(SelectedRow);
+            }
+            row.with_children(|row| {
                     row.spawn((
                         Text::new(label.clone()),
                         style::sans(&fonts, style::font_size::M),
