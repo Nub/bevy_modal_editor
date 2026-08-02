@@ -72,8 +72,6 @@ pub struct UiSettings {
     pub font_size_search: f32,
     /// Transient status feedback (save/load flash) duration, seconds.
     pub status_flash_secs: f32,
-    /// Unbound-key which-key popup auto-dismiss, seconds.
-    pub which_key_dismiss_secs: f32,
     /// Hard cap on palette results (the list scrolls; guards pathological volume).
     pub palette_max_results: usize,
     /// Dock sizes, logical px (draggable resize arrives with the layout manager).
@@ -90,7 +88,6 @@ impl Default for UiSettings {
             font_size_m: 14.0,
             font_size_search: 16.0,
             status_flash_secs: 3.0,
-            which_key_dismiss_secs: 3.0,
             palette_max_results: 50,
             dock_left_width: 280.0,
             dock_right_width: 320.0,

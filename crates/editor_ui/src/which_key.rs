@@ -1,6 +1,7 @@
-//! Which-key: an nvim-style popup above the status bar. Shown while a prefix is
-//! pending (its continuations) AND after an unbound press (everything available in
-//! the current context — teach, don't scold).
+//! Which-key: an nvim-style popup above the status bar, shown ONLY while a prefix
+//! is pending (owner: leader-key behavior — space/g open it, single keys never do).
+//! Unbound presses get quiet status-bar feedback instead (design bar: every
+//! keypress gets feedback, but a popup is not the volume for a typo).
 
 use bevy::feathers::theme::ThemeBackgroundColor;
 use bevy::feathers::tokens;
@@ -23,8 +24,6 @@ struct WhichKeyContent {
 #[derive(Resource, Default)]
 pub(crate) struct WhichKey {
     content: Option<WhichKeyContent>,
-    /// For the unbound case: auto-dismiss deadline (seconds of app time).
-    until: Option<f32>,
     dirty: bool,
 }
 
@@ -83,62 +82,30 @@ pub(crate) fn compute_which_key(
     catalog: Res<ActionCatalog>,
     panel_focus: Res<PanelFocus>,
     panel_catalog: Res<PanelCatalog>,
-    mut unresolved: MessageReader<KeysUnresolved>,
-    mut actions: MessageReader<ActionInvoked>,
-    time: Res<Time>,
-    settings: Res<EditorSettings>,
     mut which_key: ResMut<WhichKey>,
 ) {
-    // Escape dismisses the popup instantly (universal backout).
-    if actions.read().any(|a| a.action.as_str() == "core.escape-home") {
-        which_key.until = None;
-    }
-    let now = time.elapsed_secs();
-    let contexts = active_contexts(&state, &mode, &overlay, &panel_focus, &panel_catalog);
-
-    let next = if !state.active {
-        None
-    } else if !pending.0.is_empty() {
-        // A live prefix: show its continuations.
-        Some((
-            WhichKeyContent {
-                header: style::pretty_chords(&pending.0),
-                header_warn: false,
-                entries: entries_for(&keymap, &catalog, &contexts, &pending.0),
-            },
-            None,
-        ))
-    } else if let Some(last) = unresolved.read().last() {
-        // Unbound press: teach what IS available in this context.
-        Some((
-            WhichKeyContent {
-                header: format!(
-                    "{}  ·  unbound — available here:",
-                    style::pretty_chords(&last.0)
-                ),
-                header_warn: true,
-                entries: entries_for(&keymap, &catalog, &contexts, &[]),
-            },
-            Some(now + settings.ui.which_key_dismiss_secs),
-        ))
-    } else if which_key.until.is_some_and(|until| now < until) {
-        return; // keep showing the unbound popup until its deadline
+    // ONLY a live prefix (space leader, g-chords) opens the popup (owner).
+    let next = if state.active && !pending.0.is_empty() {
+        let contexts = active_contexts(&state, &mode, &overlay, &panel_focus, &panel_catalog);
+        Some(WhichKeyContent {
+            header: style::pretty_chords(&pending.0),
+            header_warn: false,
+            entries: entries_for(&keymap, &catalog, &contexts, &pending.0),
+        })
     } else {
         None
     };
 
     match next {
-        Some((content, until)) => {
+        Some(content) => {
             if which_key.content.as_ref() != Some(&content) {
                 which_key.content = Some(content);
                 which_key.dirty = true;
             }
-            which_key.until = until;
         }
         None => {
             if which_key.content.is_some() {
                 which_key.content = None;
-                which_key.until = None;
                 which_key.dirty = true;
             }
         }

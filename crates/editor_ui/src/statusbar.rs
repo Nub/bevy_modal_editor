@@ -100,6 +100,7 @@ pub(crate) fn spawn_statusbar(
 
 pub(crate) fn collect_io_feedback(
     mut reader: MessageReader<editor_scene::SceneIoFeedback>,
+    mut unresolved: MessageReader<KeysUnresolved>,
     time: Res<Time>,
     settings: Res<EditorSettings>,
     mut flash: ResMut<StatusFlash>,
@@ -108,6 +109,12 @@ pub(crate) fn collect_io_feedback(
         flash.text = feedback.message.clone();
         flash.success = feedback.success;
         flash.until = time.elapsed_secs() + settings.ui.status_flash_secs;
+    }
+    // Unbound keys flash quietly here — feedback without a popup (owner).
+    if let Some(keys) = unresolved.read().last() {
+        flash.text = format!("{} · unbound", style::pretty_chords(&keys.0));
+        flash.success = false;
+        flash.until = time.elapsed_secs() + settings.ui.status_flash_secs * 0.5;
     }
 }
 

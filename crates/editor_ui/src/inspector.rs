@@ -705,16 +705,16 @@ fn field_drag_end(
     }
 }
 
+/// Marks inputs whose tab order WE have assigned (feathers inserts its own
+/// `TabIndex(0)` on every text input — filtering on `Without<TabIndex>` would
+/// never fire, leaving every field tied at 0 and Tab order arbitrary).
+#[derive(Component)]
+pub(crate) struct TabOrdered;
+
 /// Tab cycles fields (owner): stamp `TabIndex` on every focusable text input under
 /// the inspector body in geometric order (top→bottom, left→right).
 pub(crate) fn stamp_tab_indices(
-    unstamped: Query<
-        Entity,
-        (
-            With<bevy::text::EditableText>,
-            Without<bevy::input_focus::tab_navigation::TabIndex>,
-        ),
-    >,
+    unstamped: Query<Entity, (With<bevy::text::EditableText>, Without<TabOrdered>)>,
     geometry: Query<(&ComputedNode, &UiGlobalTransform)>,
     parents: Query<&ChildOf>,
     bodies: Query<&PanelBody>,
@@ -752,9 +752,10 @@ pub(crate) fn stamp_tab_indices(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     for (i, (entity, _)) in candidates.iter().enumerate() {
-        commands
-            .entity(*entity)
-            .insert(bevy::input_focus::tab_navigation::TabIndex(i as i32));
+        commands.entity(*entity).insert((
+            bevy::input_focus::tab_navigation::TabIndex(i as i32),
+            TabOrdered,
+        ));
     }
 }
 
