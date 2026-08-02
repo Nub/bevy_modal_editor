@@ -21,6 +21,17 @@ pub mod radius {
 
 pub const BAR_HEIGHT: f32 = 30.0;
 
+/// Nerd-font glyphs (FontAwesome range — present in all nerd fonts). Symbols over
+/// words (design bar); named here so widgets never embed raw codepoints.
+pub mod glyph {
+    /// Palette: command/action search.
+    pub const SEARCH: &str = "\u{f002}";
+    /// Palette: insert object/asset.
+    pub const INSERT: &str = "\u{f067}";
+    /// Palette: component browse/insert.
+    pub const COMPONENT: &str = "\u{f12e}";
+}
+
 /// Type scale (logical px). Chrome text never uses ad-hoc sizes.
 pub mod font_size {
     /// Chips, badges, secondary metadata.

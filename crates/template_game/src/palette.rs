@@ -39,6 +39,8 @@ struct PaletteInput;
 struct PaletteResults;
 #[derive(Component, Default, Clone)]
 struct PalettePreview;
+#[derive(Component, Default, Clone)]
+struct PaletteTitle;
 
 pub struct PalettePlugin;
 
@@ -73,22 +75,66 @@ fn spawn_palette(mut commands: Commands) {
         GlobalZIndex(200)
         Visibility::Hidden
         Children [
+            // Mode title (v1 lineage): what this palette is browsing, uppercase, dim.
+            (PaletteTitle Text("COMMANDS")
+             template(|_ctx| Ok(bevy::text::TextFont {
+                 font_size: bevy::text::FontSize::Px(11.0),
+                 ..Default::default()
+             }))
+             TextColor({crate::ui_style::color::TEXT_DIM})),
+            // Search row: mode badge glyph + input.
             (
-                @FeathersTextInputContainer
-                Node { flex_grow: 0.0 }
-                on(|_press: On<Pointer<Press>>,
-                    inner: Single<Entity, With<PaletteInput>>,
-                    mut focus: ResMut<InputFocus>| {
-                    focus.set(*inner, FocusCause::Pressed);
-                })
+                Node {
+                    flex_direction: FlexDirection::Row,
+                    column_gap: px(style::space::S),
+                    align_items: AlignItems::Center,
+                }
                 Children [
                     (
-                        @FeathersTextInput { @visible_width: 40f32 }
-                        PaletteInput
-                        SelectAllOnFocus
-                        on(update_query)
-                        on(palette_keys)
-                    )
+                        Node {
+                            width: px(26),
+                            height: px(24),
+                            flex_shrink: 0.0,
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::Center,
+                            border_radius: {BorderRadius::all(px(style::radius::S))},
+                        }
+                        BackgroundColor({style::color::accent()})
+                        Children [
+                            (
+                                Text({style::glyph::SEARCH.to_string()})
+                                template(|ctx| Ok(bevy::text::TextFont {
+                                    font: bevy::text::FontSource::Handle(
+                                        ctx.resource::<AssetServer>()
+                                            .load("fonts/FiraCodeNerdFont-Regular.ttf"),
+                                    ),
+                                    font_size: bevy::text::FontSize::Px(13.0),
+                                    ..Default::default()
+                                }))
+                                TextColor({style::color::TEXT_ON_ACCENT})
+                            )
+                        ]
+                    ),
+                    (
+                        @FeathersTextInputContainer
+                        // Container defaults to centering its child; with a fixed-width
+                        // input that reads as a random left gap — pin to the start edge.
+                        Node { flex_grow: 1.0, justify_content: JustifyContent::FlexStart }
+                        on(|_press: On<Pointer<Press>>,
+                            inner: Single<Entity, With<PaletteInput>>,
+                            mut focus: ResMut<InputFocus>| {
+                            focus.set(*inner, FocusCause::Pressed);
+                        })
+                        Children [
+                            (
+                                @FeathersTextInput { @visible_width: 40f32 }
+                                PaletteInput
+                                SelectAllOnFocus
+                                on(update_query)
+                                on(palette_keys)
+                            )
+                        ]
+                    ),
                 ]
             ),
             (
