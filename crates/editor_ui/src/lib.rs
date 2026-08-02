@@ -113,6 +113,10 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
+        app.insert_resource(inspector::default_overrides());
+        if !app.is_plugin_added::<bevy::input_focus::tab_navigation::TabNavigationPlugin>() {
+            app.add_plugins(bevy::input_focus::tab_navigation::TabNavigationPlugin);
+        }
         app.add_systems(
             Update,
             hierarchy::handle_hierarchy_actions.in_set(editor_core::EditorSet::Tools),
@@ -129,6 +133,9 @@ impl Plugin for EditorUiPlugin {
                 inspector::watch_inspector_inputs,
                 inspector::collect_inspector,
                 inspector::render_inspector,
+                inspector::stamp_tab_indices,
+                inspector::probe_inspector
+                    .run_if(|| std::env::var("INSPECTOR_PROBE").is_ok()),
                 sync_key_capture,
                 ghost::apply_ghost_material,
                 outline::ensure_outline_camera,

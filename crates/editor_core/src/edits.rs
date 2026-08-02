@@ -88,9 +88,15 @@ pub(crate) fn index_on_remove(
 /// Consume undo/redo actions (any invocation source) into requests.
 pub(crate) fn handle_history_actions(
     mut reader: MessageReader<ActionInvoked>,
+    state: Res<crate::resolver::EditorState>,
     mut requests: ResMut<HistoryRequests>,
 ) {
     for invoked in reader.read() {
+        // Global bindings, editor-gated semantics: undo/redo never fire while the
+        // game owns input (play sessions must not eat the history).
+        if !state.active {
+            continue;
+        }
         match invoked.action.as_str() {
             "core.undo" => requests.undo += 1,
             "core.redo" => requests.redo += 1,

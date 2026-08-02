@@ -106,7 +106,9 @@ pub(crate) fn spawn_docks(
                         card.spawn((
                             PanelHeader(id.clone()),
                             Node {
-                                padding: UiRect::axes(px(style::space::S), px(style::space::XS)),
+                                // Titles read LARGER than panel contents and sit
+                                // comfortably in the frame (owner).
+                                padding: UiRect::axes(px(style::space::M), px(style::space::S)),
                                 align_items: AlignItems::Center,
                                 column_gap: px(style::space::S),
                                 flex_shrink: 0.0,
@@ -120,15 +122,17 @@ pub(crate) fn spawn_docks(
                         ))
                         .with_children(|header| {
                             header.spawn((
-                                Text::new(decl.title.to_uppercase()),
-                                style::sans_medium(&fonts, ui.font_size_xs),
-                                TextColor(style::color::TEXT_DIM),
+                                Text::new(decl.title.to_string()),
+                                style::sans_medium(&fonts, ui.font_size_m),
+                                TextColor(style::color::TEXT_KEYS),
                             ));
                         });
                         card.spawn((
                             PanelBody(id.clone()),
+                            bevy::input_focus::tab_navigation::TabGroup::default(),
                             Node {
                                 flex_direction: FlexDirection::Column,
+                                row_gap: px(style::space::XS),
                                 flex_grow: 1.0,
                                 min_height: px(0),
                                 padding: UiRect::all(px(style::space::S)),
@@ -178,7 +182,7 @@ pub(crate) fn sync_dock_chrome(
     }
     for (header, children) in &mut headers {
         let focused = focus.0.as_ref() == Some(&header.0);
-        let target = if focused { style::color::accent() } else { style::color::TEXT_DIM };
+        let target = if focused { style::color::accent() } else { style::color::TEXT_KEYS };
         for child in children {
             if let Ok(mut color) = titles.get_mut(*child) {
                 if color.0 != target {

@@ -1,8 +1,8 @@
 //! Panel focus (RFC §9, spec §"Modes"): the kernel owns WHICH panel is focused and
 //! what that means for the keymap — a focused panel is a *focus target with its own
-//! keymap layer* that replaces the mode layer (j/k belong to the tree, not the
-//! viewport). Docking, chrome, and rendering live in `editor_ui`; the kernel never
-//! draws.
+//! keymap layer* stacked OVER the mode layer (owner: the hierarchy is just another
+//! way to navigate/select — panel keys win conflicts, everything else falls through
+//! so w/u/i keep working). Docking, chrome, rendering live in `editor_ui`.
 //!
 //! Navigation is spatial (keymap doc: `Ctrl-h/j/k/l` focus panel left/down/up/right)
 //! with one owner-driven refinement: horizontal moves jump dock → dock DIRECTLY —
@@ -237,8 +237,10 @@ mod tests {
             world.resource::<PanelFocus>(),
             world.resource::<PanelCatalog>(),
         );
-        assert!(contexts.contains(&ContextId::new_static("hierarchy-test")));
-        assert!(!contexts.iter().any(|c| c.as_str() == "normal"));
+        // Panel layer FIRST (wins conflicts), mode layer still active (owner:
+        // select in the hierarchy, then w to move — normal actions reach through).
+        assert_eq!(contexts[0], ContextId::new_static("hierarchy-test"));
+        assert!(contexts.iter().any(|c| c.as_str() == "normal"));
 
         // Right from a Left panel jumps STRAIGHT to the Right dock (owner: the
         // viewport is never an invisible intermediate stop horizontally).

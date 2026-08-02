@@ -101,11 +101,12 @@ pub fn active_contexts(
         if let Some(overlay) = &overlay.0 {
             return vec![overlay.clone()];
         }
-        // A focused panel is a focus target with its own layer: it REPLACES the mode
-        // context (j/k belong to the tree, not the viewport), global stays.
+        // A focused panel LAYERS its context over the mode (owner: the hierarchy is
+        // just another way to navigate the scene — select a row, press w, move it).
+        // Panel bindings win conflicts; everything unbound falls through to the mode.
         if let Some(panel) = &panel_focus.0 {
             if let Some(decl) = panel_catalog.get(panel) {
-                return vec![decl.context.clone(), GLOBAL_CONTEXT];
+                return vec![decl.context.clone(), mode.context(), GLOBAL_CONTEXT];
             }
         }
         vec![mode.context(), GLOBAL_CONTEXT]

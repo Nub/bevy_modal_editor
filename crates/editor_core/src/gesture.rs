@@ -38,7 +38,16 @@ pub enum MoveGesture {
 }
 
 #[derive(Resource, Default)]
-pub(crate) struct GestureCounter(u64);
+pub struct GestureCounter(u64);
+
+impl GestureCounter {
+    /// A fresh gesture id: transactions sharing it coalesce into ONE history entry
+    /// (drags, held-key repeats, inspector slide-edits).
+    pub fn next(&mut self) -> u64 {
+        self.0 += 1;
+        self.0
+    }
+}
 
 /// Consume gesture-related actions (any source — keys, palette, macros).
 pub(crate) fn handle_gesture_actions(

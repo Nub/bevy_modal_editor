@@ -24,7 +24,7 @@ pub mod prelude {
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
     pub use crate::camera::{is_viewport_camera, FlyingCamera};
     pub use crate::settings::EditorSettings;
-    pub use crate::gesture::{GestureMotion, MoveGesture, GESTURE_MOVE_CONTEXT};
+    pub use crate::gesture::{GestureCounter, GestureMotion, MoveGesture, GESTURE_MOVE_CONTEXT};
     pub use crate::insert::{
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
     };
@@ -110,16 +110,16 @@ impl EditorFeature for CoreFeature {
                     .describe("Move focus toward the right dock")
                     .bind("ctrl+l"),
             )
+            // Undo/redo are GLOBAL (owner: "edit then u" must work from any panel
+            // focus); the handler gates on editor ownership so play is untouched.
             .action(
                 ActionDef::new("core.undo", "Undo")
                     .describe("Undo the last edit")
-                    .context("normal")
                     .bind("u"),
             )
             .action(
                 ActionDef::new("core.redo", "Redo")
                     .describe("Redo the last undone edit")
-                    .context("normal")
                     .bind("ctrl+r"),
             );
         // Escape as data: global binding the conventions system (and features) react to.
