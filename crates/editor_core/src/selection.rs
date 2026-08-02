@@ -20,6 +20,7 @@ pub fn select_entity(world: &mut World, entity: Entity, extend: bool) {
     if world.get::<SceneId>(entity).is_none() {
         return;
     }
+    info!("SELECT: {:?} extend={}", world.get::<SceneId>(entity), extend);
     if extend {
         // Toggle membership.
         if world.get::<Selected>(entity).is_some() {
@@ -56,6 +57,12 @@ pub(crate) fn on_pointer_press(
     capture: Res<crate::resolver::KeyCapture>,
     mut commands: Commands,
 ) {
+    // Propagated events re-trigger this observer for every ancestor (and finally the
+    // window): handle ONLY the original hit, or the bubbled window-target invocation
+    // takes the empty-click path and clears the selection made a moment earlier.
+    if press.entity != press.original_event_target() {
+        return;
+    }
     // Flow-audit gates: no selection while the game owns input, while inserting,
     // mid-gesture, or when the click is dismissing a capturing surface (palette).
     if !state.active
@@ -139,6 +146,10 @@ pub(crate) fn draw_selection_gizmos(
 ) {
     if !state.active {
         return;
+    }
+    let count = selected.iter().count();
+    if count > 0 {
+        info_once!("OUTLINE DRAW: running with {count} selected");
     }
     let color = Color::srgb(0.35, 0.62, 1.0);
     for (transform, aabb) in &selected {

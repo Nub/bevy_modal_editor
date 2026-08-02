@@ -19,10 +19,10 @@ use crate::selection::Selected;
 
 pub const GESTURE_MOVE_CONTEXT: ContextId = ContextId::new_static("gesture-move");
 
-/// World-space point the gesture steers toward. Fed by the camera/cursor system (or a
-/// test). `None` = no valid target this frame.
+/// World-space movement for THIS frame. Fed by the screen-space conversion system
+/// (v1's pixel-accurate math) in a real app; tests inject deltas directly.
 #[derive(Resource, Default)]
-pub struct GesturePointer(pub Option<Vec3>);
+pub struct GestureMotion(pub Option<Vec3>);
 
 #[derive(Resource, Default)]
 pub enum MoveGesture {
@@ -31,8 +31,8 @@ pub enum MoveGesture {
     Active {
         id: u64,
         axis: Option<usize>,
-        /// Pointer position when the gesture began (deltas are relative to this).
-        anchor: Option<Vec3>,
+        /// Total world-space displacement applied so far.
+        accumulated: Vec3,
         originals: Vec<(SceneId, Transform)>,
     },
 }
@@ -46,7 +46,7 @@ pub(crate) fn handle_gesture_actions(
     mut gesture: ResMut<MoveGesture>,
     mut overlay: ResMut<OverlayContext>,
     mut counter: ResMut<GestureCounter>,
-    mut pointer: ResMut<GesturePointer>,
+    mut motion: ResMut<GestureMotion>,
     mut requests: ResMut<HistoryRequests>,
     selected: Query<(&SceneId, &Transform), With<Selected>>,
 ) {
@@ -56,6 +56,7 @@ pub(crate) fn handle_gesture_actions(
                 if matches!(*gesture, MoveGesture::Idle) {
                     let originals: Vec<(SceneId, Transform)> =
                         selected.iter().map(|(id, t)| (*id, *t)).collect();
+                    info!("GESTURE START: {} selected", originals.len());
                     if originals.is_empty() {
                         continue;
                     }
@@ -63,10 +64,10 @@ pub(crate) fn handle_gesture_actions(
                     *gesture = MoveGesture::Active {
                         id: counter.0,
                         axis: None,
-                        anchor: None,
+                        accumulated: Vec3::ZERO,
                         originals,
                     };
-                    pointer.0 = None;
+                    motion.0 = None;
                     overlay.0 = Some(GESTURE_MOVE_CONTEXT);
                 }
             }
@@ -98,19 +99,17 @@ fn set_axis(gesture: &mut MoveGesture, which: usize) {
     }
 }
 
-/// Steer the gesture: translate the pointer delta (optionally axis-projected) into a
-/// gesture-tagged transaction each frame it changes.
+/// Consume this frame's world-space motion (already pixel-accurate from the
+/// conversion system) into a gesture-tagged transaction.
 pub(crate) fn drive_gesture(
     mut gesture: ResMut<MoveGesture>,
-    pointer: Res<GesturePointer>,
+    mut motion: ResMut<GestureMotion>,
     mut edits: EditScope,
 ) {
-    let MoveGesture::Active { id, axis, anchor, originals } = &mut *gesture else {
+    let MoveGesture::Active { id, axis, accumulated, originals } = &mut *gesture else {
         return;
     };
-    let Some(target) = pointer.0 else { return };
-    let anchor_point = *anchor.get_or_insert(target);
-    let mut delta = target - anchor_point;
+    let Some(mut delta) = motion.0.take() else { return };
     if let Some(axis) = axis {
         let mut constrained = Vec3::ZERO;
         constrained[*axis] = delta[*axis];
@@ -119,42 +118,89 @@ pub(crate) fn drive_gesture(
     if delta == Vec3::ZERO {
         return;
     }
+    *accumulated += delta;
+    let total = *accumulated;
     let mut transaction = edits.transaction("Move").gesture(*id);
     for (scene_id, original) in originals.iter() {
         let mut moved = *original;
-        moved.translation = original.translation + delta;
+        moved.translation = original.translation + total;
         transaction = transaction.set(*scene_id, moved);
     }
     transaction.commit();
 }
 
-/// Real-app pointer source: cursor ray intersected with the ground-parallel plane
-/// through the gesture's first original (good graybox behavior; snap solvers refine
-/// this in the insert pass).
-pub(crate) fn pointer_from_cursor(
+/// v1's keep-list drag math (gizmos/transform.rs:28-65): project the pivot and a
+/// point one world unit along `axis_dir` to the viewport — the screen distance is
+/// "pixels per world unit", giving exact 1:1 mouse tracking at any depth/FOV.
+fn axis_movement(
+    camera: &Camera,
+    camera_transform: &GlobalTransform,
+    pivot: Vec3,
+    axis_dir: Vec3,
+    mouse_delta: Vec2,
+) -> f32 {
+    let Ok(screen_pos) = camera.world_to_viewport(camera_transform, pivot) else {
+        return 0.0;
+    };
+    let Ok(screen_axis_pos) = camera.world_to_viewport(camera_transform, pivot + axis_dir)
+    else {
+        return 0.0;
+    };
+    let screen_axis = screen_axis_pos - screen_pos;
+    let pixels_per_unit = screen_axis.length();
+    if pixels_per_unit < 0.001 {
+        // Axis points at/away from the camera.
+        return -mouse_delta.y * 0.01;
+    }
+    mouse_delta.dot(screen_axis / pixels_per_unit) / pixels_per_unit
+}
+
+/// Real-app motion source: cursor pixel delta → world delta via the v1 math. Free
+/// drag moves in the camera plane (right/up axes); an axis constraint projects onto
+/// that world axis with the same pixel accuracy.
+pub(crate) fn motion_from_cursor(
     gesture: Res<MoveGesture>,
     camera: Query<(&Camera, &GlobalTransform)>,
     window: Query<&Window, With<PrimaryWindow>>,
-    mut pointer: ResMut<GesturePointer>,
+    mut last_cursor: Local<Option<Vec2>>,
+    mut motion: ResMut<GestureMotion>,
 ) {
-    let MoveGesture::Active { originals, .. } = &*gesture else {
+    let MoveGesture::Active { axis, accumulated, originals, .. } = &*gesture else {
+        *last_cursor = None;
         return;
     };
-    let plane_height = originals.first().map(|(_, t)| t.translation.y).unwrap_or(0.0);
     let (Ok(window), Some((camera, camera_transform))) =
         (window.single(), camera.iter().find(|(c, _)| c.is_active))
     else {
         return;
     };
     let Some(cursor) = window.cursor_position() else { return };
-    let Ok(ray) = camera.viewport_to_world(camera_transform, cursor) else { return };
-    let Some(distance) = ray.intersect_plane(
-        Vec3::new(0.0, plane_height, 0.0),
-        InfinitePlane3d::new(Vec3::Y),
-    ) else {
+    let Some(last) = *last_cursor else {
+        *last_cursor = Some(cursor);
         return;
     };
-    pointer.0 = Some(ray.get_point(distance));
+    let mouse_delta = cursor - last;
+    *last_cursor = Some(cursor);
+    if mouse_delta == Vec2::ZERO {
+        return;
+    }
+    let pivot =
+        originals.first().map(|(_, t)| t.translation).unwrap_or(Vec3::ZERO) + *accumulated;
+
+    let world_delta = match axis {
+        Some(index) => {
+            let mut axis_dir = Vec3::ZERO;
+            axis_dir[*index] = 1.0;
+            axis_dir * axis_movement(camera, camera_transform, pivot, axis_dir, mouse_delta)
+        }
+        None => {
+            let right = *camera_transform.right();
+            let up = *camera_transform.up();
+            right * axis_movement(camera, camera_transform, pivot, right, mouse_delta)
+                + up * axis_movement(camera, camera_transform, pivot, up, mouse_delta)
+        }
+    };
+    motion.0 = Some(world_delta);
 }
 
 /// Mouse-click commit (the pick-arbitration guard: selection skips while active).
@@ -237,8 +283,8 @@ mod tests {
         app.world().get::<Transform>(entity).unwrap().translation
     }
 
-    fn point_at(app: &mut App, target: Vec3) {
-        app.world_mut().resource_mut::<GesturePointer>().0 = Some(target);
+    fn push_delta(app: &mut App, delta: Vec3) {
+        app.world_mut().resource_mut::<GestureMotion>().0 = Some(delta);
         app.update();
     }
 
@@ -250,9 +296,8 @@ mod tests {
         let depth_before = app.world().resource::<History>().undo_depth();
 
         invoke(&mut app, "transform.move");
-        point_at(&mut app, Vec3::new(0.0, 0.5, 0.0)); // anchor
-        for i in 1..=20 {
-            point_at(&mut app, Vec3::new(i as f32 * 0.25, 0.5, 0.0));
+        for _ in 1..=20 {
+            push_delta(&mut app, Vec3::new(0.25, 0.0, 0.0));
         }
         assert_eq!(translation(&mut app, id), Vec3::new(6.0, 0.5, 1.0));
         invoke(&mut app, "transform.commit");
@@ -275,8 +320,7 @@ mod tests {
         let depth_before = app.world().resource::<History>().undo_depth();
 
         invoke(&mut app, "transform.move");
-        point_at(&mut app, Vec3::ZERO);
-        point_at(&mut app, Vec3::new(5.0, 0.0, -2.0));
+        push_delta(&mut app, Vec3::new(5.0, 0.0, -2.0));
         assert_ne!(translation(&mut app, id), Vec3::new(2.0, 0.0, 3.0));
 
         invoke(&mut app, "transform.cancel");
@@ -296,9 +340,8 @@ mod tests {
         let mut app = test_app();
         let id = spawn_selected(&mut app, Vec3::ZERO);
         invoke(&mut app, "transform.move");
-        point_at(&mut app, Vec3::ZERO);
         invoke(&mut app, "transform.axis-x");
-        point_at(&mut app, Vec3::new(3.0, 0.0, 9.0));
+        push_delta(&mut app, Vec3::new(3.0, 0.0, 9.0));
         assert_eq!(translation(&mut app, id), Vec3::new(3.0, 0.0, 0.0), "x-only");
         invoke(&mut app, "transform.cancel");
     }

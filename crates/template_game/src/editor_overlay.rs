@@ -465,6 +465,7 @@ fn update_statusbar(
     modes: Res<Modes>,
     pending: Res<PendingKeys>,
     gesture: Res<MoveGesture>,
+    selected: Query<(), With<Selected>>,
     insert: Res<InsertState>,
     kinds: Res<KindCatalog>,
     flash: Res<StatusFlash>,
@@ -531,7 +532,8 @@ fn update_statusbar(
     for mut visibility in &mut dirty_dot {
         *visibility = if dirty.0 { Visibility::Visible } else { Visibility::Hidden };
     }
-    // Keys slot: pending glyphs win; otherwise transient save/load feedback.
+    // Keys slot: pending glyphs win; then selection count; then transient feedback.
+    let selection_count = selected.iter().count();
     for (mut text, mut color) in &mut keys_text {
         if !pending.0.is_empty() {
             let pending_text = style::pretty_chords(&pending.0);
@@ -547,6 +549,12 @@ fn update_statusbar(
                 } else {
                     style::color::TEXT_WARN
                 };
+            }
+        } else if selection_count > 0 {
+            let label = format!("{selection_count} selected");
+            if text.0 != label {
+                text.0 = label;
+                color.0 = style::color::TEXT_KEYS;
             }
         } else if !text.0.is_empty() {
             text.0.clear();
