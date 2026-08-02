@@ -96,8 +96,8 @@ fn spawn_palette(mut commands: Commands) {
             border_radius: {BorderRadius::all(px(style::radius::L))},
         }
         ThemeBackgroundColor(tokens::WINDOW_BG)
-        BorderColor::all({style::HAIRLINE})
-        template_value({style::floating_shadow()})
+        BorderColor::all(style::HAIRLINE)
+        template_value(style::floating_shadow())
         GlobalZIndex(200)
         Visibility::Hidden
         Children [

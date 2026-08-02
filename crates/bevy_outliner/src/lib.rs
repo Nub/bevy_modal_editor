@@ -1,7 +1,8 @@
 //! # Bevy Outliner
 //!
-//! A silhouette-based object outlining plugin for Bevy 0.19 (ported from v1
-//! through the quarantine gate: dead plugin.rs and orphaned shader removed).
+//! A silhouette-based object outlining plugin for Bevy 0.19 (ported from v1 through
+//! the quarantine gate: dead plugin.rs and orphaned shader removed; render-graph
+//! plumbing rewritten as `Core3d` schedule systems — ledger #8).
 //!
 //! Add outlines to any mesh by simply adding the [`MeshOutline`] component.
 //!
@@ -45,7 +46,7 @@ mod silhouette_material;
 
 pub mod prelude {
     pub use crate::components::{MeshOutline, OutlineSettings};
-    pub use crate::jfa_material::{HasSilhouetteMesh, SilhouetteMesh};
+    pub use crate::jfa_material::{HasSilhouetteMesh, SilhouetteCamera, SilhouetteMesh};
     pub use crate::OutlinePlugin;
 }
 

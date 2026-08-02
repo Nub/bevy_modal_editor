@@ -135,31 +135,3 @@ pub(crate) fn handle_selection_actions(
         }
     }
 }
-
-/// Viewport feedback: accent AABB wireframe around every selected entity
-/// (the M2 outline; the JFA outliner port replaces this later).
-pub(crate) fn draw_selection_gizmos(
-    mut gizmos: Gizmos,
-    state: Res<EditorState>,
-    selected: Query<(&GlobalTransform, Option<&bevy::camera::primitives::Aabb>), With<Selected>>,
-) {
-    if !state.active {
-        return;
-    }
-    let count = selected.iter().count();
-    if count > 0 {
-        info_once!("OUTLINE DRAW: running with {count} selected");
-    }
-    let color = Color::srgb(0.35, 0.62, 1.0);
-    for (transform, aabb) in &selected {
-        let (center, half) = match aabb {
-            Some(aabb) => (Vec3::from(aabb.center), Vec3::from(aabb.half_extents)),
-            None => (Vec3::ZERO, Vec3::splat(0.5)),
-        };
-        gizmos.aabb_3d(
-            bevy::math::bounding::Aabb3d::new(center, half),
-            *transform,
-            color,
-        );
-    }
-}

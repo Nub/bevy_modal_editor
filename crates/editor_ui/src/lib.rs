@@ -10,6 +10,7 @@
 pub mod style;
 
 mod ghost;
+mod outline;
 mod palette;
 mod statusbar;
 mod which_key;
@@ -43,6 +44,7 @@ impl Plugin for EditorUiPlugin {
             EditorCorePlugin,
             editor_scene::EditorScenePlugin,
             palette::PalettePlugin,
+            bevy_outliner::OutlinePlugin,
         ));
 
         app.init_resource::<which_key::WhichKey>();
@@ -51,6 +53,8 @@ impl Plugin for EditorUiPlugin {
             Update,
             (
                 ghost::apply_ghost_material,
+                outline::ensure_outline_camera,
+                outline::sync_selection_outlines,
                 statusbar::collect_io_feedback,
                 which_key::compute_which_key,
                 statusbar::update_statusbar,

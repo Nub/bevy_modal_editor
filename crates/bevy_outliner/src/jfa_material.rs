@@ -8,13 +8,10 @@
 use bevy::{
     asset::RenderAssetUsages,
     camera::{visibility::RenderLayers, RenderTarget},
-    core_pipeline::core_3d::graph::{Core3d, Node3d},
+    core_pipeline::{tonemapping::tonemapping, Core3d, Core3dSystems},
     prelude::*,
     render::{
         render_asset::RenderAssets,
-        render_graph::{
-            NodeRunError, RenderGraphContext, RenderGraphExt, RenderLabel, ViewNode, ViewNodeRunner,
-        },
         render_resource::{
             binding_types::{sampler as sampler_layout, texture_2d, texture_storage_2d, uniform_buffer},
             BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
@@ -25,10 +22,10 @@ use bevy::{
             SamplerDescriptor, ShaderStages, ShaderType, StorageTextureAccess, TextureDimension,
             TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
         },
-        renderer::{RenderContext, RenderDevice, RenderQueue},
+        renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         texture::GpuImage,
         view::ViewTarget,
-        Extract, Render, RenderApp,
+        Extract, Render, RenderApp, RenderSystems,
     },
 };
 
@@ -105,10 +102,6 @@ pub struct SilhouetteMesh;
 pub struct HasSilhouetteMesh {
     pub silhouette: Entity,
 }
-
-/// Render label for the outline node
-#[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
-pub struct OutlineNodeLabel;
 
 /// Resource holding the silhouette material
 #[derive(Resource, Clone)]
@@ -267,6 +260,10 @@ pub fn sync_outline_meshes(
                     scale,
                 },
                 RenderLayers::layer(OUTLINE_RENDER_LAYER),
+                // Silhouettes sit coincident with their source mesh; without this,
+                // picking raycasts (which ignore render layers) can hit the copy
+                // instead of the real entity.
+                bevy::picking::Pickable::IGNORE,
             ))
             .id();
 
@@ -380,7 +377,7 @@ pub fn resize_silhouette_textures(
         // Resize silhouette texture
         if let Some(silhouette_image) = images.get(&link.silhouette_texture) {
             if silhouette_image.size() != target_size {
-                if let Some(img) = images.get_mut(&link.silhouette_texture) {
+                if let Some(mut img) = images.get_mut(&link.silhouette_texture) {
                     img.resize(extent);
                 }
             }
@@ -389,7 +386,7 @@ pub fn resize_silhouette_textures(
         // Resize JFA ping texture
         if let Some(jfa_ping_image) = images.get(&link.jfa_ping_texture) {
             if jfa_ping_image.size() != target_size {
-                if let Some(img) = images.get_mut(&link.jfa_ping_texture) {
+                if let Some(mut img) = images.get_mut(&link.jfa_ping_texture) {
                     img.resize(extent);
                 }
             }
@@ -398,7 +395,7 @@ pub fn resize_silhouette_textures(
         // Resize JFA pong texture
         if let Some(jfa_pong_image) = images.get(&link.jfa_pong_texture) {
             if jfa_pong_image.size() != target_size {
-                if let Some(img) = images.get_mut(&link.jfa_pong_texture) {
+                if let Some(mut img) = images.get_mut(&link.jfa_pong_texture) {
                     img.resize(extent);
                 }
             }
@@ -413,8 +410,14 @@ pub fn extract_outline_data(
     outlines: Extract<Query<&MeshOutline>>,
     render_entity_lookup: Extract<Query<&bevy::render::sync_world::RenderEntity>>,
 ) {
-    // Early exit if no outlined entities - skip all rendering
+    // No outlined entities: clear stale extracted data (render-world camera entities
+    // persist across frames) so the pass fully skips instead of compositing nothing.
     let Some(first_outline) = outlines.iter().next() else {
+        for (entity, _, _) in cameras.iter() {
+            if let Ok(render_entity) = render_entity_lookup.get(entity) {
+                commands.entity(render_entity.id()).remove::<ExtractedOutlineData>();
+            }
+        }
         return;
     };
 
@@ -635,7 +638,7 @@ impl FromWorld for OutlinePipeline {
             shader: init_compute_shader,
             shader_defs: vec![],
             entry_point: Some("main".into()),
-            push_constant_ranges: vec![],
+            immediate_size: 0,
             zero_initialize_workgroup_memory: false,
         });
 
@@ -669,7 +672,7 @@ impl FromWorld for OutlinePipeline {
             shader: step_compute_shader,
             shader_defs: vec![],
             entry_point: Some("main".into()),
-            push_constant_ranges: vec![],
+            immediate_size: 0,
             zero_initialize_workgroup_memory: false,
         });
 
@@ -719,7 +722,7 @@ impl FromWorld for OutlinePipeline {
                     shader_defs: vec![],
                     entry_point: Some("fragment".into()),
                     targets: vec![Some(ColorTargetState {
-                        format: TextureFormat::bevy_default(),
+                        format: TextureFormat::Rgba8UnormSrgb,
                         blend: None,
                         write_mask: ColorWrites::ALL,
                     })],
@@ -727,7 +730,7 @@ impl FromWorld for OutlinePipeline {
                 primitive: PrimitiveState::default(),
                 depth_stencil: None,
                 multisample: MultisampleState::default(),
-                push_constant_ranges: vec![],
+                immediate_size: 0,
                 zero_initialize_workgroup_memory: false,
             });
 
@@ -746,7 +749,7 @@ impl FromWorld for OutlinePipeline {
                     shader_defs: vec![],
                     entry_point: Some("fragment".into()),
                     targets: vec![Some(ColorTargetState {
-                        format: ViewTarget::TEXTURE_FORMAT_HDR,
+                        format: TextureFormat::Rgba16Float,
                         blend: None,
                         write_mask: ColorWrites::ALL,
                     })],
@@ -754,7 +757,7 @@ impl FromWorld for OutlinePipeline {
                 primitive: PrimitiveState::default(),
                 depth_stencil: None,
                 multisample: MultisampleState::default(),
-                push_constant_ranges: vec![],
+                immediate_size: 0,
                 zero_initialize_workgroup_memory: false,
             });
 
@@ -771,60 +774,57 @@ impl FromWorld for OutlinePipeline {
     }
 }
 
-/// The outline render node - runs JFA passes and composites the result
-/// Uses cached resources from OutlineRenderResources to avoid per-frame allocations
-#[derive(Default)]
-pub struct OutlineNode;
-
-impl ViewNode for OutlineNode {
-    type ViewQuery = (
+/// The outline pass: runs the JFA compute chain and composites over the view.
+///
+/// 0.19 rework (ledger #8): rendering is camera-driven schedules — this is a plain
+/// system in the `Core3d` schedule ordered after `tonemapping`, replacing the removed
+/// render-graph `ViewNode`. `ViewQuery` scopes it to the camera being rendered and
+/// skips the run entirely for views that don't match (e.g. the silhouette camera).
+pub fn outline_pass(
+    view: ViewQuery<(
         &'static ViewTarget,
         Option<&'static ExtractedOutlineData>,
         Option<&'static OutlineRenderResources>,
-    );
+    )>,
+    outline_pipeline: Res<OutlinePipeline>,
+    pipeline_cache: Res<PipelineCache>,
+    gpu_images: Res<RenderAssets<GpuImage>>,
+    mut render_context: RenderContext,
+) {
+    let (view_target, outline_data, render_resources) = view.into_inner();
+    let Some(outline_data) = outline_data else {
+        return;
+    };
+    let Some(render_resources) = render_resources else {
+        // Resources not yet prepared, skip this frame
+        return;
+    };
 
-    fn run<'w>(
-        &self,
-        _graph: &mut RenderGraphContext,
-        render_context: &mut RenderContext<'w>,
-        (view_target, outline_data, render_resources): bevy::ecs::query::QueryItem<'w, '_, Self::ViewQuery>,
-        world: &'w World,
-    ) -> Result<(), NodeRunError> {
-        let Some(outline_data) = outline_data else {
-            return Ok(());
-        };
-        let Some(render_resources) = render_resources else {
-            // Resources not yet prepared, skip this frame
-            return Ok(());
-        };
-
-        let outline_pipeline = world.resource::<OutlinePipeline>();
-        let pipeline_cache = world.resource::<PipelineCache>();
-        let gpu_images = world.resource::<RenderAssets<GpuImage>>();
-
+    {
         // Get silhouette texture for composite pass
         let Some(silhouette_gpu) = gpu_images.get(&outline_data.silhouette_texture) else {
-            return Ok(());
+            return;
         };
         let Some(jfa_ping_gpu) = gpu_images.get(&outline_data.jfa_ping_texture) else {
-            return Ok(());
+            return;
         };
 
         // Get compute pipelines
         let Some(init_pipeline) = pipeline_cache.get_compute_pipeline(outline_pipeline.init_pipeline_id) else {
-            return Ok(());
+            return;
         };
         let Some(step_pipeline) = pipeline_cache.get_compute_pipeline(outline_pipeline.step_pipeline_id) else {
-            return Ok(());
+            return;
         };
 
-        let composite_pipeline_id = if view_target.is_hdr() {
-            outline_pipeline.composite_pipeline_id_hdr
-        } else {
-            outline_pipeline.composite_pipeline_id
-        };
+        let composite_pipeline_id =
+            if view_target.main_texture_format() == TextureFormat::Rgba16Float {
+                outline_pipeline.composite_pipeline_id_hdr
+            } else {
+                outline_pipeline.composite_pipeline_id
+            };
         let Some(composite_pipeline) = pipeline_cache.get_render_pipeline(composite_pipeline_id) else {
-            return Ok(());
+            return;
         };
 
         // ========== Run compute passes using cached resources ==========
@@ -903,18 +903,17 @@ impl ViewNode for OutlineNode {
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
 
             render_pass.set_render_pipeline(composite_pipeline);
             render_pass.set_bind_group(0, &composite_bind_group, &[]);
             render_pass.draw(0..3, 0..1);
         }
-
-        Ok(())
     }
 }
 
-/// Plugin that sets up the outline render node
+/// Plugin that sets up the outline render pass
 pub struct OutlineRenderPlugin;
 
 impl Plugin for OutlineRenderPlugin {
@@ -925,15 +924,17 @@ impl Plugin for OutlineRenderPlugin {
 
         render_app
             .add_systems(ExtractSchedule, extract_outline_data)
-            .add_systems(Render, prepare_outline_resources)
-            .add_render_graph_node::<ViewNodeRunner<OutlineNode>>(Core3d, OutlineNodeLabel)
-            .add_render_graph_edges(
+            .add_systems(
+                Render,
+                prepare_outline_resources.in_set(RenderSystems::PrepareResources),
+            )
+            // Post-tonemapping, pre-upscaling — the slot the old graph edges expressed
+            // (Tonemapping -> Outline -> EndMainPassPostProcessing).
+            .add_systems(
                 Core3d,
-                (
-                    Node3d::Tonemapping,
-                    OutlineNodeLabel,
-                    Node3d::EndMainPassPostProcessing,
-                ),
+                outline_pass
+                    .in_set(Core3dSystems::PostProcess)
+                    .after(tonemapping),
             );
     }
 

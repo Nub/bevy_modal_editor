@@ -11,6 +11,7 @@ repository.workspace = true
 # that compiles this crate, so these are unconditional here — games opt in by
 # depending on editor_ui behind their own `editor` feature.
 bevy = { workspace = true, features = ["bevy_feathers"] }
+bevy_outliner.workspace = true
 editor_api.workspace = true
 editor_core.workspace = true
 editor_scene.workspace = true

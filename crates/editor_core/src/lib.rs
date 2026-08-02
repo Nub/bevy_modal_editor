@@ -224,9 +224,6 @@ impl Plugin for EditorCorePlugin {
                     .chain()
                     .in_set(EditorSet::Tools),
                 edits::apply_edits.in_set(EditorSet::Mutate),
-                selection::draw_selection_gizmos
-                    .run_if(resource_exists::<bevy::gizmos::config::GizmoConfigStore>)
-                    .in_set(EditorSet::Sync),
             ),
         );
     }
