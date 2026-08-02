@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::ui::px;
 use editor_core::prelude::*;
 
-use crate::game::GameInputActive;
+use crate::game::{GameInputActive, Primitive, PrimitiveKind};
 use crate::ui_style::{self as style, UiFonts};
 
 #[derive(Component, Default, Clone)]
@@ -24,6 +24,80 @@ struct StatusKeys;
 #[derive(Component, Default, Clone)]
 struct WhichKeyPanel;
 
+/// The game's editor-facing registration: which components serialize, what can be
+/// placed. Lives editor-side; the game module stays editor-free.
+struct GameFeature;
+
+fn cube_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
+    use bevy::reflect::PartialReflect;
+    vec![
+        Box::new(Transform::from_translation(position + Vec3::Y * 0.5))
+            .into_partial_reflect(),
+        Box::new(Primitive { kind: PrimitiveKind::Cube, size: 1.0 }).into_partial_reflect(),
+    ]
+}
+
+fn sphere_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
+    use bevy::reflect::PartialReflect;
+    vec![
+        Box::new(Transform::from_translation(position + Vec3::Y * 0.5))
+            .into_partial_reflect(),
+        Box::new(Primitive { kind: PrimitiveKind::Sphere, size: 1.0 }).into_partial_reflect(),
+    ]
+}
+
+impl EditorFeature for GameFeature {
+    fn manifest(&self) -> FeatureManifest {
+        FeatureManifest::new("template-game", "Template Game")
+    }
+    fn register(&self, reg: &mut FeatureRegistry) {
+        reg.component::<Transform>()
+            .component::<Primitive>()
+            .entity_kind(EntityKindDef {
+                id: EntityKindId::new_static("primitive.cube"),
+                display_name: "Cube",
+                components: cube_components,
+            })
+            .entity_kind(EntityKindDef {
+                id: EntityKindId::new_static("primitive.sphere"),
+                display_name: "Sphere",
+                components: sphere_components,
+            });
+    }
+}
+
+/// Ghost styling for insert previews: translucent accent (applied after the game's
+/// regenerate observer attaches the normal material).
+#[derive(Component)]
+struct GhostApplied;
+
+#[derive(Resource)]
+struct GhostMaterial(Handle<StandardMaterial>);
+
+fn init_ghost_material(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>) {
+    commands.insert_resource(GhostMaterial(materials.add(StandardMaterial {
+        base_color: Color::srgba(0.35, 0.62, 1.0, 0.45),
+        alpha_mode: AlphaMode::Blend,
+        unlit: true,
+        ..default()
+    })));
+}
+
+#[allow(clippy::type_complexity)]
+fn apply_ghost_material(
+    ghost: Res<GhostMaterial>,
+    mut previews: Query<
+        (Entity, &mut MeshMaterial3d<StandardMaterial>),
+        (With<InsertPreview>, Without<GhostApplied>),
+    >,
+    mut commands: Commands,
+) {
+    for (entity, mut material) in &mut previews {
+        material.0 = ghost.0.clone();
+        commands.entity(entity).insert(GhostApplied);
+    }
+}
+
 pub struct EditorOverlayPlugin;
 
 impl Plugin for EditorOverlayPlugin {
@@ -32,16 +106,27 @@ impl Plugin for EditorOverlayPlugin {
         // in ./editor-keymap.ron win over registry defaults; delete to restore.
         app.insert_resource(KeymapPaths { user: Some("editor-keymap.ron".into()) });
         app.add_plugins(FeathersPlugins)
+            .add_plugins(bevy::picking::mesh_picking::MeshPickingPlugin)
             .insert_resource(UiTheme(create_dark_theme()));
+        app.add_editor_feature(GameFeature);
         app.add_plugins((EditorCorePlugin, editor_scene::EditorScenePlugin, crate::palette::PalettePlugin))
             .add_systems(
                 Update,
-                (sync_game_input, compute_which_key, update_statusbar, rebuild_which_key)
+                (
+                    sync_game_input,
+                    apply_ghost_material,
+                    compute_which_key,
+                    update_statusbar,
+                    rebuild_which_key,
+                )
                     .chain()
                     .in_set(editor_core::EditorSet::Sync),
             );
         app.init_resource::<WhichKey>();
-        app.add_systems(Startup, (style::load_ui_fonts, spawn_statusbar, spawn_which_key).chain());
+        app.add_systems(
+            Startup,
+            (style::load_ui_fonts, init_ghost_material, spawn_statusbar, spawn_which_key).chain(),
+        );
     }
 }
 

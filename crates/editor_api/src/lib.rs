@@ -12,10 +12,10 @@ pub mod edits;
 pub mod feature;
 pub mod ids;
 pub mod keymap;
+pub mod kinds;
 
 // Arriving with their milestones (RFC §2 layout):
 // pub mod components;  // M2+: ComponentOpts, migrators, PropertyHint
-// pub mod kinds;       // M2: EntityKindDef, PreviewMode
 // pub mod panels;      // M1 (editor_ui shell): PanelDecl, Placement
 // pub mod gizmos;      // M2: GizmoCtx, HandleId
 // pub mod validate;    // M3: ValidatorDef, Problem, Severity
@@ -36,4 +36,5 @@ pub mod prelude {
         GLOBAL_CONTEXT,
     };
     pub use crate::keymap::{Binding, Chord, Modifiers};
+    pub use crate::kinds::{EntityKindDef, InsertPreview};
 }

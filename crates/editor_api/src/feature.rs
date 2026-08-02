@@ -7,6 +7,7 @@
 
 use crate::actions::ActionDef;
 use crate::ids::{ActionId, ContextId, FeatureId, ModeId, GLOBAL_CONTEXT};
+use crate::kinds::EntityKindDef;
 use crate::keymap::{find_conflicts, Binding};
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
@@ -77,6 +78,7 @@ pub struct FeatureRegistry {
     pub(crate) modes: Vec<(FeatureId, ModeDef)>,
     pub(crate) components: Vec<(FeatureId, ComponentReg)>,
     pub(crate) contexts: Vec<(FeatureId, ContextId)>,
+    pub kinds: Vec<(FeatureId, EntityKindDef)>,
     current_feature: Option<FeatureId>,
 }
 
@@ -89,6 +91,19 @@ impl FeatureRegistry {
     pub fn mode(&mut self, def: ModeDef) -> &mut Self {
         let feature = self.current().clone();
         self.modes.push((feature, def));
+        self
+    }
+    /// Register a spawnable entity kind (RFC §7). The kernel synthesizes an
+    /// `insert.kind.<id>` action for the palette/insert mode automatically.
+    pub fn entity_kind(&mut self, def: EntityKindDef) -> &mut Self {
+        let feature = self.current().clone();
+        self.kinds.push((feature, def));
+        self
+    }
+    /// Kernel-side: inject a synthesized action under a feature's id (used for
+    /// registry-derived actions like kind insertion — never by features directly).
+    pub fn synthesize_action(&mut self, feature: FeatureId, def: ActionDef) -> &mut Self {
+        self.actions.push((feature, def));
         self
     }
     /// Register an overlay keymap context (gesture layers, focused-panel layers) that
@@ -167,6 +182,7 @@ pub struct ValidatedFeatures {
     pub modes: Vec<(FeatureId, ModeDef)>,
     pub bindings: Vec<CompiledBinding>,
     pub components: Vec<(FeatureId, ComponentReg)>,
+    pub kinds: Vec<(FeatureId, EntityKindDef)>,
 }
 
 impl FeatureRegistry {
@@ -269,6 +285,7 @@ impl FeatureRegistry {
                 modes: self.modes,
                 bindings,
                 components: self.components,
+                kinds: self.kinds,
             })
         } else {
             Err(errors)

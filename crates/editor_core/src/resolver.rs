@@ -231,13 +231,13 @@ mod tests {
             FeatureManifest::new("test", "Test")
         }
         fn register(&self, reg: &mut FeatureRegistry) {
-            reg.mode(ModeDef::new("insert", "Insert"))
+            reg.mode(ModeDef::new("test-mode", "TestMode"))
                 .action(ActionDef::new("test.undo", "Undo").context("normal").bind("x"))
                 .action(ActionDef::new("test.top", "Top").context("normal").bind("g g"))
                 .action(
-                    ActionDef::new("test.place", "Place").context("insert").bind("x"),
+                    ActionDef::new("test.place", "Place").context("test-mode").bind("x"),
                 )
-                .action(ActionDef::new("mode.insert", "Insert Mode").context("normal").bind("i"));
+                .action(ActionDef::new("mode.test-mode", "Test Mode").context("normal").bind("m"));
         }
     }
 
@@ -305,10 +305,10 @@ mod tests {
     #[test]
     fn mode_switch_changes_resolution() {
         let mut app = test_app();
-        press(&mut app, KeyCode::KeyI); // mode.insert
+        press(&mut app, KeyCode::KeyM); // mode.test-mode
         assert_eq!(
             app.world().resource::<CurrentMode>().0,
-            ModeId::new_static("insert")
+            ModeId::new_static("test-mode")
         );
         press(&mut app, KeyCode::KeyX);
         let actions = drain_actions(&mut app);

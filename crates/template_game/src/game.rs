@@ -18,6 +18,58 @@ impl Default for GameInputActive {
     }
 }
 
+/// Semantic scene primitive: the SERIALIZED truth. Meshes/materials derive from it
+/// via the regenerate observer (spec §5 marker/regenerate pattern) — in editor, in
+/// game, on load, on undo, identically.
+#[derive(Component, Reflect, Default, Clone, PartialEq, Debug)]
+#[reflect(Component)]
+pub struct Primitive {
+    pub kind: PrimitiveKind,
+    pub size: f32,
+}
+
+#[derive(Reflect, Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PrimitiveKind {
+    #[default]
+    Cube,
+    Sphere,
+}
+
+#[derive(Resource)]
+pub struct PrimitiveAssets {
+    pub material: Handle<StandardMaterial>,
+}
+
+fn init_primitive_assets(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>) {
+    commands.insert_resource(PrimitiveAssets {
+        material: materials.add(StandardMaterial {
+            base_color: Color::srgb(0.55, 0.45, 0.35),
+            ..default()
+        }),
+    });
+}
+
+/// Regenerate: derive render state from the semantic component. One path shared by
+/// level spawn, editor placement, scene load, and undo respawn.
+fn on_primitive_added(
+    add: On<bevy::ecs::lifecycle::Add, Primitive>,
+    primitives: Query<&Primitive>,
+    assets: Res<PrimitiveAssets>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut commands: Commands,
+) {
+    let entity = add.entity;
+    let Ok(primitive) = primitives.get(entity) else { return };
+    let size = if primitive.size > 0.0 { primitive.size } else { 1.0 };
+    let mesh = match primitive.kind {
+        PrimitiveKind::Cube => meshes.add(Cuboid::new(size, size, size)),
+        PrimitiveKind::Sphere => meshes.add(Sphere::new(size * 0.5)),
+    };
+    commands
+        .entity(entity)
+        .insert((Mesh3d(mesh), MeshMaterial3d(assets.material.clone())));
+}
+
 #[derive(Component)]
 pub struct Player {
     pub yaw: f32,
@@ -31,8 +83,10 @@ pub struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<Primitive>();
         app.init_resource::<GameInputActive>()
-            .add_systems(Startup, leave_boot)
+            .add_systems(Startup, (init_primitive_assets, leave_boot))
+            .add_observer(on_primitive_added)
             .add_systems(OnEnter(AppState::MainMenu), spawn_menu)
             .add_systems(OnExit(AppState::MainMenu), despawn_menu)
             .add_systems(Update, menu_start.run_if(in_state(AppState::MainMenu)))
@@ -87,21 +141,21 @@ fn spawn_level(
         base_color: Color::srgb(0.35, 0.38, 0.35),
         ..default()
     });
-    let box_mat = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.55, 0.45, 0.35),
-        ..default()
-    });
 
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
         MeshMaterial3d(ground),
         Transform::IDENTITY,
     ));
-    for (x, z, h) in [(4.0, -6.0, 1.0), (-5.0, -3.0, 2.0), (0.0, -10.0, 1.5), (7.0, 2.0, 0.5)] {
+    // Graybox content: SEMANTIC scene entities — meshes derive via the observer, and
+    // (with the editor feature) these are selectable, movable, savable.
+    for (x, z, size) in [(4.0, -6.0, 2.0), (-5.0, -3.0, 3.0), (0.0, -10.0, 2.5), (7.0, 2.0, 1.5)]
+    {
         commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(2.0, h * 2.0, 2.0))),
-            MeshMaterial3d(box_mat.clone()),
-            Transform::from_xyz(x, h, z),
+            #[cfg(feature = "editor")]
+            editor_api::prelude::SceneId::random(),
+            Primitive { kind: PrimitiveKind::Cube, size },
+            Transform::from_xyz(x, size / 2.0, z),
         ));
     }
     commands.spawn((

@@ -50,10 +50,14 @@ pub(crate) fn on_pointer_press(
     parents: Query<&ChildOf>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     state: Res<EditorState>,
+    mode: Res<crate::modes::CurrentMode>,
     gesture: Res<crate::gesture::MoveGesture>,
     mut commands: Commands,
 ) {
-    if !state.active || !matches!(*gesture, crate::gesture::MoveGesture::Idle) {
+    if !state.active
+        || mode.0 == crate::insert::MODE_INSERT
+        || !matches!(*gesture, crate::gesture::MoveGesture::Idle)
+    {
         return;
     }
     // Walk up to the nearest SceneId ancestor (mesh child hits resolve to the entity).

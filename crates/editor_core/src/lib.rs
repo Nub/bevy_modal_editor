@@ -8,6 +8,7 @@
 
 pub mod edits;
 pub mod gesture;
+pub mod insert;
 pub mod keymap_data;
 pub mod modes;
 pub mod resolver;
@@ -19,6 +20,7 @@ use editor_api::prelude::*;
 pub mod prelude {
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
     pub use crate::gesture::{GesturePointer, MoveGesture, GESTURE_MOVE_CONTEXT};
+    pub use crate::insert::{CursorGround, GridSnap, InsertState, KindCatalog, MODE_INSERT};
     pub use crate::keymap_data::KeymapPaths;
     pub use crate::selection::{Selected, SelectionChanged};
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
@@ -53,6 +55,20 @@ impl EditorFeature for CoreFeature {
     }
     fn register(&self, reg: &mut FeatureRegistry) {
         reg.mode(ModeDef::new("normal", "Normal").hint("navigate/select"))
+            .mode(ModeDef::new("insert", "Insert").hint("click place · shift multi · esc done"))
+            .action(
+                ActionDef::new("mode.insert", "Insert Mode")
+                    .describe("Place new entities")
+                    .context("normal")
+                    .bind("i"),
+            )
+            .action(
+                ActionDef::new("core.toggle-grid-snap", "Toggle Grid Snap")
+                    .describe("Quantize placement and movement to the grid")
+                    .context("normal")
+                    .context("insert")
+                    .bind("space g"),
+            )
             .action(
                 ActionDef::new("core.toggle-editor", "Toggle Editor")
                     .describe("Switch between game and editor")
@@ -154,6 +170,10 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<gesture::MoveGesture>()
             .init_resource::<gesture::GesturePointer>()
             .init_resource::<gesture::GestureCounter>()
+            .init_resource::<insert::InsertState>()
+            .init_resource::<insert::GridSnap>()
+            .init_resource::<insert::CursorGround>()
+            .init_resource::<insert::KindCatalog>()
             .add_message::<selection::SelectionChanged>();
 
         app.add_observer(edits::index_on_add);
@@ -182,6 +202,10 @@ impl Plugin for EditorCorePlugin {
                     gesture::pointer_from_cursor,
                     gesture::drive_gesture,
                     gesture::commit_on_click,
+                    insert::handle_insert_actions,
+                    insert::cursor_ground,
+                    insert::sync_preview,
+                    insert::place_on_click,
                 )
                     .chain()
                     .in_set(EditorSet::Tools),
@@ -204,6 +228,29 @@ fn host_features(world: &mut World) {
     let mut registry = FeatureRegistry::default();
     for feature in &pending.0 {
         registry.register_feature(feature.as_ref());
+    }
+
+    // Registry-derived insert actions: one per entity kind (kernel convention).
+    let kind_actions: Vec<(FeatureId, ActionDef)> = registry
+        .kinds
+        .iter()
+        .map(|(feature, kind)| {
+            let def = ActionDef {
+                id: ActionId::new(format!("insert.kind.{}", kind.id)),
+                name: format!("Insert: {}", kind.display_name).into(),
+                description: std::borrow::Cow::Borrowed("Place a new entity of this kind"),
+                contexts: vec![
+                    ContextId::new_static("normal"),
+                    ContextId::new_static("insert"),
+                ],
+                default_bindings: Vec::new(),
+                flags: editor_api::actions::ActionFlags { is_edit: true, hidden: false },
+            };
+            (feature.clone(), def)
+        })
+        .collect();
+    for (feature, def) in kind_actions {
+        registry.synthesize_action(feature, def);
     }
 
     let validated = match registry.validate() {
@@ -235,6 +282,9 @@ fn host_features(world: &mut World) {
         });
     }
 
+    world.insert_resource(insert::KindCatalog {
+        kinds: validated.kinds.iter().map(|(_, k)| k.clone()).collect(),
+    });
     world.insert_resource(modes::Modes::from_validated(&validated));
     world.insert_resource(modes::CurrentMode(MODE_NORMAL));
     world.insert_resource(resolver::ActionCatalog::from_validated(&validated));
