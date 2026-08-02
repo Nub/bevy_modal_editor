@@ -27,7 +27,9 @@ use bevy::prelude::*;
 use bevy::scene::SpawnListSystem;
 use bevy::text::TextEditChange;
 use bevy::ui::{px, percent, Checked, ScrollPosition};
-use bevy::ui_widgets::{checkbox_self_update, slider_self_update, ScrollArea, ValueChange};
+use bevy::ui_widgets::{
+    checkbox_self_update, slider_self_update, ScrollArea, SliderPrecision, SliderStep, ValueChange,
+};
 use bevy::window::SystemCursorIcon;
 use bevy::feathers::cursor::EntityCursor;
 
@@ -173,7 +175,7 @@ fn axis_input(label: &'static str, sigil: bevy::feathers::theme::ThemeToken) -> 
             @sigil_color: {sigil},
             @label_text: {Some(label)},
         }
-        Node { flex_grow: 1.0 }
+        Node { flex_grow: 1.0, max_width: px(110) }
     }
 }
 
@@ -188,33 +190,35 @@ fn inspector_pane() -> impl Scene {
         ThemeBackgroundColor(tokens::PANE_BODY_BG)
         Children [
             (Text("INSPECTOR") ThemedText),
+            // Gallery idiom: labels on their OWN line above each control row — inline
+            // labels overflow because EditableText inputs have large intrinsic
+            // min-widths (this was the overlap bug).
             // Name: feathers text input (parley editing: selection/clipboard/IME)
+            (Text("Name") ThemedText),
             (
-                Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(8) }
+                @FeathersTextInputContainer
                 Children [
-                    (Text("Name") ThemedText Node { width: px(72), flex_shrink: 0.0 }),
                     (
-                        @FeathersTextInputContainer
-                        Node { flex_grow: 1.0 }
-                        Children [
-                            (
-                                @FeathersTextInput {}
-                                NameInput
-                                on(|_c: On<TextEditChange>,
-                                    q: Single<&bevy::text::EditableText, With<NameInput>>,
-                                    mut state: ResMut<DemoState>| {
-                                    state.name = q.value().to_string();
-                                })
-                            )
-                        ]
-                    ),
+                        @FeathersTextInput {}
+                        NameInput
+                        on(|_c: On<TextEditChange>,
+                            q: Single<&bevy::text::EditableText, With<NameInput>>,
+                            mut state: ResMut<DemoState>| {
+                            state.name = q.value().to_string();
+                        })
+                    )
                 ]
             ),
             // Position: three axis-tinted number inputs (the property-grid primitive)
+            (Text("Position") ThemedText),
             (
-                Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(4) }
+                Node {
+                    flex_direction: FlexDirection::Row,
+                    column_gap: px(6),
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::SpaceBetween,
+                }
                 Children [
-                    (Text("Position") ThemedText Node { width: px(72), flex_shrink: 0.0 }),
                     (
                         axis_input("X", tokens::TEXT_INPUT_X_AXIS)
                         on(|vc: On<ValueChange<f32>>, mut s: ResMut<DemoState>| { s.position.x = vc.value; })
@@ -229,18 +233,14 @@ fn inspector_pane() -> impl Scene {
                     ),
                 ]
             ),
-            // Scale: slider
+            // Scale: slider (gallery-exact: SliderStep + SliderPrecision, no wrapping row)
+            (Text("Scale") ThemedText),
             (
-                Node { flex_direction: FlexDirection::Row, align_items: AlignItems::Center, column_gap: px(8) }
-                Children [
-                    (Text("Scale") ThemedText Node { width: px(72), flex_shrink: 0.0 }),
-                    (
-                        @FeathersSlider { @max: 10.0, @value: 1.0 }
-                        Node { flex_grow: 1.0 }
-                        on(slider_self_update)
-                        on(|vc: On<ValueChange<f32>>, mut s: ResMut<DemoState>| { s.scale = vc.value; })
-                    ),
-                ]
+                @FeathersSlider { @max: 10.0, @value: 1.0 }
+                SliderStep(0.5)
+                SliderPrecision(2)
+                on(slider_self_update)
+                on(|vc: On<ValueChange<f32>>, mut s: ResMut<DemoState>| { s.scale = vc.value; })
             ),
             // Visible: checkbox
             (
