@@ -25,11 +25,21 @@ use crate::ui_style::{self as style, UiFonts};
 
 const MAX_RESULTS: usize = 8;
 
+/// What this palette is browsing (v1's typed open-modes, spec §7): filters are
+/// structural, never query-string hacks.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum PaletteFilter {
+    #[default]
+    Commands,
+    InsertKinds,
+}
+
 #[derive(Resource, Default)]
 pub struct PaletteState {
     pub open: bool,
     pub query: String,
     pub selected: usize,
+    pub filter: PaletteFilter,
 }
 
 #[derive(Component, Default, Clone)]
@@ -159,14 +169,18 @@ fn filter_actions(
     catalog: &ActionCatalog,
     keymap: &ResolvedKeymap,
     query: &str,
+    filter: PaletteFilter,
 ) -> Vec<(String, String, ActionId)> {
     let needle = query.to_lowercase();
-    // The insert-mode prefill "insert:" narrows to placeable kinds.
-    let needle = if needle == "insert:" { "insert.kind.".to_string() } else { needle };
     let mut out = Vec::new();
     for def in &catalog.actions {
         if def.flags.hidden {
             continue;
+        }
+        let is_kind = def.id.as_str().starts_with("insert.kind.");
+        match filter {
+            PaletteFilter::InsertKinds if !is_kind => continue,
+            _ => {}
         }
         let hay = format!("{} {}", def.id.as_str(), def.name).to_lowercase();
         if !needle.is_empty() && !hay.contains(&needle) {
@@ -196,6 +210,7 @@ fn open_palette(
 ) {
     state.open = true;
     state.selected = 0;
+    state.query.clear();
     capture.0 = true;
     focus.set(input, FocusCause::Navigated);
     *root_vis = Visibility::Visible;
@@ -208,6 +223,7 @@ fn close_palette(
     root_vis: &mut Visibility,
 ) {
     state.open = false;
+    state.filter = PaletteFilter::Commands;
     capture.0 = false;
     focus.clear();
     *root_vis = Visibility::Hidden;
@@ -232,27 +248,22 @@ fn open_on_insert_mode(
         let picked = std::mem::take(&mut just_picked.0);
         if change.to == editor_core::prelude::MODE_INSERT && !state.open && !picked {
             open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
-            state.query = "insert:".into();
+            state.filter = PaletteFilter::InsertKinds;
             if let Ok(mut text) = editable.get_mut(*input) {
-                text.queue_edit(bevy::text::TextEdit::SelectAll);
-                text.queue_edit(bevy::text::TextEdit::Insert("insert:".into()));
+                text.clear();
             }
         }
     }
 }
 
-/// Mode-aware title (the v1-lineage header): what this palette is browsing.
-fn update_title(
-    mode: Res<CurrentMode>,
-    mut title: Query<&mut Text, With<PaletteTitle>>,
-) {
-    if !mode.is_changed() {
+/// Filter-aware title (the v1-lineage header): what this palette is browsing.
+fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<PaletteTitle>>) {
+    if !state.is_changed() {
         return;
     }
-    let label = if mode.0 == editor_core::prelude::MODE_INSERT {
-        "INSERT OBJECT"
-    } else {
-        "COMMANDS"
+    let label = match state.filter {
+        PaletteFilter::InsertKinds => "INSERT OBJECT",
+        PaletteFilter::Commands => "COMMANDS",
     };
     for mut text in &mut title {
         if text.0 != label {
@@ -263,15 +274,26 @@ fn update_title(
 
 fn handle_open_action(
     mut reader: MessageReader<ActionInvoked>,
+    mode: Res<CurrentMode>,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
     mut focus: ResMut<InputFocus>,
     input: Single<Entity, With<PaletteInput>>,
+    mut editable: Query<&mut bevy::text::EditableText>,
     mut root: Single<&mut Visibility, With<PaletteRoot>>,
 ) {
     for invoked in reader.read() {
         if invoked.action.as_str() == "core.palette" && !state.open {
             open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
+            // Contextual filter: the palette opened in insert mode browses kinds.
+            state.filter = if mode.0 == editor_core::prelude::MODE_INSERT {
+                PaletteFilter::InsertKinds
+            } else {
+                PaletteFilter::Commands
+            };
+            if let Ok(mut text) = editable.get_mut(*input) {
+                text.clear();
+            }
         }
         // Escape always backs out (even when it pierced key capture).
         if invoked.action.as_str() == "core.escape-home" && state.open {
@@ -334,7 +356,7 @@ fn palette_keys(
     if !state.open || event.input.state != ButtonState::Pressed {
         return;
     }
-    let result_count = filter_actions(&catalog, &keymap, &state.query).len();
+    let result_count = filter_actions(&catalog, &keymap, &state.query, state.filter).len();
     match event.input.key_code {
         KeyCode::ArrowDown => {
             if result_count > 0 {
@@ -347,7 +369,7 @@ fn palette_keys(
             event.propagate(false);
         }
         KeyCode::Enter => {
-            let results = filter_actions(&catalog, &keymap, &state.query);
+            let results = filter_actions(&catalog, &keymap, &state.query, state.filter);
             if let Some((_, _, action)) = results.get(state.selected) {
                 actions.write(ActionInvoked {
                     action: action.clone(),
@@ -383,7 +405,7 @@ fn rebuild_results(
     if !state.open {
         return;
     }
-    let rows = filter_actions(&catalog, &keymap, &state.query);
+    let rows = filter_actions(&catalog, &keymap, &state.query, state.filter);
 
     // Left pane: the result list.
     commands.entity(*results).with_children(|parent| {
