@@ -15,3 +15,4 @@ bevy_outliner.workspace = true
 editor_api.workspace = true
 editor_core.workspace = true
 editor_scene.workspace = true
+uuid.workspace = true

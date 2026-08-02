@@ -12,7 +12,9 @@ bevy.workspace = true
 game_framework.workspace = true
 editor_api = { workspace = true, optional = true }
 editor_core = { workspace = true, optional = true }
+editor_scene = { workspace = true, optional = true }
 editor_ui = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true }
 
 [features]
 # The editor is an opt-in game feature (spec §1): compile-time flag, never release
@@ -22,5 +24,7 @@ editor_ui = { workspace = true, optional = true }
 editor = [
     "dep:editor_api",
     "dep:editor_core",
+    "dep:editor_scene",
     "dep:editor_ui",
+    "dep:uuid",
 ]

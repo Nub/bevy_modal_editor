@@ -350,6 +350,7 @@ fn perform_scene_io(world: &mut World) {
     }
 }
 
+pub mod materials;
 pub mod play;
 
 #[cfg(test)]
@@ -437,15 +438,28 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<SceneIoRequests>()
             .init_resource::<play::PlayState>()
             .init_resource::<play::PlayRequests>()
+            .init_resource::<materials::MaterialLibrary>()
             .add_message::<SceneIoFeedback>();
         app.add_editor_feature(ScenesFeature);
         app.add_editor_feature(play::PlayFeature);
+        app.add_editor_feature(materials::MaterialsFeature);
+        app.add_systems(Startup, materials::load_library_at_startup);
         app.add_systems(
             Update,
             (
-                (collect_io_actions, track_dirty, play::collect_play_actions)
+                (
+                    collect_io_actions,
+                    track_dirty,
+                    play::collect_play_actions,
+                    materials::handle_material_actions,
+                )
                     .in_set(editor_core::EditorSet::Tools),
-                (perform_scene_io, play::perform_play).in_set(editor_core::EditorSet::Sync),
+                (
+                    perform_scene_io,
+                    play::perform_play,
+                    materials::save_library_on_change,
+                )
+                    .in_set(editor_core::EditorSet::Sync),
             ),
         );
     }

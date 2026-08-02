@@ -2392,6 +2392,7 @@ dependencies = [
  "editor_api",
  "editor_core",
  "editor_scene",
+ "uuid",
 ]
 
 [[package]]
@@ -4886,8 +4887,10 @@ dependencies = [
  "bevy",
  "editor_api",
  "editor_core",
+ "editor_scene",
  "editor_ui",
  "game_framework",
+ "uuid",
 ]
 
 [[package]]

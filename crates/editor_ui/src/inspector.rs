@@ -49,6 +49,11 @@ pub(crate) struct InspectorField {
 pub(crate) enum FieldKind {
     /// `path` names an `f32` leaf.
     Direct,
+    /// Library material parameter (asset edit, saved immediately; `path` = uuid).
+    /// 0-3 = rgba, 4 = metallic, 5 = roughness.
+    MaterialParam(u8),
+    /// Library material rename (`path` = uuid).
+    MaterialName,
     /// Euler-degrees editing of `Transform.rotation` (axis 0/1/2, XYZ order).
     EulerDeg(usize),
     /// `path` names a `bool` leaf.
@@ -128,13 +133,19 @@ pub(crate) struct InspectorModel {
 /// produced rows for the component. Feature crates will extend this through the
 /// `editor_api` ui surface; editor defaults register at plugin build.
 pub(crate) type CollectOverride =
-    fn(SceneId, &'static str, &dyn PartialReflect, &mut Vec<RowSpec>) -> bool;
+    fn(SceneId, &'static str, &dyn PartialReflect, &World, &mut Vec<RowSpec>) -> bool;
 
 #[derive(Resource, Default)]
 pub(crate) struct InspectorOverrides(pub Vec<(TypeId, CollectOverride)>);
 
 pub(crate) fn default_overrides() -> InspectorOverrides {
-    InspectorOverrides(vec![(TypeId::of::<Transform>(), collect_transform)])
+    InspectorOverrides(vec![
+        (TypeId::of::<Transform>(), collect_transform),
+        (
+            TypeId::of::<editor_scene::materials::MaterialRef>(),
+            collect_material,
+        ),
+    ])
 }
 
 fn focus_inside_inspector(world: &World) -> bool {
@@ -284,7 +295,7 @@ pub(crate) fn collect_inspector(world: &mut World) {
             let handled = overrides
                 .iter()
                 .find(|(id, _)| *id == type_id)
-                .is_some_and(|(_, f)| f(target, type_path, value, &mut component_rows));
+                .is_some_and(|(_, f)| f(target, type_path, value, world, &mut component_rows));
             if !handled {
                 walk_fields(target, type_path, "", value, &mut component_rows);
             }
@@ -359,6 +370,7 @@ fn collect_transform(
     target: SceneId,
     type_path: &'static str,
     value: &dyn PartialReflect,
+    _world: &World,
     rows: &mut Vec<RowSpec>,
 ) -> bool {
     let Some(transform) = value.try_downcast_ref::<Transform>() else { return false };
@@ -454,6 +466,64 @@ fn walk_fields(
             }
         }
     }
+}
+
+/// Material editor (C6): the selection's `MaterialRef` surfaces the LIBRARY
+/// entry — name, color, metallic, roughness — edited in place (asset edits save
+/// immediately; scene undo history is not the asset history — M4 gate note).
+fn collect_material(
+    target: SceneId,
+    _type_path: &'static str,
+    value: &dyn PartialReflect,
+    world: &World,
+    rows: &mut Vec<RowSpec>,
+) -> bool {
+    let Some(material_ref) =
+        value.try_downcast_ref::<editor_scene::materials::MaterialRef>()
+    else {
+        return false;
+    };
+    let library = world.resource::<editor_scene::materials::MaterialLibrary>();
+    let Some(def) = library.get(&material_ref.0) else {
+        rows.push(RowSpec::ReadOnly {
+            label: "Material".into(),
+            value: "(missing from library)".into(),
+        });
+        return true;
+    };
+    let uuid = def.id.to_string();
+    let field = |kind: FieldKind| InspectorField {
+        target,
+        type_path: "editor_scene::materials::MaterialRef",
+        path: uuid.clone(),
+        kind,
+    };
+    rows.push(RowSpec::TextField {
+        label: "Material".into(),
+        value: def.name.clone(),
+        field: field(FieldKind::MaterialName),
+    });
+    rows.push(RowSpec::Triple {
+        label: "Color RGB".into(),
+        fields: (0..3u8)
+            .map(|i| NumberSpec {
+                value: def.base_color[i as usize],
+                axis: None,
+                field: field(FieldKind::MaterialParam(i)),
+            })
+            .collect(),
+    });
+    for (label, index, value) in [
+        ("alpha", 3u8, def.base_color[3]),
+        ("metallic", 4, def.metallic),
+        ("roughness", 5, def.roughness),
+    ] {
+        rows.push(RowSpec::Number {
+            label: label.into(),
+            field: NumberSpec { value, axis: None, field: field(FieldKind::MaterialParam(index)) },
+        });
+    }
+    true
 }
 
 fn leaf_label(path: &str) -> String {
@@ -610,11 +680,13 @@ pub(crate) fn watch_inspector_inputs(
     mut edited: MessageReader<Edited>,
     mut selection: MessageReader<SelectionChanged>,
     state: Res<EditorState>,
+    library: Res<editor_scene::materials::MaterialLibrary>,
     mut model: ResMut<InspectorModel>,
 ) {
     if edited.read().next().is_some()
         || selection.read().next().is_some()
         || state.is_changed()
+        || library.is_changed()
     {
         model.dirty = true;
     }
@@ -938,6 +1010,32 @@ fn queue_set(
     gesture: Option<u64>,
 ) {
     commands.queue(move |world: &mut World| {
+        // Asset edits target the LIBRARY, not a component.
+        match (&field.kind, &new_value) {
+            (FieldKind::MaterialParam(param), FieldNewValue::F32(v)) => {
+                let Ok(uuid) = field.path.parse::<uuid::Uuid>() else { return };
+                let mut library =
+                    world.resource_mut::<editor_scene::materials::MaterialLibrary>();
+                if let Some(def) = library.get_mut(&uuid) {
+                    match param {
+                        0..=3 => def.base_color[*param as usize] = *v,
+                        4 => def.metallic = *v,
+                        _ => def.roughness = *v,
+                    }
+                }
+                return;
+            }
+            (FieldKind::MaterialName, FieldNewValue::Text(text)) => {
+                let Ok(uuid) = field.path.parse::<uuid::Uuid>() else { return };
+                let mut library =
+                    world.resource_mut::<editor_scene::materials::MaterialLibrary>();
+                if let Some(def) = library.get_mut(&uuid) {
+                    def.name = text.clone();
+                }
+                return;
+            }
+            _ => {}
+        }
         let Some(entity) = world.resource::<SceneIndex>().get(&field.target) else { return };
         let registry = world.resource::<AppTypeRegistry>().clone();
         let registry = registry.read();

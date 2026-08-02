@@ -35,6 +35,8 @@ pub enum PaletteFilter {
     /// Scene search: every named entity, Enter selects (spec: find-object is an
     /// ENGINE INSTANCE, not a bespoke list).
     FindObject,
+    /// The material library (C6): Enter assigns to the selection.
+    Materials,
 }
 
 #[derive(Resource, Default)]
@@ -210,11 +212,15 @@ fn build_palette_items(
     keymap: Res<ResolvedKeymap>,
     modes: Res<Modes>,
     entities: Query<(&SceneId, &Name)>,
+    library: Res<editor_scene::materials::MaterialLibrary>,
     mut edited: MessageReader<Edited>,
     mut items: ResMut<PaletteItems>,
 ) {
     let scene_changed = edited.read().next().is_some();
-    if !state.is_changed() && !(scene_changed && state.filter == PaletteFilter::FindObject) {
+    let refresh = state.is_changed()
+        || (scene_changed && state.filter == PaletteFilter::FindObject)
+        || (library.is_changed() && state.filter == PaletteFilter::Materials);
+    if !refresh {
         return;
     }
     if !state.open {
@@ -223,6 +229,25 @@ fn build_palette_items(
     }
     items.0.clear();
     match state.filter {
+        PaletteFilter::Materials => {
+            for def in &library.materials {
+                items.0.push(PaletteEntry {
+                    label: def.name.clone(),
+                    category: None,
+                    keywords: def.id.to_string(),
+                    suffix: "material".into(),
+                    payload: PalettePayload::Material(def.id),
+                });
+            }
+            // Creating one belongs in the same surface.
+            items.0.push(PaletteEntry {
+                label: "New Material…".into(),
+                category: None,
+                keywords: "create material new".into(),
+                suffix: String::new(),
+                payload: PalettePayload::Action(ActionId::new_static("material.new")),
+            });
+        }
         PaletteFilter::FindObject => {
             let mut named: Vec<(&SceneId, &Name)> = entities.iter().collect();
             named.sort_by_key(|(id, _)| id.0);
@@ -396,6 +421,7 @@ fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<Palet
         PaletteFilter::InsertKinds => "INSERT OBJECT",
         PaletteFilter::Commands => "COMMANDS",
         PaletteFilter::FindObject => "FIND OBJECT",
+        PaletteFilter::Materials => "ASSIGN MATERIAL",
     };
     for mut text in &mut title {
         if text.0 != label {
@@ -423,6 +449,13 @@ fn handle_open_action(
             } else {
                 PaletteFilter::Commands
             };
+            if let Ok(mut text) = editable.get_mut(*input) {
+                text.clear();
+            }
+        }
+        if invoked.action.as_str() == "material.assign" && !state.open {
+            open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
+            state.filter = PaletteFilter::Materials;
             if let Ok(mut text) = editable.get_mut(*input) {
                 text.clear();
             }
@@ -518,6 +551,35 @@ fn palette_keys(
                             action: action.clone(),
                             args: None,
                             source: InvocationSource::Palette,
+                        });
+                    }
+                    PalettePayload::Material(material) => {
+                        let material = *material;
+                        commands.queue(move |world: &mut World| {
+                            let selected: Vec<SceneId> = {
+                                let mut query = world
+                                    .query_filtered::<&SceneId, With<Selected>>();
+                                query.iter(world).copied().collect()
+                            };
+                            if selected.is_empty() {
+                                return;
+                            }
+                            // ONE transaction for the whole selection (C6).
+                            let ops = selected
+                                .into_iter()
+                                .map(|target| Op::Set {
+                                    target,
+                                    value: Box::new(
+                                        editor_scene::materials::MaterialRef(material),
+                                    )
+                                    .into_partial_reflect(),
+                                })
+                                .collect::<Vec<_>>();
+                            world.resource_mut::<EditQueue>().0.push(Transaction {
+                                label: "Assign Material".into(),
+                                gesture: None,
+                                ops,
+                            });
                         });
                     }
                     PalettePayload::Entity(id) => {

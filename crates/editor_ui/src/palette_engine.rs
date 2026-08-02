@@ -17,6 +17,8 @@ pub(crate) enum PalettePayload {
     Action(ActionId),
     /// Select this scene entity (find-object, and later asset pickers).
     Entity(SceneId),
+    /// Assign this library material to the selection (C6).
+    Material(uuid::Uuid),
 }
 
 #[derive(Clone)]
