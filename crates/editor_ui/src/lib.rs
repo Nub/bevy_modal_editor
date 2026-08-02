@@ -101,7 +101,16 @@ impl Plugin for EditorUiPlugin {
 
         app.add_plugins(FeathersPlugins)
             .add_plugins(bevy::picking::mesh_picking::MeshPickingPlugin)
-            .insert_resource(UiTheme(create_dark_theme()));
+            .insert_resource({
+                // Scrollbars are indicators, not focus (owner): drop the accent
+                // thumb for a low-contrast neutral.
+                let mut theme = UiTheme(create_dark_theme());
+                theme.set_color("feathers.scrollbar.bg", Color::NONE);
+                theme.set_color("feathers.scrollbar.thumb", Color::srgba(1.0, 1.0, 1.0, 0.16));
+                theme
+                    .set_color("feathers.scrollbar.thumb.hover", Color::srgba(1.0, 1.0, 1.0, 0.32));
+                theme
+            });
 
         app.add_plugins((
             EditorCorePlugin,
@@ -129,6 +138,7 @@ impl Plugin for EditorUiPlugin {
             (
                 dock::track_pointer_over_chrome,
                 dock::sync_dock_chrome,
+                dock::style_scrollbars,
                 hierarchy::watch_hierarchy_inputs,
                 hierarchy::watch_hierarchy_window,
                 hierarchy::rebuild_hierarchy,

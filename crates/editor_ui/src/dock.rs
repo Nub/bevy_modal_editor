@@ -129,7 +129,15 @@ pub(crate) fn spawn_docks(
                                 TextColor(style::color::TEXT_KEYS),
                             ));
                         });
-                        card.spawn((
+                        card.spawn(Node {
+                            flex_direction: FlexDirection::Column,
+                            flex_grow: 1.0,
+                            min_height: px(0),
+                            ..default()
+                        })
+                        .insert(BodyWrapper)
+                        .with_children(|wrapper| {
+                        wrapper.spawn((
                             PanelBody(id.clone()),
                             bevy::input_focus::tab_navigation::TabGroup::default(),
                             // Wheel scrolling for every panel body.
@@ -159,6 +167,7 @@ pub(crate) fn spawn_docks(
                                 TextColor(style::color::TEXT_DIM),
                             ));
                         });
+                        });
                     });
                 }
             });
@@ -169,16 +178,33 @@ pub(crate) fn spawn_docks(
 #[derive(Component)]
 pub(crate) struct ScrollbarAttached;
 
+/// The relative container spanning exactly the body region.
+#[derive(Component)]
+pub(crate) struct BodyWrapper;
+
+/// Our scrollbar roots: animated width (macOS-style shrink when idle — an
+/// indicator, not a focus).
+#[derive(Component)]
+pub(crate) struct EditorScrollbar {
+    width: f32,
+    last_active: f32,
+}
+
 /// Startup pass after `spawn_docks`: every panel body gets a feathers scrollbar
 /// overlay (kit-first) pinned to its card's right edge, targeting the body's
 /// `ScrollPosition`.
 pub(crate) fn attach_scrollbars(
     cards: Query<(Entity, &Children), (With<PanelCard>, Without<ScrollbarAttached>)>,
+    wrappers: Query<(Entity, &Children), With<BodyWrapper>>,
     bodies: Query<Entity, With<PanelBody>>,
     mut commands: Commands,
 ) {
     for (card, children) in &cards {
-        let Some(body) = children.iter().find(|child| bodies.get(*child).is_ok()) else {
+        let Some((wrapper, body)) = children.iter().find_map(|child| {
+            let (wrapper, wrapper_children) = wrappers.get(child).ok()?;
+            let body = wrapper_children.iter().find(|c| bodies.get(*c).is_ok())?;
+            Some((wrapper, body))
+        }) else {
             continue;
         };
         let scrollbar = commands
@@ -190,14 +216,54 @@ pub(crate) fn attach_scrollbars(
                 Node {
                     position_type: PositionType::Absolute,
                     right: px(style::space::XS),
-                    top: px(38),
+                    top: px(style::space::XS),
                     bottom: px(style::space::XS),
-                    width: px(6),
+                    width: px(3),
                 }
             })
             .id();
-        commands.entity(scrollbar).insert(ChildOf(card));
+        commands
+            .entity(scrollbar)
+            .insert((EditorScrollbar { width: 3.0, last_active: -10.0 }, ChildOf(wrapper)));
         commands.entity(card).insert(ScrollbarAttached);
+    }
+}
+
+/// macOS-style presence: 3px idle strip; grows to 7px while the thumb is
+/// hovered/dragged or the target scrolled recently, easing both ways.
+pub(crate) fn style_scrollbars(
+    time: Res<Time>,
+    mut bars: Query<(Entity, &mut Node, &mut EditorScrollbar, &bevy::ui_widgets::Scrollbar)>,
+    children: Query<&Children>,
+    thumbs: Query<
+        (&bevy::picking::hover::Hovered, Option<&bevy::ui_widgets::ScrollbarDragState>),
+        With<bevy::ui_widgets::ScrollbarThumb>,
+    >,
+    scrolled: Query<(), Changed<ScrollPosition>>,
+) {
+    let now = time.elapsed_secs();
+    for (entity, mut node, mut bar, scrollbar) in &mut bars {
+        let mut engaged = false;
+        // Thumb hover/drag anywhere under this bar.
+        let mut stack = vec![entity];
+        while let Some(current) = stack.pop() {
+            if let Ok((hovered, drag)) = thumbs.get(current) {
+                engaged |= hovered.0 || drag.is_some_and(|d| d.dragging);
+            }
+            if let Ok(kids) = children.get(current) {
+                stack.extend(kids.iter());
+            }
+        }
+        if scrolled.get(scrollbar.target).is_ok() {
+            engaged = true;
+        }
+        if engaged {
+            bar.last_active = now;
+        }
+        let target_width = if now - bar.last_active < 0.8 { 7.0 } else { 3.0 };
+        let speed = (time.delta_secs() * 14.0).min(1.0);
+        bar.width += (target_width - bar.width) * speed;
+        node.width = px(bar.width);
     }
 }
 
