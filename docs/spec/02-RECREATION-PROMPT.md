@@ -513,6 +513,9 @@ with progress UI.
   headers, cards, empty-states — the blessed set, composed from feathers primitives;
   panels compose these, keeping look and keyboard behavior uniform. v1's `theme.rs`
   semantic-color system carries as a design (a feathers theme), not as code.
+  **Standing visual bar (owner directive, M1 review): editor chrome is always modern,
+  themed surfaces — full-width bars/panels with backgrounds and real layout, never bare
+  text floating over the render — including interim milestones.**
   **Binding requirements from M0 spike findings F6–F8** (raw feathers controls are
   row-oriented and empty-state-hostile; the kit fixes each once, centrally): property
   rows encode label-above-controls layout with width caps internally; wrapped controls

@@ -56,7 +56,8 @@ impl EditorFeature for CoreFeature {
                 ActionDef::new("core.palette", "Command Palette")
                     .describe("Search and run any action")
                     .context("normal")
-                    .bind("shift+semicolon"), // ':'
+                    .bind("shift+semicolon") // ':'
+                    .bind("space p"), // leader style — also demos which-key
             );
     }
 }
