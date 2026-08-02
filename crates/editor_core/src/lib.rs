@@ -282,6 +282,7 @@ impl Plugin for EditorCorePlugin {
                     .chain()
                     .in_set(EditorSet::Tools),
                 edits::apply_edits.in_set(EditorSet::Mutate),
+                edits::ensure_entity_names.in_set(EditorSet::Sync),
                 clipboard::select_pasted.in_set(EditorSet::Sync),
             ),
         );

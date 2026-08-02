@@ -85,6 +85,21 @@ pub(crate) fn index_on_remove(
     }
 }
 
+/// Editor invariant (owner): every scene entity HAS a Name. Anything that arrives
+/// without one (legacy scenes, direct spawns, pastes of old data) gets a generated
+/// one. Direct insert, not a transaction — normalization must not pollute history;
+/// Name is a registered component, so it serializes from then on.
+pub(crate) fn ensure_entity_names(
+    unnamed: Query<(Entity, &SceneId), Without<Name>>,
+    mut commands: Commands,
+) {
+    for (entity, id) in &unnamed {
+        commands
+            .entity(entity)
+            .insert(Name::new(format!("Entity {}", &id.0.to_string()[..4])));
+    }
+}
+
 /// Consume undo/redo actions (any invocation source) into requests.
 pub(crate) fn handle_history_actions(
     mut reader: MessageReader<ActionInvoked>,

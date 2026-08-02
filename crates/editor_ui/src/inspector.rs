@@ -100,8 +100,9 @@ pub(crate) struct InspectorGroups {
 }
 
 pub(crate) enum RowSpec {
-    /// WHAT is selected: entity name + id (+ multi-select count) — always first.
-    Header { title: String, detail: String },
+    /// WHAT is selected: THE editable name + id (+ multi-select count) — always
+    /// first, and the ONLY place Name appears (owner: consolidated).
+    Header { name: String, detail: String, field: InspectorField },
     /// Collapsible group header (Tags / Read-only).
     GroupHeader { title: String, count: usize, open: bool, group: GroupKind },
     /// Compact name chips (group contents).
@@ -133,16 +134,19 @@ pub(crate) type CollectOverride =
 pub(crate) struct InspectorOverrides(pub Vec<(TypeId, CollectOverride)>);
 
 pub(crate) fn default_overrides() -> InspectorOverrides {
-    InspectorOverrides(vec![
-        (TypeId::of::<Transform>(), collect_transform),
-        (TypeId::of::<Name>(), collect_name),
-    ])
+    InspectorOverrides(vec![(TypeId::of::<Transform>(), collect_transform)])
 }
 
 fn focus_inside_inspector(world: &World) -> bool {
     let Some(focus) = world.get_resource::<InputFocus>().and_then(|f| f.get()) else {
         return false;
     };
+    // Only a TEXT edit in progress suppresses rebuilds — focus on a checkbox or
+    // other focusable must not freeze the panel (clicking one parked focus there
+    // and the inspector went stale until the next forced rebuild).
+    if world.get::<bevy::text::EditableText>(focus).is_none() {
+        return false;
+    }
     let mut current = focus;
     loop {
         if let Some(body) = world.get::<PanelBody>(current) {
@@ -178,10 +182,10 @@ pub(crate) fn collect_inspector(world: &mut World) {
 
     let mut rows = Vec::new();
     if let Some((entity, target)) = selected.first().copied() {
-        let title = world
+        let name = world
             .get::<Name>(entity)
             .map(|n| n.as_str().to_string())
-            .unwrap_or_else(|| "entity".to_string());
+            .unwrap_or_default();
         let detail = if selected.len() > 1 {
             format!(
                 "{} selected · editing first · {}",
@@ -191,7 +195,16 @@ pub(crate) fn collect_inspector(world: &mut World) {
         } else {
             target.0.to_string()[..8].to_string()
         };
-        rows.push(RowSpec::Header { title, detail });
+        rows.push(RowSpec::Header {
+            name,
+            detail,
+            field: InspectorField {
+                target,
+                type_path: "bevy_ecs::name::Name",
+                path: String::new(),
+                kind: FieldKind::NameText,
+            },
+        });
 
         let registry = world.resource::<AppTypeRegistry>().clone();
         let registered = world.resource::<EditorComponents>().types.clone();
@@ -204,6 +217,7 @@ pub(crate) fn collect_inspector(world: &mut World) {
         // keeps chrome out: editor-internal markers hide; derived/asset-handle
         // components render read-only.
         const HIDDEN: &[&str] = &[
+            "Name", // consolidated into the editable header (owner)
             "SceneId",
             "Selected",
             "MeshOutline",
@@ -247,7 +261,6 @@ pub(crate) fn collect_inspector(world: &mut World) {
 
         let groups = world.resource::<InspectorGroups>();
         let (tags_open, readonly_open) = (groups.tags_open, groups.readonly_open);
-        let mut has_name = false;
         let mut tags: Vec<String> = Vec::new();
         let mut readonly: Vec<String> = Vec::new();
         for (type_id, type_path) in present {
@@ -262,7 +275,6 @@ pub(crate) fn collect_inspector(world: &mut World) {
             };
             let value = value.as_partial_reflect();
             let short = type_path.rsplit("::").next().unwrap_or(type_path);
-            has_name |= short == "Name";
             // Policy read-only components go straight to the Read-only group.
             if READ_ONLY.contains(&short) {
                 readonly.push(short.to_string());
@@ -310,21 +322,6 @@ pub(crate) fn collect_inspector(world: &mut World) {
             if readonly_open {
                 rows.push(RowSpec::Chips(readonly));
             }
-        }
-        // Always offer a Name (owner: the field must exist even before the
-        // component does — committing INSERTS it via the same Set path).
-        if !has_name {
-            rows.push(RowSpec::Section("NAME".into()));
-            rows.push(RowSpec::TextField {
-                label: "Name".into(),
-                value: String::new(),
-                field: InspectorField {
-                    target,
-                    type_path: "bevy_ecs::name::Name",
-                    path: String::new(),
-                    kind: FieldKind::NameText,
-                },
-            });
         }
     }
     let mut model = world.resource_mut::<InspectorModel>();
@@ -384,26 +381,6 @@ fn collect_transform(
             .collect(),
     });
     rows.push(triple(target, type_path, "Scale", "scale", transform.scale));
-    true
-}
-
-fn collect_name(
-    target: SceneId,
-    type_path: &'static str,
-    value: &dyn PartialReflect,
-    rows: &mut Vec<RowSpec>,
-) -> bool {
-    let Some(name) = value.try_downcast_ref::<Name>() else { return false };
-    rows.push(RowSpec::TextField {
-        label: "Name".into(),
-        value: name.as_str().to_string(),
-        field: InspectorField {
-            target,
-            type_path,
-            path: String::new(),
-            kind: FieldKind::NameText,
-        },
-    });
     true
 }
 
@@ -492,13 +469,13 @@ pub(crate) fn probe_inspector(
     window: Query<Entity, With<bevy::window::PrimaryWindow>>,
     scene: Query<Entity, With<SceneId>>,
     model: Res<InspectorModel>,
-    body: Query<(Entity, &PanelBody)>,
-    children: Query<&Children>,
     mut selected_once: Local<bool>,
     name_field: Query<(Entity, &InspectorField)>,
     children_q: Query<&Children>,
     editable_q: Query<&bevy::text::EditableText>,
     mut focus_res: ResMut<InputFocus>,
+    named: Query<(Entity, &Name)>,
+    selected_q: Query<(), With<Selected>>,
     mut commands: Commands,
 ) {
     *frames += 1;
@@ -578,17 +555,35 @@ pub(crate) fn probe_inspector(
             }
         }
     }
+    if *frames == 310 || *frames == 312 {
+        if let Ok(window) = window.single() {
+            key_events.write(bevy::input::keyboard::KeyboardInput {
+                key_code: KeyCode::Enter,
+                logical_key: bevy::input::keyboard::Key::Enter,
+                state: if *frames == 310 {
+                    bevy::input::ButtonState::Pressed
+                } else {
+                    bevy::input::ButtonState::Released
+                },
+                text: None,
+                repeat: false,
+                window,
+            });
+        }
+    }
+    if *frames == 360 {
+        for (entity, name) in named.iter() {
+            if selected_q.get(entity).is_ok() {
+                info!("PROBE selected entity Name is now {:?}", name.as_str());
+            }
+        }
+    }
     if *frames > 150 && *frames % 60 == 0 {
-        let body_children = body
-            .iter()
-            .find(|(_, b)| b.0.as_str() == INSPECTOR_PANEL)
-            .and_then(|(e, _)| children.get(e).ok().map(|c| c.len()));
         info!(
-            "PROBE rows={} gen={} dirty={} body_children={:?}",
+            "PROBE rows={} gen={} dirty={}",
             model.rows.len(),
             model.generation,
             model.dirty,
-            body_children
         );
     }
 }
@@ -659,25 +654,18 @@ pub(crate) fn render_inspector(
 
     for spec in &model.rows {
         match spec {
-            RowSpec::Header { title, detail } => {
+            RowSpec::Header { name, detail, field } => {
                 let header = commands
                     .spawn(Node {
                         flex_direction: FlexDirection::Column,
-                        row_gap: px(1.0),
+                        row_gap: px(2.0),
                         flex_shrink: 0.0,
                         margin: UiRect::bottom(px(style::space::XS)),
                         ..default()
                     })
                     .id();
                 commands.entity(header).insert(ChildOf(body_entity));
-                let title_id = commands
-                    .spawn((
-                        Text::new(title.clone()),
-                        style::sans_medium(&fonts, ui.font_size_m),
-                        TextColor(style::color::accent()),
-                    ))
-                    .id();
-                commands.entity(title_id).insert(ChildOf(header));
+                spawn_text_field(&mut commands, header, name, field);
                 let detail_id = commands
                     .spawn((
                         Text::new(detail.clone()),
@@ -807,31 +795,7 @@ pub(crate) fn render_inspector(
             }
             RowSpec::TextField { label, value, field } => {
                 let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
-                let container = commands
-                    .spawn_scene(bsn! {
-                        @FeathersTextInputContainer
-                        Node { flex_grow: 1.0 }
-                        Children [
-                            (
-                                @FeathersTextInput
-                                bevy::ui_widgets::SelectAllOnFocus
-                            )
-                        ]
-                    })
-                    .id();
-                commands
-                    .entity(container)
-                    .insert((field.clone(), ChildOf(row)))
-                    .observe(commit_text_on_enter);
-                // Seed the inner editable with the current value post-spawn.
-                let seed = value.clone();
-                commands.queue(move |world: &mut World| {
-                    if let Some(inner) = find_editable_descendant(world, container) {
-                        world
-                            .entity_mut(inner)
-                            .insert(bevy::text::EditableText::new(seed));
-                    }
-                });
+                spawn_text_field(&mut commands, row, value, field);
             }
             RowSpec::ReadOnly { label, value } => {
                 let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
@@ -846,6 +810,37 @@ pub(crate) fn render_inspector(
             }
         }
     }
+}
+
+/// One text-input spawner (header name + string fields): seeds the value and
+/// attaches the Enter-commit observer DIRECTLY to the inner input — feathers
+/// attaches its own key handlers there, so Enter cannot be assumed to bubble.
+fn spawn_text_field(
+    commands: &mut Commands,
+    parent: Entity,
+    value: &str,
+    field: &InspectorField,
+) {
+    let container = commands
+        .spawn_scene(bsn! {
+            @FeathersTextInputContainer
+            Node { flex_grow: 1.0 }
+            Children [
+                (
+                    @FeathersTextInput
+                    bevy::ui_widgets::SelectAllOnFocus
+                )
+            ]
+        })
+        .id();
+    commands.entity(container).insert((field.clone(), ChildOf(parent)));
+    let seed = value.to_string();
+    commands.queue(move |world: &mut World| {
+        if let Some(inner) = find_editable_descendant(world, container) {
+            world.entity_mut(inner).insert(bevy::text::EditableText::new(seed));
+            world.entity_mut(inner).observe(commit_text_on_enter);
+        }
+    });
 }
 
 /// F6 rule baked in once: label ABOVE controls, controls in an even row.
@@ -1069,10 +1064,12 @@ fn commit_number(
 fn commit_bool(
     change: On<ValueChange<bool>>,
     fields: Query<&InspectorField>,
+    mut model: ResMut<InspectorModel>,
     mut commands: Commands,
 ) {
     let Ok(field) = fields.get(change.source) else { return };
     queue_set(&mut commands, field.clone(), FieldNewValue::Bool(change.value), None);
+    model.dirty = true;
 }
 
 fn find_editable_descendant(world: &World, root: Entity) -> Option<Entity> {

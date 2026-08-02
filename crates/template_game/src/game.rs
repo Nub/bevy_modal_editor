@@ -270,3 +270,48 @@ fn sync_cursor_grab(
         cursor.visible = false;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    // C7: the data-driven component DRIVES gameplay — enabled spinners rotate
+    // while the game owns input, and never under the editor.
+    #[test]
+    fn spinner_rotates_only_when_game_active() {
+        let mut app = App::new();
+        app.init_resource::<GameInputActive>();
+        app.insert_resource(Time::<()>::default());
+        app.add_systems(Update, spin);
+        let entity = app
+            .world_mut()
+            .spawn((Spinner { enabled: true, degrees_per_sec: 90.0 }, Transform::IDENTITY))
+            .id();
+
+        // Editor owns input: no rotation.
+        app.world_mut().resource_mut::<GameInputActive>().0 = false;
+        app.world_mut().resource_mut::<Time>().advance_by(Duration::from_secs(1));
+        app.update();
+        assert_eq!(app.world().get::<Transform>(entity).unwrap().rotation, Quat::IDENTITY);
+
+        // Game owns input: ~90° after one second.
+        app.world_mut().resource_mut::<GameInputActive>().0 = true;
+        app.world_mut().resource_mut::<Time>().advance_by(Duration::from_secs(1));
+        app.update();
+        let (_, angle) = app
+            .world()
+            .get::<Transform>(entity)
+            .unwrap()
+            .rotation
+            .to_axis_angle();
+        assert!((angle.to_degrees() - 90.0).abs() < 1.0, "angle {}", angle.to_degrees());
+
+        // Disabled: rotation freezes.
+        app.world_mut().get_mut::<Spinner>(entity).unwrap().enabled = false;
+        let before = app.world().get::<Transform>(entity).unwrap().rotation;
+        app.world_mut().resource_mut::<Time>().advance_by(Duration::from_secs(1));
+        app.update();
+        assert_eq!(app.world().get::<Transform>(entity).unwrap().rotation, before);
+    }
+}
