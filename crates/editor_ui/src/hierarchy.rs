@@ -14,12 +14,33 @@ use crate::style::{self, UiFonts};
 
 pub(crate) const HIERARCHY_PANEL: &str = "hierarchy";
 
+/// Fixed row height (logical px) — the virtualization contract: only the rows
+/// inside the scroll viewport (plus overscan) exist as UI nodes, so a 10k-entity
+/// scene renders ~30 rows, not 10k (C4).
+pub(crate) const ROW_HEIGHT: f32 = 22.0;
+const OVERSCAN: usize = 4;
+
+/// Which slice of `rows` to materialize for a viewport.
+pub(crate) fn visible_window(scroll_y: f32, view_height: f32, total: usize) -> (usize, usize) {
+    if total == 0 {
+        return (0, 0);
+    }
+    let first = ((scroll_y / ROW_HEIGHT).floor() as usize).saturating_sub(OVERSCAN);
+    let count = (view_height / ROW_HEIGHT).ceil() as usize + 2 * OVERSCAN;
+    let first = first.min(total.saturating_sub(1));
+    (first, (first + count).min(total))
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct HierarchyState {
     pub cursor: usize,
     pub collapsed: HashSet<SceneId>,
     /// Rebuild the row widgets this frame (set by anything that changes the tree).
     dirty: bool,
+    /// The materialized window (virtualization) from the last rebuild.
+    window: (usize, usize),
+    /// Cursor position at the last scroll-follow, to adjust only on movement.
+    last_followed: Option<usize>,
 }
 
 /// One visible row of the flattened tree (respecting folds).
@@ -275,16 +296,35 @@ pub(crate) fn rebuild_hierarchy(
     let selected_ids: HashSet<SceneId> = selected.iter().copied().collect();
 
     commands.entity(body_entity).despawn_related::<Children>();
-    commands.entity(body_entity).with_children(|body| {
+    let (first, last) = state.window;
+    let last = last.min(rows.len());
+    let first = first.min(last);
+    commands.entity(body_entity).with_children(|body_children| {
         if rows.is_empty() {
-            body.spawn((
+            body_children.spawn((
                 Text::new("no entities — i to insert"),
                 style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
             ));
             return;
         }
-        for (i, row) in rows.iter().enumerate() {
+        // ONE gapless list container: the panel body's row_gap must never leak
+        // into the fixed-row-height arithmetic the virtualization depends on.
+        let mut list = body_children.spawn(Node {
+            flex_direction: FlexDirection::Column,
+            flex_shrink: 0.0,
+            ..default()
+        });
+        list.with_children(|body| {
+        // Virtualization spacers stand in for the unmaterialized rows.
+        if first > 0 {
+            body.spawn(Node {
+                height: px(first as f32 * ROW_HEIGHT),
+                flex_shrink: 0.0,
+                ..default()
+            });
+        }
+        for (i, row) in rows.iter().enumerate().take(last).skip(first) {
             let is_cursor = i == cursor;
             let is_selected = selected_ids.contains(&row.id);
             let mut entity = body.spawn((
@@ -292,11 +332,11 @@ pub(crate) fn rebuild_hierarchy(
                 Node {
                     align_items: AlignItems::Center,
                     column_gap: px(style::space::XS),
+                    height: px(ROW_HEIGHT),
                     padding: UiRect {
                         left: px(style::space::S + row.depth as f32 * style::space::M),
                         right: px(style::space::S),
-                        top: px(2.0),
-                        bottom: px(2.0),
+                        ..default()
                     },
                     border_radius: BorderRadius::all(px(style::radius::S)),
                     flex_shrink: 0.0,
@@ -354,37 +394,63 @@ pub(crate) fn rebuild_hierarchy(
                     ));
                 });
         }
+        if last < rows.len() {
+            body.spawn(Node {
+                height: px((rows.len() - last) as f32 * ROW_HEIGHT),
+                flex_shrink: 0.0,
+                ..default()
+            });
+        }
+        });
     });
 }
 
-/// Keep the cursor row visible in the scrollable body (same zeroed-geometry-safe
-/// clamp as the palette scroll-follow).
-pub(crate) fn scroll_cursor_into_view(
-    body: Query<(&ComputedNode, &UiGlobalTransform, &mut ScrollPosition, &PanelBody)>,
-    row: Option<Single<(&ComputedNode, &UiGlobalTransform), With<CursorRow>>>,
+/// Virtualization driver: when scrolling (or a resize) moves the viewport onto
+/// rows that aren't materialized, mark the panel dirty so the window re-renders.
+pub(crate) fn watch_hierarchy_window(
+    entities: Query<(Entity, &SceneId, Option<&ChildOf>, Option<&Name>)>,
+    scene_ids: Query<&SceneId>,
+    body: Query<(&ComputedNode, &ScrollPosition, &PanelBody)>,
+    mut state: ResMut<HierarchyState>,
 ) {
-    let Some(row) = row else { return };
-    let (row_node, row_tf) = *row;
-    if row_node.size() == Vec2::ZERO {
-        return;
-    }
-    for (cont_node, cont_tf, mut scroll, panel) in body {
-        if panel.0.as_str() != HIERARCHY_PANEL {
+    for (node, scroll, panel) in &body {
+        if panel.0.as_str() != HIERARCHY_PANEL || node.size() == Vec2::ZERO {
             continue;
         }
-        let scale = cont_node.inverse_scale_factor();
-        let cont_h = cont_node.size().y * scale;
-        let row_h = row_node.size().y * scale;
-        let visible_top = ((row_tf.translation.y - row_node.size().y / 2.0)
-            - (cont_tf.translation.y - cont_node.size().y / 2.0))
-            * scale;
-        let top = visible_top + scroll.0.y;
-        let max_scroll = ((cont_node.content_size.y - cont_node.size().y) * scale).max(0.0);
-        if top < scroll.0.y {
-            scroll.0.y = top.clamp(0.0, max_scroll);
-        } else if top + row_h > scroll.0.y + cont_h {
-            scroll.0.y = (top + row_h - cont_h).clamp(0.0, max_scroll);
+        let view_height = node.size().y * node.inverse_scale_factor();
+        let total = build_rows(&entities, &scene_ids, &state.collapsed).len();
+        let window = visible_window(scroll.0.y, view_height, total);
+        if window != state.window {
+            state.window = window;
+            state.dirty = true;
         }
+    }
+}
+
+/// Keyboard-follow, arithmetic edition (virtualization makes row geometry
+/// unreliable — the cursor row may not even be materialized): the fixed row
+/// height gives the exact scroll that keeps the cursor visible. Adjusts only
+/// when the cursor MOVED, so free wheel-scrolling is never fought.
+pub(crate) fn scroll_cursor_into_view(
+    mut state: ResMut<HierarchyState>,
+    mut body: Query<(&ComputedNode, &mut ScrollPosition, &PanelBody)>,
+) {
+    if state.last_followed == Some(state.cursor) {
+        return;
+    }
+    for (node, mut scroll, panel) in &mut body {
+        if panel.0.as_str() != HIERARCHY_PANEL || node.size() == Vec2::ZERO {
+            continue;
+        }
+        let view_height = node.size().y * node.inverse_scale_factor();
+        let top = state.cursor as f32 * ROW_HEIGHT;
+        let bottom = top + ROW_HEIGHT;
+        if top < scroll.0.y {
+            scroll.0.y = top;
+        } else if bottom > scroll.0.y + view_height {
+            scroll.0.y = bottom - view_height;
+        }
+        state.last_followed = Some(state.cursor);
     }
 }
 
@@ -509,5 +575,30 @@ mod tests {
         let world = app.world_mut();
         let child_entity = world.resource::<SceneIndex>().get(&second).unwrap();
         assert!(world.get::<ChildOf>(child_entity).is_none(), "undo restores root");
+    }
+}
+
+
+#[cfg(test)]
+mod virtualization_tests {
+    use super::*;
+
+    // C4: window math — 10k rows materialize only a viewport's worth of nodes.
+    #[test]
+    fn window_is_viewport_sized() {
+        let (first, last) = visible_window(0.0, 400.0, 10_000);
+        assert_eq!(first, 0);
+        assert!(last <= (400.0 / ROW_HEIGHT).ceil() as usize + 8 + 1);
+
+        let (first, last) = visible_window(5_000.0 * ROW_HEIGHT, 400.0, 10_000);
+        assert!(first >= 5_000 - 8 && first <= 5_000);
+        assert!(last - first <= (400.0 / ROW_HEIGHT).ceil() as usize + 8 + 1);
+
+        // Tail clamps.
+        let (first, last) = visible_window(1e9, 400.0, 10_000);
+        assert_eq!(last, 10_000);
+        assert!(first < 10_000);
+
+        assert_eq!(visible_window(0.0, 400.0, 0), (0, 0));
     }
 }

@@ -128,6 +128,7 @@ impl Plugin for EditorUiPlugin {
                 dock::track_pointer_over_chrome,
                 dock::sync_dock_chrome,
                 hierarchy::watch_hierarchy_inputs,
+                hierarchy::watch_hierarchy_window,
                 hierarchy::rebuild_hierarchy,
                 hierarchy::scroll_cursor_into_view,
                 inspector::watch_inspector_inputs,

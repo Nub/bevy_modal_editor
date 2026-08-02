@@ -16,7 +16,10 @@
 //! scene through gesture-tagged transactions that coalesce into one undo entry —
 //! the exact machinery the viewport move gesture uses.
 
-use bevy::feathers::controls::{FeathersNumberInput, NumberInputValue, UpdateNumberInput};
+use bevy::feathers::controls::{
+    FeathersCheckbox, FeathersNumberInput, FeathersTextInput, FeathersTextInputContainer,
+    NumberInputValue, UpdateNumberInput,
+};
 use bevy::feathers::tokens;
 use bevy::input_focus::InputFocus;
 use bevy::prelude::*;
@@ -48,6 +51,20 @@ pub(crate) enum FieldKind {
     Direct,
     /// Euler-degrees editing of `Transform.rotation` (axis 0/1/2, XYZ order).
     EulerDeg(usize),
+    /// `path` names a `bool` leaf.
+    Bool,
+    /// `path` names a `String` leaf.
+    Str,
+    /// The whole component is a `Name` (hash must be recomputed on set).
+    NameText,
+}
+
+/// The typed payload a commit carries (matched against `FieldKind`).
+#[derive(Clone)]
+pub(crate) enum FieldNewValue {
+    F32(f32),
+    Bool(bool),
+    Text(String),
 }
 
 /// The field's current value, refreshed each rebuild — drag starts from here.
@@ -74,6 +91,8 @@ pub(crate) enum RowSpec {
     Section(String),
     Triple { label: String, fields: Vec<NumberSpec> },
     Number { label: String, field: NumberSpec },
+    Toggle { label: String, value: bool, field: InspectorField },
+    TextField { label: String, value: String, field: InspectorField },
     ReadOnly { label: String, value: String },
 }
 
@@ -243,13 +262,22 @@ fn collect_transform(
 }
 
 fn collect_name(
-    _target: SceneId,
-    _type_path: &'static str,
+    target: SceneId,
+    type_path: &'static str,
     value: &dyn PartialReflect,
     rows: &mut Vec<RowSpec>,
 ) -> bool {
     let Some(name) = value.try_downcast_ref::<Name>() else { return false };
-    rows.push(RowSpec::ReadOnly { label: "Name".into(), value: name.as_str().to_string() });
+    rows.push(RowSpec::TextField {
+        label: "Name".into(),
+        value: name.as_str().to_string(),
+        field: InspectorField {
+            target,
+            type_path,
+            path: String::new(),
+            kind: FieldKind::NameText,
+        },
+    });
     true
 }
 
@@ -299,9 +327,27 @@ fn walk_fields(
                     },
                 });
             } else if let Some(v) = value.try_downcast_ref::<bool>() {
-                rows.push(RowSpec::ReadOnly { label: leaf_label(prefix), value: v.to_string() });
+                rows.push(RowSpec::Toggle {
+                    label: leaf_label(prefix),
+                    value: *v,
+                    field: InspectorField {
+                        target,
+                        type_path,
+                        path: prefix.to_string(),
+                        kind: FieldKind::Bool,
+                    },
+                });
             } else if let Some(v) = value.try_downcast_ref::<String>() {
-                rows.push(RowSpec::ReadOnly { label: leaf_label(prefix), value: v.clone() });
+                rows.push(RowSpec::TextField {
+                    label: leaf_label(prefix),
+                    value: v.clone(),
+                    field: InspectorField {
+                        target,
+                        type_path,
+                        path: prefix.to_string(),
+                        kind: FieldKind::Str,
+                    },
+                });
             }
         }
     }
@@ -484,6 +530,45 @@ pub(crate) fn render_inspector(
                 let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
                 spawn_number_field(&mut commands, row, field);
             }
+            RowSpec::Toggle { label, value, field } => {
+                let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
+                let checkbox = commands.spawn_scene(bsn! { @FeathersCheckbox }).id();
+                commands
+                    .entity(checkbox)
+                    .insert((field.clone(), ChildOf(row)))
+                    .observe(commit_bool);
+                if *value {
+                    commands.entity(checkbox).insert(bevy::ui::Checked);
+                }
+            }
+            RowSpec::TextField { label, value, field } => {
+                let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
+                let container = commands
+                    .spawn_scene(bsn! {
+                        @FeathersTextInputContainer
+                        Node { flex_grow: 1.0 }
+                        Children [
+                            (
+                                @FeathersTextInput
+                                bevy::ui_widgets::SelectAllOnFocus
+                            )
+                        ]
+                    })
+                    .id();
+                commands
+                    .entity(container)
+                    .insert((field.clone(), ChildOf(row)))
+                    .observe(commit_text_on_enter);
+                // Seed the inner editable with the current value post-spawn.
+                let seed = value.clone();
+                commands.queue(move |world: &mut World| {
+                    if let Some(inner) = find_editable_descendant(world, container) {
+                        world
+                            .entity_mut(inner)
+                            .insert(bevy::text::EditableText::new(seed));
+                    }
+                });
+            }
             RowSpec::ReadOnly { label, value } => {
                 let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
                 let text = commands
@@ -587,7 +672,12 @@ fn spawn_number_field(commands: &mut Commands, parent: Entity, spec: &NumberSpec
 
 /// Queue one `Set` through the EditQueue: full component with the edited field
 /// applied, inverse captured by the kernel. `gesture` makes drag frames coalesce.
-fn queue_set(commands: &mut Commands, field: InspectorField, new_value: f32, gesture: Option<u64>) {
+fn queue_set(
+    commands: &mut Commands,
+    field: InspectorField,
+    new_value: FieldNewValue,
+    gesture: Option<u64>,
+) {
     commands.queue(move |world: &mut World| {
         let Some(entity) = world.resource::<SceneIndex>().get(&field.target) else { return };
         let registry = world.resource::<AppTypeRegistry>().clone();
@@ -600,8 +690,8 @@ fn queue_set(commands: &mut Commands, field: InspectorField, new_value: f32, ges
         };
         let Some(current) = reflect_component.reflect(world.entity(entity)) else { return };
 
-        let boxed: Box<dyn PartialReflect> = match field.kind {
-            FieldKind::Direct => {
+        let boxed: Box<dyn PartialReflect> = match (field.kind, new_value) {
+            (FieldKind::Direct, FieldNewValue::F32(new_value)) => {
                 let mut dynamic = current.as_partial_reflect().to_dynamic();
                 let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
                 let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
@@ -611,7 +701,31 @@ fn queue_set(commands: &mut Commands, field: InspectorField, new_value: f32, ges
                 }
                 dynamic
             }
-            FieldKind::EulerDeg(axis) => {
+            (FieldKind::Bool, FieldNewValue::Bool(new_value)) => {
+                let mut dynamic = current.as_partial_reflect().to_dynamic();
+                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
+                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
+                match element.try_downcast_mut::<bool>() {
+                    Some(slot) => *slot = new_value,
+                    None => return,
+                }
+                dynamic
+            }
+            (FieldKind::Str, FieldNewValue::Text(new_value)) => {
+                let mut dynamic = current.as_partial_reflect().to_dynamic();
+                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
+                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
+                match element.try_downcast_mut::<String>() {
+                    Some(slot) => *slot = new_value,
+                    None => return,
+                }
+                dynamic
+            }
+            // Name's hash is derived — always rebuild through the constructor.
+            (FieldKind::NameText, FieldNewValue::Text(new_value)) => {
+                Box::new(Name::new(new_value))
+            }
+            (FieldKind::EulerDeg(axis), FieldNewValue::F32(new_value)) => {
                 let Some(transform) =
                     current.as_partial_reflect().try_downcast_ref::<Transform>()
                 else {
@@ -629,6 +743,7 @@ fn queue_set(commands: &mut Commands, field: InspectorField, new_value: f32, ges
                 );
                 Box::new(next)
             }
+            _ => return,
         };
         drop(registry);
         world.resource_mut::<EditQueue>().0.push(Transaction {
@@ -659,12 +774,74 @@ fn commit_number(
         return;
     }
     let Ok(field) = fields.get(change.source) else { return };
-    queue_set(&mut commands, field.clone(), change.value, None);
+    queue_set(&mut commands, field.clone(), FieldNewValue::F32(change.value), None);
 
     let still_ours = focus.get().is_some_and(|focused| {
         let mut current = focused;
         loop {
             if current == change.source {
+                break true;
+            }
+            match parents.get(current) {
+                Ok(parent) => current = parent.parent(),
+                Err(_) => break false,
+            }
+        }
+    });
+    if still_ours {
+        focus.clear();
+    }
+}
+
+/// Checkbox commits are always final: one undo entry per toggle.
+fn commit_bool(
+    change: On<ValueChange<bool>>,
+    fields: Query<&InspectorField>,
+    mut commands: Commands,
+) {
+    let Ok(field) = fields.get(change.source) else { return };
+    queue_set(&mut commands, field.clone(), FieldNewValue::Bool(change.value), None);
+}
+
+fn find_editable_descendant(world: &World, root: Entity) -> Option<Entity> {
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if world.get::<bevy::text::EditableText>(entity).is_some() {
+            return Some(entity);
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    None
+}
+
+/// Text fields commit on Enter (predictable; Escape/blur = leave without commit).
+fn commit_text_on_enter(
+    event: On<bevy::input_focus::FocusedInput<bevy::input::keyboard::KeyboardInput>>,
+    fields: Query<&InspectorField>,
+    editable: Query<&bevy::text::EditableText>,
+    parents: Query<&ChildOf>,
+    mut focus: ResMut<InputFocus>,
+    mut commands: Commands,
+) {
+    use bevy::input::ButtonState;
+    if event.input.key_code != KeyCode::Enter || event.input.state != ButtonState::Pressed {
+        return;
+    }
+    // The focused inner input is the event target; our field data sits on its
+    // container (the entity this observer is attached to = the input's parent).
+    let inner = event.event_target();
+    let Ok(container) = parents.get(inner).map(|p| p.parent()) else { return };
+    let Ok(field) = fields.get(container) else { return };
+    let Ok(text) = editable.get(inner) else { return };
+    let value = text.value().to_string();
+    queue_set(&mut commands, field.clone(), FieldNewValue::Text(value), None);
+
+    let still_ours = focus.get().is_some_and(|focused| {
+        let mut current = focused;
+        loop {
+            if current == container {
                 break true;
             }
             match parents.get(current) {
@@ -705,7 +882,7 @@ fn field_drag(
         .unwrap_or(false);
     let step = if fine { 0.01 } else { 0.1 };
     let value = field_drag.start + drag.distance.x * step;
-    queue_set(&mut commands, field.clone(), value, Some(field_drag.gesture));
+    queue_set(&mut commands, field.clone(), FieldNewValue::F32(value), Some(field_drag.gesture));
     commands.trigger(UpdateNumberInput {
         entity: drag.entity,
         value: NumberInputValue::F32(value),
