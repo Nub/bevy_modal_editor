@@ -11,6 +11,7 @@ pub mod style;
 
 mod dock;
 mod ghost;
+mod hierarchy;
 mod outline;
 mod palette;
 mod statusbar;
@@ -39,8 +40,25 @@ impl EditorFeature for EditorUiFeature {
             context: ContextId::new_static("hierarchy"),
             content: PanelContent::Custom,
             default_open: true,
-        })
-        .panel(PanelDecl {
+        });
+        // Hierarchy focus-context actions (keymap doc): hidden from the palette
+        // (panel-scoped keys, discoverable via which-key while focused).
+        for (id, name, binding) in [
+            ("hierarchy.down", "Row Down", "j"),
+            ("hierarchy.up", "Row Up", "k"),
+            ("hierarchy.top", "Top", "g g"),
+            ("hierarchy.bottom", "Bottom", "shift+g"),
+            ("hierarchy.select", "Select Row", "enter"),
+            ("hierarchy.fold", "Fold / To Parent", "h"),
+            ("hierarchy.unfold", "Unfold", "l"),
+            ("hierarchy.reparent-in", "Reparent Into Sibling", "shift+period"),
+            ("hierarchy.reparent-out", "Reparent To Grandparent", "shift+comma"),
+        ] {
+            reg.action(
+                ActionDef::new(id, name).context("hierarchy").bind(binding).hidden(),
+            );
+        }
+        reg.panel(PanelDecl {
             id: PanelId::new_static("inspector"),
             title: "Inspector",
             placement: Placement::Right,
@@ -78,12 +96,20 @@ impl Plugin for EditorUiPlugin {
         app.add_editor_feature(EditorUiFeature);
 
         app.init_resource::<which_key::WhichKey>();
+        app.init_resource::<hierarchy::HierarchyState>();
+        app.add_systems(
+            Update,
+            hierarchy::handle_hierarchy_actions.in_set(editor_core::EditorSet::Tools),
+        );
         app.init_resource::<statusbar::StatusFlash>();
         app.add_systems(
             Update,
             (
                 dock::track_pointer_over_chrome,
                 dock::sync_dock_chrome,
+                hierarchy::watch_hierarchy_inputs,
+                hierarchy::rebuild_hierarchy,
+                hierarchy::scroll_cursor_into_view,
                 ghost::apply_ghost_material,
                 outline::ensure_outline_camera,
                 outline::sync_selection_outlines,

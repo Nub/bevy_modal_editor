@@ -22,7 +22,7 @@ pub(crate) struct PanelHeader(PanelId);
 
 /// The content slot for a panel — hierarchy/properties renderers parent into this.
 #[derive(Component)]
-pub(crate) struct PanelBody(#[allow(dead_code, reason = "read by content renderers (C2/C3)")] pub PanelId);
+pub(crate) struct PanelBody(pub PanelId);
 
 /// Placeholder shown until a content renderer fills the body.
 #[derive(Component)]
