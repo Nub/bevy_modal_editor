@@ -653,6 +653,20 @@ pub(crate) fn probe_inspector(
             }
         }
     }
+    if *frames == 250 && std::env::var("BOOL_PROBE").is_ok() {
+        let bool_field = name_field.iter().find(|(_, f)| f.kind == FieldKind::Bool);
+        match bool_field {
+            Some((entity, _)) => {
+                commands.trigger(bevy::ui_widgets::ValueChange {
+                    source: entity,
+                    value: true,
+                    is_final: true,
+                });
+                info!("PROBE checkbox ValueChange fired at {entity:?}");
+            }
+            None => info!("PROBE no Bool field found in inspector"),
+        }
+    }
     if *frames == 400 && std::env::var("RELOAD_PROBE").is_ok() {
         writer.write(ActionInvoked {
             action: ActionId::new_static("editor.reload"),

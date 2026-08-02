@@ -72,6 +72,12 @@ impl Plugin for EditorOverlayPlugin {
             (sync_game_input, sync_material_refs, drive_session_restore)
                 .in_set(editor_core::EditorSet::Sync),
         );
+        app.add_systems(
+            Update,
+            probe_spin
+                .run_if(|| std::env::var("SPIN_PROBE").is_ok())
+                .in_set(editor_core::EditorSet::Sync),
+        );
     }
 }
 
@@ -254,4 +260,51 @@ fn invoke_open_scene(actions: &mut MessageWriter<ActionInvoked>) {
         args: None,
         source: InvocationSource::Test,
     });
+}
+
+
+/// TEMP diagnostic (SPIN_PROBE=1, with INSPECTOR_PROBE=1 driving menu/editor):
+/// enable a spinner, trigger play, log every gate the spin system depends on.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn probe_spin(
+    mut frames: Local<u32>,
+    mut writer: MessageWriter<ActionInvoked>,
+    mut spinners: Query<(Entity, &mut Spinner, &Transform)>,
+    game_input: Res<GameInputActive>,
+    editor_state: Res<EditorState>,
+    app_state: Res<State<game_framework::AppState>>,
+    time: Res<Time>,
+) {
+    *frames += 1;
+    if *frames == 300 && std::env::var("BOOL_PROBE").is_err() {
+        if let Some((entity, mut spinner, _)) = spinners.iter_mut().next() {
+            spinner.enabled = true;
+            info!("SPIN enabled directly on {entity:?}");
+        }
+    }
+    if *frames == 360 {
+        writer.write(ActionInvoked {
+            action: ActionId::new_static("editor.play"),
+            args: None,
+            source: InvocationSource::Test,
+        });
+        info!("SPIN play triggered");
+    }
+    if *frames > 400 && *frames % 60 == 0 {
+        let enabled_count = spinners.iter().filter(|(_, s, _)| s.enabled).count();
+        let rotation = spinners
+            .iter()
+            .find(|(_, s, _)| s.enabled)
+            .or_else(|| spinners.iter().next())
+            .map(|(_, s, t)| (s.enabled, t.rotation.to_axis_angle().1.to_degrees()));
+        info!("SPIN enabled_count={enabled_count}");
+        info!(
+            "SPIN state={:?} editor_active={} game_input={} delta={:.3} rot={:?}",
+            app_state.get(),
+            editor_state.active,
+            game_input.0,
+            time.delta_secs(),
+            rotation
+        );
+    }
 }
