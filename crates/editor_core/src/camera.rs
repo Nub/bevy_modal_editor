@@ -22,6 +22,20 @@ const BOOST: f32 = 3.0;
 #[derive(Resource, Default)]
 pub struct FlyingCamera(pub bool);
 
+/// The camera the editor treats as its viewport: active AND rendering to a window.
+///
+/// Every editor camera pick MUST go through this predicate (flow-audit rule):
+/// "first active camera" breaks the moment any plugin adds an off-screen camera —
+/// the outliner's silhouette camera (active, renders to an image) once won that race
+/// and silently broke every cursor ray.
+pub fn is_viewport_camera(
+    camera: &Camera,
+    target: Option<&bevy::camera::RenderTarget>,
+) -> bool {
+    camera.is_active
+        && matches!(target, None | Some(bevy::camera::RenderTarget::Window(_)))
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn editor_fly_camera(
     state: Res<EditorState>,
@@ -31,7 +45,7 @@ pub(crate) fn editor_fly_camera(
     motion: Option<Res<AccumulatedMouseMotion>>,
     time: Option<Res<Time>>,
     mut flying: ResMut<FlyingCamera>,
-    mut camera: Query<(&Camera, &mut Transform)>,
+    mut camera: Query<(&Camera, &mut Transform, Option<&bevy::camera::RenderTarget>)>,
     mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
     let was_flying = flying.0;
@@ -58,8 +72,9 @@ pub(crate) fn editor_fly_camera(
         return;
     }
 
-    let Some((_, mut transform)) =
-        camera.iter_mut().find(|(camera, _)| camera.is_active)
+    let Some((_, mut transform, _)) = camera
+        .iter_mut()
+        .find(|(camera, _, target)| is_viewport_camera(camera, target.as_deref()))
     else {
         return;
     };

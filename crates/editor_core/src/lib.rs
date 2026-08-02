@@ -20,7 +20,7 @@ use editor_api::prelude::*;
 
 pub mod prelude {
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
-    pub use crate::camera::FlyingCamera;
+    pub use crate::camera::{is_viewport_camera, FlyingCamera};
     pub use crate::gesture::{GestureMotion, MoveGesture, GESTURE_MOVE_CONTEXT};
     pub use crate::insert::{
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,

@@ -66,7 +66,7 @@ pub(crate) struct PreviewEntity {
 
 pub(crate) fn cursor_ground(
     state: Res<EditorState>,
-    camera: Query<(&Camera, &GlobalTransform)>,
+    camera: Query<(&Camera, &GlobalTransform, Option<&bevy::camera::RenderTarget>)>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut cursor: ResMut<CursorGround>,
 ) {
@@ -74,9 +74,12 @@ pub(crate) fn cursor_ground(
         cursor.0 = None;
         return;
     }
-    let (Ok(window), Some((camera, camera_transform))) =
-        (window.single(), camera.iter().find(|(c, _)| c.is_active))
-    else {
+    let (Ok(window), Some((camera, camera_transform, _))) = (
+        window.single(),
+        camera
+            .iter()
+            .find(|(c, _, target)| crate::camera::is_viewport_camera(c, *target)),
+    ) else {
         return;
     };
     let Some(position) = window.cursor_position() else {

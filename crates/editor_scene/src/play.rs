@@ -80,10 +80,10 @@ pub(crate) fn perform_play(world: &mut World) {
             .copied()
             .collect();
         let camera = world
-            .query::<(&Camera, &Transform)>()
+            .query::<(&Camera, &Transform, Option<&bevy::camera::RenderTarget>)>()
             .iter(world)
-            .find(|(c, _)| c.is_active)
-            .map(|(_, t)| *t);
+            .find(|(c, _, target)| is_viewport_camera(c, *target))
+            .map(|(_, t, _)| *t);
         let dirty = world.resource::<SceneDirty>().0;
         world.resource_mut::<PlayState>().0 =
             Some(PlaySession { snapshot, selected, camera, dirty });
@@ -118,10 +118,10 @@ pub(crate) fn perform_play(world: &mut World) {
             // Camera exactly where the editor left it.
             if let Some(saved) = session.camera {
                 let camera = world
-                    .query::<(&Camera, &mut Transform)>()
+                    .query::<(&Camera, &mut Transform, Option<&bevy::camera::RenderTarget>)>()
                     .iter_mut(world)
-                    .find(|(c, _)| c.is_active)
-                    .map(|(_, t)| t);
+                    .find(|(c, _, target)| is_viewport_camera(c, target.as_deref()))
+                    .map(|(_, t, _)| t);
                 if let Some(mut transform) = camera {
                     *transform = saved;
                 }

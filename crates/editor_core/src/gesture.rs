@@ -159,7 +159,7 @@ fn axis_movement(
 /// that world axis with the same pixel accuracy.
 pub(crate) fn motion_from_cursor(
     gesture: Res<MoveGesture>,
-    camera: Query<(&Camera, &GlobalTransform)>,
+    camera: Query<(&Camera, &GlobalTransform, Option<&bevy::camera::RenderTarget>)>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut last_cursor: Local<Option<Vec2>>,
     mut motion: ResMut<GestureMotion>,
@@ -168,9 +168,12 @@ pub(crate) fn motion_from_cursor(
         *last_cursor = None;
         return;
     };
-    let (Ok(window), Some((camera, camera_transform))) =
-        (window.single(), camera.iter().find(|(c, _)| c.is_active))
-    else {
+    let (Ok(window), Some((camera, camera_transform, _))) = (
+        window.single(),
+        camera
+            .iter()
+            .find(|(c, _, target)| crate::camera::is_viewport_camera(c, *target)),
+    ) else {
         return;
     };
     let Some(cursor) = window.cursor_position() else { return };
