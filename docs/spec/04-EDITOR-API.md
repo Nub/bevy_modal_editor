@@ -174,6 +174,9 @@ impl Transaction<'_> {
 pub trait EditOp: Send + Sync + Reflect {
     fn apply(&mut self, world: &mut World, cx: &mut EditCx) -> Result<Box<dyn EditOp>, EditError>;
     /// Gesture coalescing: return true if `next` was absorbed (drag frames, brush strokes).
+    /// CONTRACT (spike 1, finding F1): coalescing accumulates the FORWARD op only — the
+    /// original captured inverse is never touched ("first-old-value semantics"), so undo
+    /// of a coalesced gesture restores exactly, free of float-accumulation drift.
     fn coalesce(&mut self, next: &dyn EditOp) -> bool { false }
 }
 ```
