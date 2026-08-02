@@ -48,8 +48,18 @@ impl Default for GridSnap {
 #[derive(Resource, Default)]
 pub struct CursorGround(pub Option<Vec3>);
 
+/// Set for one frame when a kind-pick action fires — distinguishes "entered insert
+/// by picking a kind" (palette must NOT re-open over the fresh ghost) from "entered
+/// insert to browse" (palette auto-opens).
+#[derive(Resource, Default)]
+pub struct KindJustPicked(pub bool);
+
 #[derive(Component)]
-pub(crate) struct PreviewEntity;
+pub(crate) struct PreviewEntity {
+    /// Kind placement offset (e.g. +Y half-height): ghost translation = target +
+    /// offset, so preview and final placement are always identical.
+    offset: Vec3,
+}
 
 pub(crate) fn cursor_ground(
     state: Res<EditorState>,
@@ -93,11 +103,13 @@ pub(crate) fn handle_insert_actions(
     mut insert: ResMut<InsertState>,
     mut grid: ResMut<GridSnap>,
     mut mode: ResMut<CurrentMode>,
+    mut just_picked: ResMut<KindJustPicked>,
     mut mode_changed: MessageWriter<ModeChanged>,
 ) {
     for invoked in reader.read() {
         if let Some(kind) = invoked.action.as_str().strip_prefix("insert.kind.") {
             insert.kind = Some(EntityKindId::new(kind.to_string()));
+            just_picked.0 = true;
             set_mode(MODE_INSERT, &mut mode, &mut mode_changed);
         }
         if invoked.action.as_str() == "core.toggle-grid-snap" {
@@ -130,8 +142,9 @@ pub(crate) fn sync_preview(world: &mut World) {
     let target = grid_target.unwrap();
 
     if let Some(&entity) = existing.first() {
+        let offset = world.get::<PreviewEntity>(entity).map(|p| p.offset).unwrap_or(Vec3::ZERO);
         if let Some(mut transform) = world.get_mut::<Transform>(entity) {
-            transform.translation = target;
+            transform.translation = target + offset;
         }
         return;
     }
@@ -147,7 +160,7 @@ pub(crate) fn sync_preview(world: &mut World) {
     let components = (kind.components)(target);
     let registry_arc = world.resource::<AppTypeRegistry>().clone();
     let registry = registry_arc.read();
-    let entity = world.spawn((PreviewEntity, InsertPreview)).id();
+    let entity = world.spawn((PreviewEntity { offset: Vec3::ZERO }, InsertPreview)).id();
     for value in components {
         let Some(info) = value.get_represented_type_info() else { continue };
         let Some(registration) = registry.get(info.type_id()) else { continue };
@@ -164,6 +177,14 @@ pub(crate) fn sync_preview(world: &mut World) {
             &mut (),
             bevy::ecs::relationship::RelationshipHookMode::Run,
         );
+    }
+    // Record the kind's placement offset so cursor updates keep preview == placement.
+    let offset = world
+        .get::<Transform>(entity)
+        .map(|t| t.translation - target)
+        .unwrap_or(Vec3::ZERO);
+    if let Some(mut preview) = world.get_mut::<PreviewEntity>(entity) {
+        preview.offset = offset;
     }
 }
 
@@ -218,7 +239,8 @@ mod tests {
 
     fn cube_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
         vec![
-            Box::new(Transform::from_translation(position)).into_partial_reflect(),
+            Box::new(Transform::from_translation(position + Vec3::Y * 0.5))
+                .into_partial_reflect(),
             Box::new(Marker { tag: 7 }).into_partial_reflect(),
         ]
     }
@@ -294,8 +316,21 @@ mod tests {
             let (t, m) = q.single(world).expect("one ghost preview");
             (*t, m.cloned())
         };
-        assert_eq!(preview_transform.translation, Vec3::new(2.0, 0.0, -2.0), "snapped");
+        assert_eq!(preview_transform.translation, Vec3::new(2.0, 0.5, -2.0), "snapped+offset");
         assert_eq!(marker, Some(Marker { tag: 7 }));
+
+        // Regression (owner bug): after the cursor MOVES, the ghost must keep the
+        // kind's Y offset — it was clipping into the ground while placement didn't.
+        app.world_mut().resource_mut::<CursorGround>().0 = Some(Vec3::new(5.4, 0.0, 3.2));
+        app.update();
+        let world = app.world_mut();
+        let moved = {
+            let mut q = world.query_filtered::<&Transform, With<InsertPreview>>();
+            *q.single(world).unwrap()
+        };
+        assert_eq!(moved.translation, Vec3::new(5.0, 0.5, 3.0), "preview == placement");
+        app.world_mut().resource_mut::<CursorGround>().0 = Some(Vec3::new(2.3, 0.0, -1.7));
+        app.update();
 
         // Shift-click: place and remain in insert mode.
         let depth_before = app.world().resource::<History>().undo_depth();
@@ -327,7 +362,7 @@ mod tests {
             .iter(world)
             .map(|t| t.translation)
             .collect();
-        assert_eq!(placed, vec![Vec3::new(2.0, 0.0, -2.0)], "snapped placement");
+        assert_eq!(placed, vec![Vec3::new(2.0, 0.5, -2.0)], "snapped placement w/ offset");
 
         // Plain click: places then returns to normal.
         app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);

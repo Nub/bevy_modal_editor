@@ -217,7 +217,7 @@ fn close_palette(
 /// you search kinds immediately (owner direction).
 fn open_on_insert_mode(
     mut modes: MessageReader<ModeChanged>,
-    insert: Res<editor_core::prelude::InsertState>,
+    mut just_picked: ResMut<editor_core::prelude::KindJustPicked>,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
     mut focus: ResMut<InputFocus>,
@@ -226,14 +226,11 @@ fn open_on_insert_mode(
     mut root: Single<&mut Visibility, With<PaletteRoot>>,
 ) {
     for change in modes.read() {
-        // Auto-open only when entering insert WITHOUT a kind: a kind pick from the
-        // palette also switches modes, and re-opening over the fresh ghost would hide
-        // the scene right when placement starts (owner feedback). With a previous
-        // kind, `i` goes straight to placing it; `:` re-opens to switch.
-        if change.to == editor_core::prelude::MODE_INSERT
-            && !state.open
-            && insert.kind.is_none()
-        {
+        // Entering insert ALWAYS offers the palette (owner: search right away, every
+        // time) — except when the entry was CAUSED by a palette kind pick, which
+        // must reveal the scene + fresh ghost instead of re-covering them.
+        let picked = std::mem::take(&mut just_picked.0);
+        if change.to == editor_core::prelude::MODE_INSERT && !state.open && !picked {
             open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
             state.query = "insert:".into();
             if let Ok(mut text) = editable.get_mut(*input) {

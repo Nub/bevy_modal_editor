@@ -20,7 +20,9 @@ use editor_api::prelude::*;
 pub mod prelude {
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
     pub use crate::gesture::{GesturePointer, MoveGesture, GESTURE_MOVE_CONTEXT};
-    pub use crate::insert::{CursorGround, GridSnap, InsertState, KindCatalog, MODE_INSERT};
+    pub use crate::insert::{
+        CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
+    };
     pub use crate::keymap_data::KeymapPaths;
     pub use crate::selection::{Selected, SelectionChanged};
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
@@ -175,6 +177,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<insert::GridSnap>()
             .init_resource::<insert::CursorGround>()
             .init_resource::<insert::KindCatalog>()
+            .init_resource::<insert::KindJustPicked>()
             .add_message::<selection::SelectionChanged>();
 
         app.add_observer(edits::index_on_add);
