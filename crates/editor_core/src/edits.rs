@@ -51,6 +51,9 @@ impl History {
 pub struct HistoryRequests {
     pub undo: usize,
     pub redo: usize,
+    /// Cancel an in-flight gesture: pop its (single, coalesced) entry and apply the
+    /// inverse WITHOUT creating a redo — Esc-cancel restores originals exactly (B7).
+    pub cancel_gesture: Option<u64>,
 }
 
 /// Keep the `SceneId → Entity` index true via lifecycle observers.
@@ -225,7 +228,11 @@ fn apply_ops(
 pub fn apply_edits(world: &mut World) {
     let queue = std::mem::take(&mut world.resource_mut::<EditQueue>().0);
     let requests = std::mem::take(&mut *world.resource_mut::<HistoryRequests>());
-    if queue.is_empty() && requests.undo == 0 && requests.redo == 0 {
+    if queue.is_empty()
+        && requests.undo == 0
+        && requests.redo == 0
+        && requests.cancel_gesture.is_none()
+    {
         return;
     }
 
@@ -253,6 +260,15 @@ pub fn apply_edits(world: &mut World) {
                 gesture: transaction.gesture,
                 inverse,
             });
+        }
+    }
+
+    if let Some(gesture) = requests.cancel_gesture {
+        let matches =
+            world.resource::<History>().undo.last().is_some_and(|e| e.gesture == Some(gesture));
+        if matches {
+            let entry = world.resource_mut::<History>().undo.pop().unwrap();
+            apply_ops(world, &registry, &editor_components, entry.inverse, &mut touched);
         }
     }
 

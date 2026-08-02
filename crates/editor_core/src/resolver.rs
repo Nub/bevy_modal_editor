@@ -31,6 +31,10 @@ pub struct PendingKeys(pub Vec<Chord>);
 #[derive(Resource, Default)]
 pub struct KeyCapture(pub bool);
 
+/// An active overlay keymap layer (gesture, focused panel) — highest priority when set.
+#[derive(Resource, Default)]
+pub struct OverlayContext(pub Option<ContextId>);
+
 /// Emitted when a key sequence resolves to nothing — every keypress deserves feedback
 /// (design bar, spec §7): the shell shows "unbound" instead of silence.
 #[derive(Message, Debug)]
@@ -71,12 +75,20 @@ fn is_modifier(key: KeyCode) -> bool {
 }
 
 /// Active context layers, highest priority first.
-pub fn active_contexts(state: &EditorState, mode: &CurrentMode) -> Vec<ContextId> {
+pub fn active_contexts(
+    state: &EditorState,
+    mode: &CurrentMode,
+    overlay: &OverlayContext,
+) -> Vec<ContextId> {
+    let mut contexts = Vec::with_capacity(3);
     if state.active {
-        vec![mode.context(), GLOBAL_CONTEXT]
-    } else {
-        vec![GLOBAL_CONTEXT]
+        if let Some(overlay) = &overlay.0 {
+            contexts.push(overlay.clone());
+        }
+        contexts.push(mode.context());
     }
+    contexts.push(GLOBAL_CONTEXT);
+    contexts
 }
 
 enum Resolution {
@@ -132,19 +144,20 @@ pub fn which_key_continuations(
 
 /// THE input system (EditorSet::Input). Everything else consumes `ActionInvoked`.
 pub fn resolve_input(
-    keys: Res<ButtonInput<KeyCode>>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
     keymap: Res<ResolvedKeymapData>,
     capture: Res<KeyCapture>,
     state: Res<EditorState>,
-    mut mode: ResMut<CurrentMode>,
+    overlay: Res<OverlayContext>,
+    mode: Res<CurrentMode>,
     mut pending: ResMut<PendingKeys>,
     mut actions: MessageWriter<ActionInvoked>,
-    mut mode_changed: MessageWriter<ModeChanged>,
     mut unresolved: MessageWriter<KeysUnresolved>,
 ) {
     if capture.0 {
         return;
     }
+    let Some(keys) = keys else { return };
     let modifiers = current_modifiers(&keys);
 
     for key in keys.get_just_pressed() {
@@ -152,18 +165,14 @@ pub fn resolve_input(
             continue;
         }
 
-        // Escape is kernel-owned: clear pending; if clean, walk home to Normal.
-        if *key == KeyCode::Escape && state.active {
-            if pending.0.is_empty() {
-                set_mode(MODE_NORMAL, &mut mode, &mut mode_changed);
-            } else {
-                pending.0.clear();
-            }
+        // Escape with a pending sequence just clears it (never resolves).
+        if *key == KeyCode::Escape && !pending.0.is_empty() {
+            pending.0.clear();
             continue;
         }
 
         pending.0.push(Chord { modifiers, key: *key });
-        let contexts = active_contexts(&state, &mode);
+        let contexts = active_contexts(&state, &mode, &overlay);
         match resolve_sequence(&keymap, &contexts, &pending.0) {
             Resolution::Exact(action) => {
                 pending.0.clear();
@@ -182,8 +191,10 @@ pub fn resolve_input(
 }
 
 /// Kernel conventions, applied to actions from ANY invocation source (EditorSet::Tools):
-/// `core.toggle-editor` flips ownership; `mode.<id>` enters a registered mode. Derived
-/// from the registry — no hand-maintained switch (v1 anti-pattern).
+/// `core.toggle-editor` flips ownership; `mode.<id>` enters a registered mode;
+/// `core.escape-home` (bound to Escape in global) walks home to Normal — features may
+/// also react to it (clear selection, close popups). Derived from the registry — no
+/// hand-maintained switch (v1 anti-pattern).
 pub fn apply_action_conventions(
     mut reader: MessageReader<ActionInvoked>,
     modes: Res<Modes>,
@@ -194,6 +205,9 @@ pub fn apply_action_conventions(
     for invoked in reader.read() {
         if invoked.action.as_str() == "core.toggle-editor" {
             state.active = !state.active;
+        }
+        if invoked.action.as_str() == "core.escape-home" && mode.0 != MODE_NORMAL {
+            set_mode(MODE_NORMAL, &mut mode, &mut mode_changed);
         }
         if let Some(mode_id) = invoked.action.as_str().strip_prefix("mode.") {
             let target = ModeId::new(mode_id.to_string());

@@ -7,20 +7,24 @@
 //! The `EditQueue` (M2) and panel shell (`editor_ui`) build on top.
 
 pub mod edits;
+pub mod gesture;
 pub mod keymap_data;
 pub mod modes;
 pub mod resolver;
+pub mod selection;
 
 use bevy::prelude::*;
 use editor_api::prelude::*;
 
 pub mod prelude {
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
+    pub use crate::gesture::{GesturePointer, MoveGesture, GESTURE_MOVE_CONTEXT};
     pub use crate::keymap_data::KeymapPaths;
+    pub use crate::selection::{Selected, SelectionChanged};
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
     pub use crate::resolver::{
         active_contexts, which_key_continuations, ActionCatalog, EditorState, KeyCapture,
-        KeysUnresolved, PendingKeys, ResolvedKeymap,
+        KeysUnresolved, OverlayContext, PendingKeys, ResolvedKeymap,
     };
     pub use crate::EditorCorePlugin;
     pub use editor_api::prelude::*;
@@ -73,6 +77,59 @@ impl EditorFeature for CoreFeature {
                     .context("normal")
                     .bind("ctrl+r"),
             );
+        // Escape as data: global binding the conventions system (and features) react to.
+        reg.action(ActionDef::new("core.escape-home", "Escape").bind("escape").hidden());
+        // Selection.
+        reg.action(
+            ActionDef::new("select.all", "Select All")
+                .describe("Select every scene entity")
+                .context("normal")
+                .bind("ctrl+a"),
+        )
+        .action(
+            ActionDef::new("select.clear", "Clear Selection")
+                .describe("Deselect everything")
+                .context("normal"),
+        );
+        // Move gesture: its overlay keymap layer + actions.
+        reg.context(gesture::GESTURE_MOVE_CONTEXT);
+        reg.action(
+            ActionDef::new("transform.move", "Move Selection")
+                .describe("Start a move gesture on the selection")
+                .context("normal")
+                .bind("w")
+                .edit(),
+        )
+        .action(
+            ActionDef::new("transform.axis-x", "Constrain X")
+                .context("gesture-move")
+                .bind("x")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.axis-y", "Constrain Y")
+                .context("gesture-move")
+                .bind("y")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.axis-z", "Constrain Z")
+                .context("gesture-move")
+                .bind("z")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.commit", "Commit Gesture")
+                .context("gesture-move")
+                .bind("enter")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.cancel", "Cancel Gesture")
+                .context("gesture-move")
+                .bind("escape")
+                .hidden(),
+        );
     }
 }
 
@@ -92,10 +149,16 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<SceneIndex>()
             .init_resource::<edits::EditorComponents>()
             .init_resource::<edits::History>()
-            .init_resource::<edits::HistoryRequests>();
+            .init_resource::<edits::HistoryRequests>()
+            .init_resource::<resolver::OverlayContext>()
+            .init_resource::<gesture::MoveGesture>()
+            .init_resource::<gesture::GesturePointer>()
+            .init_resource::<gesture::GestureCounter>()
+            .add_message::<selection::SelectionChanged>();
 
         app.add_observer(edits::index_on_add);
         app.add_observer(edits::index_on_remove);
+        app.add_observer(selection::on_pointer_press);
 
         app.add_editor_feature(CoreFeature);
 
@@ -111,9 +174,21 @@ impl Plugin for EditorCorePlugin {
             Update,
             (
                 resolver::resolve_input.in_set(EditorSet::Input),
-                (resolver::apply_action_conventions, edits::handle_history_actions)
+                (
+                    resolver::apply_action_conventions,
+                    edits::handle_history_actions,
+                    selection::handle_selection_actions,
+                    gesture::handle_gesture_actions,
+                    gesture::pointer_from_cursor,
+                    gesture::drive_gesture,
+                    gesture::commit_on_click,
+                )
+                    .chain()
                     .in_set(EditorSet::Tools),
                 edits::apply_edits.in_set(EditorSet::Mutate),
+                selection::draw_selection_gizmos
+                    .run_if(resource_exists::<bevy::gizmos::config::GizmoConfigStore>)
+                    .in_set(EditorSet::Sync),
             ),
         );
     }

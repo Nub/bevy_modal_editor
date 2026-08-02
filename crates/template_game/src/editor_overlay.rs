@@ -171,6 +171,7 @@ fn entries_for(
 fn compute_which_key(
     state: Res<EditorState>,
     mode: Res<CurrentMode>,
+    overlay: Res<OverlayContext>,
     pending: Res<PendingKeys>,
     keymap: Res<ResolvedKeymap>,
     catalog: Res<ActionCatalog>,
@@ -179,7 +180,7 @@ fn compute_which_key(
     mut which_key: ResMut<WhichKey>,
 ) {
     let now = time.elapsed_secs();
-    let contexts = active_contexts(&state, &mode);
+    let contexts = active_contexts(&state, &mode, &overlay);
 
     let next = if !state.active {
         None

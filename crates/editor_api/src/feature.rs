@@ -76,6 +76,7 @@ pub struct FeatureRegistry {
     pub(crate) actions: Vec<(FeatureId, ActionDef)>,
     pub(crate) modes: Vec<(FeatureId, ModeDef)>,
     pub(crate) components: Vec<(FeatureId, ComponentReg)>,
+    pub(crate) contexts: Vec<(FeatureId, ContextId)>,
     current_feature: Option<FeatureId>,
 }
 
@@ -88,6 +89,13 @@ impl FeatureRegistry {
     pub fn mode(&mut self, def: ModeDef) -> &mut Self {
         let feature = self.current().clone();
         self.modes.push((feature, def));
+        self
+    }
+    /// Register an overlay keymap context (gesture layers, focused-panel layers) that
+    /// is not a mode. Activated via the kernel's `OverlayContext`.
+    pub fn context(&mut self, id: impl Into<ContextId>) -> &mut Self {
+        let feature = self.current().clone();
+        self.contexts.push((feature, id.into()));
         self
     }
     /// Register an editor component (spec §5). Bounds match BSN blanket-template
@@ -193,11 +201,14 @@ impl FeatureRegistry {
             }
         }
 
-        // Known contexts: global + one per mode (panel contexts arrive with panels).
+        // Known contexts: global + one per mode + registered overlay contexts.
         let mut known_contexts: HashSet<ContextId> = HashSet::new();
         known_contexts.insert(GLOBAL_CONTEXT);
         for (_, mode) in &self.modes {
             known_contexts.insert(ContextId::new(mode.id.as_str().to_string()));
+        }
+        for (_, context) in &self.contexts {
+            known_contexts.insert(context.clone());
         }
 
         let mut bindings = Vec::new();
