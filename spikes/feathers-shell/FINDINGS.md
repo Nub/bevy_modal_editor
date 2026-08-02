@@ -1,7 +1,9 @@
 # Spike 3: feathers-shell — FINDINGS
 
-**Verdict: PROVISIONAL PASS — programmatic claims proven; interactive feel awaits the
-owner's hands-on judgment (the fallback decision is theirs).**
+**Verdict: PASS (owner-confirmed 2026-08-02 after four interactive rounds). feathers is
+the editor UI stack; the egui fallback is NOT needed.** Programmatic claims proven and
+interactive feel accepted; footguns F6-F8 found during owner testing are fixed in-spike
+and recorded as widget-kit requirements.
 
 Built a runnable mini editor shell on bevy_ui + feathers (Bevy 0.19): hierarchy pane
 with a 10,000-row virtualized list, hand-rolled draggable splitter, inspector pane
@@ -62,13 +64,9 @@ status bar proving widget→state value flow.
    feathers controls are row-oriented and empty-state-hostile out of the box; the
    `editor_ui` widget kit owns fixing that once, centrally.
 
-## Awaiting owner judgment (run: `cargo run -p spike_feathers_shell --release`)
+## Owner judgment (closed)
 
-- Scroll the 10k list: smoothness, no visual popping at rebind boundaries.
-- Drag the splitter: responsiveness, cursor feedback.
-- Tab through controls: focus rings, order sanity.
-- Type/select/copy/paste in Name; type in X/Y/Z fields (watch the status bar).
-
-If the feel is acceptable → PASS, feathers is the shell. If not → the pre-written
-fallback (egui behind the `WidgetKit` seam) triggers, and this spike's gap list still
-stands as the feathers upstream-contribution backlog.
+Four interactive rounds (scroll feel, splitter, focus traversal, text/number editing);
+each round's issues fixed in-spike and recorded (F6–F8). Final verdict: **PASS** —
+feathers is the shell; the F-list is the widget-kit requirements backlog plus feathers
+upstream-contribution candidates.

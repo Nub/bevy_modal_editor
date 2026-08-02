@@ -513,6 +513,14 @@ with progress UI.
   headers, cards, empty-states — the blessed set, composed from feathers primitives;
   panels compose these, keeping look and keyboard behavior uniform. v1's `theme.rs`
   semantic-color system carries as a design (a feathers theme), not as code.
+  **Binding requirements from M0 spike findings F6–F8** (raw feathers controls are
+  row-oriented and empty-state-hostile; the kit fixes each once, centrally): property
+  rows encode label-above-controls layout with width caps internally; wrapped controls
+  get column-safe flex defaults; text/number fields are never zero-size when empty,
+  seed their display values, reset-to-default on empty blur, and focus on whole-box
+  click; input frames style via background tokens, not borders (owner call); list
+  widgets virtualize; field-level undo bridges to the `EditQueue` at the widget
+  boundary (upstream text editing has none).
 - **One palette engine**: port v1's `fuzzy_palette` trait design; every searchable list
   (commands, insert, find-object, components, assets, prefabs) is an instance of it —
   including the command palette itself (v1's flagship palette bypassed its own engine).
