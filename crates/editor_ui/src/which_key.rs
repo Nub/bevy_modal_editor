@@ -84,6 +84,7 @@ pub(crate) fn compute_which_key(
     mut unresolved: MessageReader<KeysUnresolved>,
     mut actions: MessageReader<ActionInvoked>,
     time: Res<Time>,
+    settings: Res<EditorSettings>,
     mut which_key: ResMut<WhichKey>,
 ) {
     // Escape dismisses the popup instantly (universal backout).
@@ -116,7 +117,7 @@ pub(crate) fn compute_which_key(
                 header_warn: true,
                 entries: entries_for(&keymap, &catalog, &contexts, &[]),
             },
-            Some(now + 3.0),
+            Some(now + settings.ui.which_key_dismiss_secs),
         ))
     } else if which_key.until.is_some_and(|until| now < until) {
         return; // keep showing the unbound popup until its deadline
@@ -146,11 +147,13 @@ pub(crate) fn rebuild_which_key(
     mut which_key: ResMut<WhichKey>,
     panel: Single<(Entity, &mut Visibility), With<WhichKeyPanel>>,
     fonts: Res<UiFonts>,
+    settings: Res<EditorSettings>,
     mut commands: Commands,
 ) {
     if !which_key.dirty {
         return;
     }
+    let ui = settings.ui.clone();
     which_key.dirty = false;
     let (panel_entity, mut visibility) = panel.into_inner();
     commands.entity(panel_entity).despawn_related::<Children>();
@@ -165,12 +168,12 @@ pub(crate) fn rebuild_which_key(
     let header_color =
         if content.header_warn { style::color::TEXT_WARN } else { style::color::TEXT_DIM };
     let entries = content.entries.clone();
-    let key_font = style::mono(&fonts, style::font_size::S);
+    let key_font = style::mono(&fonts, ui.font_size_s);
 
     commands.entity(panel_entity).with_children(|panel| {
         panel.spawn((
             Text::new(header),
-            style::mono(&fonts, style::font_size::XS),
+            style::mono(&fonts, ui.font_size_xs),
             TextColor(header_color),
         ));
         panel
@@ -209,7 +212,7 @@ pub(crate) fn rebuild_which_key(
                         });
                         cell.spawn((
                             Text::new(name),
-                            style::sans(&fonts, style::font_size::S),
+                            style::sans(&fonts, ui.font_size_s),
                             TextColor(style::color::TEXT_DIM),
                         ));
                     });
@@ -217,7 +220,7 @@ pub(crate) fn rebuild_which_key(
                 if content.entries.is_empty() {
                     grid.spawn((
                         Text::new("nothing bound in this context"),
-                        style::sans(&fonts, style::font_size::S),
+                        style::sans(&fonts, ui.font_size_s),
                         TextColor(style::color::TEXT_DIM),
                     ));
                 }

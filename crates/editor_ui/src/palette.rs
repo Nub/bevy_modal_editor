@@ -24,8 +24,6 @@ use editor_core::prelude::*;
 
 use crate::style::{self, UiFonts};
 
-const MAX_RESULTS: usize = 50;
-
 /// What this palette is browsing (v1's typed open-modes, spec §7): filters are
 /// structural, never query-string hacks.
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +105,9 @@ fn spawn_palette(mut commands: Commands) {
                  font: bevy::text::FontSource::Handle(
                      ctx.resource::<AssetServer>().load(crate::style::SANS_MEDIUM_PATH),
                  ),
-                 font_size: bevy::text::FontSize::Px(11.0),
+                 font_size: bevy::text::FontSize::Px(
+                     ctx.resource::<EditorSettings>().ui.font_size_xs,
+                 ),
                  ..Default::default()
              }))
              TextColor({crate::style::color::TEXT_DIM})),
@@ -121,7 +121,12 @@ fn spawn_palette(mut commands: Commands) {
                     align_items: AlignItems::Center,
                     padding: UiRect::axes(px(style::space::S), px(style::space::XS)),
                 }
-                InheritableFont { font_size: {bevy::text::FontSize::Px(16.0)} }
+                template(|ctx| Ok(InheritableFont {
+                    font_size: bevy::text::FontSize::Px(
+                        ctx.resource::<EditorSettings>().ui.font_size_search,
+                    ),
+                    ..Default::default()
+                }))
                 on(|_press: On<Pointer<Press>>,
                     inner: Single<Entity, With<PaletteInput>>,
                     mut focus: ResMut<InputFocus>| {
@@ -213,6 +218,7 @@ fn filter_actions(
     catalog: &ActionCatalog,
     keymap: &ResolvedKeymap,
     modes: &Modes,
+    settings: &EditorSettings,
     query: &str,
     filter: PaletteFilter,
 ) -> Vec<ResultSection> {
@@ -261,7 +267,7 @@ fn filter_actions(
     }
 
     // Overall cap (the list scrolls; this only guards pathological volumes).
-    let mut remaining = MAX_RESULTS;
+    let mut remaining = settings.ui.palette_max_results;
     for section in &mut sections {
         let take = remaining.min(section.rows.len());
         section.rows.truncate(take);
@@ -418,6 +424,7 @@ fn palette_keys(
     catalog: Res<ActionCatalog>,
     keymap: Res<ResolvedKeymap>,
     modes: Res<Modes>,
+    settings: Res<EditorSettings>,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
     mut focus: ResMut<InputFocus>,
@@ -427,7 +434,8 @@ fn palette_keys(
     if !state.open || event.input.state != ButtonState::Pressed {
         return;
     }
-    let sections = filter_actions(&catalog, &keymap, &modes, &state.query, state.filter);
+    let sections =
+        filter_actions(&catalog, &keymap, &modes, &settings, &state.query, state.filter);
     let result_count = flat_len(&sections);
     match event.input.key_code {
         KeyCode::ArrowDown => {
@@ -502,6 +510,7 @@ fn rebuild_results(
     catalog: Res<ActionCatalog>,
     keymap: Res<ResolvedKeymap>,
     modes: Res<Modes>,
+    settings: Res<EditorSettings>,
     results: Single<Entity, With<PaletteResults>>,
     preview: Single<Entity, With<PalettePreview>>,
     fonts: Res<UiFonts>,
@@ -515,7 +524,9 @@ fn rebuild_results(
     if !state.open {
         return;
     }
-    let sections = filter_actions(&catalog, &keymap, &modes, &state.query, state.filter);
+    let ui = settings.ui.clone();
+    let sections =
+        filter_actions(&catalog, &keymap, &modes, &settings, &state.query, state.filter);
 
     // Left pane: the sectioned result list. Headers are chrome, not results —
     // selection indexes action rows only and skips straight over them.
@@ -525,7 +536,7 @@ fn rebuild_results(
             if let Some(title) = &section.title {
                 parent.spawn((
                     Text::new(title.clone()),
-                    style::sans_medium(&fonts, style::font_size::XS),
+                    style::sans_medium(&fonts, ui.font_size_xs),
                     TextColor(style::color::TEXT_DIM),
                     Node {
                         padding: UiRect::horizontal(px(style::space::S)),
@@ -564,12 +575,12 @@ fn rebuild_results(
                 entity.with_children(|row_node| {
                     row_node.spawn((
                         Text::new(row.label.clone()),
-                        style::sans(&fonts, style::font_size::M),
+                        style::sans(&fonts, ui.font_size_m),
                     ));
                     if !row.binding.is_empty() {
                         row_node.spawn((
                             Text::new(row.binding.clone()),
-                            style::mono(&fonts, style::font_size::S),
+                            style::mono(&fonts, ui.font_size_s),
                             TextColor(style::color::TEXT_KEYS),
                         ));
                     }
@@ -579,7 +590,7 @@ fn rebuild_results(
         if flat_index == 0 {
             parent.spawn((
                 Text::new("no matching actions"),
-                style::sans(&fonts, style::font_size::S),
+                style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
                 Node { padding: UiRect::all(px(style::space::S)), ..default() },
             ));
@@ -594,21 +605,21 @@ fn rebuild_results(
         let Some(def) = selected_def else {
             pane.spawn((
                 Text::new("no selection"),
-                style::sans(&fonts, style::font_size::S),
+                style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
             ));
             return;
         };
-        pane.spawn((Text::new(def.name.to_string()), style::sans_medium(&fonts, style::font_size::M)));
+        pane.spawn((Text::new(def.name.to_string()), style::sans_medium(&fonts, ui.font_size_m)));
         pane.spawn((
             Text::new(def.id.to_string()),
-            style::mono(&fonts, style::font_size::XS),
+            style::mono(&fonts, ui.font_size_xs),
             TextColor(style::color::TEXT_DIM),
         ));
         if !def.description.is_empty() {
             pane.spawn((
                 Text::new(def.description.to_string()),
-                style::sans(&fonts, style::font_size::S),
+                style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
                 Node { margin: UiRect::top(px(style::space::XS)), ..default() },
             ));
@@ -625,14 +636,14 @@ fn rebuild_results(
         if !bindings.is_empty() {
             pane.spawn((
                 Text::new("BINDINGS"),
-                style::sans(&fonts, style::font_size::XS),
+                style::sans(&fonts, ui.font_size_xs),
                 TextColor(style::color::TEXT_DIM),
                 Node { margin: UiRect::top(px(style::space::S)), ..default() },
             ));
             for line in bindings {
                 pane.spawn((
                     Text::new(line),
-                    style::mono(&fonts, style::font_size::S),
+                    style::mono(&fonts, ui.font_size_s),
                     TextColor(style::color::TEXT_KEYS),
                 ));
             }

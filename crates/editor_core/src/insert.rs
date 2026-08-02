@@ -30,17 +30,10 @@ pub struct InsertState {
     pub kind: Option<EntityKindId>,
 }
 
-/// Grid snap (B9): quantizes preview + placement when enabled.
-#[derive(Resource)]
+/// Grid snap (B9): quantizes preview + placement when enabled (step from settings).
+#[derive(Resource, Default)]
 pub struct GridSnap {
     pub enabled: bool,
-    pub size: f32,
-}
-
-impl Default for GridSnap {
-    fn default() -> Self {
-        Self { enabled: false, size: 1.0 }
-    }
 }
 
 /// Cursor projected onto the ground plane (y = 0), editor-active frames only.
@@ -95,11 +88,12 @@ pub(crate) fn cursor_ground(
         .map(|distance| ray.get_point(distance));
 }
 
-pub fn snapped(position: Vec3, snap: &GridSnap) -> Vec3 {
-    if !snap.enabled {
+/// Quantize to the grid when snapping is on; `step` comes from `EditorSettings`.
+pub fn snapped(position: Vec3, snap: &GridSnap, step: f32) -> Vec3 {
+    if !snap.enabled || step <= 0.0 {
         return position;
     }
-    (position / snap.size).round() * snap.size
+    (position / step).round() * step
 }
 
 /// Kind-pick actions (synthesized `insert.kind.<id>`) select the kind and enter
@@ -132,7 +126,8 @@ pub(crate) fn sync_preview(world: &mut World) {
     let cursor = world.resource::<CursorGround>().0;
     let grid_target = {
         let grid = world.resource::<GridSnap>();
-        cursor.map(|c| snapped(c, &grid))
+        let step = world.resource::<crate::settings::EditorSettings>().viewport.grid_step;
+        cursor.map(|c| snapped(c, grid, step))
     };
 
     let existing: Vec<Entity> =
@@ -215,6 +210,7 @@ pub(crate) fn place_on_click(
     insert: Res<InsertState>,
     catalog: Res<KindCatalog>,
     grid: Res<GridSnap>,
+    settings: Res<crate::settings::EditorSettings>,
     cursor: Res<CursorGround>,
     mut edits: EditScope,
     mut mode_changed: MessageWriter<ModeChanged>,
@@ -230,7 +226,7 @@ pub(crate) fn place_on_click(
     }
     let Some(kind) = insert.kind.as_ref().and_then(|id| catalog.get(id)) else { return };
 
-    let position = snapped(target, &grid);
+    let position = snapped(target, &grid, settings.viewport.grid_step);
     let id = SceneId::random();
     edits
         .transaction(format!("Place {}", kind.display_name))

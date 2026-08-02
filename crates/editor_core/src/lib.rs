@@ -14,6 +14,7 @@ pub mod keymap_data;
 pub mod modes;
 pub mod resolver;
 pub mod selection;
+pub mod settings;
 
 use bevy::prelude::*;
 use editor_api::prelude::*;
@@ -21,6 +22,7 @@ use editor_api::prelude::*;
 pub mod prelude {
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
     pub use crate::camera::{is_viewport_camera, FlyingCamera};
+    pub use crate::settings::EditorSettings;
     pub use crate::gesture::{GestureMotion, MoveGesture, GESTURE_MOVE_CONTEXT};
     pub use crate::insert::{
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
@@ -174,6 +176,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<resolver::OverlayContext>()
             .init_resource::<resolver::EscapeFromCapture>()
             .init_resource::<camera::FlyingCamera>()
+            .init_resource::<settings::EditorSettings>()
             .init_resource::<gesture::MoveGesture>()
             .init_resource::<gesture::GestureMotion>()
             .init_resource::<gesture::GestureCounter>()

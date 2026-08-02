@@ -13,10 +13,12 @@ pub(crate) struct GhostMaterial(Handle<StandardMaterial>);
 
 pub(crate) fn init_ghost_material(
     mut commands: Commands,
+    settings: Res<EditorSettings>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
+    let [r, g, b, a] = settings.viewport.ghost_color;
     commands.insert_resource(GhostMaterial(materials.add(StandardMaterial {
-        base_color: Color::srgba(0.35, 0.62, 1.0, 0.45),
+        base_color: Color::srgba(r, g, b, a),
         alpha_mode: AlphaMode::Blend,
         unlit: true,
         ..default()

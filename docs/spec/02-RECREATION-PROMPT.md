@@ -246,6 +246,14 @@ the successor to v1's demo crates, which were the strongest evidence the v1 API 
 - **Keymaps are data**: shipped defaults are a keymap file (RON/TOML) like any user keymap;
   user files layer over defaults; per-mode tables; multi-key sequences supported (leader
   keys, `g`-prefix chords); conflict detection at load with actionable errors.
+- **Settings are data** *(amended at M2 close)*: every user-tunable static — type scale,
+  selection-outline color/width, ghost tint, camera fly speed/boost/sensitivity, grid
+  step, chrome timings, palette caps — lives in ONE serde-ready `EditorSettings`
+  resource (`editor_core`), defaults in code, `#[serde(default)]` at every level for
+  forward compatibility. A user `editor-settings.ron` layering over defaults lands
+  beside the keymap file (same pattern). Design tokens that define the chrome's
+  identity (spacing/radius scales, glyphs) stay code constants — user settings tune
+  the editor, they don't fork the design system.
 - **Discoverability**: which-key popup on held prefix/mode entry showing available bindings;
   every action searchable in the command palette with its current binding displayed; a
   generated cheat-sheet view.

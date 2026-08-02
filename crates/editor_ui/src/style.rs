@@ -32,16 +32,6 @@ pub mod glyph {
     pub const COMPONENT: &str = "\u{f12e}";
 }
 
-/// Type scale (logical px). Chrome text never uses ad-hoc sizes.
-pub mod font_size {
-    /// Chips, badges, secondary metadata.
-    pub const XS: f32 = 11.0;
-    /// Status bar, hints, binding glyphs, list metadata.
-    pub const S: f32 = 13.0;
-    /// Body/list text.
-    pub const M: f32 = 14.0;
-}
-
 /// Semantic chrome colors derived from the feathers palette — never ad-hoc RGB.
 pub mod color {
     use super::*;

@@ -14,10 +14,6 @@ use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
 
 use crate::resolver::{EditorState, KeyCapture};
 
-const LOOK_SENSITIVITY: f32 = 0.0025;
-const FLY_SPEED: f32 = 10.0;
-const BOOST: f32 = 3.0;
-
 /// True while the RMB fly-nav owns the mouse (selection/placement ignore clicks).
 #[derive(Resource, Default)]
 pub struct FlyingCamera(pub bool);
@@ -39,6 +35,7 @@ pub fn is_viewport_camera(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn editor_fly_camera(
     state: Res<EditorState>,
+    settings: Res<crate::settings::EditorSettings>,
     capture: Res<KeyCapture>,
     mouse: Option<Res<ButtonInput<MouseButton>>>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
@@ -83,8 +80,8 @@ pub(crate) fn editor_fly_camera(
     if let Some(motion) = motion {
         if motion.delta != Vec2::ZERO {
             let (mut yaw, mut pitch, _) = transform.rotation.to_euler(EulerRot::YXZ);
-            yaw -= motion.delta.x * LOOK_SENSITIVITY;
-            pitch = (pitch - motion.delta.y * LOOK_SENSITIVITY).clamp(-1.54, 1.54);
+            yaw -= motion.delta.x * settings.camera.look_sensitivity;
+            pitch = (pitch - motion.delta.y * settings.camera.look_sensitivity).clamp(-1.54, 1.54);
             transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
         }
     }
@@ -113,11 +110,11 @@ pub(crate) fn editor_fly_camera(
         wish -= Vec3::Y;
     }
     let boost = if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-        BOOST
+        settings.camera.fly_boost
     } else {
         1.0
     };
     let Some(time) = time else { return };
     transform.translation +=
-        wish.normalize_or_zero() * FLY_SPEED * boost * time.delta_secs();
+        wish.normalize_or_zero() * settings.camera.fly_speed * boost * time.delta_secs();
 }

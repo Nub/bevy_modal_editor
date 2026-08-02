@@ -30,7 +30,12 @@ pub(crate) struct StatusFlash {
     until: f32,
 }
 
-pub(crate) fn spawn_statusbar(mut commands: Commands, fonts: Res<UiFonts>) {
+pub(crate) fn spawn_statusbar(
+    mut commands: Commands,
+    fonts: Res<UiFonts>,
+    settings: Res<EditorSettings>,
+) {
+    let ui = settings.ui.clone();
     commands
         .spawn((
             StatusBar,
@@ -65,14 +70,14 @@ pub(crate) fn spawn_statusbar(mut commands: Commands, fonts: Res<UiFonts>) {
                 chip.spawn((
                     StatusModeText,
                     Text::new("NORMAL"),
-                    style::sans_medium(&fonts, style::font_size::XS),
+                    style::sans_medium(&fonts, ui.font_size_xs),
                     TextColor(style::color::TEXT_ON_ACCENT),
                 ));
             });
             bar.spawn((
                 StatusDirty,
                 Text::new("●"),
-                style::sans(&fonts, style::font_size::S),
+                style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_WARN),
                 Visibility::Hidden,
             ));
@@ -80,14 +85,14 @@ pub(crate) fn spawn_statusbar(mut commands: Commands, fonts: Res<UiFonts>) {
                 StatusHint,
                 Text::new(""),
                 ThemedText,
-                style::sans(&fonts, style::font_size::S),
+                style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
             ));
             bar.spawn(Node { flex_grow: 1.0, ..default() });
             bar.spawn((
                 StatusKeys,
                 Text::new(""),
-                style::mono(&fonts, style::font_size::S),
+                style::mono(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_KEYS),
             ));
         });
@@ -96,12 +101,13 @@ pub(crate) fn spawn_statusbar(mut commands: Commands, fonts: Res<UiFonts>) {
 pub(crate) fn collect_io_feedback(
     mut reader: MessageReader<editor_scene::SceneIoFeedback>,
     time: Res<Time>,
+    settings: Res<EditorSettings>,
     mut flash: ResMut<StatusFlash>,
 ) {
     for feedback in reader.read() {
         flash.text = feedback.message.clone();
         flash.success = feedback.success;
-        flash.until = time.elapsed_secs() + 3.0;
+        flash.until = time.elapsed_secs() + settings.ui.status_flash_secs;
     }
 }
 

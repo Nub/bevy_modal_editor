@@ -6,9 +6,10 @@ use bevy::prelude::*;
 use bevy_outliner::prelude::*;
 use editor_core::prelude::*;
 
-/// Outline accent (matches the chrome accent family; JFA wants linear color).
-fn outline() -> MeshOutline {
-    MeshOutline::new(LinearRgba::rgb(0.35, 0.62, 1.0), 4.0)
+/// Outline styling from settings (JFA wants linear color).
+fn outline(settings: &EditorSettings) -> MeshOutline {
+    let [r, g, b, a] = settings.viewport.outline_color;
+    MeshOutline::new(LinearRgba::new(r, g, b, a), settings.viewport.outline_width)
 }
 
 /// The editor's viewport camera renders outlines. The silhouette camera the outliner
@@ -30,6 +31,7 @@ pub(crate) fn ensure_outline_camera(
 /// deactivating the editor (F12, play) strips them all so the game view is clean.
 pub(crate) fn sync_selection_outlines(
     state: Res<EditorState>,
+    settings: Res<EditorSettings>,
     mut commands: Commands,
     missing: Query<Entity, (With<Selected>, With<Mesh3d>, Without<MeshOutline>)>,
     stale: Query<Entity, (With<MeshOutline>, Without<Selected>)>,
@@ -42,7 +44,7 @@ pub(crate) fn sync_selection_outlines(
         return;
     }
     for entity in &missing {
-        commands.entity(entity).insert(outline());
+        commands.entity(entity).insert(outline(&settings));
     }
     for entity in &stale {
         commands.entity(entity).remove::<MeshOutline>();
