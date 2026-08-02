@@ -74,7 +74,7 @@ fn main() {
         })
         .init_resource::<DemoState>()
         .add_systems(Startup, shell.spawn())
-        .add_systems(Update, (virtualize_list, update_status, report_entity_count))
+        .add_systems(Update, (virtualize_list, update_status, report_entity_count, seed_name))
         .run();
 }
 
@@ -199,7 +199,10 @@ fn inspector_pane() -> impl Scene {
                 @FeathersTextInputContainer
                 Children [
                     (
-                        @FeathersTextInput {}
+                        // visible_width is required: an EMPTY EditableText without it
+                        // measures 0x0 — invisible and unclickable (the number inputs
+                        // only escape this by being seeded with "0.00").
+                        @FeathersTextInput { @visible_width: 24f32 }
                         NameInput
                         on(|_c: On<TextEditChange>,
                             q: Single<&bevy::text::EditableText, With<NameInput>>,
@@ -237,6 +240,9 @@ fn inspector_pane() -> impl Scene {
             (Text("Scale") ThemedText),
             (
                 @FeathersSlider { @max: 10.0, @value: 1.0 }
+                // Slider's scene sets flex_grow: 1.0 for row layouts; in a column that
+                // grows HEIGHT into free space — zero it, keep its 24px height.
+                Node { flex_grow: 0.0 }
                 SliderStep(0.5)
                 SliderPrecision(2)
                 on(slider_self_update)
@@ -275,6 +281,17 @@ fn virtualize_list(
         if text.0 != data.items[idx] {
             text.0 = data.items[idx].clone();
         }
+    }
+}
+
+/// Seed the Name field once its EditableText exists (edits are queued, applied in
+/// PostUpdate — the gallery's set-text idiom).
+fn seed_name(
+    mut q: Query<&mut bevy::text::EditableText, (With<NameInput>, Added<bevy::text::EditableText>)>,
+) {
+    for mut text in &mut q {
+        text.queue_edit(bevy::text::TextEdit::SelectAll);
+        text.queue_edit(bevy::text::TextEdit::Insert("Cube.001".into()));
     }
 }
 

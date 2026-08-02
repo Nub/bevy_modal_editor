@@ -43,6 +43,14 @@ status bar proving widget→state value flow.
    number inputs. **Widget-kit consequence: the `editor_ui` property-row widget must
    encode this layout internally** so panel authors can never reproduce the bug — the
    exact "coherent by construction" argument from spec §7.
+7. **Two more owner-testing footguns, same lesson (fixed):** (a) an *empty*
+   `EditableText` without `visible_width` measures 0×0 — invisible and unclickable
+   ("the Name field is just a label"); number inputs only escape by being seeded with
+   "0.00". (b) `FeathersSlider`'s scene sets `flex_grow: 1.0` for row layouts — placed
+   in a column with free space it grows *height* ("comically tall"); needs
+   `flex_grow: 0.0` in column contexts. Both are context-dependent defaults a panel
+   author must know — more evidence the widget kit wraps these controls with
+   editor-correct defaults rather than exposing them raw.
 
 ## Awaiting owner judgment (run: `cargo run -p spike_feathers_shell --release`)
 
