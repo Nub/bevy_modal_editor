@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 
+pub mod authoring;
 pub mod overrides;
 pub use overrides::{sync_overrides, StampedFrom};
 
@@ -137,10 +138,17 @@ impl PrefabDef {
     }
 }
 
-/// Loaded prefabs by id.
+/// Loaded prefabs by id. `generation` bumps on any library change — instances
+/// restamp when it moves (the propagation trigger).
 #[derive(Resource, Default)]
 pub struct PrefabLibrary {
     pub prefabs: HashMap<Uuid, PrefabDef>,
+    pub generation: u64,
+}
+
+impl PrefabDef {
+    /// Placeholder hook (bake staleness etc. later).
+    pub fn generation_note(&mut self) {}
 }
 
 /// Stamp a prefab's template under an instance root: fresh runtime SceneIds
@@ -259,10 +267,22 @@ impl Plugin for EditorPrefabsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PrefabLibrary>();
         app.init_resource::<overrides::OverrideCursor>();
+        app.init_resource::<authoring::PrefabRequests>();
+        app.init_resource::<authoring::LastRestampedGeneration>();
         app.add_editor_feature(PrefabsFeature);
+        app.add_systems(Startup, authoring::load_prefab_library);
         app.add_systems(
             Update,
-            (stamp_new_instances, overrides::sync_overrides)
+            authoring::collect_prefab_actions.in_set(editor_core::EditorSet::Tools),
+        );
+        app.add_systems(
+            Update,
+            (
+                authoring::perform_prefab_actions,
+                authoring::restamp_on_library_change,
+                stamp_new_instances,
+                overrides::sync_overrides,
+            )
                 .chain()
                 .in_set(editor_core::EditorSet::Sync),
         );
@@ -277,7 +297,29 @@ impl EditorFeature for PrefabsFeature {
     }
     fn register(&self, reg: &mut FeatureRegistry) {
         // The instance root's serialized shape: {prefab_id, transform, overrides}.
-        reg.component::<PrefabInstance>().component::<PrefabOverrides>();
+        reg.component::<PrefabInstance>()
+            .component::<PrefabOverrides>()
+            .action(
+                ActionDef::new("prefab.create", "Create Prefab From Selection")
+                    .describe("Save the selected entities as a reusable prefab")
+                    .context("normal"),
+            )
+            .action(
+                ActionDef::new("prefab.place", "Place Prefab")
+                    .describe("Pick a library prefab to place")
+                    .context("normal")
+                    .bind("space b"),
+            )
+            .action(
+                ActionDef::new("prefab.revert-overrides", "Revert Prefab Overrides")
+                    .describe("Reset the selected instance to its prefab source")
+                    .context("normal"),
+            )
+            .action(
+                ActionDef::new("prefab.apply-to-prefab", "Apply Overrides To Prefab")
+                    .describe("Fold this instance's changes into the prefab for everyone")
+                    .context("normal"),
+            );
     }
 }
 

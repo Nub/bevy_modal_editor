@@ -19,6 +19,8 @@ pub(crate) enum PalettePayload {
     Entity(SceneId),
     /// Assign this library material to the selection (C6).
     Material(uuid::Uuid),
+    /// Place an instance of this prefab (M4-D5).
+    Prefab(uuid::Uuid),
 }
 
 #[derive(Clone)]

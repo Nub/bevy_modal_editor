@@ -37,6 +37,8 @@ pub enum PaletteFilter {
     FindObject,
     /// The material library (C6): Enter assigns to the selection.
     Materials,
+    /// The prefab library (M4-D5): Enter places an instance.
+    Prefabs,
 }
 
 #[derive(Resource, Default)]
@@ -213,13 +215,15 @@ fn build_palette_items(
     modes: Res<Modes>,
     entities: Query<(&SceneId, &Name)>,
     library: Res<editor_scene::materials::MaterialLibrary>,
+    prefabs: Res<editor_prefabs::PrefabLibrary>,
     mut edited: MessageReader<Edited>,
     mut items: ResMut<PaletteItems>,
 ) {
     let scene_changed = edited.read().next().is_some();
     let refresh = state.is_changed()
         || (scene_changed && state.filter == PaletteFilter::FindObject)
-        || (library.is_changed() && state.filter == PaletteFilter::Materials);
+        || (library.is_changed() && state.filter == PaletteFilter::Materials)
+        || (prefabs.is_changed() && state.filter == PaletteFilter::Prefabs);
     if !refresh {
         return;
     }
@@ -229,6 +233,19 @@ fn build_palette_items(
     }
     items.0.clear();
     match state.filter {
+        PaletteFilter::Prefabs => {
+            let mut defs: Vec<_> = prefabs.prefabs.values().collect();
+            defs.sort_by(|a, b| a.name.cmp(&b.name));
+            for def in defs {
+                items.0.push(PaletteEntry {
+                    label: def.name.clone(),
+                    category: None,
+                    keywords: def.id.to_string(),
+                    suffix: "prefab".into(),
+                    payload: PalettePayload::Prefab(def.id),
+                });
+            }
+        }
         PaletteFilter::Materials => {
             for def in &library.materials {
                 items.0.push(PaletteEntry {
@@ -422,6 +439,7 @@ fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<Palet
         PaletteFilter::Commands => "COMMANDS",
         PaletteFilter::FindObject => "FIND OBJECT",
         PaletteFilter::Materials => "ASSIGN MATERIAL",
+        PaletteFilter::Prefabs => "PLACE PREFAB",
     };
     for mut text in &mut title {
         if text.0 != label {
@@ -449,6 +467,13 @@ fn handle_open_action(
             } else {
                 PaletteFilter::Commands
             };
+            if let Ok(mut text) = editable.get_mut(*input) {
+                text.clear();
+            }
+        }
+        if invoked.action.as_str() == "prefab.place" && !state.open {
+            open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
+            state.filter = PaletteFilter::Prefabs;
             if let Ok(mut text) = editable.get_mut(*input) {
                 text.clear();
             }
@@ -551,6 +576,33 @@ fn palette_keys(
                             action: action.clone(),
                             args: None,
                             source: InvocationSource::Palette,
+                        });
+                    }
+                    PalettePayload::Prefab(prefab) => {
+                        let prefab = *prefab;
+                        commands.queue(move |world: &mut World| {
+                            // Place at the cursor's ground point when available.
+                            let at = world
+                                .resource::<CursorGround>()
+                                .0
+                                .unwrap_or(Vec3::ZERO);
+                            world.resource_mut::<EditQueue>().0.push(Transaction {
+                                label: "Place Prefab".into(),
+                                gesture: None,
+                                ops: vec![Op::Spawn {
+                                    id: SceneId::random(),
+                                    components: vec![
+                                        Box::new(editor_prefabs::PrefabInstance(prefab))
+                                            .into_partial_reflect(),
+                                        Box::new(editor_prefabs::PrefabOverrides::default())
+                                            .into_partial_reflect(),
+                                        Box::new(Transform::from_translation(at))
+                                            .into_partial_reflect(),
+                                        Box::new(Name::new("Prefab Instance"))
+                                            .into_partial_reflect(),
+                                    ],
+                                }],
+                            });
                         });
                     }
                     PalettePayload::Material(material) => {
