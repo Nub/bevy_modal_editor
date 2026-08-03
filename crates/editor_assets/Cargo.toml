@@ -1,0 +1,16 @@
+[package]
+name = "editor_assets"
+description = "Ingestion pipeline (spec §6): asset identity, validation, processing — wraps Bevy's AssetProcessor, never forks it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+ron = { workspace = true }
+uuid = { workspace = true }
+blake3 = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

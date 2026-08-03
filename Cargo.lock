@@ -2379,6 +2379,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "editor_assets"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "ron 0.8.1",
+ "serde",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "editor_core"
 version = "0.1.0"
 dependencies = [

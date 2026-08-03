@@ -19,5 +19,7 @@ and the convergence plan.
 
 | 9 | (Toolchain, not BSN) **Hot code reload deferred** (spike: `spikes/hot-reload`, CORRECTED by owner: Bevy ships official `hotpatching` — subsecond — since 0.17, present on our 0.19 pin; system-body patches only, needs the dioxus `dx` toolchain) | Fast-relaunch (M3-C8): `editor.reload` saves scene + session sidecar, restarts the rebuilt binary, restores selection/camera/editor-state on boot. Complements hotpatching (covers layout/schedule changes it can't) | Adopt `bevy/hotpatching` + document the dx dev loop in a later milestone (owner-deferred 2026-08-02) | Open — path known |
 
+| 10 | (Assets, not BSN) **Bevy 0.19 asset identity is PATH-based** — `AssetProcessor` gives hash-keyed re-processing + `.meta` files (we WRAP it for the Process stage, D3), but no stable UUID identity, so references break on rename/re-import | `editor_assets` identity layer (M4-D1): versioned `.import.ron` sidecar per source asset — UUID (stable across re-imports), blake3 content hash, pipeline version. All editor references target the UUID | Adopt upstream identity if bevy_asset grows UUIDs; wrap-not-fork otherwise | Open |
+
 Add entries as spikes and milestones discover them. Deleting an entry requires the
 upstream feature to be adopted and the gap-filler removed.
