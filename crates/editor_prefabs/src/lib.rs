@@ -21,6 +21,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 
+pub mod overrides;
+pub use overrides::{sync_overrides, StampedFrom};
+
 pub const PREFAB_FORMAT_VERSION: u32 = 1;
 
 /// Scene-side reference: this entity is an instance of a library prefab.
@@ -160,9 +163,19 @@ pub fn stamp_prefab(world: &mut World, prefab_id: Uuid, root: Entity) {
             .collect()
     };
 
+    let root_scene_id = world.get::<SceneId>(root).copied().unwrap_or_default();
+    let patches: Vec<OverridePatch> =
+        world.get::<PrefabOverrides>(root).map(|o| o.0.clone()).unwrap_or_default();
+
     let mut spawned: HashMap<SceneId, Entity> = HashMap::new();
     for (template_id, _, components) in &records {
-        let entity = world.spawn((SceneId::random(), PrefabStamped)).id();
+        let entity = world
+            .spawn((
+                SceneId::random(),
+                PrefabStamped,
+                StampedFrom { instance_root: root_scene_id, template_id: *template_id },
+            ))
+            .id();
         for value in components {
             let Some(info) = value.get_represented_type_info() else { continue };
             let Some(registration) = registry.get(info.type_id()) else { continue };
@@ -179,6 +192,37 @@ pub fn stamp_prefab(world: &mut World, prefab_id: Uuid, root: Entity) {
                 &mut (),
                 RelationshipHookMode::Run,
             );
+        }
+        // Overrides re-apply OVER the template (per-field patches).
+        for patch in patches.iter().filter(|p| p.entity == template_id.0.to_string()) {
+            let Some(registration) = registry.get_with_type_path(&patch.type_path) else {
+                continue;
+            };
+            let Some(reflect_component) =
+                registration.data::<bevy::ecs::reflect::ReflectComponent>()
+            else {
+                continue;
+            };
+            let Some(current) = world
+                .get_entity(entity)
+                .ok()
+                .and_then(|e| reflect_component.reflect(e))
+            else {
+                continue;
+            };
+            let mut dynamic = current.as_partial_reflect().to_dynamic();
+            if overrides::apply_patch_value(&registry, dynamic.as_mut(), &patch.path, &patch.value)
+            {
+                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                    reflect_component.apply_or_insert_mapped(
+                        &mut entity_mut,
+                        dynamic.as_ref(),
+                        &registry,
+                        &mut (),
+                        RelationshipHookMode::Run,
+                    );
+                }
+            }
         }
         spawned.insert(*template_id, entity);
     }
@@ -214,10 +258,13 @@ pub struct EditorPrefabsPlugin;
 impl Plugin for EditorPrefabsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PrefabLibrary>();
+        app.init_resource::<overrides::OverrideCursor>();
         app.add_editor_feature(PrefabsFeature);
         app.add_systems(
             Update,
-            stamp_new_instances.in_set(editor_core::EditorSet::Sync),
+            (stamp_new_instances, overrides::sync_overrides)
+                .chain()
+                .in_set(editor_core::EditorSet::Sync),
         );
     }
 }
