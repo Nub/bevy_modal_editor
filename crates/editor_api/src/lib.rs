@@ -14,12 +14,12 @@ pub mod ids;
 pub mod keymap;
 pub mod kinds;
 pub mod panels;
+pub mod pipeline;
 pub mod validate;
 
 // Arriving with their milestones (RFC §2 layout):
 // pub mod components;  // M2+: ComponentOpts, migrators, PropertyHint
 // pub mod gizmos;      // M2: GizmoCtx, HandleId
-// pub mod pipeline;    // M4: ImporterDef, ProcessorDef, BakerDef, AssetKindDef
 // pub mod conformance; // grows with each subsystem
 // #[cfg(feature = "ui")]
 // pub mod ui;          // M1 (editor_ui shell): PanelUi, PanelCtx, WidgetKit
@@ -33,10 +33,11 @@ pub mod prelude {
     };
     pub use crate::ids::{
         ActionId, ContextId, EntityKindId, FeatureId, ModeId, PanelId, SceneId,
-        ValidatorId, GLOBAL_CONTEXT,
+        ProcessorId, ValidatorId, GLOBAL_CONTEXT,
     };
     pub use crate::keymap::{Binding, Chord, Modifiers};
     pub use crate::kinds::{EntityKindDef, InsertPreview};
     pub use crate::panels::{PanelContent, PanelDecl, Placement, PropertySource};
+    pub use crate::pipeline::{ProcessCx, ProcessorDef};
     pub use crate::validate::{Problem, Severity, ValidateCx, ValidatorDef};
 }

@@ -39,7 +39,7 @@ pub mod prelude {
         KeysUnresolved, OverlayContext, PendingKeys, PointerOverChrome, ResolvedKeymap,
     };
     pub use crate::EditorCorePlugin;
-    pub use crate::ValidatorCatalog;
+    pub use crate::{ProcessorCatalog, ValidatorCatalog};
     pub use editor_api::prelude::*;
 }
 
@@ -387,6 +387,9 @@ fn host_features(world: &mut World) {
     world.insert_resource(ValidatorCatalog {
         validators: validated.validators.iter().map(|(_, v)| v.clone()).collect(),
     });
+    world.insert_resource(ProcessorCatalog {
+        processors: validated.processors.iter().map(|(_, p)| p.clone()).collect(),
+    });
     world.insert_resource(panels::PanelCatalog {
         panels: validated.panels.iter().map(|(_, p)| p.clone()).collect(),
     });
@@ -406,4 +409,10 @@ pub use modes::MODE_NORMAL;
 #[derive(Resource, Default)]
 pub struct ValidatorCatalog {
     pub validators: Vec<editor_api::validate::ValidatorDef>,
+}
+
+/// All registered asset processors (M4-D3) — the Process runner consumes these.
+#[derive(Resource, Default)]
+pub struct ProcessorCatalog {
+    pub processors: Vec<editor_api::pipeline::ProcessorDef>,
 }

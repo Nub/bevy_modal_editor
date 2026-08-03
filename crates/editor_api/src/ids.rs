@@ -70,6 +70,10 @@ string_id!(
     /// A registered import-time validator ("gltf.units").
     ValidatorId
 );
+string_id!(
+    /// A registered asset processor ("gltf.mesh-optimize").
+    ProcessorId
+);
 
 /// The always-active keymap context.
 pub const GLOBAL_CONTEXT: ContextId = ContextId::new_static("global");

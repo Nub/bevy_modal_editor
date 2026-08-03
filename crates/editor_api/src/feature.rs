@@ -9,6 +9,7 @@ use crate::actions::ActionDef;
 use crate::ids::{ActionId, ContextId, FeatureId, ModeId, GLOBAL_CONTEXT};
 use crate::kinds::EntityKindDef;
 use crate::panels::PanelDecl;
+use crate::pipeline::ProcessorDef;
 use crate::validate::ValidatorDef;
 use crate::keymap::{find_conflicts, Binding};
 use bevy::prelude::*;
@@ -83,6 +84,7 @@ pub struct FeatureRegistry {
     pub kinds: Vec<(FeatureId, EntityKindDef)>,
     pub panels: Vec<(FeatureId, PanelDecl)>,
     pub validators: Vec<(FeatureId, ValidatorDef)>,
+    pub processors: Vec<(FeatureId, ProcessorDef)>,
     current_feature: Option<FeatureId>,
 }
 
@@ -115,6 +117,12 @@ impl FeatureRegistry {
     pub fn panel(&mut self, decl: PanelDecl) -> &mut Self {
         let feature = self.current().clone();
         self.panels.push((feature, decl));
+        self
+    }
+    /// Register an asset processor (RFC, M4-D3).
+    pub fn processor(&mut self, def: ProcessorDef) -> &mut Self {
+        let feature = self.current().clone();
+        self.processors.push((feature, def));
         self
     }
     /// Register an import-time validator (RFC, M4-D2).
@@ -169,6 +177,7 @@ pub enum RegistryError {
     BindingConflict { context: ContextId, detail: String },
     DuplicatePanel { id: crate::ids::PanelId, first: FeatureId, second: FeatureId },
     DuplicateValidator { id: crate::ids::ValidatorId, first: FeatureId, second: FeatureId },
+    DuplicateProcessor { id: crate::ids::ProcessorId, first: FeatureId, second: FeatureId },
 }
 
 impl fmt::Display for RegistryError {
@@ -188,6 +197,8 @@ impl fmt::Display for RegistryError {
                 write!(f, "panel {id} registered by both {first} and {second}"),
             Self::DuplicateValidator { id, first, second } =>
                 write!(f, "validator {id} registered by both {first} and {second}"),
+            Self::DuplicateProcessor { id, first, second } =>
+                write!(f, "processor {id} registered by both {first} and {second}"),
         }
     }
 }
@@ -208,6 +219,7 @@ pub struct ValidatedFeatures {
     pub kinds: Vec<(FeatureId, EntityKindDef)>,
     pub panels: Vec<(FeatureId, PanelDecl)>,
     pub validators: Vec<(FeatureId, ValidatorDef)>,
+    pub processors: Vec<(FeatureId, ProcessorDef)>,
 }
 
 impl FeatureRegistry {
@@ -266,6 +278,19 @@ impl FeatureRegistry {
                 });
             } else {
                 seen_validators.insert(validator.id.clone(), feature.clone());
+            }
+        }
+
+        let mut seen_processors: HashMap<crate::ids::ProcessorId, FeatureId> = HashMap::new();
+        for (feature, processor) in &self.processors {
+            if let Some(first) = seen_processors.get(&processor.id) {
+                errors.push(RegistryError::DuplicateProcessor {
+                    id: processor.id.clone(),
+                    first: first.clone(),
+                    second: feature.clone(),
+                });
+            } else {
+                seen_processors.insert(processor.id.clone(), feature.clone());
             }
         }
 
@@ -343,6 +368,7 @@ impl FeatureRegistry {
                 kinds: self.kinds,
                 panels: self.panels,
                 validators: self.validators,
+                processors: self.processors,
             })
         } else {
             Err(errors)
