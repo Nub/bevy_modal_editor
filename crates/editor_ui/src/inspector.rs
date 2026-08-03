@@ -108,6 +108,9 @@ pub(crate) enum RowSpec {
     /// WHAT is selected: THE editable name + id (+ multi-select count) — always
     /// first, and the ONLY place Name appears (owner: consolidated).
     Header { name: String, detail: String, field: InspectorField },
+    /// Prefab identity line under the header: "◆ instance of NAME", with
+    /// apply-to-all / reset buttons when override deltas exist (redesign #3).
+    PrefabStatus { name: String, overrides: usize },
     /// Collapsible group header (Tags / Read-only).
     GroupHeader { title: String, count: usize, open: bool, group: GroupKind },
     /// Compact name chips (group contents).
@@ -216,6 +219,36 @@ pub(crate) fn collect_inspector(world: &mut World) {
                 kind: FieldKind::NameText,
             },
         });
+
+        // Prefab identity: an instance root — or a stamped member, which reads
+        // as part of its root's instance — shows what it is and its deltas.
+        {
+            use editor_prefabs::{PrefabInstance, PrefabLibrary, PrefabOverrides, StampedFrom};
+            let root_entity = if world.get::<PrefabInstance>(entity).is_some() {
+                Some(entity)
+            } else {
+                world
+                    .get::<StampedFrom>(entity)
+                    .map(|s| s.instance_root)
+                    .and_then(|root| world.resource::<SceneIndex>().get(&root))
+            };
+            if let Some(root) = root_entity {
+                if let Some(instance) = world.get::<PrefabInstance>(root) {
+                    let prefab_name = world
+                        .resource::<PrefabLibrary>()
+                        .prefabs
+                        .get(&instance.0)
+                        .map(|p| p.name.clone())
+                        .unwrap_or_else(|| "missing prefab".into());
+                    let override_count =
+                        world.get::<PrefabOverrides>(root).map(|o| o.0.len()).unwrap_or(0);
+                    rows.push(RowSpec::PrefabStatus {
+                        name: prefab_name,
+                        overrides: override_count,
+                    });
+                }
+            }
+        }
 
         let registry = world.resource::<AppTypeRegistry>().clone();
         let registered = world.resource::<EditorComponents>().types.clone();
@@ -825,6 +858,75 @@ pub(crate) fn render_inspector(
                     ))
                     .id();
                 commands.entity(detail_id).insert(ChildOf(header));
+            }
+            RowSpec::PrefabStatus { name, overrides } => {
+                let row = commands
+                    .spawn(Node {
+                        align_items: AlignItems::Center,
+                        column_gap: px(style::space::S),
+                        margin: UiRect::bottom(px(style::space::XS)),
+                        flex_shrink: 0.0,
+                        ..default()
+                    })
+                    .id();
+                commands.entity(row).insert(ChildOf(body_entity));
+                let label = commands
+                    .spawn((
+                        Text::new(format!("◆ instance of {name}")),
+                        style::sans_medium(&fonts, ui.font_size_xs),
+                        TextColor(style::color::accent()),
+                    ))
+                    .id();
+                commands.entity(label).insert(ChildOf(row));
+                if *overrides > 0 {
+                    let count = commands
+                        .spawn((
+                            Text::new(format!(
+                                "{overrides} override{}",
+                                if *overrides == 1 { "" } else { "s" }
+                            )),
+                            style::mono(&fonts, ui.font_size_xs),
+                            TextColor(style::color::TEXT_DIM),
+                        ))
+                        .id();
+                    commands.entity(count).insert(ChildOf(row));
+                    for (title, action) in [
+                        ("apply to all", "prefab.apply-to-prefab"),
+                        ("reset", "prefab.revert-overrides"),
+                    ] {
+                        let chip = commands
+                            .spawn((
+                                Node {
+                                    padding: UiRect::axes(px(style::space::XS), px(1.0)),
+                                    border: UiRect::all(px(1.0)),
+                                    border_radius: BorderRadius::all(px(style::radius::S)),
+                                    ..default()
+                                },
+                                BorderColor::all(style::HAIRLINE),
+                                BackgroundColor(Color::NONE),
+                            ))
+                            .observe(
+                                move |_press: On<Pointer<Press>>,
+                                      mut actions: MessageWriter<ActionInvoked>| {
+                                    actions.write(ActionInvoked {
+                                        action: ActionId::new_static(action),
+                                        args: None,
+                                        source: InvocationSource::Palette,
+                                    });
+                                },
+                            )
+                            .id();
+                        commands.entity(chip).insert(ChildOf(row));
+                        let text = commands
+                            .spawn((
+                                Text::new(title),
+                                style::sans(&fonts, ui.font_size_xs),
+                                TextColor(style::color::TEXT_KEYS),
+                            ))
+                            .id();
+                        commands.entity(text).insert(ChildOf(chip));
+                    }
+                }
             }
             RowSpec::GroupHeader { title, count, open, group } => {
                 let glyph = if *open { "▾" } else { "▸" };

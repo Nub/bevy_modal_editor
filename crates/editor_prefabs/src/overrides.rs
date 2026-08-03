@@ -105,11 +105,13 @@ pub fn sync_overrides(world: &mut World) {
         return;
     }
     // Which instance roots own touched STAMPED entities?
+    let open_root = world.resource::<crate::open_mode::OpenInstance>().0.as_ref().map(|o| o.root);
     let mut roots: Vec<SceneId> = touched
         .iter()
         .filter_map(|id| world.resource::<SceneIndex>().get(id))
         .filter_map(|entity| world.get::<StampedFrom>(entity))
         .map(|s| s.instance_root)
+        .filter(|root| Some(*root) != open_root)
         .collect();
     roots.sort_by_key(|id| id.0);
     roots.dedup();

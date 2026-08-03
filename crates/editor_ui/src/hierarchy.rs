@@ -167,6 +167,15 @@ pub(crate) fn handle_hierarchy_actions(
                     .unwrap_or(false);
                 if let Some(entity) = index.get(&row.id) {
                     commands.queue(move |world: &mut World| {
+                        // Scoped (open instance): rows outside the scope are inert.
+                        let in_scope = world
+                            .resource::<SelectionScope>()
+                            .0
+                            .as_ref()
+                            .is_none_or(|scope| scope.contains(&entity));
+                        if !in_scope {
+                            return;
+                        }
                         if !extend {
                             let selected: Vec<Entity> = world
                                 .query_filtered::<Entity, With<Selected>>()
@@ -272,6 +281,8 @@ pub(crate) fn rebuild_hierarchy(
     entities: Query<(Entity, &SceneId, Option<&ChildOf>, Option<&Name>)>,
     scene_ids: Query<&SceneId>,
     selected: Query<&SceneId, With<Selected>>,
+    instances: Query<&SceneId, With<editor_prefabs::PrefabInstance>>,
+    stamped: Query<&SceneId, With<editor_scene::PrefabStamped>>,
     focus: Res<PanelFocus>,
     body: Query<(Entity, &PanelBody)>,
     fonts: Res<UiFonts>,
@@ -294,6 +305,8 @@ pub(crate) fn rebuild_hierarchy(
     let panel_focused =
         focus.0.as_ref().is_some_and(|id| id.as_str() == HIERARCHY_PANEL);
     let selected_ids: HashSet<SceneId> = selected.iter().copied().collect();
+    let instance_roots: HashSet<SceneId> = instances.iter().copied().collect();
+    let stamped_ids: HashSet<SceneId> = stamped.iter().copied().collect();
 
     commands.entity(body_entity).despawn_related::<Children>();
     let (first, last) = state.window;
@@ -383,11 +396,26 @@ pub(crate) fn rebuild_hierarchy(
                         style::mono(&fonts, ui.font_size_xs),
                         TextColor(style::color::TEXT_DIM),
                     ));
+                    // Prefabs read as GROUPS: ◆ accent on instance roots,
+                    // stamped members nested + dimmed but fully live.
+                    let is_instance = instance_roots.contains(&row.id);
+                    let is_stamped = stamped_ids.contains(&row.id);
+                    if is_instance {
+                        row_node.spawn((
+                            Text::new("◆"),
+                            style::mono(&fonts, ui.font_size_xs),
+                            TextColor(style::color::accent()),
+                        ));
+                    }
                     row_node.spawn((
                         Text::new(row.label.clone()),
                         style::sans(&fonts, ui.font_size_s),
-                        TextColor(if is_selected {
+                        TextColor(if is_instance {
                             style::color::accent()
+                        } else if is_selected {
+                            style::color::accent()
+                        } else if is_stamped {
+                            style::color::TEXT_DIM
                         } else {
                             style::color::TEXT_KEYS
                         }),

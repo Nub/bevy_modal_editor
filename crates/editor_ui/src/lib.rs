@@ -15,6 +15,7 @@ mod hierarchy;
 mod inspector;
 mod outline;
 mod palette;
+mod prompt;
 mod palette_engine;
 mod statusbar;
 mod which_key;
@@ -163,13 +164,25 @@ impl Plugin for EditorUiPlugin {
                 .in_set(editor_core::EditorSet::Sync),
         );
         app.add_systems(
+            Update,
+            (
+                prompt::attach_prompt_input,
+                prompt::sync_prompt,
+                prompt::close_prompt_on_escape,
+                dock::sync_open_frame,
+            )
+                .in_set(editor_core::EditorSet::Sync),
+        );
+        app.add_systems(
             Startup,
             (
                 style::load_ui_fonts,
                 ghost::init_ghost_material,
                 statusbar::spawn_statusbar,
                 which_key::spawn_which_key,
+                prompt::spawn_prompt,
                 dock::spawn_docks,
+                dock::spawn_open_frame,
                 dock::attach_scrollbars,
             )
                 .chain(),

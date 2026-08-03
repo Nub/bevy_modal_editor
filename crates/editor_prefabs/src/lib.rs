@@ -22,7 +22,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub mod authoring;
-pub mod edit_mode;
+pub mod open_mode;
 pub mod overrides;
 pub use overrides::{sync_overrides, StampedFrom};
 
@@ -269,20 +269,31 @@ impl Plugin for EditorPrefabsPlugin {
         app.init_resource::<PrefabLibrary>();
         app.init_resource::<overrides::OverrideCursor>();
         app.init_resource::<authoring::PrefabRequests>();
-        app.init_resource::<edit_mode::PrefabEditState>();
+        app.init_resource::<authoring::GroupPrompt>();
+        app.init_resource::<authoring::GroupCommit>();
+        app.init_resource::<authoring::PendingGroupSelect>();
+        app.init_resource::<open_mode::OpenInstance>();
+        // Open-mode gates scene io through this; idempotent if the scene
+        // plugin already initialized it (it always does in the real app).
+        app.init_resource::<editor_scene::SceneIoLock>();
         app.init_resource::<authoring::LastRestampedGeneration>();
         app.add_editor_feature(PrefabsFeature);
         app.add_systems(Startup, authoring::load_prefab_library);
+        // BEFORE the conventions: escape layering reads PRE-press mode/panel state.
         app.add_systems(
             Update,
-            authoring::collect_prefab_actions.in_set(editor_core::EditorSet::Tools),
+            authoring::collect_prefab_actions
+                .before(editor_core::resolver::apply_action_conventions)
+                .in_set(editor_core::EditorSet::Tools),
         );
         app.add_systems(
             Update,
             (
                 authoring::perform_prefab_actions,
+                open_mode::maintain_open_instance,
                 authoring::restamp_on_library_change,
                 stamp_new_instances,
+                authoring::select_grouped,
                 overrides::sync_overrides,
             )
                 .chain()
@@ -302,14 +313,16 @@ impl EditorFeature for PrefabsFeature {
         reg.component::<PrefabInstance>()
             .component::<PrefabOverrides>()
             .action(
-                ActionDef::new("prefab.create", "Create Prefab From Selection")
-                    .describe("Save the selected entities as a reusable prefab")
-                    .context("normal"),
+                ActionDef::new("prefab.group", "Group Into Prefab")
+                    .describe("Name the selection and replace it with a reusable prefab instance")
+                    .context("normal")
+                    .bind("g"),
             )
             .action(
-                ActionDef::new("prefab.edit", "Edit Prefab")
-                    .describe("Open the selected instance's prefab for editing (space e finishes)")
+                ActionDef::new("prefab.open", "Open Prefab Instance")
+                    .describe("Edit the selected instance in place — Escape closes and saves")
                     .context("normal")
+                    .bind("enter")
                     .bind("space e"),
             )
             .action(
@@ -352,6 +365,7 @@ mod tests {
         app.init_resource::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>();
         app.finish();
         app.update();
+        app.world_mut().resource_mut::<EditorState>().active = true;
         app
     }
 
@@ -430,5 +444,188 @@ mod tests {
         let records: Vec<_> = snapshot.records().collect();
         assert_eq!(records.len(), 1, "never the expanded tree");
         assert_eq!(records[0].0, root_id);
+    }
+
+    fn invoke(app: &mut App, action: &str) {
+        app.world_mut().write_message(ActionInvoked {
+            action: ActionId::new(action.to_string()),
+            args: None,
+            source: InvocationSource::Test,
+        });
+        app.update();
+        app.update();
+    }
+
+    fn spawn_loose(app: &mut App, label: &str, payload: f32, at: Vec3) -> SceneId {
+        let id = SceneId::random();
+        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
+            label: label.into(),
+            gesture: None,
+            ops: vec![Op::Spawn {
+                id,
+                components: vec![
+                    Box::new(Payload(payload)).into_partial_reflect(),
+                    Box::new(Transform::from_translation(at)).into_partial_reflect(),
+                    Box::new(Name::new(label.to_string())).into_partial_reflect(),
+                ],
+            }],
+        });
+        app.update();
+        id
+    }
+
+    fn cleanup_prefab_file(name: &str) {
+        let _ = std::fs::remove_file(format!("prefabs/{name}.prefab.ron"));
+        let _ = std::fs::remove_file(format!("prefabs/{name}.prefab.ron.bak"));
+        let _ = std::fs::remove_dir("prefabs");
+    }
+
+    // Redesign #1: `g` replaces the selection with an instance IN PLACE, as ONE
+    // undoable transaction; undo restores the originals exactly.
+    #[test]
+    fn group_replaces_selection_undoably() {
+        let mut app = test_app();
+        let a = spawn_loose(&mut app, "GroupTestA", 1.0, Vec3::new(2.0, 0.0, 0.0));
+        let b = spawn_loose(&mut app, "GroupTestB", 2.0, Vec3::new(4.0, 0.0, 0.0));
+        for id in [a, b] {
+            let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+            app.world_mut().entity_mut(entity).insert(Selected);
+        }
+
+        // Commit the prompt (the UI path sets this on Enter).
+        app.world_mut().resource_mut::<authoring::GroupCommit>().0 =
+            Some("GroupTestCrate".into());
+        app.update();
+        app.update();
+
+        // Originals gone, ONE root remains, selected, at the members' centroid.
+        let world = app.world_mut();
+        assert!(world.resource::<SceneIndex>().get(&a).is_none(), "a replaced");
+        assert!(world.resource::<SceneIndex>().get(&b).is_none(), "b replaced");
+        let roots: Vec<(Entity, SceneId)> = world
+            .query_filtered::<(Entity, &SceneId), With<PrefabInstance>>()
+            .iter(world)
+            .map(|(e, id)| (e, *id))
+            .collect();
+        assert_eq!(roots.len(), 1, "one instance root");
+        let (root_entity, _) = roots[0];
+        assert!(world.get::<Selected>(root_entity).is_some(), "root selected");
+        assert_eq!(
+            world.get::<Transform>(root_entity).unwrap().translation,
+            Vec3::new(3.0, 0.0, 0.0),
+            "root at member centroid"
+        );
+        // Library holds a 2-record template with rebased transforms.
+        let library = world.resource::<PrefabLibrary>();
+        let def = library.prefabs.values().find(|p| p.name == "GroupTestCrate").unwrap();
+        assert_eq!(def.template.records().count(), 2);
+
+        // ONE undo restores both originals and removes the instance.
+        invoke(&mut app, "core.undo");
+        let world = app.world_mut();
+        assert!(world.resource::<SceneIndex>().get(&a).is_some(), "undo restores a");
+        assert!(world.resource::<SceneIndex>().get(&b).is_some(), "undo restores b");
+        assert_eq!(
+            world.query_filtered::<Entity, With<PrefabInstance>>().iter(world).count(),
+            0,
+            "undo removes the instance"
+        );
+        cleanup_prefab_file("grouptestcrate");
+    }
+
+    // Redesign #4: open an instance in place, add an entity, Esc-close — the
+    // template grows and EVERY instance updates; bystanders are never adopted.
+    #[test]
+    fn open_edit_close_propagates() {
+        let mut app = test_app();
+        let prefab = barrel_prefab();
+        let prefab_id = prefab.id;
+        prefab
+            .save(
+                &std::path::PathBuf::from("prefabs/openclosetest.prefab.ron"),
+                &app.world().resource::<AppTypeRegistry>().clone().read(),
+            )
+            .ok();
+        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(prefab_id, prefab);
+
+        let bystander = spawn_loose(&mut app, "Bystander", 9.0, Vec3::ZERO);
+        let mut spawn_instance = |app: &mut App, x: f32| -> SceneId {
+            let id = SceneId::random();
+            app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
+                label: "Place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::from_xyz(x, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
+            app.update();
+            app.update();
+            id
+        };
+        let instance_a = spawn_instance(&mut app, 0.0);
+        let instance_b = spawn_instance(&mut app, 10.0);
+
+        // Open instance A (selection → toggle, the `Enter` path).
+        {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&instance_a).unwrap();
+            world.entity_mut(entity).insert(Selected);
+        }
+        invoke(&mut app, "prefab.open");
+        assert!(
+            app.world().resource::<open_mode::OpenInstance>().0.is_some(),
+            "instance opened in place"
+        );
+        assert!(app.world().resource::<editor_scene::SceneIoLock>().0);
+
+        // Add an entity while open: it auto-adopts under the root.
+        let added = spawn_loose(&mut app, "AddedPart", 42.0, Vec3::new(1.0, 0.0, 0.0));
+        app.update();
+        {
+            let world = app.world_mut();
+            let root = world.resource::<SceneIndex>().get(&instance_a).unwrap();
+            let added_entity = world.resource::<SceneIndex>().get(&added).unwrap();
+            assert_eq!(
+                world.get::<ChildOf>(added_entity).map(|c| c.parent()),
+                Some(root),
+                "insert while open adopts under the root"
+            );
+            let bystander_entity = world.resource::<SceneIndex>().get(&bystander).unwrap();
+            assert!(
+                world.get::<ChildOf>(bystander_entity).is_none(),
+                "pre-existing loose entities are NEVER adopted"
+            );
+        }
+
+        // Close (Esc path): template grows, both instances re-stamp with 2 parts.
+        invoke(&mut app, "prefab.open");
+        app.update();
+        let world = app.world_mut();
+        assert!(world.resource::<open_mode::OpenInstance>().0.is_none(), "closed");
+        assert!(!world.resource::<editor_scene::SceneIoLock>().0, "io unlocked");
+        let template_len = world
+            .resource::<PrefabLibrary>()
+            .prefabs
+            .get(&prefab_id)
+            .unwrap()
+            .template
+            .records()
+            .count();
+        assert_eq!(template_len, 2, "template grew by the added part");
+        for id in [instance_a, instance_b] {
+            let root = world.resource::<SceneIndex>().get(&id).unwrap();
+            let children = world.get::<Children>(root).map(|c| c.len()).unwrap_or(0);
+            assert_eq!(children, 2, "every instance updated ({id:?})");
+        }
+        // Scene capture still serializes roots only (+ the bystander).
+        let records = capture_scene(world).records().count();
+        assert_eq!(records, 3, "two roots + bystander, never expanded trees");
+        cleanup_prefab_file("openclosetest");
+        cleanup_prefab_file("barrel"); // close() re-saves under the def name
     }
 }

@@ -11,6 +11,12 @@ use crate::resolver::EditorState;
 #[derive(Component)]
 pub struct Selected;
 
+/// When `Some`, only these entities are selectable (an open prefab instance
+/// scopes editing to its members — clicks outside are inert, never
+/// clear-selects). Maintained by whoever owns the scope (editor_prefabs).
+#[derive(Resource, Default)]
+pub struct SelectionScope(pub Option<std::collections::HashSet<Entity>>);
+
 /// Broadcast whenever the selection set changes (gizmos, panels, statusbar react).
 #[derive(Message, Debug)]
 pub struct SelectionChanged;
@@ -47,6 +53,7 @@ fn clear_selection_world(world: &mut World) {
 pub(crate) fn on_pointer_press(
     press: On<Pointer<Press>>,
     flying: Res<crate::camera::FlyingCamera>,
+    scope: Res<SelectionScope>,
     ids: Query<(), With<SceneId>>,
     ui_nodes: Query<(), With<bevy::ui::ComputedNode>>,
     parents: Query<&ChildOf>,
@@ -95,6 +102,12 @@ pub(crate) fn on_pointer_press(
         .unwrap_or(false);
     match target {
         Some(target) => {
+            // Scoped editing (open prefab): clicks outside the scope are inert.
+            if let Some(scope) = &scope.0 {
+                if !scope.contains(&target) {
+                    return;
+                }
+            }
             commands.queue(move |world: &mut World| select_entity(world, target, extend));
         }
         // Click on empty space (ground, sky) clears the selection — unless extending.
@@ -118,6 +131,7 @@ pub(crate) fn handle_selection_actions(
     mut reader: MessageReader<ActionInvoked>,
     selected: Query<Entity, With<Selected>>,
     scene_entities: Query<Entity, With<SceneId>>,
+    scope: Res<SelectionScope>,
     escape_from_capture: Res<crate::resolver::EscapeFromCapture>,
     mut commands: Commands,
     mut changed: MessageWriter<SelectionChanged>,
@@ -133,7 +147,9 @@ pub(crate) fn handle_selection_actions(
             }
             "select.all" => {
                 for entity in &scene_entities {
-                    commands.entity(entity).insert(Selected);
+                    if scope.0.as_ref().is_none_or(|s| s.contains(&entity)) {
+                        commands.entity(entity).insert(Selected);
+                    }
                 }
                 changed.write(SelectionChanged);
             }

@@ -31,7 +31,7 @@ pub mod prelude {
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
     };
     pub use crate::keymap_data::KeymapPaths;
-    pub use crate::selection::{Selected, SelectionChanged};
+    pub use crate::selection::{Selected, SelectionChanged, SelectionScope};
     pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
     pub use crate::panels::{PanelCatalog, PanelFocus, PanelStates};
     pub use crate::resolver::{
@@ -228,6 +228,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<resolver::OverlayContext>()
             .init_resource::<resolver::EscapeFromCapture>()
             .init_resource::<resolver::PointerOverChrome>()
+            .init_resource::<selection::SelectionScope>()
             .init_resource::<camera::FlyingCamera>()
             .init_resource::<settings::EditorSettings>()
             .init_resource::<gesture::MoveGesture>()

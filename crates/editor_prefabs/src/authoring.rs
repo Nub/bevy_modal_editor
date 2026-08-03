@@ -3,7 +3,7 @@
 
 use crate::{
     stamp_prefab, OverridePatch, PrefabDef, PrefabInstance, PrefabLibrary, PrefabOverrides,
-    Stamped, StampedFrom,
+    StampedFrom,
 };
 use bevy::prelude::*;
 use editor_core::edits::EditorComponents;
@@ -16,15 +16,40 @@ pub const PREFABS_DIR: &str = "prefabs";
 
 #[derive(Resource, Default)]
 pub(crate) struct PrefabRequests {
-    create: bool,
     revert: bool,
     apply: bool,
-    edit: bool,
+    open_toggle: bool,
+    escape_close: bool,
 }
 
+/// The inline name prompt state (UI renders it; Enter commits a name here).
+#[derive(Resource, Default)]
+pub struct GroupPrompt {
+    pub open: bool,
+}
+
+/// Set by the prompt UI on Enter; consumed by the group performer.
+#[derive(Resource, Default)]
+pub struct GroupCommit(pub Option<String>);
+
+/// New instance to select once its spawn transaction has applied.
+#[derive(Resource, Default)]
+pub(crate) struct PendingGroupSelect(pub Option<SceneId>);
+
+/// Runs BEFORE the resolver conventions (registered with .before), so the
+/// mode/panel state observed here is the PRE-press state — Escape closes the
+/// open instance only when nothing shallower (panel focus, non-normal mode,
+/// capture) consumes that press. One layer per press, deterministically.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn collect_prefab_actions(
     mut reader: MessageReader<ActionInvoked>,
     state: Res<EditorState>,
+    selection: Query<(), With<Selected>>,
+    mode: Res<CurrentMode>,
+    panel_focus: Res<PanelFocus>,
+    escape_from_capture: Res<editor_core::resolver::EscapeFromCapture>,
+    open: Res<crate::open_mode::OpenInstance>,
+    mut prompt: ResMut<GroupPrompt>,
     mut requests: ResMut<PrefabRequests>,
 ) {
     if !state.active {
@@ -32,10 +57,26 @@ pub(crate) fn collect_prefab_actions(
     }
     for invoked in reader.read() {
         match invoked.action.as_str() {
-            "prefab.create" => requests.create = true,
+            "prefab.group" => {
+                if selection.is_empty() {
+                    // Feedback handled by the performer's empty-selection path.
+                    requests.revert |= false;
+                } else {
+                    prompt.open = true;
+                }
+            }
             "prefab.revert-overrides" => requests.revert = true,
             "prefab.apply-to-prefab" => requests.apply = true,
-            "prefab.edit" => requests.edit = true,
+            "prefab.open" => requests.open_toggle = true,
+            "core.escape-home" => {
+                if open.0.is_some()
+                    && !escape_from_capture.0
+                    && panel_focus.0.is_none()
+                    && mode.0 == editor_core::MODE_NORMAL
+                {
+                    requests.escape_close = true;
+                }
+            }
             _ => {}
         }
     }
@@ -84,11 +125,14 @@ fn save_prefab(world: &World, def: &PrefabDef) {
 pub(crate) fn perform_prefab_actions(world: &mut World) {
     let requests = std::mem::take(&mut *world.resource_mut::<PrefabRequests>());
 
-    if requests.edit {
-        crate::edit_mode::toggle_edit_mode(world);
+    if requests.open_toggle {
+        crate::open_mode::toggle_open(world);
     }
-    if requests.create {
-        create_from_selection(world);
+    if requests.escape_close {
+        crate::open_mode::request_close(world);
+    }
+    if let Some(name) = world.resource_mut::<GroupCommit>().0.take() {
+        group_selection(world, name);
     }
     if requests.revert || requests.apply {
         let roots = selected_instance_roots(world);
@@ -220,9 +264,10 @@ fn apply_to_prefab(world: &mut World, root_id: SceneId) {
     world.resource_mut::<PrefabLibrary>().generation += 1;
 }
 
-/// Create a prefab from the selection: selected non-stamped entities become the
-/// template (their SceneIds become template-local ids); saved to prefabs/.
-fn create_from_selection(world: &mut World) {
+/// Group the selection into a prefab (`g` + name): the selection is REPLACED in
+/// place by an instance — one undoable transaction. Template transforms rebase
+/// around the selection pivot so placed instances land where the cursor points.
+pub(crate) fn group_selection(world: &mut World, name: String) {
     let registry_arc = world.resource::<AppTypeRegistry>().clone();
     let registry = registry_arc.read();
     let components = world.resource::<EditorComponents>().types.clone();
@@ -236,14 +281,36 @@ fn create_from_selection(world: &mut World) {
     if selected.is_empty() {
         return;
     }
-    let name = world
-        .get::<Name>(selected[0].0)
-        .map(|n| n.as_str().to_string())
-        .unwrap_or_else(|| "Prefab".to_string());
+    let name = if name.trim().is_empty() { "Prefab".to_string() } else { name.trim().to_string() };
+    let selected_ids: std::collections::HashSet<SceneId> =
+        selected.iter().map(|(_, id)| *id).collect();
+    // Pivot: average translation of top-level members (parent not in selection).
+    let mut pivot = Vec3::ZERO;
+    let mut top_level = 0usize;
+    for (entity, _) in &selected {
+        let parent_in_selection = world
+            .get::<ChildOf>(*entity)
+            .and_then(|c| world.get::<SceneId>(c.parent()))
+            .is_some_and(|p| selected_ids.contains(p));
+        if !parent_in_selection {
+            if let Some(transform) = world.get::<Transform>(*entity) {
+                pivot += transform.translation;
+                top_level += 1;
+            }
+        }
+    }
+    if top_level > 0 {
+        pivot /= top_level as f32;
+    }
     let records: Vec<(SceneId, Option<SceneId>, Vec<Box<dyn bevy::reflect::PartialReflect>>)> =
         selected
             .iter()
             .map(|(entity, id)| {
+                let parent = world
+                    .get::<ChildOf>(*entity)
+                    .and_then(|c| world.get::<SceneId>(c.parent()))
+                    .copied()
+                    .filter(|p| selected_ids.contains(p));
                 let values = components
                     .iter()
                     .filter_map(|reg| {
@@ -251,24 +318,75 @@ fn create_from_selection(world: &mut World) {
                             .get(reg.type_id)?
                             .data::<bevy::ecs::reflect::ReflectComponent>()?;
                         let entity_ref = world.get_entity(*entity).ok()?;
-                        Some(reflect_component.reflect(entity_ref)?.to_dynamic())
+                        let value = reflect_component.reflect(entity_ref)?;
+                        // Top-level members rebase around the pivot.
+                        if parent.is_none() {
+                            if let Some(transform) =
+                                value.as_partial_reflect().try_downcast_ref::<Transform>()
+                            {
+                                let mut rebased = *transform;
+                                rebased.translation -= pivot;
+                                return Some(
+                                    Box::new(rebased).into_partial_reflect(),
+                                );
+                            }
+                        }
+                        Some(value.to_dynamic())
                     })
                     .collect();
-                let parent = world
-                    .get::<ChildOf>(*entity)
-                    .and_then(|c| world.get::<SceneId>(c.parent()))
-                    .copied()
-                    .filter(|p| selected.iter().any(|(_, id)| id == p));
                 (*id, parent, values)
             })
             .collect();
     drop(registry);
     let def = PrefabDef { id: Uuid::new_v4(), name, template: snapshot_from_parts(records) };
     save_prefab(world, &def);
+    let prefab_id = def.id;
+    let prefab_name = def.name.clone();
     let count = def.template.records().count();
-    info!("created prefab '{}' ({count} entities)", def.name);
     world.resource_mut::<PrefabLibrary>().prefabs.insert(def.id, def);
     world.resource_mut::<PrefabLibrary>().generation += 1;
+
+    // Replace the selection with an instance — ONE undoable transaction.
+    let root_id = SceneId::random();
+    let mut ops: Vec<Op> =
+        selected.iter().map(|(_, id)| Op::Despawn { id: *id }).collect();
+    ops.push(Op::Spawn {
+        id: root_id,
+        components: vec![
+            Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+            Box::new(PrefabOverrides::default()).into_partial_reflect(),
+            Box::new(Transform::from_translation(pivot)).into_partial_reflect(),
+            Box::new(Name::new(prefab_name.clone())).into_partial_reflect(),
+        ],
+    });
+    world.resource_mut::<EditQueue>().0.push(Transaction {
+        label: format!("Group into '{prefab_name}'"),
+        gesture: None,
+        ops,
+    });
+    world.resource_mut::<PendingGroupSelect>().0 = Some(root_id);
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: format!("◆ {prefab_name} created ({count} entities) — grouped in place"),
+        success: true,
+    });
+}
+
+/// Select the new instance once its spawn applied (next frame).
+pub(crate) fn select_grouped(
+    mut pending: ResMut<PendingGroupSelect>,
+    index: Res<SceneIndex>,
+    previous: Query<Entity, With<Selected>>,
+    mut changed: MessageWriter<SelectionChanged>,
+    mut commands: Commands,
+) {
+    let Some(root_id) = pending.0 else { return };
+    let Some(entity) = index.get(&root_id) else { return };
+    pending.0 = None;
+    for entity in &previous {
+        commands.entity(entity).remove::<Selected>();
+    }
+    commands.entity(entity).insert(Selected);
+    changed.write(SelectionChanged);
 }
 
 /// Generation-driven propagation: any library change restamps every instance

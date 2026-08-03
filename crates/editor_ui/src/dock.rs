@@ -342,3 +342,43 @@ pub(crate) fn track_pointer_over_chrome(
         blocked.0 = over;
     }
 }
+
+
+/// Accent frame around the viewport while a prefab instance is OPEN — the
+/// persistent "which reality am I in" signal (with the statusbar chip).
+#[derive(Component)]
+pub(crate) struct OpenFrame;
+
+pub(crate) fn spawn_open_frame(mut commands: Commands, settings: Res<EditorSettings>) {
+    let ui = settings.ui.clone();
+    commands.spawn((
+        OpenFrame,
+        Node {
+            position_type: PositionType::Absolute,
+            left: px(ui.dock_left_width),
+            right: px(ui.dock_right_width),
+            top: px(0),
+            bottom: px(style::BAR_HEIGHT),
+            border: UiRect::all(px(2.0)),
+            ..default()
+        },
+        BorderColor::all(style::color::accent()),
+        bevy::picking::Pickable::IGNORE,
+        GlobalZIndex(40),
+        Visibility::Hidden,
+    ));
+}
+
+pub(crate) fn sync_open_frame(
+    open: Res<editor_prefabs::open_mode::OpenInstance>,
+    state: Res<EditorState>,
+    mut frame: Query<&mut Visibility, With<OpenFrame>>,
+) {
+    let visible = state.active && open.0.is_some();
+    for mut visibility in &mut frame {
+        let target = if visible { Visibility::Visible } else { Visibility::Hidden };
+        if *visibility != target {
+            *visibility = target;
+        }
+    }
+}

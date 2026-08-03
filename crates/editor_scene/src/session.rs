@@ -76,6 +76,13 @@ pub(crate) fn perform_reload(world: &mut World) {
     if !std::mem::take(&mut world.resource_mut::<ReloadRequested>().0) {
         return;
     }
+    if world.resource::<crate::SceneIoLock>().0 {
+        world.write_message(SceneIoFeedback {
+            message: "close the open prefab before reloading".into(),
+            success: false,
+        });
+        return;
+    }
     let scene_path = world.resource::<SceneFile>().0.clone();
     if let Err(e) = crate::save_scene_file(world, &scene_path) {
         world.write_message(SceneIoFeedback {

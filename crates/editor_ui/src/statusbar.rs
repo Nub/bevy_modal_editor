@@ -132,6 +132,7 @@ pub(crate) struct StatusData<'w> {
     time: Res<'w, Time>,
     panel_focus: Res<'w, PanelFocus>,
     panel_catalog: Res<'w, PanelCatalog>,
+    open_instance: Res<'w, editor_prefabs::open_mode::OpenInstance>,
 }
 
 #[allow(clippy::type_complexity)]
@@ -166,6 +167,7 @@ pub(crate) fn update_statusbar(
     // The bar always states the current activity (owner rule): an active gesture or
     // an armed insert kind owns the chip + hint; the plain mode otherwise.
     let gesture_active = !matches!(*data.gesture, MoveGesture::Idle);
+    let open_prefab = data.open_instance.0.as_ref().map(|o| o.name.clone());
     let focused_panel = data
         .panel_focus
         .0
@@ -181,6 +183,8 @@ pub(crate) fn update_statusbar(
     for mut text in &mut mode_text {
         let name = if gesture_active {
             "MOVE".to_string()
+        } else if let Some(prefab) = &open_prefab {
+            format!("EDITING ◆ {}", prefab.to_uppercase())
         } else if let Some(title) = focused_panel {
             title.to_uppercase()
         } else if inserting.is_some() {
@@ -195,6 +199,9 @@ pub(crate) fn update_statusbar(
     for mut text in &mut hint_text {
         let hint = if gesture_active {
             "moving selection · x/y/z constrain · click ⏎ commit · ⎋ cancel".to_string()
+        } else if open_prefab.is_some() {
+            "editing inside the prefab · i add · d delete · ⎋ close & save all instances"
+                .to_string()
         } else if focused_panel.is_some() {
             "panel focused · ⌃h/j/k/l move focus · ⎋ viewport".to_string()
         } else if let Some(kind_name) = inserting {

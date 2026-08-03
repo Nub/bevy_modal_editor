@@ -71,6 +71,13 @@ pub(crate) fn perform_play(world: &mut World) {
     if !requests.play && !requests.pause && !requests.reset {
         return;
     }
+    if world.resource::<crate::SceneIoLock>().0 && requests.play {
+        world.write_message(SceneIoFeedback {
+            message: "close the open prefab before playing".into(),
+            success: false,
+        });
+        return;
+    }
 
     if requests.play && world.resource::<PlayState>().0.is_none() {
         let snapshot = capture_scene(world);

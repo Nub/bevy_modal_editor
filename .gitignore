@@ -3,3 +3,4 @@
 # Bake artifacts are re-derivable caches, never source of truth (spec §6)
 /bake/
 .DS_Store
+*.prefab.ron.bak
