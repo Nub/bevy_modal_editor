@@ -66,6 +66,10 @@ string_id!(
     /// A spawnable entity kind ("splines.catmull-rom").
     EntityKindId
 );
+string_id!(
+    /// A registered import-time validator ("gltf.units").
+    ValidatorId
+);
 
 /// The always-active keymap context.
 pub const GLOBAL_CONTEXT: ContextId = ContextId::new_static("global");

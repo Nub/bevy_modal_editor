@@ -11,7 +11,9 @@
 //! the path.
 
 pub mod identity;
+pub mod validation;
 
 pub use identity::{
     import_file, read_identity, AssetIdentity, ImportError, IMPORT_FORMAT_VERSION,
 };
+pub use validation::{builtin_validators, run_validators};

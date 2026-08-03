@@ -9,6 +9,7 @@ use crate::actions::ActionDef;
 use crate::ids::{ActionId, ContextId, FeatureId, ModeId, GLOBAL_CONTEXT};
 use crate::kinds::EntityKindDef;
 use crate::panels::PanelDecl;
+use crate::validate::ValidatorDef;
 use crate::keymap::{find_conflicts, Binding};
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
@@ -81,6 +82,7 @@ pub struct FeatureRegistry {
     pub(crate) contexts: Vec<(FeatureId, ContextId)>,
     pub kinds: Vec<(FeatureId, EntityKindDef)>,
     pub panels: Vec<(FeatureId, PanelDecl)>,
+    pub validators: Vec<(FeatureId, ValidatorDef)>,
     current_feature: Option<FeatureId>,
 }
 
@@ -113,6 +115,12 @@ impl FeatureRegistry {
     pub fn panel(&mut self, decl: PanelDecl) -> &mut Self {
         let feature = self.current().clone();
         self.panels.push((feature, decl));
+        self
+    }
+    /// Register an import-time validator (RFC, M4-D2).
+    pub fn validator(&mut self, def: ValidatorDef) -> &mut Self {
+        let feature = self.current().clone();
+        self.validators.push((feature, def));
         self
     }
     /// Register an overlay keymap context (gesture layers, focused-panel layers) that
@@ -160,6 +168,7 @@ pub enum RegistryError {
     UnknownContext { action: ActionId, context: ContextId },
     BindingConflict { context: ContextId, detail: String },
     DuplicatePanel { id: crate::ids::PanelId, first: FeatureId, second: FeatureId },
+    DuplicateValidator { id: crate::ids::ValidatorId, first: FeatureId, second: FeatureId },
 }
 
 impl fmt::Display for RegistryError {
@@ -177,6 +186,8 @@ impl fmt::Display for RegistryError {
                 write!(f, "keymap conflict in context {context}: {detail}"),
             Self::DuplicatePanel { id, first, second } =>
                 write!(f, "panel {id} registered by both {first} and {second}"),
+            Self::DuplicateValidator { id, first, second } =>
+                write!(f, "validator {id} registered by both {first} and {second}"),
         }
     }
 }
@@ -196,6 +207,7 @@ pub struct ValidatedFeatures {
     pub components: Vec<(FeatureId, ComponentReg)>,
     pub kinds: Vec<(FeatureId, EntityKindDef)>,
     pub panels: Vec<(FeatureId, PanelDecl)>,
+    pub validators: Vec<(FeatureId, ValidatorDef)>,
 }
 
 impl FeatureRegistry {
@@ -242,6 +254,19 @@ impl FeatureRegistry {
         // Panel focus contexts are registered implicitly by the panel declaration.
         for (_, panel) in &self.panels {
             known_contexts.insert(panel.context.clone());
+        }
+
+        let mut seen_validators: HashMap<crate::ids::ValidatorId, FeatureId> = HashMap::new();
+        for (feature, validator) in &self.validators {
+            if let Some(first) = seen_validators.get(&validator.id) {
+                errors.push(RegistryError::DuplicateValidator {
+                    id: validator.id.clone(),
+                    first: first.clone(),
+                    second: feature.clone(),
+                });
+            } else {
+                seen_validators.insert(validator.id.clone(), feature.clone());
+            }
         }
 
         let mut seen_panels: HashMap<crate::ids::PanelId, FeatureId> = HashMap::new();
@@ -317,6 +342,7 @@ impl FeatureRegistry {
                 components: self.components,
                 kinds: self.kinds,
                 panels: self.panels,
+                validators: self.validators,
             })
         } else {
             Err(errors)

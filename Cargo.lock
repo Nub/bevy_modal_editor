@@ -2383,6 +2383,8 @@ name = "editor_assets"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "editor_api",
+ "gltf",
  "ron 0.8.1",
  "serde",
  "tempfile",

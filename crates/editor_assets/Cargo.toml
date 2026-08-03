@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+editor_api = { workspace = true }
+gltf = { version = "1", default-features = false, features = ["utils"] }
 serde = { workspace = true }
 ron = { workspace = true }
 uuid = { workspace = true }

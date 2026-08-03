@@ -39,6 +39,7 @@ pub mod prelude {
         KeysUnresolved, OverlayContext, PendingKeys, PointerOverChrome, ResolvedKeymap,
     };
     pub use crate::EditorCorePlugin;
+    pub use crate::ValidatorCatalog;
     pub use editor_api::prelude::*;
 }
 
@@ -383,6 +384,9 @@ fn host_features(world: &mut World) {
     world.insert_resource(insert::KindCatalog {
         kinds: validated.kinds.iter().map(|(_, k)| k.clone()).collect(),
     });
+    world.insert_resource(ValidatorCatalog {
+        validators: validated.validators.iter().map(|(_, v)| v.clone()).collect(),
+    });
     world.insert_resource(panels::PanelCatalog {
         panels: validated.panels.iter().map(|(_, p)| p.clone()).collect(),
     });
@@ -396,3 +400,10 @@ fn host_features(world: &mut World) {
 }
 
 pub use modes::MODE_NORMAL;
+
+/// All registered import-time validators (M4-D2) — the ingestion pipeline runs
+/// these; the registry is the ONE extension point (games add theirs like actions).
+#[derive(Resource, Default)]
+pub struct ValidatorCatalog {
+    pub validators: Vec<editor_api::validate::ValidatorDef>,
+}
