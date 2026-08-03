@@ -749,6 +749,8 @@ fn rebuild_results(
     results: Single<Entity, With<PaletteResults>>,
     preview: Single<Entity, With<PalettePreview>>,
     fonts: Res<UiFonts>,
+    rig: Option<Res<crate::palette_preview::PreviewRig>>,
+    mut subject: ResMut<crate::palette_preview::PreviewSubject>,
     mut commands: Commands,
 ) {
     if !state.is_changed() && !items.is_changed() {
@@ -840,7 +842,43 @@ fn rebuild_results(
         Some(PalettePayload::Action(id)) => catalog.get(id).cloned(),
         _ => None,
     };
+    // Live 3D preview for placeable things (v1 parity): kinds + prefabs.
+    use crate::palette_preview::Subject;
+    let preview_subject = match &selected_payload {
+        Some(PalettePayload::Prefab(id)) => Some(Subject::Prefab(*id)),
+        Some(PalettePayload::Action(id)) => id
+            .as_str()
+            .strip_prefix("insert.kind.")
+            .map(|kind| Subject::Kind(EntityKindId::new(kind.to_string()))),
+        _ => None,
+    };
+    if subject.0 != preview_subject {
+        subject.0 = preview_subject.clone();
+    }
     commands.entity(*preview).with_children(|pane| {
+        if preview_subject.is_some() {
+            pane.spawn((
+                Text::new(selected_label.clone().unwrap_or_default()),
+                style::sans_medium(&fonts, ui.font_size_m),
+            ));
+            if let Some(rig) = &rig {
+                pane.spawn((
+                    ImageNode::new(rig.image.clone()),
+                    Node {
+                        width: percent(100),
+                        aspect_ratio: Some(1.0),
+                        margin: UiRect::vertical(px(style::space::XS)),
+                        ..default()
+                    },
+                ));
+            }
+            pane.spawn((
+                Text::new("\u{23ce} place at cursor"),
+                style::sans(&fonts, ui.font_size_s),
+                TextColor(style::color::TEXT_DIM),
+            ));
+            return;
+        }
         if let Some(PalettePayload::Entity(id)) = &selected_payload {
             pane.spawn((
                 Text::new(selected_label.unwrap_or_default()),

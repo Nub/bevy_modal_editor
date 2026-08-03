@@ -52,6 +52,8 @@ pub(crate) fn probe_prefab(
         ),
         With<PrefabStamped>,
     >,
+    preview_subject: Res<crate::palette_preview::PreviewSubject>,
+    preview_content: Query<(Has<Mesh3d>, Option<&bevy::camera::visibility::RenderLayers>), With<crate::palette_preview::PreviewContent>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Ok(window) = window.single() else { return };
@@ -82,6 +84,23 @@ pub(crate) fn probe_prefab(
         156 => key(&mut key_events, window, KeyCode::KeyU, Key::Character("u".into()), Some("u"), false),
         158 => key(&mut key_events, window, KeyCode::KeyB, Key::Character("b".into()), Some("b"), true),
         160 => key(&mut key_events, window, KeyCode::KeyB, Key::Character("b".into()), Some("b"), false),
+        185 => {
+            // Preview must be LIVE while a placeable row is highlighted.
+            let has_subject = preview_subject.0.is_some();
+            let meshed = preview_content.iter().filter(|(m, _)| *m).count();
+            let layered = preview_content.iter().filter(|(_, l)| l.is_some()).count();
+            info!(
+                "PROBE preview: subject={} content={} meshed={} layered={}",
+                has_subject,
+                preview_content.iter().count(),
+                meshed,
+                layered
+            );
+            if !has_subject || meshed == 0 {
+                error!("PROBE FAIL: palette preview not live for highlighted item");
+                exit.write(AppExit::error());
+            }
+        }
         190 => {
             info!("PROBE query typed, palette open={}", palette.open);
             key(&mut key_events, window, KeyCode::Enter, Key::Enter, None, true);

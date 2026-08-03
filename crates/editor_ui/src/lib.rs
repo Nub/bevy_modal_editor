@@ -15,6 +15,7 @@ mod hierarchy;
 mod inspector;
 mod outline;
 mod palette;
+mod palette_preview;
 mod probe_prefab;
 mod prompt;
 mod palette_engine;
@@ -124,6 +125,7 @@ impl Plugin for EditorUiPlugin {
         app.add_editor_feature(EditorUiFeature);
 
         app.init_resource::<which_key::WhichKey>();
+        app.init_resource::<palette_preview::PreviewSubject>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
         app.init_resource::<inspector::InspectorGroups>();
@@ -171,6 +173,9 @@ impl Plugin for EditorUiPlugin {
                 prompt::sync_prompt,
                 prompt::close_prompt_on_escape,
                 dock::sync_open_frame,
+                palette_preview::sync_preview_content,
+                palette_preview::inherit_preview_layer,
+                palette_preview::turn_preview,
                 probe_prefab::probe_prefab
                     .run_if(|| std::env::var("PREFAB_PROBE").is_ok()),
             )
@@ -184,6 +189,7 @@ impl Plugin for EditorUiPlugin {
                 statusbar::spawn_statusbar,
                 which_key::spawn_which_key,
                 prompt::spawn_prompt,
+                palette_preview::setup_preview_rig,
                 dock::spawn_docks,
                 dock::spawn_open_frame,
                 dock::attach_scrollbars,
