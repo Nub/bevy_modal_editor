@@ -446,6 +446,81 @@ mod tests {
         assert_eq!(records[0].0, root_id);
     }
 
+    // The game's regenerate pattern (spec §5): render state derives from an
+    // `Add` observer on the semantic component. Stamping inserts via reflection —
+    // this pins that reflected inserts FIRE those observers (a silent miss here
+    // renders nothing, loudly reported by the owner otherwise).
+    #[test]
+    fn stamping_fires_regenerate_observers() {
+        #[derive(Component)]
+        struct Derived;
+
+        let mut app = test_app();
+        app.add_observer(
+            |add: On<bevy::ecs::lifecycle::Add, Payload>, mut commands: Commands| {
+                commands.entity(add.entity).insert(Derived);
+            },
+        );
+        let prefab = barrel_prefab();
+        let prefab_id = prefab.id;
+        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(prefab_id, prefab);
+
+        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
+            label: "Place".into(),
+            gesture: None,
+            ops: vec![Op::Spawn {
+                id: SceneId::random(),
+                components: vec![
+                    Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    Box::new(Transform::default()).into_partial_reflect(),
+                ],
+            }],
+        });
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let stamped: Vec<(bool, bool)> = world
+            .query_filtered::<(Has<Derived>, Has<Payload>), With<PrefabStamped>>()
+            .iter(world)
+            .collect();
+        assert_eq!(stamped.len(), 1);
+        assert!(stamped[0].1, "payload stamped");
+        assert!(stamped[0].0, "Add observer fired for the reflected insert");
+    }
+
+    // Legacy templates (pre-rebase flow) migrate to the centered convention on
+    // load: X/Z centroid moves to the root, member HEIGHTS are preserved.
+    #[test]
+    fn legacy_templates_center_on_load() {
+        let template = snapshot_from_parts(vec![
+            (
+                SceneId::random(),
+                None,
+                vec![Box::new(Transform::from_xyz(2.0, 0.5, -1.0)).into_partial_reflect()],
+            ),
+            (
+                SceneId::random(),
+                None,
+                vec![Box::new(Transform::from_xyz(4.0, 1.5, 3.0)).into_partial_reflect()],
+            ),
+        ]);
+        let centered = authoring::center_template(&template).expect("off-center → migrates");
+        let translations: Vec<Vec3> = centered
+            .records()
+            .filter_map(|(_, _, c)| {
+                c.iter().find_map(|v| {
+                    <Transform as bevy::reflect::FromReflect>::from_reflect(v.as_partial_reflect())
+                })
+            })
+            .map(|t| t.translation)
+            .collect();
+        assert_eq!(translations, vec![Vec3::new(-1.0, 0.5, -2.0), Vec3::new(1.0, 1.5, 2.0)]);
+        // Already-centered templates are left alone (no save churn).
+        assert!(authoring::center_template(&centered).is_none());
+    }
+
     fn invoke(app: &mut App, action: &str) {
         app.world_mut().write_message(ActionInvoked {
             action: ActionId::new(action.to_string()),

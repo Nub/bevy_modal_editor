@@ -573,16 +573,27 @@ fn palette_keys(
                     PalettePayload::Prefab(prefab) => {
                         let prefab = *prefab;
                         commands.queue(move |world: &mut World| {
-                            // Place at the cursor's ground point when available.
+                            // The palette covers the cursor (CursorGround is None
+                            // over chrome), so fall back to the ground point the
+                            // CAMERA is looking at — placement must land where
+                            // the user is looking, never invisibly at origin.
                             let at = world
                                 .resource::<CursorGround>()
                                 .0
+                                .or_else(|| camera_focus_ground(world))
                                 .unwrap_or(Vec3::ZERO);
+                            let name = world
+                                .resource::<editor_prefabs::PrefabLibrary>()
+                                .prefabs
+                                .get(&prefab)
+                                .map(|p| p.name.clone())
+                                .unwrap_or_else(|| "prefab".into());
+                            let id = SceneId::random();
                             world.resource_mut::<EditQueue>().0.push(Transaction {
                                 label: "Place Prefab".into(),
                                 gesture: None,
                                 ops: vec![Op::Spawn {
-                                    id: SceneId::random(),
+                                    id,
                                     components: vec![
                                         Box::new(editor_prefabs::PrefabInstance(prefab))
                                             .into_partial_reflect(),
@@ -590,10 +601,32 @@ fn palette_keys(
                                             .into_partial_reflect(),
                                         Box::new(Transform::from_translation(at))
                                             .into_partial_reflect(),
-                                        Box::new(Name::new("Prefab Instance"))
+                                        Box::new(Name::new(name.clone()))
                                             .into_partial_reflect(),
                                     ],
                                 }],
+                            });
+                            // Placement must be SEEN: select it (outline +
+                            // inspector), drop back to normal mode, say so.
+                            world
+                                .resource_mut::<editor_prefabs::authoring::PendingGroupSelect>()
+                                .0 = Some(id);
+                            let from = {
+                                let mut current =
+                                    world.resource_mut::<CurrentMode>();
+                                (current.0 != MODE_NORMAL).then(|| {
+                                    std::mem::replace(&mut current.0, MODE_NORMAL)
+                                })
+                            };
+                            if let Some(from) = from {
+                                world.write_message(ModeChanged {
+                                    from,
+                                    to: MODE_NORMAL,
+                                });
+                            }
+                            world.write_message(editor_scene::SceneIoFeedback {
+                                message: format!("placed \u{25c6} {name}"),
+                                success: true,
                             });
                         });
                     }
@@ -873,4 +906,30 @@ fn rebuild_results(
             }
         }
     });
+}
+
+
+/// The ground point at the center of the viewport camera's gaze — the "somewhere
+/// visible" placement fallback when the cursor isn't over the viewport.
+fn camera_focus_ground(world: &mut World) -> Option<Vec3> {
+    let mut query = world.query::<(
+        &bevy::camera::Camera,
+        &GlobalTransform,
+        Option<&bevy::camera::RenderTarget>,
+    )>();
+    let (_, transform, _) = query
+        .iter(world)
+        .find(|(c, _, target)| is_viewport_camera(c, *target))?;
+    let ray = bevy::math::Ray3d::new(transform.translation(), transform.forward());
+    // Gaze-ground intersection when the camera looks at the floor; a level (or
+    // upward) camera never intersects, so drop a point a few meters ahead onto
+    // the ground instead — always on-screen, never at a far-away grazing hit.
+    let hit = ray
+        .intersect_plane(Vec3::ZERO, bevy::math::primitives::InfinitePlane3d::new(Vec3::Y))
+        .filter(|d| *d < 50.0)
+        .map(|d| ray.get_point(d));
+    Some(hit.unwrap_or_else(|| {
+        let ahead = transform.translation() + *transform.forward() * 6.0;
+        Vec3::new(ahead.x, 0.0, ahead.z)
+    }))
 }

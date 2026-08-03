@@ -34,7 +34,7 @@ pub struct GroupCommit(pub Option<String>);
 
 /// New instance to select once its spawn transaction has applied.
 #[derive(Resource, Default)]
-pub(crate) struct PendingGroupSelect(pub Option<SceneId>);
+pub struct PendingGroupSelect(pub Option<SceneId>);
 
 /// Runs BEFORE the resolver conventions (registered with .before), so the
 /// mode/panel state observed here is the PRE-press state — Escape closes the
@@ -94,7 +94,19 @@ pub(crate) fn load_prefab_library(world: &mut World) {
             continue;
         }
         match PrefabDef::load(&path, &registry) {
-            Ok(def) => {
+            Ok(mut def) => {
+                // Migrate legacy templates (pre-rebase flow) to the pivot
+                // convention: top-level records centered on the root. Without
+                // this, placing an old prefab stamps its parts meters away
+                // from where the user pointed.
+                if let Some(centered) = center_template(&def.template) {
+                    def.template = centered;
+                    if let Err(e) = def.save(&path, &registry) {
+                        error!("prefab migration save failed for {}: {e}", path.display());
+                    } else {
+                        info!("prefab '{}' migrated to centered template", def.name);
+                    }
+                }
                 world.resource_mut::<PrefabLibrary>().prefabs.insert(def.id, def);
                 loaded += 1;
             }
@@ -105,6 +117,62 @@ pub(crate) fn load_prefab_library(world: &mut World) {
         info!("loaded {loaded} prefab(s)");
         world.resource_mut::<PrefabLibrary>().generation += 1;
     }
+}
+
+/// Concrete `Transform` from a snapshot value (which may be a DYNAMIC struct
+/// fresh off the RON deserializer — `try_downcast_ref` would always miss).
+fn reflect_transform(value: &(impl AsRef<dyn bevy::reflect::PartialReflect> + ?Sized)) -> Option<Transform> {
+    let value = value.as_ref();
+    let is_transform = value
+        .get_represented_type_info()
+        .is_some_and(|i| i.type_path() == <Transform as bevy::reflect::TypePath>::type_path());
+    if !is_transform {
+        return None;
+    }
+    <Transform as bevy::reflect::FromReflect>::from_reflect(value)
+}
+
+/// `Some(centered)` if the template's top-level records aren't centered on the
+/// root (centroid off origin beyond float noise) — the legacy-format migration.
+pub(crate) fn center_template(template: &editor_scene::SceneSnapshot) -> Option<editor_scene::SceneSnapshot> {
+    let mut centroid = Vec3::ZERO;
+    let mut top_level = 0usize;
+    for (_, parent, components) in template.records() {
+        if parent.is_some() {
+            continue;
+        }
+        if let Some(transform) = components.iter().find_map(reflect_transform) {
+            centroid += transform.translation;
+            top_level += 1;
+        }
+    }
+    if top_level == 0 {
+        return None;
+    }
+    centroid /= top_level as f32;
+    centroid.y = 0.0; // members keep their heights (same rule as grouping)
+    if centroid.length() < 1e-3 {
+        return None;
+    }
+    let records = template
+        .records()
+        .map(|(id, parent, components)| {
+            let values: Vec<Box<dyn bevy::reflect::PartialReflect>> = components
+                .iter()
+                .map(|c| {
+                    if parent.is_none() {
+                        if let Some(mut rebased) = reflect_transform(c) {
+                            rebased.translation -= centroid;
+                            return Box::new(rebased) as Box<dyn bevy::reflect::PartialReflect>;
+                        }
+                    }
+                    c.to_dynamic()
+                })
+                .collect();
+            (id, parent, values)
+        })
+        .collect();
+    Some(editor_scene::snapshot_from_parts(records))
 }
 
 pub(crate) fn save_prefab_public(world: &World, def: &PrefabDef) {
@@ -302,6 +370,9 @@ pub(crate) fn group_selection(world: &mut World, name: String) {
     if top_level > 0 {
         pivot /= top_level as f32;
     }
+    // Ground-project the pivot: members keep their heights, so an instance
+    // placed at a ground point sits ON the ground, not sunk to half-height.
+    pivot.y = 0.0;
     let records: Vec<(SceneId, Option<SceneId>, Vec<Box<dyn bevy::reflect::PartialReflect>>)> =
         selected
             .iter()

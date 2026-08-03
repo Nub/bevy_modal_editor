@@ -15,6 +15,7 @@ mod hierarchy;
 mod inspector;
 mod outline;
 mod palette;
+mod probe_prefab;
 mod prompt;
 mod palette_engine;
 mod statusbar;
@@ -170,6 +171,8 @@ impl Plugin for EditorUiPlugin {
                 prompt::sync_prompt,
                 prompt::close_prompt_on_escape,
                 dock::sync_open_frame,
+                probe_prefab::probe_prefab
+                    .run_if(|| std::env::var("PREFAB_PROBE").is_ok()),
             )
                 .in_set(editor_core::EditorSet::Sync),
         );
