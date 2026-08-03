@@ -37,8 +37,6 @@ pub enum PaletteFilter {
     FindObject,
     /// The material library (C6): Enter assigns to the selection.
     Materials,
-    /// The prefab library (M4-D5): Enter places an instance.
-    Prefabs,
 }
 
 #[derive(Resource, Default)]
@@ -77,10 +75,10 @@ impl Plugin for PalettePlugin {
                 Update,
                 (
                     handle_open_action,
-                    build_palette_items,
                     open_on_insert_mode,
                     close_when_editor_leaves,
                     close_when_focus_leaves,
+                    build_palette_items,
                     update_title,
                     apply_search_font_setting,
                     rebuild_results,
@@ -223,7 +221,7 @@ fn build_palette_items(
     let refresh = state.is_changed()
         || (scene_changed && state.filter == PaletteFilter::FindObject)
         || (library.is_changed() && state.filter == PaletteFilter::Materials)
-        || (prefabs.is_changed() && state.filter == PaletteFilter::Prefabs);
+        || (prefabs.is_changed() && state.filter == PaletteFilter::InsertKinds);
     if !refresh {
         return;
     }
@@ -233,19 +231,6 @@ fn build_palette_items(
     }
     items.0.clear();
     match state.filter {
-        PaletteFilter::Prefabs => {
-            let mut defs: Vec<_> = prefabs.prefabs.values().collect();
-            defs.sort_by(|a, b| a.name.cmp(&b.name));
-            for def in defs {
-                items.0.push(PaletteEntry {
-                    label: def.name.clone(),
-                    category: None,
-                    keywords: def.id.to_string(),
-                    suffix: "prefab".into(),
-                    payload: PalettePayload::Prefab(def.id),
-                });
-            }
-        }
         PaletteFilter::Materials => {
             for def in &library.materials {
                 items.0.push(PaletteEntry {
@@ -279,13 +264,28 @@ fn build_palette_items(
             }
         }
         PaletteFilter::InsertKinds => {
+            // ONE insert surface (owner): everything placeable — registered
+            // kinds AND library prefabs, grouped.
+            let mut kinds = Vec::new();
             for def in &catalog.actions {
                 if def.flags.hidden || !def.id.as_str().starts_with("insert.kind.") {
                     continue;
                 }
-                items.0.push(entry_for_action(def, &keymap, None));
+                kinds.push(entry_for_action(def, &keymap, Some("OBJECTS".into())));
             }
-            items.0.sort_by(|a, b| a.label.cmp(&b.label));
+            kinds.sort_by(|a, b| a.label.cmp(&b.label));
+            items.0.extend(kinds);
+            let mut defs: Vec<_> = prefabs.prefabs.values().collect();
+            defs.sort_by(|a, b| a.name.cmp(&b.name));
+            for def in defs {
+                items.0.push(PaletteEntry {
+                    label: def.name.clone(),
+                    category: Some("PREFABS".into()),
+                    keywords: def.id.to_string(),
+                    suffix: "prefab".into(),
+                    payload: PalettePayload::Prefab(def.id),
+                });
+            }
         }
         PaletteFilter::Commands => {
             // EDITOR block first, then per-mode blocks (owner rule) — the engine
@@ -439,7 +439,6 @@ fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<Palet
         PaletteFilter::Commands => "COMMANDS",
         PaletteFilter::FindObject => "FIND OBJECT",
         PaletteFilter::Materials => "ASSIGN MATERIAL",
-        PaletteFilter::Prefabs => "PLACE PREFAB",
     };
     for mut text in &mut title {
         if text.0 != label {
@@ -467,13 +466,6 @@ fn handle_open_action(
             } else {
                 PaletteFilter::Commands
             };
-            if let Ok(mut text) = editable.get_mut(*input) {
-                text.clear();
-            }
-        }
-        if invoked.action.as_str() == "prefab.place" && !state.open {
-            open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
-            state.filter = PaletteFilter::Prefabs;
             if let Ok(mut text) = editable.get_mut(*input) {
                 text.clear();
             }
@@ -726,7 +718,7 @@ fn rebuild_results(
     fonts: Res<UiFonts>,
     mut commands: Commands,
 ) {
-    if !state.is_changed() {
+    if !state.is_changed() && !items.is_changed() {
         return;
     }
     commands.entity(*results).despawn_related::<Children>();

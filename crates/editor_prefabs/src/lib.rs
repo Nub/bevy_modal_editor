@@ -305,12 +305,6 @@ impl EditorFeature for PrefabsFeature {
                     .context("normal"),
             )
             .action(
-                ActionDef::new("prefab.place", "Place Prefab")
-                    .describe("Pick a library prefab to place")
-                    .context("normal")
-                    .bind("space b"),
-            )
-            .action(
                 ActionDef::new("prefab.revert-overrides", "Revert Prefab Overrides")
                     .describe("Reset the selected instance to its prefab source")
                     .context("normal"),
