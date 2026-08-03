@@ -54,9 +54,10 @@ matrix nightly (spec §8).
 
 ## Current milestone
 
-**M3 — "I can make it mine, and hand it to a friend"** (spec §10): reflection
-inspector, hierarchy panel, material assets + library, data-driven gameplay
-components, Rust hot code reload, minimal publish (`editor publish` → runnable zip).
-M0 (spikes), M1 (kernel: modes/resolver/keymap/palette), and M2 (graybox loop:
-EditScope/undo, scene I/O, selection/gestures/insert, play/reset —
-`docs/M2-ACCEPTANCE.md` PASSED 2026-08-02) are complete.
+**M4 — "I can turn real assets into prefabs and paint levels with them"**
+(spec §10): asset pipeline (import→validate→process→cook), prefabs with
+overrides/nesting/variants/baking + layout metadata authoring, assisted-layout
+core (snap kits, architectural painting, true-shape). Exit: the barrel workflow
+(spec §6) end-to-end + wall-kit painting. Also riding M4: the full material
+editor (owner direction). M0–M3 complete (`docs/M3-ACCEPTANCE.md` PASSED
+2026-08-02).

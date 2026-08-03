@@ -1,5 +1,12 @@
 # M3 Acceptance — "I can make it mine, and hand it to a friend"
 
+> **PASSED 2026-08-02.** C1–C9 green (C8 as gate-authorized fallback; true
+> hotpatching deferred — path documented in ledger #9). Owner verification ran as
+> iterative hands-on rounds throughout the milestone: panel focus model, hierarchy
+> nav/reparent, inspector (full-archetype, name-in-header, Tab across all widget
+> kinds, drag-scrub), Spinner designer-surface, material library/assignment/live
+> re-shade, publish artifact boot-verified, fast-relaunch probe-verified.
+
 Written at milestone start (spec §8 guardrail 2). Scope from spec §10 milestone 3:
 reflection inspector, hierarchy, material assets + library, data-driven gameplay
 components (the designer surface), Rust hot code reload, and a *minimal* publish.
