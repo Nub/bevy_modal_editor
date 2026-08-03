@@ -22,6 +22,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub mod authoring;
+pub mod edit_mode;
 pub mod overrides;
 pub use overrides::{sync_overrides, StampedFrom};
 
@@ -268,6 +269,7 @@ impl Plugin for EditorPrefabsPlugin {
         app.init_resource::<PrefabLibrary>();
         app.init_resource::<overrides::OverrideCursor>();
         app.init_resource::<authoring::PrefabRequests>();
+        app.init_resource::<edit_mode::PrefabEditState>();
         app.init_resource::<authoring::LastRestampedGeneration>();
         app.add_editor_feature(PrefabsFeature);
         app.add_systems(Startup, authoring::load_prefab_library);
@@ -303,6 +305,12 @@ impl EditorFeature for PrefabsFeature {
                 ActionDef::new("prefab.create", "Create Prefab From Selection")
                     .describe("Save the selected entities as a reusable prefab")
                     .context("normal"),
+            )
+            .action(
+                ActionDef::new("prefab.edit", "Edit Prefab")
+                    .describe("Open the selected instance's prefab for editing (space e finishes)")
+                    .context("normal")
+                    .bind("space e"),
             )
             .action(
                 ActionDef::new("prefab.revert-overrides", "Revert Prefab Overrides")

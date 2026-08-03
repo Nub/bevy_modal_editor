@@ -78,6 +78,10 @@ fn clone_component(
     Some(reflect_component.reflect(entity_ref)?.to_dynamic())
 }
 
+/// While set, scene save/open stand down (prefab edit mode owns the world).
+#[derive(Resource, Default)]
+pub struct SceneIoLock(pub bool);
+
 /// Entities STAMPED from a prefab template (M4-D4): they exist for editing
 /// (selection, gizmos) but are DERIVED state — scene capture excludes them, so
 /// an instance can never serialize as its expanded tree (the v1 prefab sin).
@@ -342,6 +346,16 @@ fn track_dirty(mut edited: MessageReader<Edited>, mut dirty: ResMut<SceneDirty>)
 }
 
 fn perform_scene_io(world: &mut World) {
+    if world.resource::<SceneIoLock>().0 {
+        let requests = std::mem::take(&mut *world.resource_mut::<SceneIoRequests>());
+        if requests.save || requests.open {
+            world.write_message(SceneIoFeedback {
+                message: "scene io locked — finish prefab editing first".into(),
+                success: false,
+            });
+        }
+        return;
+    }
     let requests = std::mem::take(&mut *world.resource_mut::<SceneIoRequests>());
     if !requests.save && !requests.open {
         return;
@@ -470,6 +484,7 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<play::PlayRequests>()
             .init_resource::<materials::MaterialLibrary>()
             .init_resource::<session::ReloadRequested>()
+            .init_resource::<SceneIoLock>()
             .add_message::<SceneIoFeedback>();
         app.add_editor_feature(ScenesFeature);
         app.add_editor_feature(play::PlayFeature);

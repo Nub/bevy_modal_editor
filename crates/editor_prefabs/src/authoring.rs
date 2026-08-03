@@ -19,6 +19,7 @@ pub(crate) struct PrefabRequests {
     create: bool,
     revert: bool,
     apply: bool,
+    edit: bool,
 }
 
 pub(crate) fn collect_prefab_actions(
@@ -34,6 +35,7 @@ pub(crate) fn collect_prefab_actions(
             "prefab.create" => requests.create = true,
             "prefab.revert-overrides" => requests.revert = true,
             "prefab.apply-to-prefab" => requests.apply = true,
+            "prefab.edit" => requests.edit = true,
             _ => {}
         }
     }
@@ -64,6 +66,10 @@ pub(crate) fn load_prefab_library(world: &mut World) {
     }
 }
 
+pub(crate) fn save_prefab_public(world: &World, def: &PrefabDef) {
+    save_prefab(world, def)
+}
+
 fn save_prefab(world: &World, def: &PrefabDef) {
     let registry = world.resource::<AppTypeRegistry>().clone();
     let _ = std::fs::create_dir_all(PREFABS_DIR);
@@ -78,6 +84,9 @@ fn save_prefab(world: &World, def: &PrefabDef) {
 pub(crate) fn perform_prefab_actions(world: &mut World) {
     let requests = std::mem::take(&mut *world.resource_mut::<PrefabRequests>());
 
+    if requests.edit {
+        crate::edit_mode::toggle_edit_mode(world);
+    }
     if requests.create {
         create_from_selection(world);
     }
