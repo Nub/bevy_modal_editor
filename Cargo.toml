@@ -5,6 +5,7 @@ members = [
     "crates/editor_assets",
     "crates/editor_core",
     "crates/editor_scene",
+    "crates/editor_prefabs",
     "crates/editor_publish",
     "crates/editor_ui",
     "crates/game_framework",
@@ -33,6 +34,7 @@ blake3 = "1"
 
 editor_api = { path = "crates/editor_api" }
 editor_assets = { path = "crates/editor_assets" }
+editor_prefabs = { path = "crates/editor_prefabs" }
 editor_core = { path = "crates/editor_core" }
 editor_scene = { path = "crates/editor_scene" }
 editor_ui = { path = "crates/editor_ui" }

@@ -116,6 +116,7 @@ impl Plugin for EditorUiPlugin {
             EditorCorePlugin,
             editor_scene::EditorScenePlugin,
             palette::PalettePlugin,
+            editor_prefabs::EditorPrefabsPlugin,
             bevy_outliner::OutlinePlugin,
         ));
         app.add_editor_feature(EditorUiFeature);

@@ -1,0 +1,19 @@
+[package]
+name = "editor_prefabs"
+description = "Prefabs (spec §6): versioned prefab assets; instances are references with override deltas, never expanded trees"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+bevy.workspace = true
+editor_api.workspace = true
+editor_core.workspace = true
+editor_scene.workspace = true
+serde.workspace = true
+ron.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

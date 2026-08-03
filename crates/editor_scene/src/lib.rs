@@ -78,6 +78,34 @@ fn clone_component(
     Some(reflect_component.reflect(entity_ref)?.to_dynamic())
 }
 
+/// Entities STAMPED from a prefab template (M4-D4): they exist for editing
+/// (selection, gizmos) but are DERIVED state — scene capture excludes them, so
+/// an instance can never serialize as its expanded tree (the v1 prefab sin).
+#[derive(Component, Default, Clone)]
+pub struct PrefabStamped;
+
+/// Build a snapshot from parts (prefab authoring, create-from-selection).
+pub fn snapshot_from_parts(
+    records: Vec<(SceneId, Option<SceneId>, Vec<Box<dyn PartialReflect>>)>,
+) -> SceneSnapshot {
+    let mut records: Vec<ResolvedRecord> = records
+        .into_iter()
+        .map(|(id, parent, components)| ResolvedRecord { id, parent, components })
+        .collect();
+    records.sort_by_key(|r| r.id.0);
+    SceneSnapshot { records }
+}
+
+/// Iterate a snapshot's records (id, parent, components) — prefab stamping reads
+/// templates through this without owning the serialization format.
+impl SceneSnapshot {
+    pub fn records(
+        &self,
+    ) -> impl Iterator<Item = (SceneId, Option<SceneId>, &[Box<dyn PartialReflect>])> {
+        self.records.iter().map(|r| (r.id, r.parent, r.components.as_slice()))
+    }
+}
+
 /// Capture every `SceneId` entity's registered components (the one capture path).
 pub fn capture_scene(world: &World) -> SceneSnapshot {
     let registry_arc = world.resource::<AppTypeRegistry>().clone();
@@ -87,6 +115,7 @@ pub fn capture_scene(world: &World) -> SceneSnapshot {
 
     let mut records: Vec<ResolvedRecord> = index
         .iter()
+        .filter(|&(_, &entity)| world.get::<PrefabStamped>(entity).is_none())
         .map(|(id, &entity)| {
             let components = editor_components
                 .types

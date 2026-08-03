@@ -2404,6 +2404,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "editor_prefabs"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "editor_api",
+ "editor_core",
+ "editor_scene",
+ "ron 0.8.1",
+ "serde",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "editor_publish"
 version = "0.1.0"
 dependencies = [
@@ -2431,6 +2445,7 @@ dependencies = [
  "bevy_outliner",
  "editor_api",
  "editor_core",
+ "editor_prefabs",
  "editor_scene",
  "uuid",
 ]
