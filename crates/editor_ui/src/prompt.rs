@@ -41,6 +41,8 @@ pub(crate) fn spawn_prompt(
             },
             GlobalZIndex(210),
             Visibility::Hidden,
+            bevy::ui::UiTransform::IDENTITY,
+            crate::appear::FloatingSurface::default(),
         ))
         .with_children(|overlay| {
             overlay

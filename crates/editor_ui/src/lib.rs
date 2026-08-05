@@ -9,6 +9,7 @@
 
 pub mod style;
 
+mod appear;
 mod dock;
 mod ghost;
 mod grid;
@@ -209,6 +210,7 @@ impl Plugin for EditorUiPlugin {
                 prompt::close_prompt_on_escape,
                 open_indicator::sync_open_pill,
                 open_indicator::dim_outsiders,
+                appear::animate_appearing,
                 grid::handle_grid_actions,
                 grid::sync_grid,
                 socket_gizmo::sync_socket_gizmos,

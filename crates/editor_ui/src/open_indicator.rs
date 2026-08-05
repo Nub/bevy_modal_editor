@@ -43,6 +43,8 @@ pub(crate) fn spawn_open_pill(
             bevy::picking::Pickable::IGNORE,
             GlobalZIndex(90),
             Visibility::Hidden,
+            bevy::ui::UiTransform::IDENTITY,
+            crate::appear::FloatingSurface::default(),
         ))
         .with_children(|overlay| {
             overlay

@@ -65,6 +65,7 @@ pub(crate) fn spawn_statusbar(
                     ..default()
                 },
                 BackgroundColor(style::color::accent()),
+                style::accent_gradient(),
             ))
             .with_children(|chip| {
                 chip.spawn((

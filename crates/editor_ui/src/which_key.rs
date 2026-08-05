@@ -165,6 +165,7 @@ pub(crate) fn rebuild_which_key(
                         ..default()
                     },
                     BackgroundColor(style::color::accent()),
+                    style::accent_gradient(),
                 ))
                 .with_children(|chip| {
                     chip.spawn((

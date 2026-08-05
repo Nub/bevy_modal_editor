@@ -50,13 +50,52 @@ pub mod color {
 /// Elevation for floating surfaces (palette, which-key, future popups): drop shadow
 /// + hairline edge. One treatment, applied by every floating panel.
 pub fn floating_shadow() -> bevy::ui::BoxShadow {
-    bevy::ui::BoxShadow::new(
-        Color::BLACK.with_alpha(0.55),
-        bevy::ui::px(0),
-        bevy::ui::px(10),
-        bevy::ui::px(4),
-        bevy::ui::px(28),
-    )
+    // Layered: a tight contact shadow grounds the surface, a wide ambient one
+    // lifts it — single hard shadows read flat.
+    bevy::ui::BoxShadow(vec![
+        bevy::ui::ShadowStyle {
+            color: Color::BLACK.with_alpha(0.35),
+            x_offset: bevy::ui::px(0),
+            y_offset: bevy::ui::px(2),
+            spread_radius: bevy::ui::px(0),
+            blur_radius: bevy::ui::px(6),
+        },
+        bevy::ui::ShadowStyle {
+            color: Color::BLACK.with_alpha(0.45),
+            x_offset: bevy::ui::px(0),
+            y_offset: bevy::ui::px(14),
+            spread_radius: bevy::ui::px(2),
+            blur_radius: bevy::ui::px(40),
+        },
+    ])
+}
+
+/// Barely-there vertical sheen for header bars — +3% at the top edge. Flat
+/// fills read unfinished at this polish bar; gradients must stay subliminal.
+pub fn header_gradient() -> bevy::ui::BackgroundGradient {
+    use bevy::ui::{BackgroundGradient, ColorStop, Gradient, LinearGradient};
+    BackgroundGradient(vec![Gradient::Linear(LinearGradient {
+        color_space: default(),
+        angle: LinearGradient::TO_TOP,
+        stops: vec![
+            ColorStop::new(Color::srgba(1.0, 1.0, 1.0, 0.0), bevy::ui::percent(0)),
+            ColorStop::new(Color::srgba(1.0, 1.0, 1.0, 0.03), bevy::ui::percent(100)),
+        ],
+    })])
+}
+
+/// Accent chips (mode chip, key chips, prefix chip): light-from-the-top accent
+/// gradient — the difference between a rectangle and a BUTTON.
+pub fn accent_gradient() -> bevy::ui::BackgroundGradient {
+    use bevy::ui::{BackgroundGradient, ColorStop, Gradient, LinearGradient};
+    BackgroundGradient(vec![Gradient::Linear(LinearGradient {
+        color_space: default(),
+        angle: LinearGradient::TO_TOP,
+        stops: vec![
+            ColorStop::new(Color::srgba(1.0, 1.0, 1.0, 0.0), bevy::ui::percent(0)),
+            ColorStop::new(Color::srgba(1.0, 1.0, 1.0, 0.10), bevy::ui::percent(100)),
+        ],
+    })])
 }
 
 /// Hairline edge color for floating surfaces (subtle light line, not a widget border).

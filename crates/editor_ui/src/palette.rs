@@ -114,6 +114,8 @@ fn spawn_palette(mut commands: Commands) {
         template_value(style::floating_shadow())
         GlobalZIndex(200)
         Visibility::Hidden
+        bevy::ui::UiTransform::IDENTITY
+        crate::appear::FloatingSurface
         Children [
             // Mode title (v1 lineage): what this palette is browsing, uppercase, dim.
             (PaletteTitle Text("COMMANDS")
