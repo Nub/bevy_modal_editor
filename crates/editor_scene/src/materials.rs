@@ -86,6 +86,7 @@ pub fn to_standard_material(
         .and_then(|uuid| models.get(uuid))
         .zip(assets)
         .map(|(entry, assets)| {
+            #[allow(deprecated)]
             assets.load_with_settings(
                 entry.asset_path.clone(),
                 |settings: &mut bevy::image::ImageLoaderSettings| {

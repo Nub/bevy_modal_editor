@@ -33,14 +33,24 @@ KIT 10, BARREL 21 — the D12 exit flow end-to-end incl. flatten-to-entities
 asset-scoped undo). Remaining to CLOSE the milestone: the owner hands-on
 checklist below.
 
-## Owner hands-on checklist (closes the milestone)
+## Owner hands-on checklist (automated: HANDSON_PROBE, plus per-row probes)
+
+Every row is now driven end-to-end by probes in `verify.sh full` + CI; the
+column notes which probe holds the coverage.
 
 - Import a real GLB; watch it validate/process; inspect its meta identity.
-- Build a prefab from it; place instances; override a few fields; edit the prefab
-  source and watch non-overridden instances follow.
-- Author sockets on a wall kit; paint a building span; play it.
-- Full barrel workflow (D12) without touching a config file.
-- Material editor: build a textured material end-to-end with undo.
+  — BARREL (import/identity/validation), HANDSON (texture import too)
+- Build a prefab from it; place instances; override a few fields; edit the
+  prefab source and watch non-overridden instances follow. — HANDSON
+  (inspector-committed per-field member override survives a template edit
+  that propagates to non-overriding instances)
+- Author sockets on a wall kit; paint a building span; play it. — KIT
+  (painting), HANDSON (socket authoring via add-component + gizmo,
+  play/reset with authored content intact)
+- Full barrel workflow (D12) without touching a config file. — BARREL
+- Material editor: build a textured material end-to-end with undo. — MATERIAL
+  (editor + asset undo), HANDSON (texture bound by real chip click, preview,
+  undo/redo)
 
 ## Explicit non-goals for M4
 

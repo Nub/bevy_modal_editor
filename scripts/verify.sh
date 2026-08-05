@@ -43,7 +43,7 @@ cargo build -p template_game --features editor
 # Flow probes: each drives one real user workflow end-to-end and exits nonzero
 # unless the on-screen outcome holds. Full/CI only (owner: dev speed).
 if [ "$LEVEL" = "full" ]; then
-  for probe in PREFAB_PROBE USER_PROBE KIT_PROBE BARREL_PROBE MATERIAL_PROBE; do
+  for probe in PREFAB_PROBE USER_PROBE KIT_PROBE BARREL_PROBE MATERIAL_PROBE HANDSON_PROBE; do
     echo "== flow probe: ${probe}"
     env "${probe}=1" cargo run -p template_game --features editor
   done

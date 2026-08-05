@@ -67,6 +67,8 @@ jobs:
         run: xvfb-run -a env BARREL_PROBE=1 cargo run -p template_game --features editor
       - name: Material editor probe (M4-D11)
         run: xvfb-run -a env MATERIAL_PROBE=1 cargo run -p template_game --features editor
+      - name: Owner hands-on checklist probe (M4)
+        run: xvfb-run -a env HANDSON_PROBE=1 cargo run -p template_game --features editor
 
   # M3-C9: every merge to v2 publishes a runnable editor-stripped artifact.
   publish:

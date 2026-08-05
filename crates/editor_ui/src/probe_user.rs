@@ -119,6 +119,35 @@ pub(crate) fn click(world: &mut World, pressed: bool) {
         },
         window,
     });
+    // ALSO write the picking-side event. Real input reaches bevy_picking via
+    // the WINDOW's cursor state, which synthetic input can't populate — so
+    // without this no Pointer<Press> ever triggers and every chrome click
+    // observer (chips, rows) stays dead in probes.
+    let location = {
+        let mut pointers = world.query::<(
+            &bevy::picking::pointer::PointerId,
+            &bevy::picking::pointer::PointerLocation,
+        )>();
+        pointers
+            .iter(world)
+            .find(|(id, _)| **id == bevy::picking::pointer::PointerId::Mouse)
+            .and_then(|(_, location)| location.location.clone())
+    };
+    if let Some(location) = location {
+        world.write_message(bevy::picking::pointer::PointerInput {
+            pointer_id: bevy::picking::pointer::PointerId::Mouse,
+            location,
+            action: if pressed {
+                bevy::picking::pointer::PointerAction::Press(
+                    bevy::picking::pointer::PointerButton::Primary,
+                )
+            } else {
+                bevy::picking::pointer::PointerAction::Release(
+                    bevy::picking::pointer::PointerButton::Primary,
+                )
+            },
+        });
+    }
 }
 
 pub(crate) fn viewport_center(world: &mut World) -> Vec2 {

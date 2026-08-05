@@ -401,6 +401,7 @@ pub(crate) fn on_chip_press(
     let Ok(field) = fields.get(press.entity) else {
         return;
     };
+    debug!("material chip pressed: {field:?}");
     let Some(id) = editor.target else { return };
     let textures: Vec<Uuid> = models
         .entries

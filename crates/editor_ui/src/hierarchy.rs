@@ -54,9 +54,7 @@ pub(crate) struct Row {
 }
 
 #[derive(Component)]
-pub(crate) struct HierarchyRow(
-    #[allow(dead_code, reason = "row identity for future drag/rename")] usize,
-);
+pub(crate) struct HierarchyRow(pub(crate) usize);
 
 /// The cursor row (scroll-follow target).
 #[derive(Component)]
