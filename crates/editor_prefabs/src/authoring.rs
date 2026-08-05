@@ -32,6 +32,7 @@ pub enum PromptPurpose {
     #[default]
     Group,
     Variant,
+    Kit,
 }
 
 /// The inline name prompt state (UI renders it; Enter commits a name here).
@@ -84,6 +85,12 @@ pub(crate) fn collect_prefab_actions(
                 if !selection.is_empty() {
                     prompt.open = true;
                     prompt.purpose = PromptPurpose::Variant;
+                }
+            }
+            "prefab.set-kit" => {
+                if !selection.is_empty() {
+                    prompt.open = true;
+                    prompt.purpose = PromptPurpose::Kit;
                 }
             }
             "prefab.revert-overrides" => requests.revert = true,
@@ -262,6 +269,7 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
         match world.resource::<GroupPrompt>().purpose {
             PromptPurpose::Group => group_selection(world, name),
             PromptPurpose::Variant => make_variant(world, name),
+            PromptPurpose::Kit => set_kit(world, name),
         }
     }
     if requests.revert || requests.apply {
@@ -405,6 +413,7 @@ fn apply_to_prefab(world: &mut World, root_id: SceneId) {
     let def_snapshot = {
         let library = world.resource::<PrefabLibrary>();
         library.prefabs.get(&instance.0).map(|p| PrefabDef {
+            kit: p.kit.clone(),
             id: p.id,
             name: p.name.clone(),
             template: snapshot_from_parts(
@@ -502,6 +511,7 @@ pub(crate) fn group_selection(world: &mut World, name: String) {
         .collect();
     drop(registry);
     let def = PrefabDef {
+        kit: None,
         id: Uuid::new_v4(),
         name,
         template: snapshot_from_parts(records),
@@ -595,6 +605,7 @@ fn make_variant(world: &mut World, name: String) {
 
     let variant_id = Uuid::new_v4();
     let def = PrefabDef {
+        kit: None,
         id: variant_id,
         name: name.clone(),
         template: snapshot_from_parts(vec![(
@@ -638,6 +649,45 @@ fn make_variant(world: &mut World, name: String) {
         message: format!("\u{25c6} {name} — variant of {base_name}; base edits propagate"),
         success: true,
     });
+}
+
+/// D10: tag the selected instance's PREFAB with a kit name (empty clears).
+/// Kit membership drives coherence checks; saved with the prefab file.
+fn set_kit(world: &mut World, name: String) {
+    let Some(root_id) = selected_instance_roots(world).first().copied() else {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: "select a prefab instance to set its kit".into(),
+            success: false,
+        });
+        return;
+    };
+    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
+    let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
+        return;
+    };
+    let trimmed = name.trim().to_string();
+    {
+        let mut library = world.resource_mut::<PrefabLibrary>();
+        let Some(def) = library.prefabs.get_mut(&instance.0) else {
+            return;
+        };
+        def.kit = (!trimmed.is_empty()).then_some(trimmed.clone());
+    }
+    let def_clone = crate::open_mode::clone_def(world, instance.0);
+    if let Some(def) = def_clone {
+        save_prefab_public(world, &def);
+        world.resource_mut::<PrefabLibrary>().generation += 1;
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: if trimmed.is_empty() {
+                format!("{} removed from its kit", def.name)
+            } else {
+                format!("{} joined kit \u{201c}{trimmed}\u{201d}", def.name)
+            },
+            success: true,
+        });
+    }
 }
 
 /// D10 `o`: chain ANOTHER instance of the selected piece at its first FREE

@@ -190,6 +190,14 @@ pub(crate) fn watch_bake_staleness(world: &mut World) {
             success: false,
         });
     }
+    // Kit coherence rides the same cadence (D10): loud, specific, non-fatal.
+    let warnings = crate::sockets::kit_coherence(world.resource::<crate::PrefabLibrary>());
+    if let Some(first) = warnings.first() {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: first.clone(),
+            success: false,
+        });
+    }
 }
 
 #[derive(Resource, Default)]

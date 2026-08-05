@@ -271,6 +271,7 @@ fn close(world: &mut World) {
 pub(crate) fn clone_def(world: &World, prefab: Uuid) -> Option<PrefabDef> {
     let library = world.resource::<PrefabLibrary>();
     library.prefabs.get(&prefab).map(|p| PrefabDef {
+        kit: p.kit.clone(),
         id: p.id,
         name: p.name.clone(),
         template: snapshot_from_parts(

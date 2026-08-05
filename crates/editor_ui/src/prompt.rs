@@ -125,6 +125,7 @@ pub(crate) fn sync_prompt(
             text.0 = match prompt.purpose {
                 PromptPurpose::Group => "GROUP INTO PREFAB — name it".into(),
                 PromptPurpose::Variant => "MAKE VARIANT — name it".into(),
+                PromptPurpose::Kit => "KIT — name it (empty clears)".into(),
             };
         }
         if let Ok(entity) = input.single() {

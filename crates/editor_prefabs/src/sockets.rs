@@ -152,3 +152,100 @@ mod tests {
         );
     }
 }
+
+/// D10 kit coherence: within a kit, every socket TYPE needs a counterpart —
+/// a type appearing on only one piece can never mate; a kit piece with no
+/// sockets can never join. Warnings, not errors (kits grow incrementally).
+pub fn kit_coherence(library: &crate::PrefabLibrary) -> Vec<String> {
+    use std::collections::HashMap;
+    let mut kits: HashMap<&str, Vec<&crate::PrefabDef>> = HashMap::new();
+    for def in library.prefabs.values() {
+        if let Some(kit) = &def.kit {
+            kits.entry(kit.as_str()).or_default().push(def);
+        }
+    }
+    let mut warnings = Vec::new();
+    for (kit, defs) in kits {
+        let mut type_owners: HashMap<String, Vec<&str>> = HashMap::new();
+        for def in &defs {
+            let sockets = template_sockets(def);
+            if sockets.is_empty() {
+                warnings.push(format!("kit {kit}: {} has no sockets", def.name));
+            }
+            for (_, socket) in sockets {
+                type_owners
+                    .entry(socket.socket_type)
+                    .or_default()
+                    .push(def.name.as_str());
+            }
+        }
+        for (socket_type, owners) in type_owners {
+            if owners.len() < 2 {
+                warnings.push(format!(
+                    "kit {kit}: socket type \"{socket_type}\" only on {} — nothing mates with it",
+                    owners.first().copied().unwrap_or("?")
+                ));
+            }
+        }
+    }
+    warnings.sort();
+    warnings
+}
+
+#[cfg(test)]
+mod coherence_tests {
+    use super::*;
+    use crate::{PrefabDef, PrefabLibrary};
+    use uuid::Uuid;
+
+    fn piece(name: &str, kit: &str, socket_types: &[&str]) -> PrefabDef {
+        PrefabDef {
+            kit: Some(kit.into()),
+            id: Uuid::new_v4(),
+            name: name.into(),
+            template: editor_scene::snapshot_from_parts(
+                socket_types
+                    .iter()
+                    .map(|t| {
+                        (
+                            editor_api::prelude::SceneId::random(),
+                            None,
+                            vec![
+                                Box::new(Socket {
+                                    name: "s".into(),
+                                    socket_type: (*t).into(),
+                                })
+                                .into_partial_reflect(),
+                                Box::new(Transform::default()).into_partial_reflect(),
+                            ],
+                        )
+                    })
+                    .collect(),
+            ),
+        }
+    }
+
+    #[test]
+    fn coherence_flags_loners_and_socketless() {
+        let mut library = PrefabLibrary::default();
+        for def in [
+            piece("Wall", "walls", &["wall", "wall"]),
+            piece("Corner", "walls", &["wall", "roof"]), // "roof" has no counterpart
+            piece("Rock", "walls", &[]),                 // socketless kit member
+        ] {
+            library.prefabs.insert(def.id, def);
+        }
+        let warnings = kit_coherence(&library);
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("\"roof\" only on Corner")),
+            "loner socket type flagged: {warnings:?}"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("Rock has no sockets")),
+            "socketless member flagged: {warnings:?}"
+        );
+        assert_eq!(warnings.len(), 2, "wall type is coherent: {warnings:?}");
+    }
+}

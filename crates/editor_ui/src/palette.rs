@@ -669,16 +669,16 @@ fn palette_keys(
             if state.filter == PaletteFilter::AddComponent {
                 let sections =
                     display_sections(&items, &state.query, settings.ui.palette_max_results);
-                if let Some(row) = flat_get(&sections, state.selected) {
-                    if let PalettePayload::AddComponent(_) = &items.0[row.item].payload {
-                        let type_path = items.0[row.item]
-                            .keywords
-                            .split(' ')
-                            .next()
-                            .unwrap_or_default()
-                            .to_string();
-                        settings.toggle_favorite_component(&type_path);
-                    }
+                if let Some(row) = flat_get(&sections, state.selected)
+                    && let PalettePayload::AddComponent(_) = &items.0[row.item].payload
+                {
+                    let type_path = items.0[row.item]
+                        .keywords
+                        .split(' ')
+                        .next()
+                        .unwrap_or_default()
+                        .to_string();
+                    settings.toggle_favorite_component(&type_path);
                 }
             }
             event.propagate(false);

@@ -379,6 +379,7 @@ pub(crate) fn demo_kit_generator(world: &mut World, mut frame: Local<u32>) {
         ]
     };
     let def = |name: &str, records: Vec<Vec<Box<dyn bevy::reflect::PartialReflect>>>| PrefabDef {
+        kit: Some("demo".into()),
         id: uuid::Uuid::new_v4(),
         name: name.into(),
         template: editor_scene::snapshot_from_parts(

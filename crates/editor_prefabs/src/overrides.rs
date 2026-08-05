@@ -261,6 +261,7 @@ mod tests {
         let template_child = SceneId::random();
         let prefab_id = Uuid::new_v4();
         let prefab = PrefabDef {
+            kit: None,
             id: prefab_id,
             name: "Thing".into(),
             template: snapshot_from_parts(vec![(

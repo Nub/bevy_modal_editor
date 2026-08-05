@@ -57,6 +57,9 @@ pub struct OverridePatch {
 pub struct PrefabDef {
     pub id: Uuid,
     pub name: String,
+    /// Kit membership (D10): pieces sharing a kit are expected to mate —
+    /// coherence checks run per kit ("wall-kit", "pipes").
+    pub kit: Option<String>,
     pub template: SceneSnapshot,
 }
 
@@ -66,6 +69,8 @@ struct PrefabHeader {
     format_version: u32,
     id: Uuid,
     name: String,
+    #[serde(default)]
+    kit: String,
     /// The template, in THE scene envelope format (nested document).
     template: String,
 }
@@ -76,6 +81,7 @@ impl Default for PrefabHeader {
             format_version: PREFAB_FORMAT_VERSION,
             id: Uuid::nil(),
             name: String::new(),
+            kit: String::new(),
             template: String::new(),
         }
     }
@@ -112,6 +118,7 @@ impl PrefabDef {
             format_version: PREFAB_FORMAT_VERSION,
             id: self.id,
             name: self.name.clone(),
+            kit: self.kit.clone().unwrap_or_default(),
             template: self
                 .template
                 .to_ron(registry)
@@ -144,6 +151,7 @@ impl PrefabDef {
         Ok(Self {
             id: header.id,
             name: header.name,
+            kit: (!header.kit.is_empty()).then_some(header.kit),
             template,
         })
     }
@@ -446,6 +454,11 @@ impl EditorFeature for PrefabsFeature {
                     .bind("o"),
             )
             .action(
+                ActionDef::new("prefab.set-kit", "Set Prefab Kit")
+                    .describe("Tag the selected piece's prefab as part of a named kit")
+                    .context("normal"),
+            )
+            .action(
                 ActionDef::new("prefab.bake", "Bake Now")
                     .describe("Derive all registered bake artifacts (colliders, LODs) for the prefab library")
                     .context("normal"),
@@ -511,6 +524,7 @@ pub(crate) mod tests {
     pub(crate) fn barrel_prefab() -> PrefabDef {
         let child = SceneId::random();
         PrefabDef {
+            kit: None,
             id: Uuid::new_v4(),
             name: "Barrel".into(),
             template: snapshot_from_parts(vec![(
@@ -656,6 +670,7 @@ pub(crate) mod tests {
 
         let crate_id = Uuid::new_v4();
         let crate_def = PrefabDef {
+            kit: None,
             id: crate_id,
             name: "Crate".into(),
             template: snapshot_from_parts(vec![
@@ -730,6 +745,7 @@ pub(crate) mod tests {
         // Chain: A contains B, B contains C.
         let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
         let make = |name: &str, id: Uuid, nested: Option<Uuid>| PrefabDef {
+            kit: None,
             id,
             name: name.into(),
             template: snapshot_from_parts(vec![(
@@ -940,6 +956,7 @@ pub(crate) mod tests {
         let child_id = SceneId::random();
         let prefab_id = Uuid::new_v4();
         let def = PrefabDef {
+            kit: None,
             id: prefab_id,
             name: "DeepThing".into(),
             template: snapshot_from_parts(vec![
@@ -1082,6 +1099,7 @@ pub(crate) mod tests {
             "prefab.flatten",
             "prefab.repeat",
             "prefab.bake",
+            "prefab.set-kit",
         ] {
             assert!(
                 catalog.get(&ActionId::new(id.to_string())).is_some(),
@@ -1413,6 +1431,7 @@ mod repeat_tests {
             )
         };
         let def = PrefabDef {
+            kit: None,
             id: wall_id,
             name: "Wall".into(),
             template: editor_scene::snapshot_from_parts(vec![
