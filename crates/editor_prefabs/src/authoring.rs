@@ -21,6 +21,8 @@ pub(crate) struct PrefabRequests {
     open_toggle: bool,
     escape_close: bool,
     flatten: bool,
+    /// Instance root to socket-snap after a move gesture commits (D10).
+    snap_after_move: Option<SceneId>,
 }
 
 /// What the inline name prompt is naming (title + commit routing).
@@ -62,6 +64,9 @@ pub(crate) fn collect_prefab_actions(
     mut prompt: ResMut<GroupPrompt>,
     mut requests: ResMut<PrefabRequests>,
     mut bake_requests: ResMut<crate::bake::BakeRequests>,
+    gesture: Res<MoveGesture>,
+    index: Res<SceneIndex>,
+    instances: Query<(), With<PrefabInstance>>,
 ) {
     if !state.active {
         return;
@@ -85,6 +90,19 @@ pub(crate) fn collect_prefab_actions(
             "prefab.open" => requests.open_toggle = true,
             "prefab.flatten" => requests.flatten = true,
             "prefab.bake" => bake_requests.bake = true,
+            // D10: when a move gesture commits on a single prefab instance,
+            // try to mate it with a nearby compatible socket. Collect runs
+            // pre-conventions, so the gesture is still Active here.
+            "transform.commit" => {
+                if let MoveGesture::Active { originals, .. } = &*gesture
+                    && let [(root_id, _)] = originals.as_slice()
+                    && instances
+                        .get(index.get(root_id).unwrap_or(Entity::PLACEHOLDER))
+                        .is_ok()
+                {
+                    requests.snap_after_move = Some(*root_id);
+                }
+            }
             // One layer per press: a live SELECTION absorbs this Escape (the
             // selection handler clears it); only an empty-handed Escape closes.
             "core.escape-home"
@@ -231,6 +249,9 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
     }
     if requests.flatten {
         crate::open_mode::flatten_open(world);
+    }
+    if let Some(root_id) = requests.snap_after_move {
+        snap_moved_instance(world, root_id);
     }
     if let Some(name) = world.resource_mut::<GroupCommit>().0.take() {
         match world.resource::<GroupPrompt>().purpose {
@@ -610,6 +631,67 @@ fn make_variant(world: &mut World, name: String) {
     world.resource_mut::<PendingGroupSelect>().0 = Some(new_root);
     world.write_message(editor_scene::SceneIoFeedback {
         message: format!("\u{25c6} {name} — variant of {base_name}; base edits propagate"),
+        success: true,
+    });
+}
+
+/// D10: after a move-gesture commit on an instance, mate it with the nearest
+/// compatible socket within reach — excluding its OWN sockets (no self-snap).
+/// The correction is one plain undoable Set on top of the gesture's entry.
+fn snap_moved_instance(world: &mut World, root_id: SceneId) {
+    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
+    let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
+        return;
+    };
+    let at = world
+        .get::<Transform>(root)
+        .map(|t| t.translation)
+        .unwrap_or_default();
+    let def_sockets = {
+        let library = world.resource::<PrefabLibrary>();
+        let Some(def) = library.prefabs.get(&instance.0) else {
+            return;
+        };
+        crate::sockets::template_sockets(def)
+    };
+    // Exclude the moved instance's own stamped sockets from candidates by
+    // masking them out for the query pass.
+    let own: Vec<Entity> = crate::open_mode::members_of(world, root);
+    let masked: Vec<Entity> = own
+        .into_iter()
+        .filter(|e| world.get::<crate::sockets::Socket>(*e).is_some())
+        .collect();
+    let saved: Vec<(Entity, crate::sockets::Socket)> = masked
+        .iter()
+        .filter_map(|e| {
+            world
+                .get::<crate::sockets::Socket>(*e)
+                .cloned()
+                .map(|s| (*e, s))
+        })
+        .collect();
+    for (entity, _) in &saved {
+        world.entity_mut(*entity).remove::<crate::sockets::Socket>();
+    }
+    let snap = crate::sockets::snap_for_placement(world, &def_sockets, at, 2.0);
+    for (entity, socket) in saved {
+        world.entity_mut(entity).insert(socket);
+    }
+    let Some((transform, label)) = snap else {
+        return;
+    };
+    world.resource_mut::<EditQueue>().0.push(Transaction {
+        label: "Snap To Socket".into(),
+        gesture: None,
+        ops: vec![Op::Set {
+            target: root_id,
+            value: Box::new(transform).into_partial_reflect(),
+        }],
+    });
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: label,
         success: true,
     });
 }
