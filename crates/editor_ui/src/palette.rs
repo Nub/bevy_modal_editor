@@ -729,8 +729,11 @@ fn palette_keys(
                             else {
                                 return;
                             };
-                            let short = registration.type_info().type_path();
-                            let short = short.rsplit("::").next().unwrap_or(short).to_string();
+                            let short = registration
+                                .type_info()
+                                .type_path_table()
+                                .short_path()
+                                .to_string();
                             let count = selected.len();
                             // ONE undoable transaction across the whole selection.
                             let ops = selected
@@ -1120,9 +1123,19 @@ fn rebuild_results(
                     style::mono(&fonts, ui.font_size_xs),
                     TextColor(style::color::TEXT_DIM),
                 ));
-                let docs = info.docs().unwrap_or("No documentation.").trim();
+                // Doc comments arrive with raw line breaks + indent — flow
+                // them into paragraphs so wrapping happens where the LAYOUT
+                // needs it, never mid-sentence at source-code widths.
+                let docs = info
+                    .docs()
+                    .unwrap_or("No documentation.")
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 pane.spawn((
-                    Text::new(docs.to_string()),
+                    Text::new(docs),
                     style::sans(&fonts, ui.font_size_s),
                     TextColor(style::color::TEXT_KEYS),
                     Node {

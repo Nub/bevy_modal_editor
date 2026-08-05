@@ -975,13 +975,18 @@ pub(crate) fn render_inspector(
                         let chip = commands
                             .spawn((
                                 Node {
-                                    padding: UiRect::axes(px(style::space::XS), px(1.0)),
+                                    // Buttons need button-sized hit areas and
+                                    // breathing room (owner: healthy padding).
+                                    padding: UiRect::axes(
+                                        px(style::space::S),
+                                        px(style::space::XS),
+                                    ),
                                     border: UiRect::all(px(1.0)),
                                     border_radius: BorderRadius::all(px(style::radius::S)),
                                     ..default()
                                 },
                                 BorderColor::all(style::HAIRLINE),
-                                BackgroundColor(Color::NONE),
+                                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04)),
                             ))
                             .observe(
                                 move |_press: On<Pointer<Press>>,
@@ -1078,7 +1083,7 @@ pub(crate) fn render_inspector(
                     let chip = commands
                         .spawn((
                             Node {
-                                padding: UiRect::axes(px(style::space::XS), px(1.0)),
+                                padding: UiRect::axes(px(style::space::S), px(2.0)),
                                 border_radius: BorderRadius::all(px(style::radius::S)),
                                 ..default()
                             },
