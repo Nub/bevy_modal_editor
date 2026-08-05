@@ -169,6 +169,27 @@ fn enter_paint(world: &mut World) {
         });
         return;
     }
+    // Tools work inside an open instance (owner rule) — painted pieces adopt
+    // into it like any insert. The ONE illegal case: painting the open prefab
+    // into itself. Refuse once, loudly, instead of per-piece fallback spam.
+    if let Some(open) = world
+        .resource::<crate::open_mode::OpenInstance>()
+        .0
+        .as_ref()
+    {
+        let cycles = instance.0 == open.prefab
+            || crate::closure_contains(world.resource::<PrefabLibrary>(), instance.0, open.prefab);
+        if cycles {
+            let open_name = open.name.clone();
+            world.write_message(editor_scene::SceneIoFeedback {
+                message: format!(
+                    "cannot paint {name} inside ◆ {open_name} — it would contain itself"
+                ),
+                success: false,
+            });
+            return;
+        }
+    }
     world.resource_mut::<PaintState>().0 = Some(PaintData {
         prefab: instance.0,
         start: None,

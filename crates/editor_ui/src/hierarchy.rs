@@ -402,13 +402,14 @@ pub(crate) fn rebuild_hierarchy(
                         },
                     )
                     .with_children(|row_node| {
-                        // Fold affordance: ▸ folded / ▾ expanded / · leaf.
+                        // Fold affordance: chevron folded/expanded, · leaf —
+                        // nerd-font codepoints (BMP triangles are tofu here).
                         let glyph = if !row.has_children {
                             "·"
                         } else if state.collapsed.contains(&row.id) {
-                            "▸"
+                            style::CHEVRON_RIGHT
                         } else {
-                            "▾"
+                            style::CHEVRON_DOWN
                         };
                         row_node.spawn((
                             Text::new(glyph),
@@ -437,12 +438,16 @@ pub(crate) fn rebuild_hierarchy(
                                 style::color::TEXT_KEYS
                             }),
                         ));
-                        // Identity at a glance (owner): the short SceneId, quieter
-                        // than the name — same id the inspector header shows.
+                        // Identity column (owner): short SceneId right-aligned —
+                        // a clean second column instead of ragged inline ids.
+                        row_node.spawn(Node {
+                            flex_grow: 1.0,
+                            ..default()
+                        });
                         row_node.spawn((
                             Text::new(row.id.0.to_string()[..8].to_string()),
                             style::mono(&fonts, ui.font_size_xs),
-                            TextColor(style::color::TEXT_DIM.with_alpha(0.6)),
+                            TextColor(style::color::TEXT_DIM.with_alpha(0.55)),
                         ));
                     });
             }

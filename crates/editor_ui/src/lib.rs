@@ -14,6 +14,7 @@ mod ghost;
 mod grid;
 mod hierarchy;
 mod inspector;
+mod open_indicator;
 mod outline;
 mod palette;
 mod palette_engine;
@@ -152,6 +153,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<probe_kit::KitProbe>();
         app.init_resource::<grid::GridVisible>();
         app.init_resource::<socket_gizmo::SocketGizmoAssets>();
+        app.init_resource::<open_indicator::DimAssets>();
         app.init_resource::<inspector::InspectorReveal>();
         app.init_resource::<palette_preview::PreviewSubject>();
         app.init_resource::<hierarchy::HierarchyState>();
@@ -199,7 +201,8 @@ impl Plugin for EditorUiPlugin {
                 prompt::attach_prompt_input,
                 prompt::sync_prompt,
                 prompt::close_prompt_on_escape,
-                dock::sync_open_frame,
+                open_indicator::sync_open_pill,
+                open_indicator::dim_outsiders,
                 grid::handle_grid_actions,
                 grid::sync_grid,
                 socket_gizmo::sync_socket_gizmos,
@@ -225,7 +228,7 @@ impl Plugin for EditorUiPlugin {
                 grid::spawn_grid,
                 palette_preview::setup_preview_rig,
                 dock::spawn_docks,
-                dock::spawn_open_frame,
+                open_indicator::spawn_open_pill,
                 dock::attach_scrollbars,
             )
                 .chain(),

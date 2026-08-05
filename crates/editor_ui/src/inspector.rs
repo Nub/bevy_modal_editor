@@ -1012,7 +1012,11 @@ pub(crate) fn render_inspector(
                 open,
                 group,
             } => {
-                let glyph = if *open { "▾" } else { "▸" };
+                let glyph = if *open {
+                    style::CHEVRON_DOWN
+                } else {
+                    style::CHEVRON_RIGHT
+                };
                 let group = *group;
                 let header = commands
                     .spawn((
@@ -1040,9 +1044,18 @@ pub(crate) fn render_inspector(
                     )
                     .id();
                 commands.entity(header).insert(ChildOf(body_entity));
+                // Glyphs live in the MONO nerd font — sans renders them tofu.
+                let arrow = commands
+                    .spawn((
+                        Text::new(glyph.to_string()),
+                        style::mono(&fonts, ui.font_size_xs),
+                        TextColor(style::color::TEXT_DIM),
+                    ))
+                    .id();
+                commands.entity(arrow).insert(ChildOf(header));
                 let text = commands
                     .spawn((
-                        Text::new(format!("{glyph} {title} ({count})")),
+                        Text::new(format!("{title} ({count})")),
                         style::sans_medium(&fonts, ui.font_size_xs),
                         TextColor(style::color::TEXT_DIM),
                     ))

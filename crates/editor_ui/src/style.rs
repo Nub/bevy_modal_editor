@@ -95,6 +95,11 @@ fn text_font(handle: &Handle<Font>, size: f32) -> TextFont {
 }
 
 /// Glyph/key text (mono, nerd symbols).
+/// Fold chevrons — nerd-font codepoints (guaranteed in FiraCode NF; the
+/// BMP triangles U+25B8/25BE are NOT in it and render tofu).
+pub const CHEVRON_DOWN: &str = "\u{f078}";
+pub const CHEVRON_RIGHT: &str = "\u{f054}";
+
 pub fn mono(fonts: &UiFonts, size: f32) -> TextFont {
     text_font(&fonts.mono, size)
 }
