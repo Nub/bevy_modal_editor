@@ -567,6 +567,7 @@ pub(crate) fn probe_user(world: &mut World) {
                 state.open, state.filter, state.query
             );
         }
+        1944 => shot(world, "16b-add-component-open"),
         1950 => tap_named(world, KeyCode::Enter, Key::Enter),
         1990 => {
             let flash = world

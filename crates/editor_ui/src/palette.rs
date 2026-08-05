@@ -1048,6 +1048,13 @@ fn rebuild_results(
                 let info = registration.type_info();
                 let type_path = info.type_path();
                 let short = type_path.rsplit("::").next().unwrap_or(type_path);
+                // The pane announces its role — "two sections" read as a
+                // mystery without it (owner).
+                pane.spawn((
+                    Text::new("DOCS"),
+                    style::sans_medium(&fonts, ui.font_size_xs),
+                    TextColor(style::color::TEXT_DIM),
+                ));
                 pane.spawn((
                     Text::new(short.to_string()),
                     style::sans_medium(&fonts, ui.font_size_m),
