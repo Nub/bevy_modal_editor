@@ -265,6 +265,14 @@ pub(crate) fn place_on_click(
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
+    // Alt+click is orbit, not placement.
+    if keys
+        .as_ref()
+        .map(|k| k.pressed(KeyCode::AltLeft) || k.pressed(KeyCode::AltRight))
+        .unwrap_or(false)
+    {
+        return;
+    }
     let Some(kind) = insert.kind.as_ref().and_then(|id| catalog.get(id)) else {
         return;
     };

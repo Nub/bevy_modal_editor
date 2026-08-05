@@ -219,6 +219,84 @@ impl EditorFeature for CoreFeature {
                 .hidden(),
         )
         .action(
+            ActionDef::new("transform.digit-0", "Typed Amount 0")
+                .context("gesture-move")
+                .bind("0")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-1", "Typed Amount 1")
+                .context("gesture-move")
+                .bind("1")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-2", "Typed Amount 2")
+                .context("gesture-move")
+                .bind("2")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-3", "Typed Amount 3")
+                .context("gesture-move")
+                .bind("3")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-4", "Typed Amount 4")
+                .context("gesture-move")
+                .bind("4")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-5", "Typed Amount 5")
+                .context("gesture-move")
+                .bind("5")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-6", "Typed Amount 6")
+                .context("gesture-move")
+                .bind("6")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-7", "Typed Amount 7")
+                .context("gesture-move")
+                .bind("7")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-8", "Typed Amount 8")
+                .context("gesture-move")
+                .bind("8")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-9", "Typed Amount 9")
+                .context("gesture-move")
+                .bind("9")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-erase", "Erase Typed Amount")
+                .context("gesture-move")
+                .bind("backspace")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-dot", "Typed Decimal Point")
+                .context("gesture-move")
+                .bind("period")
+                .hidden(),
+        )
+        .action(
+            ActionDef::new("transform.digit-minus", "Typed Sign Toggle")
+                .context("gesture-move")
+                .bind("minus")
+                .hidden(),
+        )
+        .action(
             ActionDef::new("transform.commit", "Commit Gesture")
                 .context("gesture-move")
                 .bind("enter")
@@ -297,7 +375,11 @@ impl Plugin for EditorCorePlugin {
         app.add_systems(
             Update,
             (
-                (camera::editor_fly_camera, resolver::resolve_input)
+                (
+                    camera::editor_fly_camera,
+                    camera::orbit_camera,
+                    resolver::resolve_input,
+                )
                     .chain()
                     .in_set(EditorSet::Input),
                 (

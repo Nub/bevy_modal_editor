@@ -222,7 +222,19 @@ pub(crate) fn update_statusbar(
     let mode_def = data.modes.get(&data.mode.0);
     for mut text in &mut mode_text {
         let name = if gesture_active {
-            "MOVE".to_string()
+            match &*data.gesture {
+                MoveGesture::Active { axis, typed, .. } => {
+                    let mut label = "MOVE".to_string();
+                    if let Some(axis) = axis {
+                        label.push_str([" · X", " · Y", " · Z"][*axis]);
+                    }
+                    if !typed.is_empty() {
+                        label.push_str(&format!(" {typed}"));
+                    }
+                    label
+                }
+                MoveGesture::Idle => "MOVE".to_string(),
+            }
         } else if let Some(prefab) = &open_prefab {
             format!("EDITING ◆ {}", prefab.to_uppercase())
         } else if let Some(title) = focused_panel {

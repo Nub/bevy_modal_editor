@@ -168,3 +168,65 @@ pub(crate) fn handle_frame_actions(
         transform.look_at(center, Vec3::Y);
     }
 }
+
+/// MMB (or Alt+LMB) orbit around the selection — the missing third leg of
+/// navigation (fly = RMB, frame = zz). Pivot = selection centroid at drag
+/// start, or the point ~8m ahead when nothing is selected.
+pub(crate) fn orbit_camera(
+    state: Res<crate::resolver::EditorState>,
+    over_chrome: Res<crate::resolver::PointerOverChrome>,
+    mouse: Option<Res<ButtonInput<MouseButton>>>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    motion: Option<Res<AccumulatedMouseMotion>>,
+    selected: Query<&GlobalTransform, (With<Selected>, With<SceneId>)>,
+    mut pivot: Local<Option<Vec3>>,
+    mut cameras: Query<(&Camera, &mut Transform, Option<&bevy::camera::RenderTarget>)>,
+) {
+    let (Some(mouse), Some(keys), Some(motion)) = (mouse, keys, motion) else {
+        return;
+    };
+    if !state.active {
+        *pivot = None;
+        return;
+    }
+    let alt = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::AltRight);
+    let held = mouse.pressed(MouseButton::Middle) || (alt && mouse.pressed(MouseButton::Left));
+    let started =
+        mouse.just_pressed(MouseButton::Middle) || (alt && mouse.just_pressed(MouseButton::Left));
+    if !held {
+        *pivot = None;
+        return;
+    }
+    let Some((_, mut transform, _)) = cameras
+        .iter_mut()
+        .find(|(camera, _, target)| is_viewport_camera(camera, target.as_deref()))
+    else {
+        return;
+    };
+    if started && !over_chrome.0 {
+        let points: Vec<Vec3> = selected.iter().map(|t| t.translation()).collect();
+        *pivot = Some(if points.is_empty() {
+            transform.translation + *transform.forward() * 8.0
+        } else {
+            points.iter().sum::<Vec3>() / points.len() as f32
+        });
+    }
+    let Some(center) = *pivot else {
+        return;
+    };
+    let delta = motion.delta;
+    if delta == Vec2::ZERO {
+        return;
+    }
+    let yaw = Quat::from_rotation_y(-delta.x * 0.005);
+    let pitch = Quat::from_axis_angle(*transform.right(), -delta.y * 0.005);
+    let rotated = yaw * pitch * (transform.translation - center);
+    // Refuse the pitch component near the poles (no gimbal flip).
+    let candidate = if rotated.normalize_or_zero().dot(Vec3::Y).abs() > 0.98 {
+        yaw * (transform.translation - center)
+    } else {
+        rotated
+    };
+    transform.translation = center + candidate;
+    transform.look_at(center, Vec3::Y);
+}

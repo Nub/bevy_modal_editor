@@ -55,6 +55,7 @@ fn clear_selection_world(world: &mut World) {
 pub(crate) fn on_pointer_press(
     press: On<Pointer<Press>>,
     flying: Res<crate::camera::FlyingCamera>,
+    // Alt+LMB is ORBIT — never selection.
     scope: Res<SelectionScope>,
     ids: Query<(), With<SceneId>>,
     ui_nodes: Query<(), With<bevy::ui::ComputedNode>>,
@@ -99,6 +100,14 @@ pub(crate) fn on_pointer_press(
             Err(_) => break None,
         }
     };
+    // Alt+click is ORBIT (camera), never selection.
+    if keys
+        .as_ref()
+        .map(|k| k.pressed(KeyCode::AltLeft) || k.pressed(KeyCode::AltRight))
+        .unwrap_or(false)
+    {
+        return;
+    }
     let extend = keys
         .map(|k| k.pressed(KeyCode::ShiftLeft) || k.pressed(KeyCode::ShiftRight))
         .unwrap_or(false);

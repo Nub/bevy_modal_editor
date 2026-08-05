@@ -34,6 +34,9 @@ pub enum MoveGesture {
         /// Total world-space displacement applied so far.
         accumulated: Vec3,
         originals: Vec<(SceneId, Transform)>,
+        /// Blender-style typed exact amount ("2", "-1.5") — spec M2 B7. Applies
+        /// along the constrained axis; mouse motion resumes from it.
+        typed: String,
     },
 }
 
@@ -49,6 +52,34 @@ impl GestureCounter {
     }
 }
 
+/// Typed exact amount → the gesture's displacement, live: each keystroke sets
+/// translation = original + axis * value through the same coalesced transaction.
+fn apply_typed(gesture: &mut MoveGesture, edits: &mut EditScope) {
+    let MoveGesture::Active {
+        id,
+        axis,
+        accumulated,
+        originals,
+        typed,
+    } = gesture
+    else {
+        return;
+    };
+    let value: f32 = typed.parse().unwrap_or(0.0);
+    let mut direction = Vec3::ZERO;
+    // Unconstrained typed amounts run along X (constrain first for y/z).
+    direction[axis.unwrap_or(0)] = 1.0;
+    let desired = direction * value;
+    *accumulated = desired;
+    let mut transaction = edits.transaction("Move").gesture(*id);
+    for (scene_id, original) in originals.iter() {
+        let mut moved = *original;
+        moved.translation = original.translation + desired;
+        transaction = transaction.set(*scene_id, moved);
+    }
+    transaction.commit();
+}
+
 /// Consume gesture-related actions (any source — keys, palette, macros).
 pub(crate) fn handle_gesture_actions(
     mut reader: MessageReader<ActionInvoked>,
@@ -57,6 +88,7 @@ pub(crate) fn handle_gesture_actions(
     mut counter: ResMut<GestureCounter>,
     mut motion: ResMut<GestureMotion>,
     mut requests: ResMut<HistoryRequests>,
+    mut edits: EditScope,
     selected: Query<(&SceneId, &Transform), With<Selected>>,
 ) {
     for invoked in reader.read() {
@@ -74,6 +106,7 @@ pub(crate) fn handle_gesture_actions(
                         axis: None,
                         accumulated: Vec3::ZERO,
                         originals,
+                        typed: String::new(),
                     };
                     motion.0 = None;
                     overlay.0 = Some(GESTURE_MOVE_CONTEXT);
@@ -82,6 +115,32 @@ pub(crate) fn handle_gesture_actions(
             "transform.axis-x" => set_axis(&mut gesture, 0),
             "transform.axis-y" => set_axis(&mut gesture, 1),
             "transform.axis-z" => set_axis(&mut gesture, 2),
+            "transform.digit-erase" => {
+                if let MoveGesture::Active { typed, .. } = &mut *gesture {
+                    typed.pop();
+                    apply_typed(&mut gesture, &mut edits);
+                }
+            }
+            action if action.starts_with("transform.digit-") => {
+                if let MoveGesture::Active { typed, .. } = &mut *gesture {
+                    let glyph = match action.strip_prefix("transform.digit-").unwrap() {
+                        "dot" => ".",
+                        "minus" => {
+                            // Toggle the sign (Blender idiom).
+                            if typed.starts_with('-') {
+                                typed.remove(0);
+                            } else {
+                                typed.insert(0, '-');
+                            }
+                            apply_typed(&mut gesture, &mut edits);
+                            continue;
+                        }
+                        digit => digit,
+                    };
+                    typed.push_str(glyph);
+                    apply_typed(&mut gesture, &mut edits);
+                }
+            }
             "transform.commit" => {
                 if !matches!(*gesture, MoveGesture::Idle) {
                     *gesture = MoveGesture::Idle;
@@ -123,6 +182,7 @@ pub(crate) fn drive_gesture(
         axis,
         accumulated,
         originals,
+        ..
     } = &mut *gesture
     else {
         return;
@@ -392,5 +452,81 @@ mod tests {
             "x-only"
         );
         invoke(&mut app, "transform.cancel");
+    }
+}
+
+#[cfg(test)]
+mod typed_amount_tests {
+    use super::*;
+    use crate::EditorCorePlugin;
+    use editor_api::prelude::*;
+
+    // Spec M2 B7: typed digits during a gesture are EXACT amounts along the
+    // constrained axis, committed through the same coalesced transaction.
+    #[test]
+    fn typed_amount_moves_exactly() {
+        let mut app = App::new();
+        app.add_plugins(EditorCorePlugin);
+        struct F;
+        impl EditorFeature for F {
+            fn manifest(&self) -> FeatureManifest {
+                FeatureManifest::new("t", "T")
+            }
+            fn register(&self, reg: &mut FeatureRegistry) {
+                reg.component::<Transform>();
+            }
+        }
+        app.add_editor_feature(F);
+        app.init_resource::<bevy::input::ButtonInput<KeyCode>>();
+        app.init_resource::<bevy::input::ButtonInput<bevy::input::mouse::MouseButton>>();
+        app.finish();
+        app.update();
+        app.world_mut()
+            .resource_mut::<crate::resolver::EditorState>()
+            .active = true;
+
+        let id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![
+                        Box::new(Transform::from_xyz(1.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::selection::Selected);
+
+        for action in [
+            "transform.move",
+            "transform.axis-z",
+            "transform.digit-2",
+            "transform.digit-dot",
+            "transform.digit-5",
+            "transform.commit",
+        ] {
+            app.world_mut().write_message(ActionInvoked {
+                action: ActionId::new(action.to_string()),
+                args: None,
+                source: InvocationSource::Test,
+            });
+            app.update();
+        }
+        let world = app.world_mut();
+        let entity = world.resource::<SceneIndex>().get(&id).unwrap();
+        let translation = world.get::<Transform>(entity).unwrap().translation;
+        assert_eq!(
+            translation,
+            Vec3::new(1.0, 0.0, 2.5),
+            "w z 2.5 ⏎ = exactly +2.5 on Z"
+        );
     }
 }

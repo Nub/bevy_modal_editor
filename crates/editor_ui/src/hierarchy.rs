@@ -173,6 +173,21 @@ pub(crate) fn handle_hierarchy_actions(
                     .unwrap_or(false);
                 if let Some(entity) = index.get(&row.id) {
                     commands.queue(move |world: &mut World| {
+                        // Double-Enter on an instance row = fractal descend
+                        // (keymap doc): already selected + is an instance → open.
+                        if !extend
+                            && world.get::<Selected>(entity).is_some()
+                            && world
+                                .get::<editor_prefabs::PrefabInstance>(entity)
+                                .is_some()
+                        {
+                            world.write_message(ActionInvoked {
+                                action: ActionId::new_static("prefab.open"),
+                                args: None,
+                                source: InvocationSource::Palette,
+                            });
+                            return;
+                        }
                         // Scoped (open instance): rows outside the scope are inert.
                         let in_scope = world
                             .resource::<SelectionScope>()
