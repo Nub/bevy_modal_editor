@@ -411,6 +411,16 @@ impl EditorFeature for PrefabsFeature {
                 ActionDef::new("prefab.apply-to-prefab", "Apply Overrides To Prefab")
                     .describe("Fold this instance's changes into the prefab for everyone")
                     .context("normal"),
+            )
+            .action(
+                ActionDef::new("prefab.make-variant", "Make Prefab Variant")
+                    .describe("New prefab inheriting the base — this instance's overrides become its identity")
+                    .context("normal"),
+            )
+            .action(
+                ActionDef::new("prefab.flatten", "Flatten Prefab Hierarchy")
+                    .describe("While open: every member becomes a direct child of the root, world pose kept")
+                    .context("normal"),
             );
     }
 }
@@ -1003,6 +1013,29 @@ mod tests {
         );
         // Already-centered templates are left alone (no save churn).
         assert!(authoring::center_template(&centered).is_none());
+    }
+
+    // Handlers match on action STRINGS; registration is what makes an action
+    // real (palette, keys, which-key). A handler without a registered ActionDef
+    // is invisible to users while tests still pass (invoke() bypasses the
+    // catalog) — this pins every handled id to a registration.
+    #[test]
+    fn every_handled_action_is_registered() {
+        let app = test_app();
+        let catalog = app.world().resource::<ActionCatalog>();
+        for id in [
+            "prefab.group",
+            "prefab.open",
+            "prefab.revert-overrides",
+            "prefab.apply-to-prefab",
+            "prefab.make-variant",
+            "prefab.flatten",
+        ] {
+            assert!(
+                catalog.get(&ActionId::new(id.to_string())).is_some(),
+                "{id} handled but never registered"
+            );
+        }
     }
 
     fn invoke(app: &mut App, action: &str) {

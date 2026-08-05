@@ -37,7 +37,7 @@ pub mod prelude {
         ActionCatalog, EditorState, KeyCapture, KeysUnresolved, OverlayContext, PendingKeys,
         PointerOverChrome, ResolvedKeymap, active_contexts, which_key_continuations,
     };
-    pub use crate::selection::{Selected, SelectionChanged, SelectionScope};
+    pub use crate::selection::{PendingSelect, Selected, SelectionChanged, SelectionScope};
     pub use crate::settings::EditorSettings;
     pub use crate::{ProcessorCatalog, ValidatorCatalog};
     pub use editor_api::prelude::*;
@@ -235,6 +235,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<resolver::EscapeFromCapture>()
             .init_resource::<resolver::PointerOverChrome>()
             .init_resource::<selection::SelectionScope>()
+            .init_resource::<selection::PendingSelect>()
             .init_resource::<camera::FlyingCamera>()
             .init_resource::<settings::EditorSettings>()
             .init_resource::<gesture::MoveGesture>()
@@ -287,6 +288,7 @@ impl Plugin for EditorCorePlugin {
                     clipboard::perform_clipboard,
                     edits::handle_history_actions,
                     selection::handle_selection_actions,
+                    selection::select_pending,
                     gesture::handle_gesture_actions,
                     gesture::motion_from_cursor,
                     gesture::drive_gesture,

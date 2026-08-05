@@ -354,7 +354,12 @@ fn dock_has(_dock: &DockRoot, _card: &PanelCard) -> bool {
 /// (docks, statusbar, palette, popups) means viewport tools must stand down.
 pub(crate) fn track_pointer_over_chrome(
     windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
-    nodes: Query<(&ComputedNode, &UiGlobalTransform, &InheritedVisibility)>,
+    nodes: Query<(
+        &ComputedNode,
+        &UiGlobalTransform,
+        &InheritedVisibility,
+        Option<&bevy::picking::Pickable>,
+    )>,
     mut blocked: ResMut<PointerOverChrome>,
 ) {
     let over = windows
@@ -363,8 +368,14 @@ pub(crate) fn track_pointer_over_chrome(
         .and_then(|window| {
             let cursor = window.cursor_position()?;
             let physical = cursor * window.scale_factor();
-            Some(nodes.iter().any(|(node, transform, visibility)| {
+            Some(nodes.iter().any(|(node, transform, visibility, pickable)| {
                 if !visibility.get() || node.size() == Vec2::ZERO {
+                    return false;
+                }
+                // Decorative overlays (open-instance frame) are Pickable::IGNORE:
+                // they must never eat the viewport (a user could not click-place
+                // inside an open prefab because the frame counted as chrome).
+                if pickable.is_some_and(|p| !p.is_hoverable) {
                     return false;
                 }
                 let half = node.size() / 2.0;

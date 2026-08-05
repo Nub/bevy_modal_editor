@@ -24,6 +24,7 @@ cargo build -p template_game --features editor
 # unless the on-screen outcome holds. Add new probes to this list as flows land.
 PROBES=(
   PREFAB_PROBE
+  USER_PROBE
 )
 for probe in "${PROBES[@]}"; do
   echo "── flow probe: ${probe}"

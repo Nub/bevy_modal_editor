@@ -66,10 +66,22 @@ pub(crate) fn cursor_ground(
         Option<&bevy::camera::RenderTarget>,
     )>,
     window: Query<&Window, With<PrimaryWindow>>,
+    pointers: Query<&bevy::picking::pointer::PointerInteraction>,
     mut cursor: ResMut<CursorGround>,
 ) {
     if !state.active || over_chrome.0 {
         cursor.0 = None;
+        return;
+    }
+    // Surface-aware (v1 parity): the picking backend already raycasts every
+    // mesh under the cursor — clicking the top of a box must place ON the box,
+    // never tunnel through to the ground plane behind it.
+    if let Some(hit) = pointers
+        .iter()
+        .flat_map(|p| p.iter())
+        .find_map(|(_, hit)| hit.position)
+    {
+        cursor.0 = Some(hit);
         return;
     }
     let (Ok(window), Some((camera, camera_transform, _))) = (
@@ -188,6 +200,9 @@ pub(crate) fn sync_preview(world: &mut World) {
                 offset: Vec3::ZERO,
             },
             InsertPreview,
+            // The ghost must never occlude the placement ray (self-feedback:
+            // ghost under cursor -> hit ghost -> ghost rises...).
+            bevy::picking::Pickable::IGNORE,
         ))
         .id();
     for value in components {
@@ -236,6 +251,7 @@ pub(crate) fn place_on_click(
     settings: Res<crate::settings::EditorSettings>,
     cursor: Res<CursorGround>,
     mut edits: EditScope,
+    mut pending_select: ResMut<crate::selection::PendingSelect>,
     mut mode_changed: MessageWriter<ModeChanged>,
 ) {
     // A click that dismisses the palette (capture active) must not ALSO place, and
@@ -259,6 +275,8 @@ pub(crate) fn place_on_click(
         .transaction(format!("Place {}", kind.display_name))
         .spawn(id, (kind.components)(position))
         .commit();
+    // The user must HOLD what they just made: outline + inspector follow.
+    pending_select.0 = Some(id);
 
     let stay = keys
         .map(|k| k.pressed(KeyCode::ShiftLeft) || k.pressed(KeyCode::ShiftRight))

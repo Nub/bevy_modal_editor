@@ -130,6 +130,28 @@ pub(crate) fn on_pointer_press(
     }
 }
 
+/// Select this entity once its spawn transaction has applied (placement,
+/// grouping, paste — anything that creates and should hand the user the result).
+#[derive(Resource, Default)]
+pub struct PendingSelect(pub Option<SceneId>);
+
+pub(crate) fn select_pending(
+    mut pending: ResMut<PendingSelect>,
+    index: Res<SceneIndex>,
+    previous: Query<Entity, With<Selected>>,
+    mut changed: MessageWriter<SelectionChanged>,
+    mut commands: Commands,
+) {
+    let Some(id) = pending.0 else { return };
+    let Some(entity) = index.get(&id) else { return };
+    pending.0 = None;
+    for entity in &previous {
+        commands.entity(entity).remove::<Selected>();
+    }
+    commands.entity(entity).insert(Selected);
+    changed.write(SelectionChanged);
+}
+
 /// `core.escape-home` (and explicit `select.clear`) empties the selection;
 /// `select.all` selects every scene entity.
 pub(crate) fn handle_selection_actions(

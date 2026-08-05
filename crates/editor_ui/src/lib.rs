@@ -18,6 +18,7 @@ mod palette;
 mod palette_engine;
 mod palette_preview;
 mod probe_prefab;
+mod probe_user;
 mod prompt;
 mod statusbar;
 mod which_key;
@@ -143,6 +144,7 @@ impl Plugin for EditorUiPlugin {
         app.add_editor_feature(EditorUiFeature);
 
         app.init_resource::<which_key::WhichKey>();
+        app.init_resource::<probe_user::UserProbe>();
         app.init_resource::<palette_preview::PreviewSubject>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
@@ -194,6 +196,7 @@ impl Plugin for EditorUiPlugin {
                 palette_preview::inherit_preview_layer,
                 palette_preview::turn_preview,
                 probe_prefab::probe_prefab.run_if(|| std::env::var("PREFAB_PROBE").is_ok()),
+                probe_user::probe_user.run_if(|| std::env::var("USER_PROBE").is_ok()),
             )
                 .in_set(editor_core::EditorSet::Sync),
         );
