@@ -1,6 +1,0 @@
-(
-    format_version: 1,
-    id: "b8c0266f-cf0a-46e1-a7de-9542393393d8",
-    name: "red",
-    template: "(\n    format_version: 1,\n    entities: [\n        (\n            id: \"d61d8132-bfe0-4be5-b88b-ec24a57b0a4d\",\n            parent: None,\n            components: [\n                (\n                    type_path: \"bevy_ecs::name::Name\",\n                    value: \"kit\",\n                ),\n                (\n                    type_path: \"bevy_transform::components::transform::Transform\",\n                    value: (\n                        translation: (0.0, 0.0, 0.0),\n                        rotation: (0.0, 0.0, 0.0, 1.0),\n                        scale: (1.0, 1.0, 1.0),\n                    ),\n                ),\n                (\n                    type_path: \"editor_prefabs::PrefabInstance\",\n                    value: (\"8e7f5a34-580b-4245-a568-8db05dcb8387\"),\n                ),\n                (\n                    type_path: \"editor_prefabs::PrefabOverrides\",\n                    value: ([]),\n                ),\n            ],\n        ),\n    ],\n)",
-)

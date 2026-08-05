@@ -5,3 +5,5 @@
 .DS_Store
 *.prefab.ron.bak
 crates/editor_prefabs/prefabs/
+prefabs/kit.prefab.ron
+prefabs/red.prefab.ron
