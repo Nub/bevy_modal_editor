@@ -12,6 +12,7 @@ bevy.workspace = true
 game_framework.workspace = true
 editor_api = { workspace = true, optional = true }
 editor_core = { workspace = true, optional = true }
+editor_prefabs = { workspace = true, optional = true }
 editor_scene = { workspace = true, optional = true }
 editor_ui = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
@@ -27,6 +28,7 @@ editor = [
     "dep:editor_scene",
     "dep:editor_ui",
     "dep:uuid",
+    "dep:editor_prefabs",
 ]
 
 [lints]

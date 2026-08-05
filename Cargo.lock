@@ -4943,6 +4943,7 @@ dependencies = [
  "bevy",
  "editor_api",
  "editor_core",
+ "editor_prefabs",
  "editor_scene",
  "editor_ui",
  "game_framework",

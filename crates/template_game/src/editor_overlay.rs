@@ -94,6 +94,10 @@ impl Plugin for EditorOverlayPlugin {
         app.add_systems(Startup, arm_session_restore);
         app.add_systems(
             Update,
+            demo_kit_generator.run_if(|| std::env::var("EDITOR_DEMO_KIT").is_ok()),
+        );
+        app.add_systems(
+            Update,
             (sync_game_input, sync_material_refs, drive_session_restore)
                 .in_set(editor_core::EditorSet::Sync),
         );
@@ -335,5 +339,153 @@ pub(crate) fn probe_spin(
             time.delta_secs(),
             rotation
         );
+    }
+}
+
+/// EDITOR_DEMO_KIT=1 (owner ask): generate a socketed wall kit — Wall, Corner,
+/// Gate — through the REAL prefab pipeline, chain instances into a small
+/// courtyard via the mating math, save the scene to level.ron, exit. Open it
+/// with "Open Scene" (palette) afterwards.
+pub(crate) fn demo_kit_generator(world: &mut World, mut frame: Local<u32>) {
+    if std::env::var("EDITOR_DEMO_KIT").is_err() {
+        return;
+    }
+    *frame += 1;
+    use editor_prefabs::sockets::{Socket, mate_transform, template_sockets};
+    use editor_prefabs::{PrefabDef, PrefabInstance, PrefabLibrary, PrefabOverrides};
+
+    let face = |direction: Vec3| Quat::from_rotation_arc(Vec3::Z, direction);
+    let cube = |size: f32, at: Vec3, scale: Vec3| {
+        vec![
+            Box::new(Primitive {
+                kind: PrimitiveKind::Cube,
+                size,
+            })
+            .into_partial_reflect(),
+            Box::new(Transform::from_translation(at).with_scale(scale)).into_partial_reflect(),
+            Box::new(Name::new("Part")).into_partial_reflect(),
+        ]
+    };
+    let socket = |name: &str, at: Vec3, direction: Vec3| {
+        vec![
+            Box::new(Socket {
+                name: name.into(),
+                socket_type: "wall".into(),
+            })
+            .into_partial_reflect(),
+            Box::new(Transform::from_translation(at).with_rotation(face(direction)))
+                .into_partial_reflect(),
+            Box::new(Name::new(format!("socket {name}"))).into_partial_reflect(),
+        ]
+    };
+    let def = |name: &str, records: Vec<Vec<Box<dyn bevy::reflect::PartialReflect>>>| PrefabDef {
+        id: uuid::Uuid::new_v4(),
+        name: name.into(),
+        template: editor_scene::snapshot_from_parts(
+            records
+                .into_iter()
+                .map(|components| (editor_api::prelude::SceneId::random(), None, components))
+                .collect(),
+        ),
+    };
+
+    if *frame == 1 {
+        world
+            .resource_mut::<NextState<game_framework::AppState>>()
+            .set(game_framework::AppState::LoadingLevel);
+    }
+    if *frame == 10 {
+        let wall = def(
+            "Wall",
+            vec![
+                cube(1.0, Vec3::new(0.0, 0.5, 0.0), Vec3::new(2.0, 1.0, 0.15)),
+                socket("west", Vec3::new(-1.0, 0.5, 0.0), -Vec3::X),
+                socket("east", Vec3::new(1.0, 0.5, 0.0), Vec3::X),
+            ],
+        );
+        let corner = def(
+            "Corner",
+            vec![
+                cube(1.0, Vec3::new(0.0, 0.6, 0.0), Vec3::new(0.3, 1.3, 0.3)),
+                socket("in", Vec3::ZERO.with_y(0.5), -Vec3::X),
+                socket("out", Vec3::ZERO.with_y(0.5), Vec3::Z),
+            ],
+        );
+        let gate = def(
+            "Gate",
+            vec![
+                cube(1.0, Vec3::new(-0.85, 0.5, 0.0), Vec3::new(0.3, 1.0, 0.2)),
+                cube(1.0, Vec3::new(0.85, 0.5, 0.0), Vec3::new(0.3, 1.0, 0.2)),
+                cube(1.0, Vec3::new(0.0, 1.1, 0.0), Vec3::new(2.0, 0.2, 0.2)),
+                socket("west", Vec3::new(-1.0, 0.5, 0.0), -Vec3::X),
+                socket("east", Vec3::new(1.0, 0.5, 0.0), Vec3::X),
+            ],
+        );
+        // The ring: wall, corner ×4 sides, one side a gate.
+        let sequence = [
+            "Wall", "Corner", "Wall", "Corner", "Gate", "Corner", "Wall", "Corner",
+        ];
+        for prefab in [&wall, &corner, &gate] {
+            editor_prefabs::authoring::save_prefab_public(world, prefab);
+        }
+        let defs = [wall, corner, gate];
+        let mut cursor: Option<GlobalTransform> = None; // previous piece's EXIT frame
+        for name in sequence {
+            let def = defs.iter().find(|d| d.name == name).unwrap();
+            let sockets = template_sockets(def);
+            let (entry, exit) = (&sockets[0], &sockets[sockets.len() - 1]);
+            let root = match &cursor {
+                None => Transform::from_xyz(0.0, 0.0, 4.0),
+                Some(previous_exit) => mate_transform(previous_exit, &entry.0),
+            };
+            cursor = Some(
+                GlobalTransform::from(root) * GlobalTransform::from(exit.0).compute_transform(),
+            );
+            let id = editor_api::prelude::SceneId::random();
+            world
+                .resource_mut::<editor_core::prelude::EditQueue>()
+                .0
+                .push(editor_core::prelude::Transaction {
+                    label: format!("Place {name}"),
+                    gesture: None,
+                    ops: vec![editor_core::prelude::Op::Spawn {
+                        id,
+                        components: vec![
+                            Box::new(PrefabInstance(def.id)).into_partial_reflect(),
+                            Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                            Box::new(root).into_partial_reflect(),
+                            Box::new(Name::new(name.to_string())).into_partial_reflect(),
+                        ],
+                    }],
+                });
+        }
+        let mut library = world.resource_mut::<PrefabLibrary>();
+        for def in defs {
+            library.prefabs.insert(def.id, def);
+        }
+        library.generation += 1;
+        world
+            .resource_mut::<editor_core::prelude::EditorState>()
+            .active = true;
+    }
+    if *frame == 30 {
+        world.write_message(editor_api::prelude::ActionInvoked {
+            action: editor_api::prelude::ActionId::new_static("scene.save"),
+            args: None,
+            source: editor_api::prelude::InvocationSource::Test,
+        });
+    }
+    if *frame == 45 {
+        world
+            .spawn(bevy::render::view::screenshot::Screenshot::primary_window())
+            .observe(bevy::render::view::screenshot::save_to_disk(
+                "target/demo-kit.png",
+            ));
+    }
+    if *frame == 60 {
+        println!(
+            "demo kit: prefabs saved (Wall, Corner, Gate) and courtyard scene written to level.ron"
+        );
+        world.write_message(bevy::app::AppExit::Success);
     }
 }

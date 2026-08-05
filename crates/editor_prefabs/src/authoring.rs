@@ -203,7 +203,7 @@ pub(crate) fn center_template(
     Some(editor_scene::snapshot_from_parts(records))
 }
 
-pub(crate) fn save_prefab_public(world: &World, def: &PrefabDef) {
+pub fn save_prefab_public(world: &World, def: &PrefabDef) {
     save_prefab(world, def)
 }
 
@@ -289,6 +289,12 @@ fn restamp(world: &mut World, root_id: SceneId) {
     let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
         return;
     };
+    // A root stamp_new_instances hasn't marked yet is NOT ours to stamp —
+    // doing so double-stamps when a library bump lands the same frame as a
+    // fresh spawn (found by the demo-kit generator: every part duplicated).
+    if world.get::<crate::Stamped>(root).is_none() {
+        return;
+    }
     let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
         return;
     };
