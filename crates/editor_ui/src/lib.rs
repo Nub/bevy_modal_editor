@@ -21,6 +21,7 @@ mod palette_preview;
 mod probe_prefab;
 mod probe_user;
 mod prompt;
+mod socket_gizmo;
 mod statusbar;
 mod which_key;
 
@@ -143,10 +144,12 @@ impl Plugin for EditorUiPlugin {
             bevy_outliner::OutlinePlugin,
         ));
         app.add_editor_feature(EditorUiFeature);
+        app.add_observer(socket_gizmo::on_socket_added);
 
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<probe_user::UserProbe>();
         app.init_resource::<grid::GridVisible>();
+        app.init_resource::<socket_gizmo::SocketGizmoAssets>();
         app.init_resource::<inspector::InspectorReveal>();
         app.init_resource::<palette_preview::PreviewSubject>();
         app.init_resource::<hierarchy::HierarchyState>();
@@ -197,6 +200,7 @@ impl Plugin for EditorUiPlugin {
                 dock::sync_open_frame,
                 grid::handle_grid_actions,
                 grid::sync_grid,
+                socket_gizmo::sync_socket_gizmos,
                 inspector::reveal_section,
                 palette_preview::sync_preview_content,
                 palette_preview::inherit_preview_layer,

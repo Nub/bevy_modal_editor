@@ -767,12 +767,24 @@ fn palette_keys(
                                 .0
                                 .or_else(|| camera_focus_ground(world))
                                 .unwrap_or(Vec3::ZERO);
-                            let name = world
-                                .resource::<editor_prefabs::PrefabLibrary>()
-                                .prefabs
-                                .get(&prefab)
-                                .map(|p| p.name.clone())
-                                .unwrap_or_else(|| "prefab".into());
+                            let (name, def_sockets) = {
+                                let library = world.resource::<editor_prefabs::PrefabLibrary>();
+                                let def = library.prefabs.get(&prefab);
+                                (
+                                    def.map(|p| p.name.clone())
+                                        .unwrap_or_else(|| "prefab".into()),
+                                    def.map(editor_prefabs::sockets::template_sockets)
+                                        .unwrap_or_default(),
+                                )
+                            };
+                            // D9: a compatible socket near the cursor wins over
+                            // the raw ground point — pieces MATE.
+                            let snap = editor_prefabs::sockets::snap_for_placement(
+                                world,
+                                &def_sockets,
+                                at,
+                                3.0,
+                            );
                             let id = SceneId::random();
                             world.resource_mut::<EditQueue>().0.push(Transaction {
                                 label: "Place Prefab".into(),
@@ -806,8 +818,14 @@ fn palette_keys(
                                     to: MODE_NORMAL,
                                 });
                             }
+                            let message = match &snap {
+                                Some((_, label)) => {
+                                    format!("placed \u{25c6} {name} \u{b7} {label}")
+                                }
+                                None => format!("placed \u{25c6} {name}"),
+                            };
                             world.write_message(editor_scene::SceneIoFeedback {
-                                message: format!("placed \u{25c6} {name}"),
+                                message,
                                 success: true,
                             });
                         });

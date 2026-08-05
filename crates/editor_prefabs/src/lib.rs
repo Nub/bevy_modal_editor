@@ -25,6 +25,7 @@ pub mod authoring;
 pub mod bake;
 pub mod open_mode;
 pub mod overrides;
+pub mod sockets;
 pub use overrides::{StampedFrom, sync_overrides};
 
 pub const PREFAB_FORMAT_VERSION: u32 = 1;
@@ -159,6 +160,14 @@ pub struct PrefabLibrary {
 impl PrefabDef {
     /// Placeholder hook (bake staleness etc. later).
     pub fn generation_note(&mut self) {}
+}
+
+fn socket_kind_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
+    vec![
+        Box::new(sockets::Socket::default()).into_partial_reflect(),
+        Box::new(Transform::from_translation(position)).into_partial_reflect(),
+        Box::new(Name::new("Socket")).into_partial_reflect(),
+    ]
 }
 
 /// Concrete `PrefabInstance` off a template record value (values may be
@@ -396,6 +405,12 @@ impl EditorFeature for PrefabsFeature {
         // The instance root's serialized shape: {prefab_id, transform, overrides}.
         reg.component::<PrefabInstance>()
             .component::<PrefabOverrides>()
+            .component::<sockets::Socket>()
+            .entity_kind(editor_api::prelude::EntityKindDef {
+                id: editor_api::prelude::EntityKindId::new_static("prefab.socket"),
+                display_name: "Socket",
+                components: socket_kind_components,
+            })
             .action(
                 ActionDef::new("prefab.group", "Group Into Prefab")
                     .describe("Name the selection and replace it with a reusable prefab instance")
