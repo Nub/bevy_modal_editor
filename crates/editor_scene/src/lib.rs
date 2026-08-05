@@ -186,6 +186,12 @@ pub fn apply_scene(world: &mut World, snapshot: &SceneSnapshot, clear_history: b
             else {
                 continue;
             };
+            // A type present in a FILE is part of this project's save set —
+            // re-adopt it so the next capture doesn't silently drop it
+            // (runtime-adopted types survive restarts through their files).
+            world
+                .resource_mut::<editor_core::edits::EditorComponents>()
+                .adopt(info.type_id(), registration.type_info().type_path());
             let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
                 continue;
             };
@@ -1080,5 +1086,70 @@ mod tests {
         assert_eq!(bak, first, ".bak preserves the previous save");
         assert_ne!(std::fs::read_to_string(&path).unwrap(), first);
         assert!(!path.with_extension("ron.tmp").exists(), "no temp litter");
+    }
+}
+
+#[cfg(test)]
+mod adoption_tests {
+    use super::*;
+    use crate::tests_support::*;
+
+    #[derive(Component, Reflect, Default, Clone, PartialEq, Debug)]
+    #[reflect(Component, Default)]
+    struct RuntimeAdded(f32);
+
+    // Owner rule: anything a user INSERTS persists. Adoption extends the save
+    // set at runtime, and LOADING a file containing the type re-adopts it —
+    // so adopted components survive editor restarts through their files.
+    #[test]
+    fn adopted_components_persist_and_reload() {
+        let mut app = scene_test_app();
+        app.register_type::<RuntimeAdded>(); // registry only — NOT feature-registered
+        let (a, _) = spawn_test_scene(&mut app);
+        let entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        app.world_mut().entity_mut(entity).insert(RuntimeAdded(7.0));
+
+        // Not in the allow-list: capture drops it.
+        let before = scene_ron(&mut app);
+        assert!(
+            !before.contains("RuntimeAdded"),
+            "unadopted type is not captured"
+        );
+
+        // Adopt (what the palette insert does) → captured.
+        {
+            let mut components = app
+                .world_mut()
+                .resource_mut::<editor_core::edits::EditorComponents>();
+            components.adopt(
+                std::any::TypeId::of::<RuntimeAdded>(),
+                <RuntimeAdded as bevy::reflect::TypePath>::type_path(),
+            );
+        }
+        let saved = scene_ron(&mut app);
+        assert!(saved.contains("RuntimeAdded"), "adopted type serializes");
+
+        // Simulate a restart: strip the adoption, load the file → re-adopted.
+        {
+            let mut components = app
+                .world_mut()
+                .resource_mut::<editor_core::edits::EditorComponents>();
+            components
+                .types
+                .retain(|r| r.type_id != std::any::TypeId::of::<RuntimeAdded>());
+        }
+        let registry = app.world().resource::<AppTypeRegistry>().clone();
+        let snapshot = SceneSnapshot::from_ron(&saved, &registry.read()).unwrap();
+        apply_scene(app.world_mut(), &snapshot, false);
+        let adopted = app
+            .world()
+            .resource::<editor_core::edits::EditorComponents>()
+            .contains(std::any::TypeId::of::<RuntimeAdded>());
+        assert!(adopted, "loading a file re-adopts its types");
+        let roundtrip = scene_ron(&mut app);
+        assert!(
+            roundtrip.contains("RuntimeAdded"),
+            "survives the next save too"
+        );
     }
 }

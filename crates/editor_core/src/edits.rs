@@ -17,6 +17,26 @@ pub struct EditorComponents {
     pub types: Vec<ComponentReg>,
 }
 
+fn noop_register(_: &bevy::ecs::reflect::AppTypeRegistry) {}
+
+impl EditorComponents {
+    pub fn contains(&self, type_id: std::any::TypeId) -> bool {
+        self.types.iter().any(|r| r.type_id == type_id)
+    }
+    /// Adopt a type into the save allow-list at runtime (owner rule: anything
+    /// a user INSERTS must persist; only system-derived state stays out).
+    /// The type must already live in the `AppTypeRegistry`.
+    pub fn adopt(&mut self, type_id: std::any::TypeId, type_path: &'static str) {
+        if !self.contains(type_id) {
+            self.types.push(editor_api::feature::ComponentReg {
+                type_id,
+                type_path,
+                register: noop_register,
+            });
+        }
+    }
+}
+
 pub struct HistoryEntry {
     pub label: String,
     pub gesture: Option<u64>,
