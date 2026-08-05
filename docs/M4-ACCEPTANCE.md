@@ -24,6 +24,15 @@ true-shape). Riding along by owner direction: the full material editor
 | D11 | Material editor v2 (owner): dedicated editor surface with visual preview, full StandardMaterial coverage (textures via the pipeline, emissive, alpha modes), feathers color-picker widgets; asset-history undo for material edits | `editor_ui` + owner |
 | D12 | THE BARREL WORKFLOW (spec §6, the milestone exit): drop `barrel.glb` → auto-import + validation → create prefab (colliders, materials, gameplay components) → place 50 instances with overrides → re-export the GLB → re-import → processing → prefab updates → all 50 instances update, overrides intact | end-to-end + owner |
 
+## Status (2026-08-05)
+
+D1–D12 all implemented with executable coverage: unit/property tests per
+crate plus five session probes in `verify.sh full` + CI (PREFAB, USER 27,
+KIT 10, BARREL 21 — the D12 exit flow end-to-end incl. flatten-to-entities
++ collider/gameplay config — and MATERIAL 17 — the D11 editor with
+asset-scoped undo). Remaining to CLOSE the milestone: the owner hands-on
+checklist below.
+
 ## Owner hands-on checklist (closes the milestone)
 
 - Import a real GLB; watch it validate/process; inspect its meta identity.
