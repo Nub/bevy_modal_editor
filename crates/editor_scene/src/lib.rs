@@ -428,6 +428,7 @@ fn perform_scene_io(world: &mut World) {
 }
 
 pub mod materials;
+pub mod models;
 pub mod play;
 pub mod session;
 
@@ -526,14 +527,19 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<play::PlayState>()
             .init_resource::<play::PlayRequests>()
             .init_resource::<materials::MaterialLibrary>()
+            .init_resource::<models::ModelLibrary>()
+            .init_resource::<models::ImportRequested>()
+            .init_resource::<models::ModelHandles>()
             .init_resource::<session::ReloadRequested>()
             .init_resource::<SceneIoLock>()
             .add_message::<SceneIoFeedback>();
         app.add_editor_feature(ScenesFeature);
         app.add_editor_feature(play::PlayFeature);
         app.add_editor_feature(materials::MaterialsFeature);
+        app.add_editor_feature(models::ModelsFeature);
         app.add_editor_feature(session::ReloadFeature);
         app.add_systems(Startup, materials::load_library_at_startup);
+        app.add_systems(Startup, models::import_at_startup);
         app.add_systems(
             Update,
             (
@@ -542,6 +548,7 @@ impl Plugin for EditorScenePlugin {
                     track_dirty,
                     play::collect_play_actions,
                     materials::handle_material_actions,
+                    models::collect_model_actions,
                     session::collect_reload_action,
                 )
                     .in_set(editor_core::EditorSet::Tools),
@@ -549,6 +556,8 @@ impl Plugin for EditorScenePlugin {
                     perform_scene_io,
                     play::perform_play,
                     materials::save_library_on_change,
+                    models::perform_import,
+                    models::resolve_mesh_refs,
                     session::perform_reload,
                 )
                     .chain()

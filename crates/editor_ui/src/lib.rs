@@ -20,6 +20,7 @@ mod outline;
 mod palette;
 mod palette_engine;
 mod palette_preview;
+mod probe_barrel;
 mod probe_kit;
 mod probe_prefab;
 mod probe_user;
@@ -170,6 +171,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<probe_user::UserProbe>();
         app.init_resource::<probe_kit::KitProbe>();
+        app.init_resource::<probe_barrel::BarrelProbe>();
         app.init_resource::<grid::GridVisible>();
         app.init_resource::<socket_gizmo::SocketGizmoAssets>();
         app.init_resource::<open_indicator::DimAssets>();
@@ -234,6 +236,7 @@ impl Plugin for EditorUiPlugin {
                 probe_user::probe_user.run_if(|| std::env::var("USER_PROBE").is_ok()),
                 probe_user::log_actions.run_if(|| std::env::var("USER_PROBE").is_ok()),
                 probe_kit::probe_kit.run_if(|| std::env::var("KIT_PROBE").is_ok()),
+                probe_barrel::probe_barrel.run_if(|| std::env::var("BARREL_PROBE").is_ok()),
             )
                 .in_set(editor_core::EditorSet::Sync),
         );

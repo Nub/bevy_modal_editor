@@ -223,6 +223,7 @@ fn build_palette_items(
     entities: Query<(&SceneId, &Name)>,
     library: Res<editor_scene::materials::MaterialLibrary>,
     prefabs: Res<editor_prefabs::PrefabLibrary>,
+    models: Res<editor_scene::models::ModelLibrary>,
     components: Res<editor_core::edits::EditorComponents>,
     registry: Res<AppTypeRegistry>,
     inspector_model: Res<crate::inspector::InspectorModel>,
@@ -234,7 +235,8 @@ fn build_palette_items(
     let refresh = state.is_changed()
         || (scene_changed && state.filter == PaletteFilter::FindObject)
         || (library.is_changed() && state.filter == PaletteFilter::Materials)
-        || (prefabs.is_changed() && state.filter == PaletteFilter::InsertKinds)
+        || ((prefabs.is_changed() || models.is_changed())
+            && state.filter == PaletteFilter::InsertKinds)
         || (settings.is_changed() && state.filter == PaletteFilter::AddComponent);
     if !refresh {
         return;
@@ -360,6 +362,18 @@ fn build_palette_items(
                     keywords: def.id.to_string(),
                     suffix: "prefab".into(),
                     payload: PalettePayload::Prefab(def.id),
+                });
+            }
+            // MODELS: imported sources (D12) — placing references BY UUID.
+            let mut model_entries: Vec<_> = models.entries.iter().collect();
+            model_entries.sort_by(|a, b| a.name.cmp(&b.name));
+            for entry in model_entries {
+                items.0.push(PaletteEntry {
+                    label: entry.name.clone(),
+                    category: Some("MODELS".into()),
+                    keywords: format!("{} {}", entry.asset_path, entry.uuid),
+                    suffix: "model".into(),
+                    payload: PalettePayload::Model(entry.uuid),
                 });
             }
             let mut kinds = Vec::new();
@@ -850,6 +864,54 @@ fn palette_keys(
                             };
                             world.write_message(editor_scene::SceneIoFeedback {
                                 message,
+                                success: true,
+                            });
+                        });
+                    }
+                    PalettePayload::Model(model) => {
+                        let model = *model;
+                        commands.queue(move |world: &mut World| {
+                            let at = world
+                                .resource::<CursorGround>()
+                                .0
+                                .or_else(|| camera_focus_ground(world))
+                                .unwrap_or(Vec3::ZERO);
+                            let name = world
+                                .resource::<editor_scene::models::ModelLibrary>()
+                                .get(&model)
+                                .map(|entry| entry.name.clone())
+                                .unwrap_or_else(|| "model".into());
+                            let id = SceneId::random();
+                            world.resource_mut::<EditQueue>().0.push(Transaction {
+                                label: "Place Model".into(),
+                                gesture: None,
+                                ops: vec![Op::Spawn {
+                                    id,
+                                    components: vec![
+                                        Box::new(editor_scene::models::MeshRef(model))
+                                            .into_partial_reflect(),
+                                        Box::new(Transform::from_translation(at))
+                                            .into_partial_reflect(),
+                                        Box::new(Name::new(name.clone())).into_partial_reflect(),
+                                    ],
+                                }],
+                            });
+                            world
+                                .resource_mut::<editor_core::selection::PendingSelect>()
+                                .0 = Some(id);
+                            let from = {
+                                let mut current = world.resource_mut::<CurrentMode>();
+                                (current.0 != MODE_NORMAL)
+                                    .then(|| std::mem::replace(&mut current.0, MODE_NORMAL))
+                            };
+                            if let Some(from) = from {
+                                world.write_message(ModeChanged {
+                                    from,
+                                    to: MODE_NORMAL,
+                                });
+                            }
+                            world.write_message(editor_scene::SceneIoFeedback {
+                                message: format!("placed {name}"),
                                 success: true,
                             });
                         });

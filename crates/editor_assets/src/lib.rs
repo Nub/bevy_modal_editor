@@ -10,6 +10,7 @@
 //! carrying a UUID that SURVIVES re-import — references target the UUID, never
 //! the path.
 
+pub mod fixture;
 pub mod identity;
 pub mod process;
 pub mod validation;

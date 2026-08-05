@@ -9,6 +9,7 @@ repository.workspace = true
 [dependencies]
 bevy.workspace = true
 editor_api.workspace = true
+editor_assets.workspace = true
 editor_core.workspace = true
 serde.workspace = true
 ron.workspace = true

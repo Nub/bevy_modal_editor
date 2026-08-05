@@ -7,3 +7,5 @@
 crates/editor_prefabs/prefabs/
 prefabs/kit.prefab.ron
 prefabs/red.prefab.ron
+crates/template_game/assets/models/
+prefabs/keg.prefab.ron

@@ -19,7 +19,7 @@ use editor_core::prelude::*;
 use editor_prefabs::{PrefabInstance, PrefabLibrary, open_mode::OpenInstance};
 use editor_scene::PrefabStamped;
 
-const SHOT_DIR: &str = "target/user-probe";
+pub(crate) const SHOT_DIR: &str = "target/user-probe";
 
 #[derive(Resource, Default)]
 pub(crate) struct UserProbe {

@@ -2431,6 +2431,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "editor_api",
+ "editor_assets",
  "editor_core",
  "ron 0.8.1",
  "serde",
@@ -2445,6 +2446,7 @@ dependencies = [
  "bevy",
  "bevy_outliner",
  "editor_api",
+ "editor_assets",
  "editor_core",
  "editor_prefabs",
  "editor_scene",
