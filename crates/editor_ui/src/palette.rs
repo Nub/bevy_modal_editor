@@ -171,13 +171,16 @@ fn spawn_palette(mut commands: Commands) {
                     }),
                     (
                         PalettePreview
+                        bevy::ui_widgets::ScrollArea
                         Node {
                             width: px(340),
+                            max_height: px(360.0),
                             flex_shrink: 0.0,
                             flex_direction: FlexDirection::Column,
                             row_gap: px(style::space::XS),
                             padding: UiRect::all(px(style::space::S)),
                             border_radius: {BorderRadius::all(px(style::radius::S))},
+                            overflow: Overflow::scroll_y(),
                         }
                         ThemeBackgroundColor(tokens::PANE_BODY_BG)
                     ),
