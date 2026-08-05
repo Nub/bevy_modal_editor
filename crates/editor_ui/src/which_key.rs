@@ -146,11 +146,39 @@ pub(crate) fn rebuild_which_key(
     let key_font = style::mono(&fonts, ui.font_size_s);
 
     commands.entity(panel_entity).with_children(|panel| {
-        panel.spawn((
-            Text::new(header),
-            style::mono(&fonts, ui.font_size_xs),
-            TextColor(header_color),
-        ));
+        // The held prefix reads as a KEY CHIP (same language as the rows),
+        // not a stray glyph in the corner.
+        panel
+            .spawn((
+                Node {
+                    align_items: AlignItems::Center,
+                    column_gap: px(style::space::S),
+                    ..default()
+                },
+                BackgroundColor(Color::NONE),
+            ))
+            .with_children(|row| {
+                row.spawn((
+                    Node {
+                        padding: UiRect::axes(px(style::space::S), px(2.0)),
+                        border_radius: BorderRadius::all(px(style::radius::S)),
+                        ..default()
+                    },
+                    BackgroundColor(style::color::accent()),
+                ))
+                .with_children(|chip| {
+                    chip.spawn((
+                        Text::new(header),
+                        style::mono(&fonts, ui.font_size_xs),
+                        TextColor(style::color::TEXT_ON_ACCENT),
+                    ));
+                });
+                row.spawn((
+                    Text::new("then…"),
+                    style::sans(&fonts, ui.font_size_xs),
+                    TextColor(header_color),
+                ));
+            });
         panel
             .spawn(Node {
                 flex_direction: FlexDirection::Row,

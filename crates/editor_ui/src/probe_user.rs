@@ -618,6 +618,11 @@ pub(crate) fn probe_user(world: &mut World) {
             shot(world, "16-component-search");
         }
         2040 => tap_named(world, KeyCode::Escape, Key::Escape),
+        // Hold the leader so which-key opens; screenshot it for design review.
+        2050 => key(world, KeyCode::Space, Key::Space, Some(" "), true),
+        2085 => shot(world, "17-which-key"),
+        2090 => key(world, KeyCode::Space, Key::Space, Some(" "), false),
+        2095 => tap_named(world, KeyCode::Escape, Key::Escape),
         // ── Verdict ────────────────────────────────────────────────────────
         2100 => {
             let failures = world.resource::<UserProbe>().failures.clone();
