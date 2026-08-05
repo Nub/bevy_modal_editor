@@ -148,7 +148,7 @@ pub(crate) fn dim_outsiders(
         .0
         .get_or_insert_with(|| {
             materials.add(StandardMaterial {
-                base_color: Color::srgba(0.35, 0.36, 0.38, 0.25),
+                base_color: Color::srgba(0.16, 0.17, 0.20, 0.55),
                 alpha_mode: AlphaMode::Blend,
                 unlit: true,
                 ..default()

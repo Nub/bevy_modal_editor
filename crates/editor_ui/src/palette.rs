@@ -340,6 +340,8 @@ fn build_palette_items(
             }
         }
         PaletteFilter::InsertKinds => {
+            // Rows read as the THING, not the verb — the palette title
+            // already says INSERT ("Sphere", never "Insert: Sphere").
             // ONE insert surface (owner): everything placeable — registered
             // kinds AND library prefabs, grouped.
             let mut kinds = Vec::new();
@@ -347,7 +349,11 @@ fn build_palette_items(
                 if def.flags.hidden || !def.id.as_str().starts_with("insert.kind.") {
                     continue;
                 }
-                kinds.push(entry_for_action(def, &keymap, Some("OBJECTS".into())));
+                let mut entry = entry_for_action(def, &keymap, Some("OBJECTS".into()));
+                if let Some(bare) = entry.label.strip_prefix("Insert: ") {
+                    entry.label = bare.to_string();
+                }
+                kinds.push(entry);
             }
             kinds.sort_by(|a, b| a.label.cmp(&b.label));
             items.0.extend(kinds);
@@ -995,12 +1001,20 @@ fn rebuild_results(
                         align_items: AlignItems::Center,
                         padding: UiRect::axes(px(style::space::S), px(style::space::XS)),
                         column_gap: px(style::space::M),
+                        // Left accent bar carries selection; the fill stays a
+                        // quiet tint (modern list treatment, not a slab).
+                        border: UiRect::left(px(2.0)),
                         border_radius: BorderRadius::all(px(style::radius::S)),
                         flex_shrink: 0.0,
                         ..default()
                     },
                     BackgroundColor(if selected {
-                        style::color::selection()
+                        style::color::selection().with_alpha(0.35)
+                    } else {
+                        Color::NONE
+                    }),
+                    BorderColor::all(if selected {
+                        style::color::accent()
                     } else {
                         Color::NONE
                     }),
