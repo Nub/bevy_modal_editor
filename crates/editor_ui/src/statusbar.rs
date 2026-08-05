@@ -163,6 +163,7 @@ pub(crate) struct StatusData<'w> {
     panel_focus: Res<'w, PanelFocus>,
     panel_catalog: Res<'w, PanelCatalog>,
     open_instance: Res<'w, editor_prefabs::open_mode::OpenInstance>,
+    validation: Res<'w, editor_scene::level_validation::LevelValidation>,
     grid_snap: Res<'w, GridSnap>,
     settings: Res<'w, EditorSettings>,
 }
@@ -291,6 +292,15 @@ pub(crate) fn update_statusbar(
         }
         if data.grid_snap.enabled {
             parts.push(format!("snap {}m", data.settings.viewport.grid_step));
+        }
+        // Level validation counts are STATE (the level is/isn't valid) — shown
+        // whenever any registered rule fails, silent when the level is clean.
+        let errors = data.validation.count(editor_api::validate::Severity::Error);
+        let warnings = data
+            .validation
+            .count(editor_api::validate::Severity::Warning);
+        if errors + warnings > 0 {
+            parts.push(format!("level \u{2715}{errors} \u{26a0}{warnings}"));
         }
         let status = parts.join("  ·  ");
         if text.0 != status {

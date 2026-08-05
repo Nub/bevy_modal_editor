@@ -12,7 +12,7 @@ use crate::keymap::{Binding, find_conflicts};
 use crate::kinds::EntityKindDef;
 use crate::panels::PanelDecl;
 use crate::pipeline::ProcessorDef;
-use crate::validate::ValidatorDef;
+use crate::validate::{LevelValidatorDef, ValidatorDef};
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
 use std::borrow::Cow;
@@ -89,6 +89,7 @@ pub struct FeatureRegistry {
     pub kinds: Vec<(FeatureId, EntityKindDef)>,
     pub panels: Vec<(FeatureId, PanelDecl)>,
     pub validators: Vec<(FeatureId, ValidatorDef)>,
+    pub level_validators: Vec<(FeatureId, LevelValidatorDef)>,
     pub processors: Vec<(FeatureId, ProcessorDef)>,
     pub bakers: Vec<(FeatureId, BakerDef)>,
     current_feature: Option<FeatureId>,
@@ -141,6 +142,13 @@ impl FeatureRegistry {
     pub fn validator(&mut self, def: ValidatorDef) -> &mut Self {
         let feature = self.current().clone();
         self.validators.push((feature, def));
+        self
+    }
+    /// Register a LEVEL validator (v1 parity): required configs/objects/
+    /// components the live scene must satisfy.
+    pub fn level_validator(&mut self, def: LevelValidatorDef) -> &mut Self {
+        let feature = self.current().clone();
+        self.level_validators.push((feature, def));
         self
     }
     /// Register an overlay keymap context (gesture layers, focused-panel layers) that
@@ -281,6 +289,7 @@ pub struct ValidatedFeatures {
     pub kinds: Vec<(FeatureId, EntityKindDef)>,
     pub panels: Vec<(FeatureId, PanelDecl)>,
     pub validators: Vec<(FeatureId, ValidatorDef)>,
+    pub level_validators: Vec<(FeatureId, LevelValidatorDef)>,
     pub processors: Vec<(FeatureId, ProcessorDef)>,
     pub bakers: Vec<(FeatureId, BakerDef)>,
 }
@@ -444,6 +453,7 @@ impl FeatureRegistry {
                 kinds: self.kinds,
                 panels: self.panels,
                 validators: self.validators,
+                level_validators: self.level_validators,
                 processors: self.processors,
                 bakers: self.bakers,
             })

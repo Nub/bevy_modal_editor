@@ -8,6 +8,8 @@ use std::path::Path;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Severity {
+    /// Advisory only.
+    Info,
     /// Worth fixing; import proceeds.
     Warning,
     /// The asset is not game-ready; import records it as failed validation.
@@ -27,6 +29,27 @@ pub struct Problem {
 pub struct ValidateCx<'a> {
     pub source: &'a Path,
     pub bytes: &'a [u8],
+}
+
+/// A problem found in the LIVE LEVEL (owner ask, v1 parity): required
+/// configs/objects/components a scene must satisfy to be valid.
+#[derive(Clone, Debug)]
+pub struct LevelProblem {
+    pub validator: ValidatorId,
+    pub severity: Severity,
+    pub message: String,
+    /// The offending scene entity, when the problem is entity-shaped.
+    pub entity: Option<crate::ids::SceneId>,
+}
+
+/// A registered level rule. The `&mut World` is for QUERY construction only —
+/// level validators DIAGNOSE, they never mutate (a mutation here is a review
+/// rejection; all edits flow through `EditScope`).
+#[derive(Clone)]
+pub struct LevelValidatorDef {
+    pub id: ValidatorId,
+    pub name: &'static str,
+    pub validate: fn(&mut bevy::prelude::World) -> Vec<LevelProblem>,
 }
 
 #[derive(Clone)]

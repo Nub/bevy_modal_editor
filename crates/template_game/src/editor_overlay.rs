@@ -48,6 +48,36 @@ impl EditorFeature for GameFeature {
         FeatureManifest::new("template-game", "Template Game")
     }
     fn register(&self, reg: &mut FeatureRegistry) {
+        reg.level_validator(editor_api::validate::LevelValidatorDef {
+            id: editor_api::prelude::ValidatorId::new_static("game.spinner-config"),
+            name: "Spinner config sanity",
+            validate: |world| {
+                // The game's own level rule (owner ask): required component
+                // CONFIG — an enabled spinner that can't spin is a mistake.
+                let mut problems = Vec::new();
+                let mut query = world.query::<(
+                    &editor_core::prelude::SceneId,
+                    &crate::game::Spinner,
+                    Option<&Name>,
+                )>();
+                for (id, spinner, name) in query.iter(world) {
+                    if spinner.enabled && spinner.degrees_per_sec == 0.0 {
+                        problems.push(editor_api::validate::LevelProblem {
+                            validator: editor_api::prelude::ValidatorId::new_static(
+                                "game.spinner-config",
+                            ),
+                            severity: editor_api::validate::Severity::Warning,
+                            message: format!(
+                                "{:?}: Spinner enabled with degrees_per_sec = 0",
+                                name.map(|n| n.as_str()).unwrap_or("entity")
+                            ),
+                            entity: Some(*id),
+                        });
+                    }
+                }
+                problems
+            },
+        });
         reg.component::<Transform>()
             .component::<Primitive>()
             .component::<Spinner>()

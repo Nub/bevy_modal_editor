@@ -374,6 +374,7 @@ mod tests {
             base_color: [0.7, 0.3, 0.1, 1.0],
             metallic: 0.9,
             roughness: 0.3,
+            ..Default::default()
         });
         save_materials(&library, &path).unwrap();
         let first = std::fs::read_to_string(&path).unwrap();

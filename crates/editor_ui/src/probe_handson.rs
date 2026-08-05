@@ -520,6 +520,24 @@ pub(crate) fn probe_handson(world: &mut World) {
             let drums = drum_roots(world).len();
             check(world, drums == 3, "authored instances survive play/reset");
         }
+        // ── Checklist bonus: the level validator runs over authored content ─
+        2170 => invoke(world, "level.validate"),
+        2190 => {
+            let ran = world
+                .resource::<editor_scene::level_validation::LevelValidation>()
+                .generation
+                > 0;
+            check(world, ran, "level validation ran over the authored scene");
+            let flash = world
+                .resource::<crate::statusbar::StatusFlash>()
+                .text
+                .clone();
+            check(
+                world,
+                flash.contains("level"),
+                "level.validate reports a summary",
+            );
+        }
         // ── Cleanup: nothing probe-owned outlives the run ──────────────────
         2200 => {
             if let Some(id) = world.resource::<HandsonProbe>().material {

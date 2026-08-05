@@ -353,7 +353,15 @@ impl EditorFeature for ScenesFeature {
             ActionDef::new("scene.open", "Open Scene")
                 .describe("Reload the scene from disk")
                 .context("normal"),
+        )
+        .action(
+            ActionDef::new("level.validate", "Validate Level")
+                .describe("Run every registered level rule; problems go to the statusbar and log")
+                .context("normal"),
         );
+        for validator in level_validation::builtin_level_validators() {
+            reg.level_validator(validator);
+        }
     }
 }
 
@@ -427,6 +435,7 @@ fn perform_scene_io(world: &mut World) {
     }
 }
 
+pub mod level_validation;
 pub mod materials;
 pub mod models;
 pub mod play;
@@ -531,6 +540,8 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<models::ImportRequested>()
             .init_resource::<models::FlattenRequested>()
             .init_resource::<models::ModelHandles>()
+            .init_resource::<level_validation::LevelValidation>()
+            .init_resource::<level_validation::ValidationRequests>()
             .init_resource::<session::ReloadRequested>()
             .init_resource::<SceneIoLock>()
             .add_message::<SceneIoFeedback>();
@@ -550,6 +561,7 @@ impl Plugin for EditorScenePlugin {
                     play::collect_play_actions,
                     materials::handle_material_actions,
                     models::collect_model_actions,
+                    level_validation::collect_validation_requests,
                     session::collect_reload_action,
                 )
                     .in_set(editor_core::EditorSet::Tools),
@@ -561,6 +573,7 @@ impl Plugin for EditorScenePlugin {
                     models::perform_flatten,
                     models::resolve_mesh_refs,
                     models::resolve_mesh_nodes,
+                    level_validation::run_level_validation,
                     session::perform_reload,
                 )
                     .chain()

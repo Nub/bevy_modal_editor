@@ -516,6 +516,13 @@ fn host_features(world: &mut World) {
             .map(|(_, v)| v.clone())
             .collect(),
     });
+    world.insert_resource(LevelValidatorCatalog {
+        validators: validated
+            .level_validators
+            .iter()
+            .map(|(_, v)| v.clone())
+            .collect(),
+    });
     world.insert_resource(ProcessorCatalog {
         processors: validated
             .processors
@@ -549,6 +556,13 @@ pub use modes::MODE_NORMAL;
 #[derive(Resource, Default)]
 pub struct ValidatorCatalog {
     pub validators: Vec<editor_api::validate::ValidatorDef>,
+}
+
+/// All registered LEVEL validators (v1 parity): rules the live scene must
+/// satisfy — required configs, objects, components.
+#[derive(Resource, Default)]
+pub struct LevelValidatorCatalog {
+    pub validators: Vec<editor_api::validate::LevelValidatorDef>,
 }
 
 /// All registered asset processors (M4-D3) — the Process runner consumes these.
