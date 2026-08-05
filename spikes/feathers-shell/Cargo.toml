@@ -8,3 +8,6 @@ publish = false
 
 [dependencies]
 bevy = { workspace = true, features = ["bevy_feathers"] }
+
+[lints]
+workspace = true

@@ -15,17 +15,17 @@ mod hierarchy;
 mod inspector;
 mod outline;
 mod palette;
+mod palette_engine;
 mod palette_preview;
 mod probe_prefab;
 mod prompt;
-mod palette_engine;
 mod statusbar;
 mod which_key;
 
 pub use palette::{PaletteFilter, PaletteState};
 
 use bevy::asset::embedded_asset;
-use bevy::feathers::{dark_theme::create_dark_theme, theme::UiTheme, FeathersPlugins};
+use bevy::feathers::{FeathersPlugins, dark_theme::create_dark_theme, theme::UiTheme};
 use bevy::prelude::*;
 use editor_core::prelude::*;
 
@@ -56,11 +56,22 @@ impl EditorFeature for EditorUiFeature {
             ("hierarchy.select", "Select Row", "enter"),
             ("hierarchy.fold", "Fold / To Parent", "h"),
             ("hierarchy.unfold", "Unfold", "l"),
-            ("hierarchy.reparent-in", "Reparent Into Sibling", "shift+period"),
-            ("hierarchy.reparent-out", "Reparent To Grandparent", "shift+comma"),
+            (
+                "hierarchy.reparent-in",
+                "Reparent Into Sibling",
+                "shift+period",
+            ),
+            (
+                "hierarchy.reparent-out",
+                "Reparent To Grandparent",
+                "shift+comma",
+            ),
         ] {
             reg.action(
-                ActionDef::new(id, name).context("hierarchy").bind(binding).hidden(),
+                ActionDef::new(id, name)
+                    .context("hierarchy")
+                    .bind(binding)
+                    .hidden(),
             );
         }
         reg.panel(PanelDecl {
@@ -99,7 +110,9 @@ impl Plugin for EditorUiPlugin {
         // User keymap overrides (rebind without recompiling). Convention: a game may
         // insert its own `KeymapPaths` before this plugin to relocate the file.
         if app.world().get_resource::<KeymapPaths>().is_none() {
-            app.insert_resource(KeymapPaths { user: Some("editor-keymap.ron".into()) });
+            app.insert_resource(KeymapPaths {
+                user: Some("editor-keymap.ron".into()),
+            });
         }
 
         app.add_plugins(FeathersPlugins)
@@ -109,9 +122,14 @@ impl Plugin for EditorUiPlugin {
                 // thumb for a low-contrast neutral.
                 let mut theme = UiTheme(create_dark_theme());
                 theme.set_color("feathers.scrollbar.bg", Color::NONE);
-                theme.set_color("feathers.scrollbar.thumb", Color::srgba(1.0, 1.0, 1.0, 0.16));
-                theme
-                    .set_color("feathers.scrollbar.thumb.hover", Color::srgba(1.0, 1.0, 1.0, 0.32));
+                theme.set_color(
+                    "feathers.scrollbar.thumb",
+                    Color::srgba(1.0, 1.0, 1.0, 0.16),
+                );
+                theme.set_color(
+                    "feathers.scrollbar.thumb.hover",
+                    Color::srgba(1.0, 1.0, 1.0, 0.32),
+                );
                 theme
             });
 
@@ -152,8 +170,7 @@ impl Plugin for EditorUiPlugin {
                 inspector::collect_inspector,
                 inspector::render_inspector,
                 inspector::stamp_tab_indices,
-                inspector::probe_inspector
-                    .run_if(|| std::env::var("INSPECTOR_PROBE").is_ok()),
+                inspector::probe_inspector.run_if(|| std::env::var("INSPECTOR_PROBE").is_ok()),
                 sync_key_capture,
                 ghost::apply_ghost_material,
                 outline::ensure_outline_camera,
@@ -176,8 +193,7 @@ impl Plugin for EditorUiPlugin {
                 palette_preview::sync_preview_content,
                 palette_preview::inherit_preview_layer,
                 palette_preview::turn_preview,
-                probe_prefab::probe_prefab
-                    .run_if(|| std::env::var("PREFAB_PROBE").is_ok()),
+                probe_prefab::probe_prefab.run_if(|| std::env::var("PREFAB_PROBE").is_ok()),
             )
                 .in_set(editor_core::EditorSet::Sync),
         );

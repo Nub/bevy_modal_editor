@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use editor_api::prelude::*;
 
-use crate::modes::{set_mode, CurrentMode, ModeChanged, MODE_NORMAL};
+use crate::modes::{CurrentMode, MODE_NORMAL, ModeChanged, set_mode};
 use crate::resolver::EditorState;
 
 pub const MODE_INSERT: ModeId = ModeId::new_static("insert");
@@ -60,7 +60,11 @@ pub(crate) struct PreviewEntity {
 pub(crate) fn cursor_ground(
     state: Res<EditorState>,
     over_chrome: Res<crate::resolver::PointerOverChrome>,
-    camera: Query<(&Camera, &GlobalTransform, Option<&bevy::camera::RenderTarget>)>,
+    camera: Query<(
+        &Camera,
+        &GlobalTransform,
+        Option<&bevy::camera::RenderTarget>,
+    )>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut cursor: ResMut<CursorGround>,
 ) {
@@ -127,12 +131,17 @@ pub(crate) fn sync_preview(world: &mut World) {
     let cursor = world.resource::<CursorGround>().0;
     let grid_target = {
         let grid = world.resource::<GridSnap>();
-        let step = world.resource::<crate::settings::EditorSettings>().viewport.grid_step;
+        let step = world
+            .resource::<crate::settings::EditorSettings>()
+            .viewport
+            .grid_step;
         cursor.map(|c| snapped(c, grid, step))
     };
 
-    let existing: Vec<Entity> =
-        world.query_filtered::<Entity, With<PreviewEntity>>().iter(world).collect();
+    let existing: Vec<Entity> = world
+        .query_filtered::<Entity, With<PreviewEntity>>()
+        .iter(world)
+        .collect();
 
     let want_preview = state_active && in_insert && kind_id.is_some() && grid_target.is_some();
     if !want_preview {
@@ -146,8 +155,10 @@ pub(crate) fn sync_preview(world: &mut World) {
     if let Some(&entity) = existing.first() {
         let preview_kind = world.get::<PreviewEntity>(entity).map(|p| p.kind.clone());
         if preview_kind.as_ref() == kind_id.as_ref() {
-            let offset =
-                world.get::<PreviewEntity>(entity).map(|p| p.offset).unwrap_or(Vec3::ZERO);
+            let offset = world
+                .get::<PreviewEntity>(entity)
+                .map(|p| p.offset)
+                .unwrap_or(Vec3::ZERO);
             if let Some(mut transform) = world.get_mut::<Transform>(entity) {
                 transform.translation = target + offset;
             }
@@ -171,17 +182,28 @@ pub(crate) fn sync_preview(world: &mut World) {
     let registry_arc = world.resource::<AppTypeRegistry>().clone();
     let registry = registry_arc.read();
     let entity = world
-        .spawn((PreviewEntity { kind: kind.id.clone(), offset: Vec3::ZERO }, InsertPreview))
+        .spawn((
+            PreviewEntity {
+                kind: kind.id.clone(),
+                offset: Vec3::ZERO,
+            },
+            InsertPreview,
+        ))
         .id();
     for value in components {
-        let Some(info) = value.get_represented_type_info() else { continue };
-        let Some(registration) = registry.get(info.type_id()) else { continue };
-        let Some(reflect_component) =
-            registration.data::<bevy::ecs::reflect::ReflectComponent>()
+        let Some(info) = value.get_represented_type_info() else {
+            continue;
+        };
+        let Some(registration) = registry.get(info.type_id()) else {
+            continue;
+        };
+        let Some(reflect_component) = registration.data::<bevy::ecs::reflect::ReflectComponent>()
         else {
             continue;
         };
-        let Ok(mut entity_mut) = world.get_entity_mut(entity) else { continue };
+        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+            continue;
+        };
         reflect_component.apply_or_insert_mapped(
             &mut entity_mut,
             value.as_ref(),
@@ -221,11 +243,15 @@ pub(crate) fn place_on_click(
     if !state.active || capture.0 || flying.0 || mode.0 != MODE_INSERT {
         return;
     }
-    let (Some(mouse), Some(target)) = (mouse, cursor.0) else { return };
+    let (Some(mouse), Some(target)) = (mouse, cursor.0) else {
+        return;
+    };
     if !mouse.just_pressed(MouseButton::Left) {
         return;
     }
-    let Some(kind) = insert.kind.as_ref().and_then(|id| catalog.get(id)) else { return };
+    let Some(kind) = insert.kind.as_ref().and_then(|id| catalog.get(id)) else {
+        return;
+    };
 
     let position = snapped(target, &grid, settings.viewport.grid_step);
     let id = SceneId::random();
@@ -245,8 +271,8 @@ pub(crate) fn place_on_click(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edits::History;
     use crate::EditorCorePlugin;
+    use crate::edits::History;
 
     #[derive(Component, Reflect, Default, Clone, PartialEq, Debug)]
     #[reflect(Component)]
@@ -256,16 +282,14 @@ mod tests {
 
     fn cube_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
         vec![
-            Box::new(Transform::from_translation(position + Vec3::Y * 0.5))
-                .into_partial_reflect(),
+            Box::new(Transform::from_translation(position + Vec3::Y * 0.5)).into_partial_reflect(),
             Box::new(Marker { tag: 7 }).into_partial_reflect(),
         ]
     }
 
     fn sphere_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
         vec![
-            Box::new(Transform::from_translation(position + Vec3::Y * 0.25))
-                .into_partial_reflect(),
+            Box::new(Transform::from_translation(position + Vec3::Y * 0.25)).into_partial_reflect(),
             Box::new(Marker { tag: 9 }).into_partial_reflect(),
         ]
     }
@@ -339,7 +363,9 @@ mod tests {
         let mut app = test_app();
         let catalog = app.world().resource::<crate::resolver::ActionCatalog>();
         assert!(
-            catalog.get(&ActionId::new_static("insert.kind.test-cube")).is_some(),
+            catalog
+                .get(&ActionId::new_static("insert.kind.test-cube"))
+                .is_some(),
             "registry-derived insert action exists"
         );
         invoke(&mut app, "insert.kind.test-cube");
@@ -365,11 +391,16 @@ mod tests {
         // Ghost exists at the snapped position with semantic components.
         let world = app.world_mut();
         let (preview_transform, marker) = {
-            let mut q = world.query_filtered::<(&Transform, Option<&Marker>), With<InsertPreview>>();
+            let mut q =
+                world.query_filtered::<(&Transform, Option<&Marker>), With<InsertPreview>>();
             let (t, m) = q.single(world).expect("one ghost preview");
             (*t, m.cloned())
         };
-        assert_eq!(preview_transform.translation, Vec3::new(2.0, 0.5, -2.0), "snapped+offset");
+        assert_eq!(
+            preview_transform.translation,
+            Vec3::new(2.0, 0.5, -2.0),
+            "snapped+offset"
+        );
         assert_eq!(marker, Some(Marker { tag: 7 }));
 
         // Regression (owner bug): after the cursor MOVES, the ghost must keep the
@@ -381,14 +412,22 @@ mod tests {
             let mut q = world.query_filtered::<&Transform, With<InsertPreview>>();
             *q.single(world).unwrap()
         };
-        assert_eq!(moved.translation, Vec3::new(5.0, 0.5, 3.0), "preview == placement");
+        assert_eq!(
+            moved.translation,
+            Vec3::new(5.0, 0.5, 3.0),
+            "preview == placement"
+        );
         app.world_mut().resource_mut::<CursorGround>().0 = Some(Vec3::new(2.3, 0.0, -1.7));
         app.update();
 
         // Shift-click: place and remain in insert mode.
         let depth_before = app.world().resource::<History>().undo_depth();
-        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(KeyCode::ShiftLeft);
-        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::ShiftLeft);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
         app.update();
         {
             let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
@@ -401,9 +440,15 @@ mod tests {
             mouse.release(MouseButton::Left);
         }
         app.update();
-        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().clear();
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .clear();
 
-        assert_eq!(app.world().resource::<CurrentMode>().0, MODE_INSERT, "shift keeps mode");
+        assert_eq!(
+            app.world().resource::<CurrentMode>().0,
+            MODE_INSERT,
+            "shift keeps mode"
+        );
         assert_eq!(
             app.world().resource::<History>().undo_depth(),
             depth_before + 1,
@@ -415,11 +460,20 @@ mod tests {
             .iter(world)
             .map(|t| t.translation)
             .collect();
-        assert_eq!(placed, vec![Vec3::new(2.0, 0.5, -2.0)], "snapped placement w/ offset");
+        assert_eq!(
+            placed,
+            vec![Vec3::new(2.0, 0.5, -2.0)],
+            "snapped placement w/ offset"
+        );
 
         // Plain click: places then returns to normal.
-        app.world_mut().resource_mut::<ButtonInput<MouseButton>>().press(MouseButton::Left);
+        app.world_mut()
+            .resource_mut::<ButtonInput<MouseButton>>()
+            .press(MouseButton::Left);
         app.update();
-        assert_eq!(app.world().resource::<CurrentMode>().0, crate::modes::MODE_NORMAL);
+        assert_eq!(
+            app.world().resource::<CurrentMode>().0,
+            crate::modes::MODE_NORMAL
+        );
     }
 }

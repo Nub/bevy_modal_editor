@@ -4,7 +4,7 @@
 //! Which-key data (A8) is derived from the same table — no hand-maintained hints.
 
 use crate::keymap_data::ResolvedKeymapData;
-use crate::modes::{set_mode, CurrentMode, ModeChanged, Modes, MODE_NORMAL};
+use crate::modes::{CurrentMode, MODE_NORMAL, ModeChanged, Modes, set_mode};
 use bevy::input::keyboard::KeyCode;
 use bevy::prelude::*;
 use editor_api::feature::ValidatedFeatures;
@@ -61,7 +61,9 @@ pub struct ActionCatalog {
 
 impl ActionCatalog {
     pub fn from_validated(validated: &ValidatedFeatures) -> Self {
-        Self { actions: validated.actions.iter().map(|(_, d)| d.clone()).collect() }
+        Self {
+            actions: validated.actions.iter().map(|(_, d)| d.clone()).collect(),
+        }
     }
     pub fn get(&self, id: &ActionId) -> Option<&ActionDef> {
         self.actions.iter().find(|a| &a.id == id)
@@ -80,9 +82,14 @@ fn current_modifiers(keys: &ButtonInput<KeyCode>) -> Modifiers {
 fn is_modifier(key: KeyCode) -> bool {
     matches!(
         key,
-        KeyCode::ControlLeft | KeyCode::ControlRight | KeyCode::ShiftLeft
-            | KeyCode::ShiftRight | KeyCode::AltLeft | KeyCode::AltRight
-            | KeyCode::SuperLeft | KeyCode::SuperRight
+        KeyCode::ControlLeft
+            | KeyCode::ControlRight
+            | KeyCode::ShiftLeft
+            | KeyCode::ShiftRight
+            | KeyCode::AltLeft
+            | KeyCode::AltRight
+            | KeyCode::SuperLeft
+            | KeyCode::SuperRight
     )
 }
 
@@ -104,10 +111,10 @@ pub fn active_contexts(
         // A focused panel LAYERS its context over the mode (owner: the hierarchy is
         // just another way to navigate the scene — select a row, press w, move it).
         // Panel bindings win conflicts; everything unbound falls through to the mode.
-        if let Some(panel) = &panel_focus.0 {
-            if let Some(decl) = panel_catalog.get(panel) {
-                return vec![decl.context.clone(), mode.context(), GLOBAL_CONTEXT];
-            }
+        if let Some(panel) = &panel_focus.0
+            && let Some(decl) = panel_catalog.get(panel)
+        {
+            return vec![decl.context.clone(), mode.context(), GLOBAL_CONTEXT];
         }
         vec![mode.context(), GLOBAL_CONTEXT]
     } else {
@@ -130,7 +137,9 @@ fn resolve_sequence(
     // keeps the sequence alive.
     let mut any_prefix = false;
     for context in contexts {
-        let Some(entries) = keymap.by_context.get(context) else { continue };
+        let Some(entries) = keymap.by_context.get(context) else {
+            continue;
+        };
         for (binding, action) in entries {
             if binding.0 == pending {
                 return Resolution::Exact(action.clone());
@@ -140,7 +149,11 @@ fn resolve_sequence(
             }
         }
     }
-    if any_prefix { Resolution::Prefix } else { Resolution::None }
+    if any_prefix {
+        Resolution::Prefix
+    } else {
+        Resolution::None
+    }
 }
 
 /// Which-key (A8): the continuations available after `pending`, derived from the
@@ -153,15 +166,19 @@ pub fn which_key_continuations(
     let mut seen: HashMap<Chord, (Binding, ActionId)> = HashMap::new();
     // Iterate lowest-priority first so higher-priority contexts overwrite.
     for context in contexts.iter().rev() {
-        let Some(entries) = keymap.by_context.get(context) else { continue };
+        let Some(entries) = keymap.by_context.get(context) else {
+            continue;
+        };
         for (binding, action) in entries {
             if binding.0.len() > pending.len() && binding.0.starts_with(pending) {
                 seen.insert(binding.0[pending.len()], (binding.clone(), action.clone()));
             }
         }
     }
-    let mut result: Vec<_> =
-        seen.into_iter().map(|(chord, (binding, action))| (chord, binding, action)).collect();
+    let mut result: Vec<_> = seen
+        .into_iter()
+        .map(|(chord, (binding, action))| (chord, binding, action))
+        .collect();
     result.sort_by_key(|(chord, ..)| format!("{chord}"));
     result
 }
@@ -215,7 +232,10 @@ pub fn resolve_input(
             continue;
         }
 
-        pending.0.push(Chord { modifiers, key: *key });
+        pending.0.push(Chord {
+            modifiers,
+            key: *key,
+        });
         let contexts = active_contexts(&state, &mode, &overlay, &panel_focus, &panel_catalog);
         match resolve_sequence(&keymap, &contexts, &pending.0) {
             Resolution::Exact(action) => {
@@ -273,8 +293,8 @@ pub fn apply_action_conventions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keymap_data::{build_keymap, KeymapPaths, UserKeymap, UserOverride};
     use crate::EditorCorePlugin;
+    use crate::keymap_data::{KeymapPaths, UserKeymap, UserOverride, build_keymap};
     use editor_api::feature::FeatureRegistry;
 
     struct TestFeature;
@@ -284,12 +304,26 @@ mod tests {
         }
         fn register(&self, reg: &mut FeatureRegistry) {
             reg.mode(ModeDef::new("test-mode", "TestMode"))
-                .action(ActionDef::new("test.undo", "Undo").context("normal").bind("x"))
-                .action(ActionDef::new("test.top", "Top").context("normal").bind("g g"))
                 .action(
-                    ActionDef::new("test.place", "Place").context("test-mode").bind("x"),
+                    ActionDef::new("test.undo", "Undo")
+                        .context("normal")
+                        .bind("x"),
                 )
-                .action(ActionDef::new("mode.test-mode", "Test Mode").context("normal").bind("m"));
+                .action(
+                    ActionDef::new("test.top", "Top")
+                        .context("normal")
+                        .bind("g g"),
+                )
+                .action(
+                    ActionDef::new("test.place", "Place")
+                        .context("test-mode")
+                        .bind("x"),
+                )
+                .action(
+                    ActionDef::new("mode.test-mode", "Test Mode")
+                        .context("normal")
+                        .bind("m"),
+                );
         }
     }
 
@@ -310,7 +344,9 @@ mod tests {
     /// per-frame `clear()` (of just_pressed/just_released) that
     /// `keyboard_input_system` would normally do.
     fn press(app: &mut App, key: KeyCode) {
-        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().press(key);
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(key);
         app.update();
         {
             let mut keys = app.world_mut().resource_mut::<ButtonInput<KeyCode>>();
@@ -318,7 +354,9 @@ mod tests {
             keys.release(key);
         }
         app.update();
-        app.world_mut().resource_mut::<ButtonInput<KeyCode>>().clear();
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .clear();
     }
 
     fn drain_actions(app: &mut App) -> Vec<ActionId> {
@@ -350,7 +388,10 @@ mod tests {
         press(&mut app, KeyCode::KeyG);
         assert!(drain_actions(&mut app).is_empty(), "prefix must not fire");
         press(&mut app, KeyCode::KeyG);
-        assert_eq!(drain_actions(&mut app), vec![ActionId::new_static("test.top")]);
+        assert_eq!(
+            drain_actions(&mut app),
+            vec![ActionId::new_static("test.top")]
+        );
     }
 
     // A4: mode switch changes what resolves
@@ -403,8 +444,11 @@ mod tests {
                 FeatureManifest::new("core", "Core")
             }
             fn register(&self, reg: &mut FeatureRegistry) {
-                reg.mode(ModeDef::new("normal", "Normal"))
-                    .action(ActionDef::new("core.undo", "Undo").context("normal").bind("u"));
+                reg.mode(ModeDef::new("normal", "Normal")).action(
+                    ActionDef::new("core.undo", "Undo")
+                        .context("normal")
+                        .bind("u"),
+                );
             }
         }
         reg.register_feature(&Core);
@@ -423,7 +467,9 @@ mod tests {
 
         let with_user = build_keymap(
             &validated,
-            &KeymapPaths { user: Some(path.clone()) },
+            &KeymapPaths {
+                user: Some(path.clone()),
+            },
         )
         .unwrap();
         let normal = &with_user.by_context[&ContextId::new_static("normal")];

@@ -25,7 +25,9 @@ fn key(
         } else {
             bevy::input::ButtonState::Released
         },
-        text: (pressed).then(|| ch.unwrap_or_default().into()).filter(|_| ch.is_some()),
+        text: (pressed)
+            .then(|| ch.unwrap_or_default().into())
+            .filter(|_| ch.is_some()),
         repeat: false,
         window,
     });
@@ -40,7 +42,16 @@ pub(crate) fn probe_prefab(
     state: Res<EditorState>,
     mode: Res<CurrentMode>,
     palette: Res<crate::palette::PaletteState>,
-    roots: Query<(Entity, Option<&Name>, &Transform, Option<&Children>, Has<Selected>), With<PrefabInstance>>,
+    roots: Query<
+        (
+            Entity,
+            Option<&Name>,
+            &Transform,
+            Option<&Children>,
+            Has<Selected>,
+        ),
+        With<PrefabInstance>,
+    >,
     stamped: Query<
         (
             Entity,
@@ -53,7 +64,10 @@ pub(crate) fn probe_prefab(
         With<PrefabStamped>,
     >,
     preview_subject: Res<crate::palette_preview::PreviewSubject>,
-    preview_content: Query<(Has<Mesh3d>, Option<&bevy::camera::visibility::RenderLayers>), With<crate::palette_preview::PreviewContent>>,
+    preview_content: Query<
+        (Has<Mesh3d>, Option<&bevy::camera::visibility::RenderLayers>),
+        With<crate::palette_preview::PreviewContent>,
+    >,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Ok(window) = window.single() else { return };
@@ -61,8 +75,22 @@ pub(crate) fn probe_prefab(
     use bevy::input::keyboard::Key;
     match *frames {
         // Leave the main menu.
-        60 => key(&mut key_events, window, KeyCode::Enter, Key::Enter, None, true),
-        62 => key(&mut key_events, window, KeyCode::Enter, Key::Enter, None, false),
+        60 => key(
+            &mut key_events,
+            window,
+            KeyCode::Enter,
+            Key::Enter,
+            None,
+            true,
+        ),
+        62 => key(
+            &mut key_events,
+            window,
+            KeyCode::Enter,
+            Key::Enter,
+            None,
+            false,
+        ),
         90 => {
             writer.write(ActionInvoked {
                 action: ActionId::new_static("core.toggle-editor"),
@@ -72,18 +100,77 @@ pub(crate) fn probe_prefab(
         }
         120 => {
             info!("PROBE editor active={} mode={:?}", state.active, mode.0);
-            key(&mut key_events, window, KeyCode::KeyI, Key::Character("i".into()), Some("i"), true);
+            key(
+                &mut key_events,
+                window,
+                KeyCode::KeyI,
+                Key::Character("i".into()),
+                Some("i"),
+                true,
+            );
         }
-        122 => key(&mut key_events, window, KeyCode::KeyI, Key::Character("i".into()), Some("i"), false),
+        122 => key(
+            &mut key_events,
+            window,
+            KeyCode::KeyI,
+            Key::Character("i".into()),
+            Some("i"),
+            false,
+        ),
         150 => {
-            info!("PROBE after i: palette open={} mode={:?}", palette.open, mode.0);
-            key(&mut key_events, window, KeyCode::KeyC, Key::Character("c".into()), Some("c"), true);
+            info!(
+                "PROBE after i: palette open={} mode={:?}",
+                palette.open, mode.0
+            );
+            key(
+                &mut key_events,
+                window,
+                KeyCode::KeyC,
+                Key::Character("c".into()),
+                Some("c"),
+                true,
+            );
         }
-        152 => key(&mut key_events, window, KeyCode::KeyC, Key::Character("c".into()), Some("c"), false),
-        154 => key(&mut key_events, window, KeyCode::KeyU, Key::Character("u".into()), Some("u"), true),
-        156 => key(&mut key_events, window, KeyCode::KeyU, Key::Character("u".into()), Some("u"), false),
-        158 => key(&mut key_events, window, KeyCode::KeyB, Key::Character("b".into()), Some("b"), true),
-        160 => key(&mut key_events, window, KeyCode::KeyB, Key::Character("b".into()), Some("b"), false),
+        152 => key(
+            &mut key_events,
+            window,
+            KeyCode::KeyC,
+            Key::Character("c".into()),
+            Some("c"),
+            false,
+        ),
+        154 => key(
+            &mut key_events,
+            window,
+            KeyCode::KeyU,
+            Key::Character("u".into()),
+            Some("u"),
+            true,
+        ),
+        156 => key(
+            &mut key_events,
+            window,
+            KeyCode::KeyU,
+            Key::Character("u".into()),
+            Some("u"),
+            false,
+        ),
+        158 => key(
+            &mut key_events,
+            window,
+            KeyCode::KeyB,
+            Key::Character("b".into()),
+            Some("b"),
+            true,
+        ),
+        160 => key(
+            &mut key_events,
+            window,
+            KeyCode::KeyB,
+            Key::Character("b".into()),
+            Some("b"),
+            false,
+        ),
         185 => {
             // Preview must be LIVE while a placeable row is highlighted.
             let has_subject = preview_subject.0.is_some();
@@ -103,9 +190,23 @@ pub(crate) fn probe_prefab(
         }
         190 => {
             info!("PROBE query typed, palette open={}", palette.open);
-            key(&mut key_events, window, KeyCode::Enter, Key::Enter, None, true);
+            key(
+                &mut key_events,
+                window,
+                KeyCode::Enter,
+                Key::Enter,
+                None,
+                true,
+            );
         }
-        192 => key(&mut key_events, window, KeyCode::Enter, Key::Enter, None, false),
+        192 => key(
+            &mut key_events,
+            window,
+            KeyCode::Enter,
+            Key::Enter,
+            None,
+            false,
+        ),
         260 => {
             let mut failures: Vec<String> = Vec::new();
             let mut check = |ok: bool, what: &str| {
@@ -115,7 +216,10 @@ pub(crate) fn probe_prefab(
             };
             check(!palette.open, "palette closed after Enter");
             check(mode.0 == MODE_NORMAL, "back in normal mode after placement");
-            check(roots.iter().count() == 1, "exactly one instance root placed");
+            check(
+                roots.iter().count() == 1,
+                "exactly one instance root placed",
+            );
             let mut root_at = Vec3::ZERO;
             for (entity, name, transform, children, selected) in roots.iter() {
                 root_at = transform.translation;
@@ -126,8 +230,14 @@ pub(crate) fn probe_prefab(
                     children.map(|c| c.len()).unwrap_or(0)
                 );
                 check(selected, "placed instance is selected");
-                check(name.is_some_and(|n| n.as_str() != "Prefab Instance"), "root named after the prefab");
-                check(children.is_some_and(|c| c.len() >= 1), "template stamped under the root");
+                check(
+                    name.is_some_and(|n| n.as_str() != "Prefab Instance"),
+                    "root named after the prefab",
+                );
+                check(
+                    children.is_some_and(|c| !c.is_empty()),
+                    "template stamped under the root",
+                );
             }
             for (entity, name, has_mesh, global, view, inherited) in stamped.iter() {
                 info!(
@@ -139,7 +249,10 @@ pub(crate) fn probe_prefab(
                     inherited.map(|v| v.get()),
                 );
                 check(has_mesh, "stamped entity has a mesh (regenerate fired)");
-                check(view.is_some_and(|v| v.get()), "stamped entity passes visibility");
+                check(
+                    view.is_some_and(|v| v.get()),
+                    "stamped entity passes visibility",
+                );
                 check(
                     global.translation().distance(root_at) < 5.0,
                     "stamped entity stays near its root (template centered)",

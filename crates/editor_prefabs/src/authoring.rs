@@ -2,13 +2,13 @@
 //! overrides, apply-to-prefab, library dir loading, generation-driven restamp.
 
 use crate::{
-    stamp_prefab, OverridePatch, PrefabDef, PrefabInstance, PrefabLibrary, PrefabOverrides,
-    StampedFrom,
+    OverridePatch, PrefabDef, PrefabInstance, PrefabLibrary, PrefabOverrides, StampedFrom,
+    stamp_prefab,
 };
 use bevy::prelude::*;
 use editor_core::edits::EditorComponents;
 use editor_core::prelude::*;
-use editor_scene::{snapshot_from_parts, PrefabStamped};
+use editor_scene::{PrefabStamped, snapshot_from_parts};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -83,14 +83,13 @@ pub(crate) fn collect_prefab_actions(
             "prefab.apply-to-prefab" => requests.apply = true,
             "prefab.open" => requests.open_toggle = true,
             "prefab.flatten" => requests.flatten = true,
-            "core.escape-home" => {
+            "core.escape-home"
                 if open.0.is_some()
                     && !escape_from_capture.0
                     && panel_focus.0.is_none()
-                    && mode.0 == editor_core::MODE_NORMAL
-                {
-                    requests.escape_close = true;
-                }
+                    && mode.0 == editor_core::MODE_NORMAL =>
+            {
+                requests.escape_close = true;
             }
             _ => {}
         }
@@ -101,7 +100,9 @@ pub(crate) fn collect_prefab_actions(
 pub(crate) fn load_prefab_library(world: &mut World) {
     let registry = world.resource::<AppTypeRegistry>().clone();
     let registry = registry.read();
-    let Ok(entries) = std::fs::read_dir(PREFABS_DIR) else { return };
+    let Ok(entries) = std::fs::read_dir(PREFABS_DIR) else {
+        return;
+    };
     let mut loaded = 0usize;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -122,7 +123,10 @@ pub(crate) fn load_prefab_library(world: &mut World) {
                         info!("prefab '{}' migrated to centered template", def.name);
                     }
                 }
-                world.resource_mut::<PrefabLibrary>().prefabs.insert(def.id, def);
+                world
+                    .resource_mut::<PrefabLibrary>()
+                    .prefabs
+                    .insert(def.id, def);
                 loaded += 1;
             }
             Err(e) => error!("prefab load failed for {}: {e}", path.display()),
@@ -136,7 +140,9 @@ pub(crate) fn load_prefab_library(world: &mut World) {
 
 /// Concrete `Transform` from a snapshot value (which may be a DYNAMIC struct
 /// fresh off the RON deserializer — `try_downcast_ref` would always miss).
-fn reflect_transform(value: &(impl AsRef<dyn bevy::reflect::PartialReflect> + ?Sized)) -> Option<Transform> {
+fn reflect_transform(
+    value: &(impl AsRef<dyn bevy::reflect::PartialReflect> + ?Sized),
+) -> Option<Transform> {
     let value = value.as_ref();
     let is_transform = value
         .get_represented_type_info()
@@ -149,7 +155,9 @@ fn reflect_transform(value: &(impl AsRef<dyn bevy::reflect::PartialReflect> + ?S
 
 /// `Some(centered)` if the template's top-level records aren't centered on the
 /// root (centroid off origin beyond float noise) — the legacy-format migration.
-pub(crate) fn center_template(template: &editor_scene::SceneSnapshot) -> Option<editor_scene::SceneSnapshot> {
+pub(crate) fn center_template(
+    template: &editor_scene::SceneSnapshot,
+) -> Option<editor_scene::SceneSnapshot> {
     let mut centroid = Vec3::ZERO;
     let mut top_level = 0usize;
     for (_, parent, components) in template.records() {
@@ -175,11 +183,11 @@ pub(crate) fn center_template(template: &editor_scene::SceneSnapshot) -> Option<
             let values: Vec<Box<dyn bevy::reflect::PartialReflect>> = components
                 .iter()
                 .map(|c| {
-                    if parent.is_none() {
-                        if let Some(mut rebased) = reflect_transform(c) {
-                            rebased.translation -= centroid;
-                            return Box::new(rebased) as Box<dyn bevy::reflect::PartialReflect>;
-                        }
+                    if parent.is_none()
+                        && let Some(mut rebased) = reflect_transform(c)
+                    {
+                        rebased.translation -= centroid;
+                        return Box::new(rebased) as Box<dyn bevy::reflect::PartialReflect>;
                     }
                     c.to_dynamic()
                 })
@@ -197,8 +205,10 @@ pub(crate) fn save_prefab_public(world: &World, def: &PrefabDef) {
 fn save_prefab(world: &World, def: &PrefabDef) {
     let registry = world.resource::<AppTypeRegistry>().clone();
     let _ = std::fs::create_dir_all(PREFABS_DIR);
-    let path = PathBuf::from(PREFABS_DIR)
-        .join(format!("{}.prefab.ron", def.name.to_lowercase().replace(' ', "-")));
+    let path = PathBuf::from(PREFABS_DIR).join(format!(
+        "{}.prefab.ron",
+        def.name.to_lowercase().replace(' ', "-")
+    ));
     if let Err(e) = def.save(&path, &registry.read()) {
         error!("prefab save failed: {e}");
     }
@@ -271,8 +281,12 @@ fn restamp(world: &mut World, root_id: SceneId) {
             entity.despawn();
         }
     }
-    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else { return };
-    let Some(instance) = world.get::<PrefabInstance>(root).copied() else { return };
+    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
+    let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
+        return;
+    };
     stamp_prefab(world, instance.0, root);
 }
 
@@ -280,7 +294,9 @@ fn restamp(world: &mut World, root_id: SceneId) {
 /// override component Set is undoable, but the diff re-derives from restamped
 /// state — revert is treated as a deliberate reset, not a history entry.)
 fn revert_overrides(world: &mut World, root_id: SceneId) {
-    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else { return };
+    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
     if let Some(mut overrides) = world.get_mut::<PrefabOverrides>(root) {
         overrides.0.clear();
     }
@@ -289,10 +305,16 @@ fn revert_overrides(world: &mut World, root_id: SceneId) {
 
 /// Fold this instance's deltas INTO the template, save, propagate everywhere.
 fn apply_to_prefab(world: &mut World, root_id: SceneId) {
-    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else { return };
-    let Some(instance) = world.get::<PrefabInstance>(root).copied() else { return };
-    let patches: Vec<OverridePatch> =
-        world.get::<PrefabOverrides>(root).map(|o| o.0.clone()).unwrap_or_default();
+    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
+    let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
+        return;
+    };
+    let patches: Vec<OverridePatch> = world
+        .get::<PrefabOverrides>(root)
+        .map(|o| o.0.clone())
+        .unwrap_or_default();
     if patches.is_empty() {
         return;
     }
@@ -300,37 +322,43 @@ fn apply_to_prefab(world: &mut World, root_id: SceneId) {
     let registry = registry_arc.read();
     {
         let mut library = world.resource_mut::<PrefabLibrary>();
-        let Some(prefab) = library.prefabs.get_mut(&instance.0) else { return };
+        let Some(prefab) = library.prefabs.get_mut(&instance.0) else {
+            return;
+        };
         // Rebuild the template with patches folded in.
-        let records: Vec<(SceneId, Option<SceneId>, Vec<Box<dyn bevy::reflect::PartialReflect>>)> =
-            prefab
-                .template
-                .records()
-                .map(|(id, parent, components)| {
-                    let components = components
-                        .iter()
-                        .map(|value| {
-                            let mut dynamic = value.to_dynamic();
-                            let type_path = value
-                                .get_represented_type_info()
-                                .map(|i| i.type_path())
-                                .unwrap_or_default();
-                            for patch in patches.iter().filter(|p| {
-                                p.entity == id.0.to_string() && p.type_path == type_path
-                            }) {
-                                crate::overrides::apply_patch_value(
-                                    &registry,
-                                    dynamic.as_mut(),
-                                    &patch.path,
-                                    &patch.value,
-                                );
-                            }
-                            dynamic
-                        })
-                        .collect();
-                    (id, parent, components)
-                })
-                .collect();
+        let records: Vec<(
+            SceneId,
+            Option<SceneId>,
+            Vec<Box<dyn bevy::reflect::PartialReflect>>,
+        )> = prefab
+            .template
+            .records()
+            .map(|(id, parent, components)| {
+                let components = components
+                    .iter()
+                    .map(|value| {
+                        let mut dynamic = value.to_dynamic();
+                        let type_path = value
+                            .get_represented_type_info()
+                            .map(|i| i.type_path())
+                            .unwrap_or_default();
+                        for patch in patches
+                            .iter()
+                            .filter(|p| p.entity == id.0.to_string() && p.type_path == type_path)
+                        {
+                            crate::overrides::apply_patch_value(
+                                &registry,
+                                dynamic.as_mut(),
+                                &patch.path,
+                                &patch.value,
+                            );
+                        }
+                        dynamic
+                    })
+                    .collect();
+                (id, parent, components)
+            })
+            .collect();
         prefab.template = snapshot_from_parts(records);
         prefab.generation_note();
     }
@@ -365,8 +393,8 @@ pub(crate) fn group_selection(world: &mut World, name: String) {
     let registry = registry_arc.read();
     let components = world.resource::<EditorComponents>().types.clone();
     let selected: Vec<(Entity, SceneId)> = {
-        let mut query = world
-            .query_filtered::<(Entity, &SceneId), (With<Selected>, Without<PrefabStamped>)>();
+        let mut query =
+            world.query_filtered::<(Entity, &SceneId), (With<Selected>, Without<PrefabStamped>)>();
         let mut all: Vec<_> = query.iter(world).map(|(e, id)| (e, *id)).collect();
         all.sort_by_key(|(_, id)| id.0);
         all
@@ -374,7 +402,11 @@ pub(crate) fn group_selection(world: &mut World, name: String) {
     if selected.is_empty() {
         return;
     }
-    let name = if name.trim().is_empty() { "Prefab".to_string() } else { name.trim().to_string() };
+    let name = if name.trim().is_empty() {
+        "Prefab".to_string()
+    } else {
+        name.trim().to_string()
+    };
     let selected_ids: std::collections::HashSet<SceneId> =
         selected.iter().map(|(_, id)| *id).collect();
     // Pivot: average translation of top-level members (parent not in selection).
@@ -385,11 +417,9 @@ pub(crate) fn group_selection(world: &mut World, name: String) {
             .get::<ChildOf>(*entity)
             .and_then(|c| world.get::<SceneId>(c.parent()))
             .is_some_and(|p| selected_ids.contains(p));
-        if !parent_in_selection {
-            if let Some(transform) = world.get::<Transform>(*entity) {
-                pivot += transform.translation;
-                top_level += 1;
-            }
+        if !parent_in_selection && let Some(transform) = world.get::<Transform>(*entity) {
+            pivot += transform.translation;
+            top_level += 1;
         }
     }
     if top_level > 0 {
@@ -398,54 +428,63 @@ pub(crate) fn group_selection(world: &mut World, name: String) {
     // Ground-project the pivot: members keep their heights, so an instance
     // placed at a ground point sits ON the ground, not sunk to half-height.
     pivot.y = 0.0;
-    let records: Vec<(SceneId, Option<SceneId>, Vec<Box<dyn bevy::reflect::PartialReflect>>)> =
-        selected
-            .iter()
-            .map(|(entity, id)| {
-                let parent = world
-                    .get::<ChildOf>(*entity)
-                    .and_then(|c| world.get::<SceneId>(c.parent()))
-                    .copied()
-                    .filter(|p| selected_ids.contains(p));
-                let values = components
-                    .iter()
-                    .filter_map(|reg| {
-                        let reflect_component = registry
-                            .get(reg.type_id)?
-                            .data::<bevy::ecs::reflect::ReflectComponent>()?;
-                        let entity_ref = world.get_entity(*entity).ok()?;
-                        let value = reflect_component.reflect(entity_ref)?;
-                        // Top-level members rebase around the pivot.
-                        if parent.is_none() {
-                            if let Some(transform) =
-                                value.as_partial_reflect().try_downcast_ref::<Transform>()
-                            {
-                                let mut rebased = *transform;
-                                rebased.translation -= pivot;
-                                return Some(
-                                    Box::new(rebased).into_partial_reflect(),
-                                );
-                            }
-                        }
-                        Some(value.to_dynamic())
-                    })
-                    .collect();
-                (*id, parent, values)
-            })
-            .collect();
+    let records: Vec<(
+        SceneId,
+        Option<SceneId>,
+        Vec<Box<dyn bevy::reflect::PartialReflect>>,
+    )> = selected
+        .iter()
+        .map(|(entity, id)| {
+            let parent = world
+                .get::<ChildOf>(*entity)
+                .and_then(|c| world.get::<SceneId>(c.parent()))
+                .copied()
+                .filter(|p| selected_ids.contains(p));
+            let values = components
+                .iter()
+                .filter_map(|reg| {
+                    let reflect_component = registry
+                        .get(reg.type_id)?
+                        .data::<bevy::ecs::reflect::ReflectComponent>()?;
+                    let entity_ref = world.get_entity(*entity).ok()?;
+                    let value = reflect_component.reflect(entity_ref)?;
+                    // Top-level members rebase around the pivot.
+                    if parent.is_none()
+                        && let Some(transform) =
+                            value.as_partial_reflect().try_downcast_ref::<Transform>()
+                    {
+                        let mut rebased = *transform;
+                        rebased.translation -= pivot;
+                        return Some(Box::new(rebased).into_partial_reflect());
+                    }
+                    Some(value.to_dynamic())
+                })
+                .collect();
+            (*id, parent, values)
+        })
+        .collect();
     drop(registry);
-    let def = PrefabDef { id: Uuid::new_v4(), name, template: snapshot_from_parts(records) };
+    let def = PrefabDef {
+        id: Uuid::new_v4(),
+        name,
+        template: snapshot_from_parts(records),
+    };
     save_prefab(world, &def);
     let prefab_id = def.id;
     let prefab_name = def.name.clone();
     let count = def.template.records().count();
-    world.resource_mut::<PrefabLibrary>().prefabs.insert(def.id, def);
+    world
+        .resource_mut::<PrefabLibrary>()
+        .prefabs
+        .insert(def.id, def);
     world.resource_mut::<PrefabLibrary>().generation += 1;
 
     // Replace the selection with an instance — ONE undoable transaction.
     let root_id = SceneId::random();
-    let mut ops: Vec<Op> =
-        selected.iter().map(|(_, id)| Op::Despawn { id: *id }).collect();
+    let mut ops: Vec<Op> = selected
+        .iter()
+        .map(|(_, id)| Op::Despawn { id: *id })
+        .collect();
     ops.push(Op::Spawn {
         id: root_id,
         components: vec![
@@ -476,7 +515,9 @@ pub(crate) fn select_grouped(
     mut commands: Commands,
 ) {
     let Some(root_id) = pending.0 else { return };
-    let Some(entity) = index.get(&root_id) else { return };
+    let Some(entity) = index.get(&root_id) else {
+        return;
+    };
     pending.0 = None;
     for entity in &previous {
         commands.entity(entity).remove::<Selected>();
@@ -497,9 +538,16 @@ fn make_variant(world: &mut World, name: String) {
         });
         return;
     };
-    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else { return };
-    let Some(base) = world.get::<PrefabInstance>(root).copied() else { return };
-    let deltas = world.get::<PrefabOverrides>(root).cloned().unwrap_or_default();
+    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
+    let Some(base) = world.get::<PrefabInstance>(root).copied() else {
+        return;
+    };
+    let deltas = world
+        .get::<PrefabOverrides>(root)
+        .cloned()
+        .unwrap_or_default();
     let transform = world.get::<Transform>(root).copied().unwrap_or_default();
     let base_name = world
         .resource::<PrefabLibrary>()
@@ -524,7 +572,10 @@ fn make_variant(world: &mut World, name: String) {
         )]),
     };
     save_prefab(world, &def);
-    world.resource_mut::<PrefabLibrary>().prefabs.insert(variant_id, def);
+    world
+        .resource_mut::<PrefabLibrary>()
+        .prefabs
+        .insert(variant_id, def);
     world.resource_mut::<PrefabLibrary>().generation += 1;
 
     // Replace the source instance in place, one undoable transaction.

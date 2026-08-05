@@ -62,4 +62,3 @@ impl Default for OutlineSettings {
         Self { enabled: true }
     }
 }
-

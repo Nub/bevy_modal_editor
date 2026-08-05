@@ -5,8 +5,8 @@
 use bevy::feathers::controls::{FeathersTextInput, FeathersTextInputContainer};
 use bevy::feathers::theme::ThemeBackgroundColor;
 use bevy::feathers::tokens;
-use bevy::input::keyboard::KeyboardInput;
 use bevy::input::ButtonState;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::input_focus::{FocusCause, FocusedInput, InputFocus};
 use bevy::prelude::*;
 use bevy::ui::px;
@@ -22,7 +22,11 @@ pub(crate) struct PromptInput;
 #[derive(Component, Default, Clone)]
 pub(crate) struct PromptTitle;
 
-pub(crate) fn spawn_prompt(mut commands: Commands, fonts: Res<UiFonts>, settings: Res<EditorSettings>) {
+pub(crate) fn spawn_prompt(
+    mut commands: Commands,
+    fonts: Res<UiFonts>,
+    settings: Res<EditorSettings>,
+) {
     let ui = settings.ui.clone();
     commands
         .spawn((
@@ -75,7 +79,9 @@ pub(crate) fn attach_prompt_input(
         return;
     }
     let Ok(children) = root.single() else { return };
-    let Some(panel) = children.iter().next() else { return };
+    let Some(panel) = children.iter().next() else {
+        return;
+    };
     let input = commands
         .spawn_scene(bsn! {
             @FeathersTextInputContainer
@@ -108,7 +114,11 @@ pub(crate) fn sync_prompt(
     }
     *was_open = prompt.open;
     for mut visibility in &mut root {
-        *visibility = if prompt.open { Visibility::Visible } else { Visibility::Hidden };
+        *visibility = if prompt.open {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
     if prompt.open {
         for mut text in &mut title {
@@ -123,7 +133,10 @@ pub(crate) fn sync_prompt(
             }
             focus.set(entity, FocusCause::Navigated);
         }
-    } else if focus.get().is_some_and(|f| input.single().is_ok_and(|i| i == f)) {
+    } else if focus
+        .get()
+        .is_some_and(|f| input.single().is_ok_and(|i| i == f))
+    {
         focus.clear();
     }
 }

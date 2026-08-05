@@ -13,8 +13,8 @@ use bevy::feathers::controls::{FeathersTextInput, FeathersTextInputContainer};
 use bevy::feathers::font_styles::InheritableFont;
 use bevy::feathers::theme::ThemeBackgroundColor;
 use bevy::feathers::tokens;
-use bevy::input::keyboard::KeyboardInput;
 use bevy::input::ButtonState;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::input_focus::{FocusCause, FocusedInput, InputFocus};
 use bevy::prelude::*;
 use bevy::text::TextEditChange;
@@ -22,7 +22,7 @@ use bevy::ui::px;
 use bevy::ui_widgets::SelectAllOnFocus;
 use editor_core::prelude::*;
 
-use crate::palette_engine::{rank, PaletteEntry, PaletteItems, PalettePayload};
+use crate::palette_engine::{PaletteEntry, PaletteItems, PalettePayload, rank};
 use crate::style::{self, UiFonts};
 
 /// What this palette is browsing (v1's typed open-modes, spec §7): filters are
@@ -199,7 +199,7 @@ fn flat_len(sections: &[DisplaySection]) -> usize {
     sections.iter().map(|s| s.rows.len()).sum()
 }
 
-fn flat_get<'a>(sections: &'a [DisplaySection], index: usize) -> Option<&'a DisplayRow> {
+fn flat_get(sections: &[DisplaySection], index: usize) -> Option<&DisplayRow> {
     sections.iter().flat_map(|s| &s.rows).nth(index)
 }
 
@@ -346,30 +346,28 @@ fn entry_for_action(
 
 /// Ranked view: empty query keeps category grouping (source order); a live query
 /// flattens to best-match-first (what fingers expect from fuzzy search).
-fn display_sections(
-    items: &PaletteItems,
-    query: &str,
-    max_results: usize,
-) -> Vec<DisplaySection> {
+fn display_sections(items: &PaletteItems, query: &str, max_results: usize) -> Vec<DisplaySection> {
     let ranked = rank(&items.0, query);
     let mut sections: Vec<DisplaySection> = Vec::new();
-    let mut total = 0usize;
-    for index in ranked {
-        if total >= max_results {
-            break;
-        }
+    for index in ranked.into_iter().take(max_results) {
         let item = &items.0[index];
         let row = DisplayRow {
             label: item.label.clone(),
             suffix: item.suffix.clone(),
             item: index,
         };
-        let title = if query.is_empty() { item.category.clone() } else { None };
+        let title = if query.is_empty() {
+            item.category.clone()
+        } else {
+            None
+        };
         match sections.last_mut() {
             Some(section) if section.title == title => section.rows.push(row),
-            _ => sections.push(DisplaySection { title, rows: vec![row] }),
+            _ => sections.push(DisplaySection {
+                title,
+                rows: vec![row],
+            }),
         }
-        total += 1;
     }
     sections
 }
@@ -601,8 +599,7 @@ fn palette_keys(
                                             .into_partial_reflect(),
                                         Box::new(Transform::from_translation(at))
                                             .into_partial_reflect(),
-                                        Box::new(Name::new(name.clone()))
-                                            .into_partial_reflect(),
+                                        Box::new(Name::new(name.clone())).into_partial_reflect(),
                                     ],
                                 }],
                             });
@@ -612,11 +609,9 @@ fn palette_keys(
                                 .resource_mut::<editor_prefabs::authoring::PendingGroupSelect>()
                                 .0 = Some(id);
                             let from = {
-                                let mut current =
-                                    world.resource_mut::<CurrentMode>();
-                                (current.0 != MODE_NORMAL).then(|| {
-                                    std::mem::replace(&mut current.0, MODE_NORMAL)
-                                })
+                                let mut current = world.resource_mut::<CurrentMode>();
+                                (current.0 != MODE_NORMAL)
+                                    .then(|| std::mem::replace(&mut current.0, MODE_NORMAL))
                             };
                             if let Some(from) = from {
                                 world.write_message(ModeChanged {
@@ -634,8 +629,7 @@ fn palette_keys(
                         let material = *material;
                         commands.queue(move |world: &mut World| {
                             let selected: Vec<SceneId> = {
-                                let mut query = world
-                                    .query_filtered::<&SceneId, With<Selected>>();
+                                let mut query = world.query_filtered::<&SceneId, With<Selected>>();
                                 query.iter(world).copied().collect()
                             };
                             if selected.is_empty() {
@@ -646,10 +640,8 @@ fn palette_keys(
                                 .into_iter()
                                 .map(|target| Op::Set {
                                     target,
-                                    value: Box::new(
-                                        editor_scene::materials::MaterialRef(material),
-                                    )
-                                    .into_partial_reflect(),
+                                    value: Box::new(editor_scene::materials::MaterialRef(material))
+                                        .into_partial_reflect(),
                                 })
                                 .collect::<Vec<_>>();
                             world.resource_mut::<EditQueue>().0.push(Transaction {
@@ -736,7 +728,9 @@ fn apply_search_font_setting(
     if !settings.is_changed() {
         return;
     }
-    let Some(mut font) = search.map(Single::into_inner) else { return };
+    let Some(mut font) = search.map(Single::into_inner) else {
+        return;
+    };
     font.font_size = bevy::text::FontSize::Px(settings.ui.font_size_search);
 }
 
@@ -828,7 +822,10 @@ fn rebuild_results(
                 Text::new("no matching actions"),
                 style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
-                Node { padding: UiRect::all(px(style::space::S)), ..default() },
+                Node {
+                    padding: UiRect::all(px(style::space::S)),
+                    ..default()
+                },
             ));
         }
     });
@@ -893,7 +890,10 @@ fn rebuild_results(
                 Text::new("⏎ select in viewport"),
                 style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
-                Node { margin: UiRect::top(px(style::space::XS)), ..default() },
+                Node {
+                    margin: UiRect::top(px(style::space::XS)),
+                    ..default()
+                },
             ));
             return;
         }
@@ -905,7 +905,10 @@ fn rebuild_results(
             ));
             return;
         };
-        pane.spawn((Text::new(def.name.to_string()), style::sans_medium(&fonts, ui.font_size_m)));
+        pane.spawn((
+            Text::new(def.name.to_string()),
+            style::sans_medium(&fonts, ui.font_size_m),
+        ));
         pane.spawn((
             Text::new(def.id.to_string()),
             style::mono(&fonts, ui.font_size_xs),
@@ -916,16 +919,22 @@ fn rebuild_results(
                 Text::new(def.description.to_string()),
                 style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
-                Node { margin: UiRect::top(px(style::space::XS)), ..default() },
+                Node {
+                    margin: UiRect::top(px(style::space::XS)),
+                    ..default()
+                },
             ));
         }
         let bindings: Vec<String> = keymap
             .by_context
             .iter()
             .flat_map(|(context, entries)| {
-                entries.iter().filter(|(_, action)| action == &def.id).map(move |(binding, _)| {
-                    format!("{}  ·  {}", style::pretty_binding(binding), context)
-                })
+                entries
+                    .iter()
+                    .filter(|(_, action)| action == &def.id)
+                    .map(move |(binding, _)| {
+                        format!("{}  ·  {}", style::pretty_binding(binding), context)
+                    })
             })
             .collect();
         if !bindings.is_empty() {
@@ -933,7 +942,10 @@ fn rebuild_results(
                 Text::new("BINDINGS"),
                 style::sans(&fonts, ui.font_size_xs),
                 TextColor(style::color::TEXT_DIM),
-                Node { margin: UiRect::top(px(style::space::S)), ..default() },
+                Node {
+                    margin: UiRect::top(px(style::space::S)),
+                    ..default()
+                },
             ));
             for line in bindings {
                 pane.spawn((
@@ -945,7 +957,6 @@ fn rebuild_results(
         }
     });
 }
-
 
 /// The ground point at the center of the viewport camera's gaze — the "somewhere
 /// visible" placement fallback when the cursor isn't over the viewport.
@@ -963,7 +974,10 @@ fn camera_focus_ground(world: &mut World) -> Option<Vec3> {
     // upward) camera never intersects, so drop a point a few meters ahead onto
     // the ground instead — always on-screen, never at a far-away grazing hit.
     let hit = ray
-        .intersect_plane(Vec3::ZERO, bevy::math::primitives::InfinitePlane3d::new(Vec3::Y))
+        .intersect_plane(
+            Vec3::ZERO,
+            bevy::math::primitives::InfinitePlane3d::new(Vec3::Y),
+        )
         .filter(|d| *d < 50.0)
         .map(|d| ray.get_point(d));
     Some(hit.unwrap_or_else(|| {

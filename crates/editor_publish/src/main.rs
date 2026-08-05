@@ -59,7 +59,14 @@ fn publish(boot_check: bool) -> Result<(), String> {
     println!("gate 2/4: editor stripping verification…");
     let tree = Command::new("cargo")
         .current_dir(&root)
-        .args(["tree", "-p", "template_game", "--no-default-features", "-e", "normal"])
+        .args([
+            "tree",
+            "-p",
+            "template_game",
+            "--no-default-features",
+            "-e",
+            "normal",
+        ])
         .output()
         .map_err(|e| format!("cargo tree failed to start: {e}"))?;
     if !tree.status.success() {
@@ -106,9 +113,8 @@ fn publish(boot_check: bool) -> Result<(), String> {
         zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated)
             .unix_permissions(0o755);
-    let data_options: zip::write::SimpleFileOptions =
-        zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+    let data_options: zip::write::SimpleFileOptions = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
 
     archive
         .start_file("template_game", executable_options)
@@ -119,15 +125,23 @@ fn publish(boot_check: bool) -> Result<(), String> {
     for data in ["level.ron", "materials.ron"] {
         let path = root.join(data);
         if path.exists() {
-            archive.start_file(data, data_options).map_err(|e| e.to_string())?;
+            archive
+                .start_file(data, data_options)
+                .map_err(|e| e.to_string())?;
             archive
                 .write_all(&std::fs::read(&path).map_err(|e| e.to_string())?)
                 .map_err(|e| e.to_string())?;
         }
     }
     archive.finish().map_err(|e| e.to_string())?;
-    let size = std::fs::metadata(&artifact).map_err(|e| e.to_string())?.len();
-    println!("packaged {} ({:.1} MiB)", artifact.display(), size as f64 / (1024.0 * 1024.0));
+    let size = std::fs::metadata(&artifact)
+        .map_err(|e| e.to_string())?
+        .len();
+    println!(
+        "packaged {} ({:.1} MiB)",
+        artifact.display(),
+        size as f64 / (1024.0 * 1024.0)
+    );
 
     // ---- Gate 4 (optional): boot ------------------------------------------
     if boot_check {
@@ -161,7 +175,9 @@ fn publish(boot_check: bool) -> Result<(), String> {
                     .take()
                     .and_then(|mut s| {
                         let mut buf = String::new();
-                        std::io::Read::read_to_string(&mut s, &mut buf).ok().map(|_| buf)
+                        std::io::Read::read_to_string(&mut s, &mut buf)
+                            .ok()
+                            .map(|_| buf)
                     })
                     .unwrap_or_default();
                 return Err(format!(

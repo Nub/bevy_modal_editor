@@ -28,3 +28,6 @@ editor = [
     "dep:editor_ui",
     "dep:uuid",
 ]
+
+[lints]
+workspace = true

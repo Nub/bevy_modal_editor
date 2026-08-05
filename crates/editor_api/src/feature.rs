@@ -6,12 +6,12 @@
 //! mistakes are startup failures, never silent (spec §8: by construction).
 
 use crate::actions::ActionDef;
-use crate::ids::{ActionId, ContextId, FeatureId, ModeId, GLOBAL_CONTEXT};
+use crate::ids::{ActionId, ContextId, FeatureId, GLOBAL_CONTEXT, ModeId};
+use crate::keymap::{Binding, find_conflicts};
 use crate::kinds::EntityKindDef;
 use crate::panels::PanelDecl;
 use crate::pipeline::ProcessorDef;
 use crate::validate::ValidatorDef;
-use crate::keymap::{find_conflicts, Binding};
 use bevy::prelude::*;
 use bevy::reflect::GetTypeRegistration;
 use std::borrow::Cow;
@@ -53,7 +53,11 @@ pub struct ModeDef {
 
 impl ModeDef {
     pub fn new(id: impl Into<ModeId>, name: &'static str) -> Self {
-        Self { id: id.into(), name: Cow::Borrowed(name), statusline_hint: Cow::Borrowed("") }
+        Self {
+            id: id.into(),
+            name: Cow::Borrowed(name),
+            statusline_hint: Cow::Borrowed(""),
+        }
     }
     pub fn hint(mut self, hint: &'static str) -> Self {
         self.statusline_hint = Cow::Borrowed(hint);
@@ -158,7 +162,9 @@ impl FeatureRegistry {
         self
     }
     fn current(&self) -> &FeatureId {
-        self.current_feature.as_ref().expect("registration outside a feature")
+        self.current_feature
+            .as_ref()
+            .expect("registration outside a feature")
     }
     /// Kernel-side: run one feature's registration under its id.
     pub fn register_feature(&mut self, feature: &dyn EditorFeature) {
@@ -170,35 +176,75 @@ impl FeatureRegistry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RegistryError {
-    DuplicateAction { id: ActionId, first: FeatureId, second: FeatureId },
-    DuplicateMode { id: ModeId, first: FeatureId, second: FeatureId },
-    BadBinding { action: ActionId, binding: String, message: String },
-    UnknownContext { action: ActionId, context: ContextId },
-    BindingConflict { context: ContextId, detail: String },
-    DuplicatePanel { id: crate::ids::PanelId, first: FeatureId, second: FeatureId },
-    DuplicateValidator { id: crate::ids::ValidatorId, first: FeatureId, second: FeatureId },
-    DuplicateProcessor { id: crate::ids::ProcessorId, first: FeatureId, second: FeatureId },
+    DuplicateAction {
+        id: ActionId,
+        first: FeatureId,
+        second: FeatureId,
+    },
+    DuplicateMode {
+        id: ModeId,
+        first: FeatureId,
+        second: FeatureId,
+    },
+    BadBinding {
+        action: ActionId,
+        binding: String,
+        message: String,
+    },
+    UnknownContext {
+        action: ActionId,
+        context: ContextId,
+    },
+    BindingConflict {
+        context: ContextId,
+        detail: String,
+    },
+    DuplicatePanel {
+        id: crate::ids::PanelId,
+        first: FeatureId,
+        second: FeatureId,
+    },
+    DuplicateValidator {
+        id: crate::ids::ValidatorId,
+        first: FeatureId,
+        second: FeatureId,
+    },
+    DuplicateProcessor {
+        id: crate::ids::ProcessorId,
+        first: FeatureId,
+        second: FeatureId,
+    },
 }
 
 impl fmt::Display for RegistryError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DuplicateAction { id, first, second } =>
-                write!(f, "action {id} registered by both {first} and {second}"),
-            Self::DuplicateMode { id, first, second } =>
-                write!(f, "mode {id} registered by both {first} and {second}"),
-            Self::BadBinding { action, binding, message } =>
-                write!(f, "action {action}: binding {binding:?}: {message}"),
-            Self::UnknownContext { action, context } =>
-                write!(f, "action {action} targets unknown context {context}"),
-            Self::BindingConflict { context, detail } =>
-                write!(f, "keymap conflict in context {context}: {detail}"),
-            Self::DuplicatePanel { id, first, second } =>
-                write!(f, "panel {id} registered by both {first} and {second}"),
-            Self::DuplicateValidator { id, first, second } =>
-                write!(f, "validator {id} registered by both {first} and {second}"),
-            Self::DuplicateProcessor { id, first, second } =>
-                write!(f, "processor {id} registered by both {first} and {second}"),
+            Self::DuplicateAction { id, first, second } => {
+                write!(f, "action {id} registered by both {first} and {second}")
+            }
+            Self::DuplicateMode { id, first, second } => {
+                write!(f, "mode {id} registered by both {first} and {second}")
+            }
+            Self::BadBinding {
+                action,
+                binding,
+                message,
+            } => write!(f, "action {action}: binding {binding:?}: {message}"),
+            Self::UnknownContext { action, context } => {
+                write!(f, "action {action} targets unknown context {context}")
+            }
+            Self::BindingConflict { context, detail } => {
+                write!(f, "keymap conflict in context {context}: {detail}")
+            }
+            Self::DuplicatePanel { id, first, second } => {
+                write!(f, "panel {id} registered by both {first} and {second}")
+            }
+            Self::DuplicateValidator { id, first, second } => {
+                write!(f, "validator {id} registered by both {first} and {second}")
+            }
+            Self::DuplicateProcessor { id, first, second } => {
+                write!(f, "processor {id} registered by both {first} and {second}")
+            }
         }
     }
 }
@@ -407,7 +453,11 @@ mod tests {
         fn register(&self, reg: &mut FeatureRegistry) {
             reg.mode(ModeDef::new("normal", "Normal"))
                 .action(ActionDef::new("a.undo", "Undo").bind("u"))
-                .action(ActionDef::new("a.top", "Go Top").context("normal").bind("g g"));
+                .action(
+                    ActionDef::new("a.top", "Go Top")
+                        .context("normal")
+                        .bind("g g"),
+                );
         }
     }
 
@@ -419,8 +469,16 @@ mod tests {
         fn register(&self, reg: &mut FeatureRegistry) {
             // duplicate action id, conflicting binding, unknown context, bad parse
             reg.action(ActionDef::new("a.undo", "Undo Again").bind("u"))
-                .action(ActionDef::new("d.greedy", "Greedy").context("normal").bind("g"))
-                .action(ActionDef::new("d.lost", "Lost").context("no-such-mode").bind("x"))
+                .action(
+                    ActionDef::new("d.greedy", "Greedy")
+                        .context("normal")
+                        .bind("g"),
+                )
+                .action(
+                    ActionDef::new("d.lost", "Lost")
+                        .context("no-such-mode")
+                        .bind("x"),
+                )
                 .action(ActionDef::new("d.bad", "Bad").bind("ctrl+wibble"));
         }
     }
@@ -442,7 +500,9 @@ mod tests {
         let mut reg = FeatureRegistry::default();
         reg.register_feature(&FeatA);
         reg.register_feature(&FeatDup);
-        let Err(errors) = reg.validate() else { panic!("expected validation errors") };
+        let Err(errors) = reg.validate() else {
+            panic!("expected validation errors")
+        };
 
         assert!(errors.iter().any(|e| matches!(e,
             RegistryError::DuplicateAction { first, second, .. }
@@ -453,7 +513,11 @@ mod tests {
         assert!(errors.iter().any(|e| matches!(e,
             RegistryError::UnknownContext { context, .. }
                 if context.as_str() == "no-such-mode")));
-        assert!(errors.iter().any(|e| matches!(e, RegistryError::BadBinding { .. })));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, RegistryError::BadBinding { .. }))
+        );
         // duplicate "u" in global: FeatA's undo vs FeatDup's undo — same id though;
         // duplicate-id already reported; binding duplicate also surfaces:
         assert!(errors.iter().any(|e| matches!(e,

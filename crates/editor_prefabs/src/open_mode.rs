@@ -12,13 +12,13 @@
 //! stamped entities that would half-serialize).
 
 use crate::{
-    authoring, closure_contains, PrefabDef, PrefabInstance, PrefabLibrary, PrefabOverrides,
-    StampedFrom,
+    PrefabDef, PrefabInstance, PrefabLibrary, PrefabOverrides, StampedFrom, authoring,
+    closure_contains,
 };
 use bevy::prelude::*;
 use editor_core::edits::EditorComponents;
 use editor_core::prelude::*;
-use editor_scene::{snapshot_from_parts, PrefabStamped, SceneIoLock};
+use editor_scene::{PrefabStamped, SceneIoLock, snapshot_from_parts};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -72,8 +72,12 @@ fn open(world: &mut World) {
         });
         return;
     };
-    let Some(root_entity) = world.resource::<SceneIndex>().get(&root_id) else { return };
-    let Some(instance) = world.get::<PrefabInstance>(root_entity).copied() else { return };
+    let Some(root_entity) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
+    let Some(instance) = world.get::<PrefabInstance>(root_entity).copied() else {
+        return;
+    };
     let name = world
         .resource::<PrefabLibrary>()
         .prefabs
@@ -82,8 +86,12 @@ fn open(world: &mut World) {
         .unwrap_or_else(|| "prefab".into());
     let leave_alone: HashSet<Entity> = loose_top_level(world);
     world.resource_mut::<SceneIoLock>().0 = true;
-    world.resource_mut::<OpenInstance>().0 =
-        Some(OpenData { root: root_id, prefab: instance.0, name: name.clone(), leave_alone });
+    world.resource_mut::<OpenInstance>().0 = Some(OpenData {
+        root: root_id,
+        prefab: instance.0,
+        name: name.clone(),
+        leave_alone,
+    });
     world.write_message(editor_scene::SceneIoFeedback {
         message: format!("opened ◆ {name} — edit inside · ⎋ closes & saves"),
         success: true,
@@ -93,11 +101,8 @@ fn open(world: &mut World) {
 /// Unparented scene entities that aren't stamped children or instance roots —
 /// the pool the adopt pass draws from (minus the at-open bystanders).
 fn loose_top_level(world: &mut World) -> HashSet<Entity> {
-    let mut query = world.query_filtered::<Entity, (
-        With<SceneId>,
-        Without<ChildOf>,
-        Without<PrefabStamped>,
-    )>();
+    let mut query =
+        world.query_filtered::<Entity, (With<SceneId>, Without<ChildOf>, Without<PrefabStamped>)>();
     query.iter(world).collect()
 }
 
@@ -141,11 +146,17 @@ fn capture_members(world: &mut World, root_entity: Entity) -> Vec<Entity> {
 }
 
 fn close(world: &mut World) {
-    let Some(open) = world.resource_mut::<OpenInstance>().0.take() else { return };
+    let Some(open) = world.resource_mut::<OpenInstance>().0.take() else {
+        return;
+    };
     world.resource_mut::<SceneIoLock>().0 = false;
-    world.resource_mut::<editor_core::prelude::SelectionScope>().0 = None;
+    world
+        .resource_mut::<editor_core::prelude::SelectionScope>()
+        .0 = None;
 
-    let Some(root_entity) = world.resource::<SceneIndex>().get(&open.root) else { return };
+    let Some(root_entity) = world.resource::<SceneIndex>().get(&open.root) else {
+        return;
+    };
 
     // The members' CURRENT structure is the new template (nested instance
     // roots join as REFERENCES; their stamped subtrees never do).
@@ -188,28 +199,31 @@ fn close(world: &mut World) {
         .collect();
     let member_set: HashSet<Entity> = members.iter().copied().collect();
 
-    let records: Vec<(SceneId, Option<SceneId>, Vec<Box<dyn bevy::reflect::PartialReflect>>)> =
-        members
-            .iter()
-            .map(|entity| {
-                let values: Vec<Box<dyn bevy::reflect::PartialReflect>> = components
-                    .iter()
-                    .filter_map(|reg| {
-                        let reflect_component = registry
-                            .get(reg.type_id)?
-                            .data::<bevy::ecs::reflect::ReflectComponent>()?;
-                        let entity_ref = world.get_entity(*entity).ok()?;
-                        Some(reflect_component.reflect(entity_ref)?.to_dynamic())
-                    })
-                    .collect();
-                let parent = world
-                    .get::<ChildOf>(*entity)
-                    .map(|c| c.parent())
-                    .filter(|p| member_set.contains(p))
-                    .and_then(|p| template_id_of.get(&p).copied());
-                (template_id_of[entity], parent, values)
-            })
-            .collect();
+    let records: Vec<(
+        SceneId,
+        Option<SceneId>,
+        Vec<Box<dyn bevy::reflect::PartialReflect>>,
+    )> = members
+        .iter()
+        .map(|entity| {
+            let values: Vec<Box<dyn bevy::reflect::PartialReflect>> = components
+                .iter()
+                .filter_map(|reg| {
+                    let reflect_component = registry
+                        .get(reg.type_id)?
+                        .data::<bevy::ecs::reflect::ReflectComponent>()?;
+                    let entity_ref = world.get_entity(*entity).ok()?;
+                    Some(reflect_component.reflect(entity_ref)?.to_dynamic())
+                })
+                .collect();
+            let parent = world
+                .get::<ChildOf>(*entity)
+                .map(|c| c.parent())
+                .filter(|p| member_set.contains(p))
+                .and_then(|p| template_id_of.get(&p).copied());
+            (template_id_of[entity], parent, values)
+        })
+        .collect();
     drop(registry);
 
     // Update the library + asset, clear this instance's deltas (its state IS
@@ -284,14 +298,20 @@ pub(crate) fn maintain_open_instance(world: &mut World) {
         // Root vanished (undo of the grouping, deletion): drop out cleanly.
         world.resource_mut::<OpenInstance>().0 = None;
         world.resource_mut::<SceneIoLock>().0 = false;
-        world.resource_mut::<editor_core::prelude::SelectionScope>().0 = None;
+        world
+            .resource_mut::<editor_core::prelude::SelectionScope>()
+            .0 = None;
         return;
     };
 
     // Adopt fresh top-level spawns (place_on_click, paste, nested prefab
     // placement) into the open group; bystanders from before the open stay
     // untouched; instances that would close a nesting cycle are refused loudly.
-    let open_prefab = world.resource::<OpenInstance>().0.as_ref().map(|o| o.prefab);
+    let open_prefab = world
+        .resource::<OpenInstance>()
+        .0
+        .as_ref()
+        .map(|o| o.prefab);
     let fresh: Vec<Entity> = loose_top_level(world)
         .into_iter()
         .filter(|e| *e != root_entity && !leave_alone.contains(e))
@@ -304,8 +324,7 @@ pub(crate) fn maintain_open_instance(world: &mut World) {
                 || closure_contains(world.resource::<PrefabLibrary>(), instance.0, target);
             if cycles {
                 world.write_message(editor_scene::SceneIoFeedback {
-                    message: "a prefab cannot contain itself — placed at scene root instead"
-                        .into(),
+                    message: "a prefab cannot contain itself — placed at scene root instead".into(),
                     success: false,
                 });
                 // Mark it a bystander so the refusal happens ONCE.
@@ -319,7 +338,9 @@ pub(crate) fn maintain_open_instance(world: &mut World) {
     }
 
     let members: HashSet<Entity> = members_of(world, root_entity).into_iter().collect();
-    world.resource_mut::<editor_core::prelude::SelectionScope>().0 = Some(members);
+    world
+        .resource_mut::<editor_core::prelude::SelectionScope>()
+        .0 = Some(members);
 }
 
 /// Close requested via Escape (layering resolved at collect time) or toggle.
@@ -342,17 +363,23 @@ pub(crate) fn flatten_open(world: &mut World) {
         });
         return;
     };
-    let Some(root_entity) = world.resource::<SceneIndex>().get(&root_id) else { return };
+    let Some(root_entity) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
 
     // Capture set = template members (stops inside nested instances).
     let members = capture_members(world, root_entity);
     let mut ops = Vec::new();
     for entity in &members {
-        let direct = world.get::<ChildOf>(*entity).is_some_and(|c| c.parent() == root_entity);
+        let direct = world
+            .get::<ChildOf>(*entity)
+            .is_some_and(|c| c.parent() == root_entity);
         if direct {
             continue;
         }
-        let Some(id) = world.get::<SceneId>(*entity).copied() else { continue };
+        let Some(id) = world.get::<SceneId>(*entity).copied() else {
+            continue;
+        };
         // Root-relative pose from the local-transform chain (GlobalTransform
         // may be stale mid-frame after this frame's edits).
         let mut acc = world.get::<Transform>(*entity).copied().unwrap_or_default();
@@ -365,8 +392,14 @@ pub(crate) fn flatten_open(world: &mut World) {
             acc = parent_local.mul_transform(acc);
             current = parent;
         }
-        ops.push(Op::Reparent { target: id, parent: Some(root_id) });
-        ops.push(Op::Set { target: id, value: Box::new(acc).into_partial_reflect() });
+        ops.push(Op::Reparent {
+            target: id,
+            parent: Some(root_id),
+        });
+        ops.push(Op::Set {
+            target: id,
+            value: Box::new(acc).into_partial_reflect(),
+        });
     }
     if ops.is_empty() {
         world.write_message(editor_scene::SceneIoFeedback {

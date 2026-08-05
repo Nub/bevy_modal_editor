@@ -9,3 +9,6 @@ publish = false
 [dependencies]
 bevy.workspace = true
 uuid.workspace = true
+
+[lints]
+workspace = true

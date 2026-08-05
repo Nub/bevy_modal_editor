@@ -48,11 +48,7 @@ pub struct ModeChanged {
     pub to: ModeId,
 }
 
-pub fn set_mode(
-    to: ModeId,
-    current: &mut CurrentMode,
-    writer: &mut MessageWriter<ModeChanged>,
-) {
+pub fn set_mode(to: ModeId, current: &mut CurrentMode, writer: &mut MessageWriter<ModeChanged>) {
     if current.0 != to {
         let from = current.0.clone();
         current.0 = to.clone();

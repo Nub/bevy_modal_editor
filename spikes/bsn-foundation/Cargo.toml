@@ -11,3 +11,6 @@ bevy.workspace = true
 uuid.workspace = true
 serde.workspace = true
 ron.workspace = true
+
+[lints]
+workspace = true

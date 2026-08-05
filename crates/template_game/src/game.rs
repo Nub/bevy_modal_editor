@@ -59,8 +59,14 @@ fn on_primitive_added(
     mut commands: Commands,
 ) {
     let entity = add.entity;
-    let Ok(primitive) = primitives.get(entity) else { return };
-    let size = if primitive.size > 0.0 { primitive.size } else { 1.0 };
+    let Ok(primitive) = primitives.get(entity) else {
+        return;
+    };
+    let size = if primitive.size > 0.0 {
+        primitive.size
+    } else {
+        1.0
+    };
     let mesh = match primitive.kind {
         PrimitiveKind::Cube => meshes.add(Cuboid::new(size, size, size)),
         PrimitiveKind::Sphere => meshes.add(Sphere::new(size * 0.5)),
@@ -143,7 +149,10 @@ pub struct Spinner {
 
 impl Default for Spinner {
     fn default() -> Self {
-        Self { enabled: false, degrees_per_sec: 45.0 }
+        Self {
+            enabled: false,
+            degrees_per_sec: 45.0,
+        }
     }
 }
 
@@ -184,23 +193,36 @@ fn spawn_level(
     ));
     // Graybox content: SEMANTIC scene entities — meshes derive via the observer, and
     // (with the editor feature) these are selectable, movable, savable.
-    for (x, z, size) in [(4.0, -6.0, 2.0), (-5.0, -3.0, 3.0), (0.0, -10.0, 2.5), (7.0, 2.0, 1.5)]
-    {
+    for (x, z, size) in [
+        (4.0, -6.0, 2.0),
+        (-5.0, -3.0, 3.0),
+        (0.0, -10.0, 2.5),
+        (7.0, 2.0, 1.5),
+    ] {
         commands.spawn((
             #[cfg(feature = "editor")]
             editor_api::prelude::SceneId::random(),
-            Primitive { kind: PrimitiveKind::Cube, size },
+            Primitive {
+                kind: PrimitiveKind::Cube,
+                size,
+            },
             Spinner::default(),
             Name::new("Box"),
             Transform::from_xyz(x, size / 2.0, z),
         ));
     }
     commands.spawn((
-        DirectionalLight { illuminance: 8_000.0, ..default() },
+        DirectionalLight {
+            illuminance: 8_000.0,
+            ..default()
+        },
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.9, 0.4, 0.0)),
     ));
     commands.spawn((
-        Player { yaw: 0.0, pitch: 0.0 },
+        Player {
+            yaw: 0.0,
+            pitch: 0.0,
+        },
         Camera3d::default(),
         Transform::from_xyz(0.0, 1.7, 6.0),
     ));
@@ -221,8 +243,7 @@ fn player_look(
     }
     for (mut player, mut transform) in &mut player {
         player.yaw -= motion.delta.x * LOOK_SENSITIVITY;
-        player.pitch = (player.pitch - motion.delta.y * LOOK_SENSITIVITY)
-            .clamp(-1.54, 1.54);
+        player.pitch = (player.pitch - motion.delta.y * LOOK_SENSITIVITY).clamp(-1.54, 1.54);
         transform.rotation =
             Quat::from_rotation_y(player.yaw) * Quat::from_rotation_x(player.pitch);
     }
@@ -243,10 +264,18 @@ fn player_walk(
         let flat_forward = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
         let right = transform.right();
         let flat_right = Vec3::new(right.x, 0.0, right.z).normalize_or_zero();
-        if keys.pressed(KeyCode::KeyW) { wish += flat_forward; }
-        if keys.pressed(KeyCode::KeyS) { wish -= flat_forward; }
-        if keys.pressed(KeyCode::KeyD) { wish += flat_right; }
-        if keys.pressed(KeyCode::KeyA) { wish -= flat_right; }
+        if keys.pressed(KeyCode::KeyW) {
+            wish += flat_forward;
+        }
+        if keys.pressed(KeyCode::KeyS) {
+            wish -= flat_forward;
+        }
+        if keys.pressed(KeyCode::KeyD) {
+            wish += flat_right;
+        }
+        if keys.pressed(KeyCode::KeyA) {
+            wish -= flat_right;
+        }
         let step = wish.normalize_or_zero() * WALK_SPEED * time.delta_secs();
         transform.translation += step;
         transform.translation.y = 1.7; // stay on the floor (no physics in M1)
@@ -286,18 +315,31 @@ mod tests {
         app.add_systems(Update, spin);
         let entity = app
             .world_mut()
-            .spawn((Spinner { enabled: true, degrees_per_sec: 90.0 }, Transform::IDENTITY))
+            .spawn((
+                Spinner {
+                    enabled: true,
+                    degrees_per_sec: 90.0,
+                },
+                Transform::IDENTITY,
+            ))
             .id();
 
         // Editor owns input: no rotation.
         app.world_mut().resource_mut::<GameInputActive>().0 = false;
-        app.world_mut().resource_mut::<Time>().advance_by(Duration::from_secs(1));
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
         app.update();
-        assert_eq!(app.world().get::<Transform>(entity).unwrap().rotation, Quat::IDENTITY);
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().rotation,
+            Quat::IDENTITY
+        );
 
         // Game owns input: ~90° after one second.
         app.world_mut().resource_mut::<GameInputActive>().0 = true;
-        app.world_mut().resource_mut::<Time>().advance_by(Duration::from_secs(1));
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
         app.update();
         let (_, angle) = app
             .world()
@@ -305,13 +347,22 @@ mod tests {
             .unwrap()
             .rotation
             .to_axis_angle();
-        assert!((angle.to_degrees() - 90.0).abs() < 1.0, "angle {}", angle.to_degrees());
+        assert!(
+            (angle.to_degrees() - 90.0).abs() < 1.0,
+            "angle {}",
+            angle.to_degrees()
+        );
 
         // Disabled: rotation freezes.
         app.world_mut().get_mut::<Spinner>(entity).unwrap().enabled = false;
         let before = app.world().get::<Transform>(entity).unwrap().rotation;
-        app.world_mut().resource_mut::<Time>().advance_by(Duration::from_secs(1));
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs(1));
         app.update();
-        assert_eq!(app.world().get::<Transform>(entity).unwrap().rotation, before);
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().rotation,
+            before
+        );
     }
 }

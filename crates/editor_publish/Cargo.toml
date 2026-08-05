@@ -13,3 +13,6 @@ path = "src/main.rs"
 
 [dependencies]
 zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[lints]
+workspace = true

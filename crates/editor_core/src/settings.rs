@@ -31,7 +31,11 @@ pub struct CameraSettings {
 
 impl Default for CameraSettings {
     fn default() -> Self {
-        Self { fly_speed: 10.0, fly_boost: 3.0, look_sensitivity: 0.0025 }
+        Self {
+            fly_speed: 10.0,
+            fly_boost: 3.0,
+            look_sensitivity: 0.0025,
+        }
     }
 }
 
@@ -109,10 +113,16 @@ mod tests {
         assert_eq!(s.camera.fly_speed, 25.0);
         assert_eq!(s.camera.fly_boost, CameraSettings::default().fly_boost);
         assert_eq!(s.viewport.outline_width, 2.0);
-        assert_eq!(s.ui.palette_max_results, UiSettings::default().palette_max_results);
+        assert_eq!(
+            s.ui.palette_max_results,
+            UiSettings::default().palette_max_results
+        );
 
         let text = ron::to_string(&EditorSettings::default()).unwrap();
         let round: EditorSettings = ron::from_str(&text).unwrap();
-        assert_eq!(round.viewport.grid_step, EditorSettings::default().viewport.grid_step);
+        assert_eq!(
+            round.viewport.grid_step,
+            EditorSettings::default().viewport.grid_step
+        );
     }
 }

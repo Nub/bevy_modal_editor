@@ -19,7 +19,11 @@ pub(crate) fn ensure_outline_camera(
     mut commands: Commands,
     cameras: Query<
         Entity,
-        (With<Camera3d>, Without<OutlineSettings>, Without<SilhouetteCamera>),
+        (
+            With<Camera3d>,
+            Without<OutlineSettings>,
+            Without<SilhouetteCamera>,
+        ),
     >,
 ) {
     for entity in &cameras {

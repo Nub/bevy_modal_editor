@@ -45,7 +45,11 @@ pub struct ResolvedKeymapData {
 pub enum KeymapError {
     Io(std::io::Error),
     Parse(String),
-    BadOverride { action: String, binding: String, message: String },
+    BadOverride {
+        action: String,
+        binding: String,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for KeymapError {
@@ -53,8 +57,15 @@ impl std::fmt::Display for KeymapError {
         match self {
             Self::Io(e) => write!(f, "reading user keymap: {e}"),
             Self::Parse(e) => write!(f, "parsing user keymap: {e}"),
-            Self::BadOverride { action, binding, message } => {
-                write!(f, "user override for {action}: binding {binding:?}: {message}")
+            Self::BadOverride {
+                action,
+                binding,
+                message,
+            } => {
+                write!(
+                    f,
+                    "user override for {action}: binding {binding:?}: {message}"
+                )
             }
         }
     }
@@ -77,34 +88,41 @@ pub fn build_keymap(
         .collect();
 
     // Layer the user file.
-    if let Some(path) = &paths.user {
-        if path.exists() {
-            let text = std::fs::read_to_string(path).map_err(KeymapError::Io)?;
-            let user: UserKeymap =
-                ron::from_str(&text).map_err(|e| KeymapError::Parse(e.to_string()))?;
-            for o in &user.overrides {
-                let context = ContextId::new(o.context.clone());
-                let action = ActionId::new(o.action.clone());
-                // Replace: drop all defaults for this (context, action).
-                entries.retain(|e| !(e.context == context && e.action == action));
-                if let Some(raw) = &o.binding {
-                    let binding: Binding =
-                        raw.parse().map_err(|e: editor_api::keymap::ParseError| {
-                            KeymapError::BadOverride {
-                                action: o.action.clone(),
-                                binding: raw.clone(),
-                                message: e.message,
-                            }
-                        })?;
-                    entries.push(CompiledBinding { context, binding, action });
-                }
+    if let Some(path) = &paths.user
+        && path.exists()
+    {
+        let text = std::fs::read_to_string(path).map_err(KeymapError::Io)?;
+        let user: UserKeymap =
+            ron::from_str(&text).map_err(|e| KeymapError::Parse(e.to_string()))?;
+        for o in &user.overrides {
+            let context = ContextId::new(o.context.clone());
+            let action = ActionId::new(o.action.clone());
+            // Replace: drop all defaults for this (context, action).
+            entries.retain(|e| !(e.context == context && e.action == action));
+            if let Some(raw) = &o.binding {
+                let binding: Binding =
+                    raw.parse().map_err(|e: editor_api::keymap::ParseError| {
+                        KeymapError::BadOverride {
+                            action: o.action.clone(),
+                            binding: raw.clone(),
+                            message: e.message,
+                        }
+                    })?;
+                entries.push(CompiledBinding {
+                    context,
+                    binding,
+                    action,
+                });
             }
         }
     }
 
     let mut by_context: HashMap<ContextId, Vec<(Binding, ActionId)>> = HashMap::new();
     for e in entries {
-        by_context.entry(e.context).or_default().push((e.binding, e.action));
+        by_context
+            .entry(e.context)
+            .or_default()
+            .push((e.binding, e.action));
     }
     Ok(ResolvedKeymapData { by_context })
 }

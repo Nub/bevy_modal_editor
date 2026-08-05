@@ -24,7 +24,7 @@ use uuid::Uuid;
 pub mod authoring;
 pub mod open_mode;
 pub mod overrides;
-pub use overrides::{sync_overrides, StampedFrom};
+pub use overrides::{StampedFrom, sync_overrides};
 
 pub const PREFAB_FORMAT_VERSION: u32 = 1;
 
@@ -101,7 +101,11 @@ impl std::fmt::Display for PrefabError {
 impl std::error::Error for PrefabError {}
 
 impl PrefabDef {
-    pub fn save(&self, path: &Path, registry: &bevy::reflect::TypeRegistry) -> Result<(), PrefabError> {
+    pub fn save(
+        &self,
+        path: &Path,
+        registry: &bevy::reflect::TypeRegistry,
+    ) -> Result<(), PrefabError> {
         let header = PrefabHeader {
             format_version: PREFAB_FORMAT_VERSION,
             id: self.id,
@@ -135,7 +139,11 @@ impl PrefabDef {
         }
         let template = SceneSnapshot::from_ron(&header.template, registry)
             .map_err(|e| PrefabError::Format(e.to_string()))?;
-        Ok(Self { id: header.id, name: header.name, template })
+        Ok(Self {
+            id: header.id,
+            name: header.name,
+            template,
+        })
     }
 }
 
@@ -169,7 +177,9 @@ pub fn instances_in_template(def: &PrefabDef) -> Vec<Uuid> {
     def.template
         .records()
         .flat_map(|(_, _, components)| {
-            components.iter().filter_map(|c| reflect_instance(c.as_partial_reflect()).map(|i| i.0))
+            components
+                .iter()
+                .filter_map(|c| reflect_instance(c.as_partial_reflect()).map(|i| i.0))
         })
         .collect()
 }
@@ -202,21 +212,33 @@ pub fn stamp_prefab(world: &mut World, prefab_id: Uuid, root: Entity) {
     let registry = registry_arc.read();
 
     // Collect the template (clone values out so the library borrow ends).
-    let records: Vec<(SceneId, Option<SceneId>, Vec<Box<dyn bevy::reflect::PartialReflect>>)> = {
+    let records: Vec<(
+        SceneId,
+        Option<SceneId>,
+        Vec<Box<dyn bevy::reflect::PartialReflect>>,
+    )> = {
         let library = world.resource::<PrefabLibrary>();
-        let Some(prefab) = library.prefabs.get(&prefab_id) else { return };
+        let Some(prefab) = library.prefabs.get(&prefab_id) else {
+            return;
+        };
         prefab
             .template
             .records()
             .map(|(id, parent, components)| {
-                (id, parent, components.iter().map(|c| c.to_dynamic()).collect())
+                (
+                    id,
+                    parent,
+                    components.iter().map(|c| c.to_dynamic()).collect(),
+                )
             })
             .collect()
     };
 
     let root_scene_id = world.get::<SceneId>(root).copied().unwrap_or_default();
-    let patches: Vec<OverridePatch> =
-        world.get::<PrefabOverrides>(root).map(|o| o.0.clone()).unwrap_or_default();
+    let patches: Vec<OverridePatch> = world
+        .get::<PrefabOverrides>(root)
+        .map(|o| o.0.clone())
+        .unwrap_or_default();
 
     let mut spawned: HashMap<SceneId, Entity> = HashMap::new();
     for (template_id, _, components) in &records {
@@ -224,18 +246,27 @@ pub fn stamp_prefab(world: &mut World, prefab_id: Uuid, root: Entity) {
             .spawn((
                 SceneId::random(),
                 PrefabStamped,
-                StampedFrom { instance_root: root_scene_id, template_id: *template_id },
+                StampedFrom {
+                    instance_root: root_scene_id,
+                    template_id: *template_id,
+                },
             ))
             .id();
         for value in components {
-            let Some(info) = value.get_represented_type_info() else { continue };
-            let Some(registration) = registry.get(info.type_id()) else { continue };
+            let Some(info) = value.get_represented_type_info() else {
+                continue;
+            };
+            let Some(registration) = registry.get(info.type_id()) else {
+                continue;
+            };
             let Some(reflect_component) =
                 registration.data::<bevy::ecs::reflect::ReflectComponent>()
             else {
                 continue;
             };
-            let Ok(mut entity_mut) = world.get_entity_mut(entity) else { continue };
+            let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+                continue;
+            };
             reflect_component.apply_or_insert_mapped(
                 &mut entity_mut,
                 value.as_ref(),
@@ -245,7 +276,10 @@ pub fn stamp_prefab(world: &mut World, prefab_id: Uuid, root: Entity) {
             );
         }
         // Overrides re-apply OVER the template (per-field patches).
-        for patch in patches.iter().filter(|p| p.entity == template_id.0.to_string()) {
+        for patch in patches
+            .iter()
+            .filter(|p| p.entity == template_id.0.to_string())
+        {
             let Some(registration) = registry.get_with_type_path(&patch.type_path) else {
                 continue;
             };
@@ -263,23 +297,24 @@ pub fn stamp_prefab(world: &mut World, prefab_id: Uuid, root: Entity) {
             };
             let mut dynamic = current.as_partial_reflect().to_dynamic();
             if overrides::apply_patch_value(&registry, dynamic.as_mut(), &patch.path, &patch.value)
+                && let Ok(mut entity_mut) = world.get_entity_mut(entity)
             {
-                if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                    reflect_component.apply_or_insert_mapped(
-                        &mut entity_mut,
-                        dynamic.as_ref(),
-                        &registry,
-                        &mut (),
-                        RelationshipHookMode::Run,
-                    );
-                }
+                reflect_component.apply_or_insert_mapped(
+                    &mut entity_mut,
+                    dynamic.as_ref(),
+                    &registry,
+                    &mut (),
+                    RelationshipHookMode::Run,
+                );
             }
         }
         spawned.insert(*template_id, entity);
     }
     // Parent wiring: template-internal parents, roots under the instance root.
     for (template_id, parent, _) in &records {
-        let Some(&child) = spawned.get(template_id) else { continue };
+        let Some(&child) = spawned.get(template_id) else {
+            continue;
+        };
         let parent_entity = parent
             .and_then(|p| spawned.get(&p).copied())
             .unwrap_or(root);
@@ -395,7 +430,9 @@ mod tests {
             FeatureManifest::new("prefab-test", "Prefab Test")
         }
         fn register(&self, reg: &mut FeatureRegistry) {
-            reg.component::<Payload>().component::<Transform>().component::<Name>();
+            reg.component::<Payload>()
+                .component::<Transform>()
+                .component::<Name>();
         }
     }
 
@@ -446,22 +483,28 @@ mod tests {
             assert_eq!(loaded.id, prefab_id);
             assert_eq!(loaded.name, "Barrel");
         }
-        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(prefab_id, prefab);
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
 
         // Spawn an instance through the EDIT path (undoable like everything).
         let root_id = SceneId::random();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Place Barrel".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id: root_id,
-                components: vec![
-                    Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
-                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                    Box::new(Transform::from_xyz(3.0, 0.0, 0.0)).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place Barrel".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::from_xyz(3.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
         app.update();
         app.update(); // stamp system pass
 
@@ -505,20 +548,26 @@ mod tests {
         );
         let prefab = barrel_prefab();
         let prefab_id = prefab.id;
-        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(prefab_id, prefab);
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
 
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Place".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id: SceneId::random(),
-                components: vec![
-                    Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
-                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                    Box::new(Transform::default()).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: SceneId::random(),
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
         app.update();
         app.update();
 
@@ -540,7 +589,10 @@ mod tests {
         let mut app = test_app();
         let barrel = barrel_prefab();
         let barrel_id = barrel.id;
-        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(barrel_id, barrel);
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(barrel_id, barrel);
 
         let crate_id = Uuid::new_v4();
         let crate_def = PrefabDef {
@@ -563,21 +615,27 @@ mod tests {
                 ),
             ]),
         };
-        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(crate_id, crate_def);
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(crate_id, crate_def);
 
         let root_id = SceneId::random();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Place Crate".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id: root_id,
-                components: vec![
-                    Box::new(PrefabInstance(crate_id)).into_partial_reflect(),
-                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                    Box::new(Transform::default()).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place Crate".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(crate_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
         for _ in 0..4 {
             app.update(); // outer stamp, then the nested instance stamps next pass
         }
@@ -595,7 +653,10 @@ mod tests {
             .iter(world)
             .map(|p| p.0)
             .collect();
-        assert!(payloads.contains(&7.0), "barrel payload stamped through nesting: {payloads:?}");
+        assert!(
+            payloads.contains(&7.0),
+            "barrel payload stamped through nesting: {payloads:?}"
+        );
         assert!(payloads.contains(&1.0), "crate's own record stamped");
         // Capture: still ONE record — nothing expands.
         assert_eq!(capture_scene(world).records().count(), 1);
@@ -638,18 +699,21 @@ mod tests {
         // Open an instance of C, then place an instance of A: adopting it
         // would create C ∋ A ∋ B ∋ C — refused, left at scene root.
         let c_root = SceneId::random();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Place C".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id: c_root,
-                components: vec![
-                    Box::new(PrefabInstance(c)).into_partial_reflect(),
-                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                    Box::new(Transform::default()).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place C".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: c_root,
+                    components: vec![
+                        Box::new(PrefabInstance(c)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
         app.update();
         app.update();
         {
@@ -658,21 +722,29 @@ mod tests {
             world.entity_mut(entity).insert(Selected);
         }
         invoke(&mut app, "prefab.open");
-        assert!(app.world().resource::<open_mode::OpenInstance>().0.is_some());
+        assert!(
+            app.world()
+                .resource::<open_mode::OpenInstance>()
+                .0
+                .is_some()
+        );
 
         let a_root = SceneId::random();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Place A".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id: a_root,
-                components: vec![
-                    Box::new(PrefabInstance(a)).into_partial_reflect(),
-                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                    Box::new(Transform::default()).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place A".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: a_root,
+                    components: vec![
+                        Box::new(PrefabInstance(a)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
         app.update();
         app.update();
         let world = app.world_mut();
@@ -692,21 +764,27 @@ mod tests {
         let mut app = test_app();
         let barrel = barrel_prefab();
         let barrel_id = barrel.id;
-        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(barrel_id, barrel);
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(barrel_id, barrel);
 
         let root_id = SceneId::random();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Place".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id: root_id,
-                components: vec![
-                    Box::new(PrefabInstance(barrel_id)).into_partial_reflect(),
-                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                    Box::new(Transform::from_xyz(5.0, 0.0, 0.0)).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(barrel_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::from_xyz(5.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
         app.update();
         app.update();
         {
@@ -715,10 +793,10 @@ mod tests {
             world.entity_mut(entity).insert(Selected);
         }
         // Variant via the prompt path.
-        app.world_mut().resource_mut::<authoring::GroupPrompt>().purpose =
-            authoring::PromptPurpose::Variant;
-        app.world_mut().resource_mut::<authoring::GroupCommit>().0 =
-            Some("RedBarrel".into());
+        app.world_mut()
+            .resource_mut::<authoring::GroupPrompt>()
+            .purpose = authoring::PromptPurpose::Variant;
+        app.world_mut().resource_mut::<authoring::GroupCommit>().0 = Some("RedBarrel".into());
         for _ in 0..4 {
             app.update();
         }
@@ -728,8 +806,16 @@ mod tests {
         assert!(world.resource::<SceneIndex>().get(&root_id).is_none());
         let variant_id = {
             let library = world.resource::<PrefabLibrary>();
-            let def = library.prefabs.values().find(|p| p.name == "RedBarrel").unwrap();
-            assert_eq!(def.template.records().count(), 1, "variant template = one reference");
+            let def = library
+                .prefabs
+                .values()
+                .find(|p| p.name == "RedBarrel")
+                .unwrap();
+            assert_eq!(
+                def.template.records().count(),
+                1,
+                "variant template = one reference"
+            );
             assert_eq!(instances_in_template(def), vec![barrel_id]);
             def.id
         };
@@ -738,7 +824,7 @@ mod tests {
             .iter(world)
             .collect();
         assert_eq!(roots.len(), 1);
-        assert_eq!(roots[0].1 .0, variant_id);
+        assert_eq!(roots[0].1.0, variant_id);
         assert_eq!(roots[0].2.translation, Vec3::new(5.0, 0.0, 0.0));
 
         // Inheritance: edit the BASE template; the variant instance follows.
@@ -752,9 +838,9 @@ mod tests {
                     let values: Vec<Box<dyn bevy::reflect::PartialReflect>> = c
                         .iter()
                         .map(|v| {
-                            if v.get_represented_type_info().is_some_and(|i| {
-                                i.type_path().ends_with("Payload")
-                            }) {
+                            if v.get_represented_type_info()
+                                .is_some_and(|i| i.type_path().ends_with("Payload"))
+                            {
                                 Box::new(Payload(99.0)).into_partial_reflect()
                             } else {
                                 v.to_dynamic()
@@ -776,7 +862,11 @@ mod tests {
             .iter(world)
             .map(|p| p.0)
             .collect();
-        assert_eq!(payloads, vec![99.0], "base edit propagated through the variant chain");
+        assert_eq!(
+            payloads,
+            vec![99.0],
+            "base edit propagated through the variant chain"
+        );
         cleanup_prefab_file("redbarrel");
     }
 
@@ -811,21 +901,27 @@ mod tests {
                 ),
             ]),
         };
-        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(prefab_id, def);
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, def);
 
         let root_id = SceneId::random();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Place".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id: root_id,
-                components: vec![
-                    Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
-                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                    Box::new(Transform::default()).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
         app.update();
         app.update();
         {
@@ -864,7 +960,9 @@ mod tests {
         let library = world.resource::<PrefabLibrary>();
         let def = library.prefabs.get(&prefab_id).unwrap();
         assert!(
-            def.template.records().all(|(_, parent, _)| parent.is_none()),
+            def.template
+                .records()
+                .all(|(_, parent, _)| parent.is_none()),
             "template records all top-level after flatten"
         );
         cleanup_prefab_file("deepthing");
@@ -899,7 +997,10 @@ mod tests {
         // Records are UUID-sorted — order is nondeterministic; compare as a set.
         let mut sorted = translations.clone();
         sorted.sort_by(|a, b| a.x.total_cmp(&b.x));
-        assert_eq!(sorted, vec![Vec3::new(-1.0, 0.5, -2.0), Vec3::new(1.0, 1.5, 2.0)]);
+        assert_eq!(
+            sorted,
+            vec![Vec3::new(-1.0, 0.5, -2.0), Vec3::new(1.0, 1.5, 2.0)]
+        );
         // Already-centered templates are left alone (no save churn).
         assert!(authoring::center_template(&centered).is_none());
     }
@@ -916,18 +1017,21 @@ mod tests {
 
     fn spawn_loose(app: &mut App, label: &str, payload: f32, at: Vec3) -> SceneId {
         let id = SceneId::random();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: label.into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id,
-                components: vec![
-                    Box::new(Payload(payload)).into_partial_reflect(),
-                    Box::new(Transform::from_translation(at)).into_partial_reflect(),
-                    Box::new(Name::new(label.to_string())).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: label.into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![
+                        Box::new(Payload(payload)).into_partial_reflect(),
+                        Box::new(Transform::from_translation(at)).into_partial_reflect(),
+                        Box::new(Name::new(label.to_string())).into_partial_reflect(),
+                    ],
+                }],
+            });
         app.update();
         id
     }
@@ -951,15 +1055,20 @@ mod tests {
         }
 
         // Commit the prompt (the UI path sets this on Enter).
-        app.world_mut().resource_mut::<authoring::GroupCommit>().0 =
-            Some("GroupTestCrate".into());
+        app.world_mut().resource_mut::<authoring::GroupCommit>().0 = Some("GroupTestCrate".into());
         app.update();
         app.update();
 
         // Originals gone, ONE root remains, selected, at the members' centroid.
         let world = app.world_mut();
-        assert!(world.resource::<SceneIndex>().get(&a).is_none(), "a replaced");
-        assert!(world.resource::<SceneIndex>().get(&b).is_none(), "b replaced");
+        assert!(
+            world.resource::<SceneIndex>().get(&a).is_none(),
+            "a replaced"
+        );
+        assert!(
+            world.resource::<SceneIndex>().get(&b).is_none(),
+            "b replaced"
+        );
         let roots: Vec<(Entity, SceneId)> = world
             .query_filtered::<(Entity, &SceneId), With<PrefabInstance>>()
             .iter(world)
@@ -967,7 +1076,10 @@ mod tests {
             .collect();
         assert_eq!(roots.len(), 1, "one instance root");
         let (root_entity, _) = roots[0];
-        assert!(world.get::<Selected>(root_entity).is_some(), "root selected");
+        assert!(
+            world.get::<Selected>(root_entity).is_some(),
+            "root selected"
+        );
         assert_eq!(
             world.get::<Transform>(root_entity).unwrap().translation,
             Vec3::new(3.0, 0.0, 0.0),
@@ -975,16 +1087,29 @@ mod tests {
         );
         // Library holds a 2-record template with rebased transforms.
         let library = world.resource::<PrefabLibrary>();
-        let def = library.prefabs.values().find(|p| p.name == "GroupTestCrate").unwrap();
+        let def = library
+            .prefabs
+            .values()
+            .find(|p| p.name == "GroupTestCrate")
+            .unwrap();
         assert_eq!(def.template.records().count(), 2);
 
         // ONE undo restores both originals and removes the instance.
         invoke(&mut app, "core.undo");
         let world = app.world_mut();
-        assert!(world.resource::<SceneIndex>().get(&a).is_some(), "undo restores a");
-        assert!(world.resource::<SceneIndex>().get(&b).is_some(), "undo restores b");
+        assert!(
+            world.resource::<SceneIndex>().get(&a).is_some(),
+            "undo restores a"
+        );
+        assert!(
+            world.resource::<SceneIndex>().get(&b).is_some(),
+            "undo restores b"
+        );
         assert_eq!(
-            world.query_filtered::<Entity, With<PrefabInstance>>().iter(world).count(),
+            world
+                .query_filtered::<Entity, With<PrefabInstance>>()
+                .iter(world)
+                .count(),
             0,
             "undo removes the instance"
         );
@@ -1004,23 +1129,29 @@ mod tests {
                 &app.world().resource::<AppTypeRegistry>().clone().read(),
             )
             .ok();
-        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(prefab_id, prefab);
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
 
         let bystander = spawn_loose(&mut app, "Bystander", 9.0, Vec3::ZERO);
         let mut spawn_instance = |app: &mut App, x: f32| -> SceneId {
             let id = SceneId::random();
-            app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-                label: "Place".into(),
-                gesture: None,
-                ops: vec![Op::Spawn {
-                    id,
-                    components: vec![
-                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
-                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                        Box::new(Transform::from_xyz(x, 0.0, 0.0)).into_partial_reflect(),
-                    ],
-                }],
-            });
+            app.world_mut()
+                .resource_mut::<EditQueue>()
+                .0
+                .push(Transaction {
+                    label: "Place".into(),
+                    gesture: None,
+                    ops: vec![Op::Spawn {
+                        id,
+                        components: vec![
+                            Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                            Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                            Box::new(Transform::from_xyz(x, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    }],
+                });
             app.update();
             app.update();
             id
@@ -1036,7 +1167,10 @@ mod tests {
         }
         invoke(&mut app, "prefab.open");
         assert!(
-            app.world().resource::<open_mode::OpenInstance>().0.is_some(),
+            app.world()
+                .resource::<open_mode::OpenInstance>()
+                .0
+                .is_some(),
             "instance opened in place"
         );
         assert!(app.world().resource::<editor_scene::SceneIoLock>().0);
@@ -1064,8 +1198,14 @@ mod tests {
         invoke(&mut app, "prefab.open");
         app.update();
         let world = app.world_mut();
-        assert!(world.resource::<open_mode::OpenInstance>().0.is_none(), "closed");
-        assert!(!world.resource::<editor_scene::SceneIoLock>().0, "io unlocked");
+        assert!(
+            world.resource::<open_mode::OpenInstance>().0.is_none(),
+            "closed"
+        );
+        assert!(
+            !world.resource::<editor_scene::SceneIoLock>().0,
+            "io unlocked"
+        );
         let template_len = world
             .resource::<PrefabLibrary>()
             .prefabs

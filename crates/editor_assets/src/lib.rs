@@ -14,8 +14,6 @@ pub mod identity;
 pub mod process;
 pub mod validation;
 
-pub use identity::{
-    import_file, read_identity, AssetIdentity, ImportError, IMPORT_FORMAT_VERSION,
-};
-pub use process::{cache_path, process_asset, ProcessError, ProcessOutcome};
+pub use identity::{AssetIdentity, IMPORT_FORMAT_VERSION, ImportError, import_file, read_identity};
+pub use process::{ProcessError, ProcessOutcome, cache_path, process_asset};
 pub use validation::{builtin_validators, run_validators};

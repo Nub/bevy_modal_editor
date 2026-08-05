@@ -60,7 +60,9 @@ fn capture_selected(world: &mut World) -> Vec<(SceneId, Vec<Box<dyn PartialRefle
         .map(|(entity, id)| {
             let mut captured = Vec::new();
             for reg in &components {
-                let Some(registration) = registry.get(reg.type_id) else { continue };
+                let Some(registration) = registry.get(reg.type_id) else {
+                    continue;
+                };
                 let Some(reflect_component) =
                     registration.data::<bevy::ecs::reflect::ReflectComponent>()
                 else {
@@ -84,18 +86,24 @@ pub(crate) fn perform_clipboard(world: &mut World) {
     if requests.yank || requests.cut {
         let captured = capture_selected(world);
         if !captured.is_empty() {
-            world.resource_mut::<EditorClipboard>().entries =
-                captured.iter().map(|(_, c)| c.iter().map(|v| v.to_dynamic()).collect()).collect();
+            world.resource_mut::<EditorClipboard>().entries = captured
+                .iter()
+                .map(|(_, c)| c.iter().map(|v| v.to_dynamic()).collect())
+                .collect();
         }
         if requests.cut {
             let ids: Vec<SceneId> = captured.iter().map(|(id, _)| *id).collect();
             if !ids.is_empty() {
-                let ops = ids.into_iter().map(|id| Op::Despawn { id }).collect::<Vec<_>>();
+                let ops = ids
+                    .into_iter()
+                    .map(|id| Op::Despawn { id })
+                    .collect::<Vec<_>>();
                 let label = format!("Delete {}", ops.len());
-                world
-                    .resource_mut::<EditQueue>()
-                    .0
-                    .push(Transaction { label, gesture: None, ops });
+                world.resource_mut::<EditQueue>().0.push(Transaction {
+                    label,
+                    gesture: None,
+                    ops,
+                });
             }
         }
     }
@@ -120,7 +128,11 @@ pub(crate) fn perform_clipboard(world: &mut World) {
                 })
                 .collect::<Vec<_>>();
             let label = format!("Paste {}", ops.len());
-            world.resource_mut::<EditQueue>().0.push(Transaction { label, gesture: None, ops });
+            world.resource_mut::<EditQueue>().0.push(Transaction {
+                label,
+                gesture: None,
+                ops,
+            });
             world.resource_mut::<PendingPasteSelect>().0 = new_ids;
         }
     }
@@ -154,8 +166,8 @@ pub(crate) fn select_pasted(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::edits::{History, HistoryRequests};
     use crate::EditorCorePlugin;
+    use crate::edits::{History, HistoryRequests};
 
     #[derive(Component, Reflect, Default, Clone, PartialEq, Debug)]
     #[reflect(Component)]
@@ -182,8 +194,7 @@ mod tests {
 
     fn payload_values(app: &mut App) -> Vec<f32> {
         let world = app.world_mut();
-        let mut values: Vec<f32> =
-            world.query::<&Payload>().iter(world).map(|p| p.0).collect();
+        let mut values: Vec<f32> = world.query::<&Payload>().iter(world).map(|p| p.0).collect();
         values.sort_by(f32::total_cmp);
         values
     }
@@ -200,25 +211,34 @@ mod tests {
         app.world_mut().resource_mut::<EditorState>().active = true;
 
         for value in [1.0_f32, 2.0] {
-            app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-                label: "spawn".into(),
-                gesture: None,
-                ops: vec![Op::Spawn {
-                    id: SceneId::random(),
-                    components: vec![Box::new(Payload(value)).into_partial_reflect()],
-                }],
-            });
+            app.world_mut()
+                .resource_mut::<EditQueue>()
+                .0
+                .push(Transaction {
+                    label: "spawn".into(),
+                    gesture: None,
+                    ops: vec![Op::Spawn {
+                        id: SceneId::random(),
+                        components: vec![Box::new(Payload(value)).into_partial_reflect()],
+                    }],
+                });
         }
         app.update();
         let world = app.world_mut();
-        let entities: Vec<Entity> =
-            world.query_filtered::<Entity, With<SceneId>>().iter(world).collect();
+        let entities: Vec<Entity> = world
+            .query_filtered::<Entity, With<SceneId>>()
+            .iter(world)
+            .collect();
         for entity in entities {
             world.entity_mut(entity).insert(Selected);
         }
 
         invoke(&mut app, "select.delete");
-        assert_eq!(payload_values(&mut app), Vec::<f32>::new(), "cut removed both");
+        assert_eq!(
+            payload_values(&mut app),
+            Vec::<f32>::new(),
+            "cut removed both"
+        );
 
         // Undo the cut restores them.
         app.world_mut().resource_mut::<HistoryRequests>().undo = 1;
@@ -232,7 +252,10 @@ mod tests {
         assert_eq!(payload_values(&mut app), vec![1.0, 1.0, 2.0, 2.0]);
         assert_eq!(app.world().resource::<History>().undo_depth(), depth + 1);
         let world = app.world_mut();
-        let selected = world.query_filtered::<(), With<Selected>>().iter(world).count();
+        let selected = world
+            .query_filtered::<(), With<Selected>>()
+            .iter(world)
+            .count();
         assert_eq!(selected, 2, "pasted entities are the new selection");
     }
 }

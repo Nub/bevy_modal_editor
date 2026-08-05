@@ -128,7 +128,10 @@ fn reflect_component_for<'r>(
 ) -> Option<(&'r bevy::ecs::reflect::ReflectComponent, &'static str)> {
     let info = value.get_represented_type_info()?;
     let registration = registry.get(info.type_id())?;
-    Some((registration.data::<bevy::ecs::reflect::ReflectComponent>()?, info.type_path()))
+    Some((
+        registration.data::<bevy::ecs::reflect::ReflectComponent>()?,
+        info.type_path(),
+    ))
 }
 
 fn clone_component(
@@ -137,8 +140,9 @@ fn clone_component(
     entity: Entity,
     type_id: std::any::TypeId,
 ) -> Option<Box<dyn PartialReflect>> {
-    let reflect_component =
-        registry.get(type_id)?.data::<bevy::ecs::reflect::ReflectComponent>()?;
+    let reflect_component = registry
+        .get(type_id)?
+        .data::<bevy::ecs::reflect::ReflectComponent>()?;
     let entity_ref = world.get_entity(entity).ok()?;
     Some(reflect_component.reflect(entity_ref)?.to_dynamic())
 }
@@ -159,7 +163,10 @@ fn apply_op(
             let type_id = value.get_represented_type_info()?.type_id();
             let inverse = match clone_component(world, registry, entity, type_id) {
                 Some(old) => Op::Set { target, value: old },
-                None => Op::Remove { target, type_path: type_path.to_string() },
+                None => Op::Remove {
+                    target,
+                    type_path: type_path.to_string(),
+                },
             };
             let mut entity_mut = world.get_entity_mut(entity).ok()?;
             reflect_component.apply_or_insert_mapped(
@@ -175,8 +182,7 @@ fn apply_op(
         Op::Remove { target, type_path } => {
             let entity = resolve(world, &target)?;
             let registration = registry.get_with_type_path(&type_path)?;
-            let reflect_component =
-                registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
+            let reflect_component = registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
             let old = clone_component(world, registry, entity, registration.type_id())?;
             let mut entity_mut = world.get_entity_mut(entity).ok()?;
             reflect_component.remove(&mut entity_mut);
@@ -186,8 +192,7 @@ fn apply_op(
         Op::Spawn { id, components } => {
             let entity = world.spawn(id).id();
             for value in components {
-                let Some((reflect_component, _)) =
-                    reflect_component_for(registry, value.as_ref())
+                let Some((reflect_component, _)) = reflect_component_for(registry, value.as_ref())
                 else {
                     continue;
                 };
@@ -213,7 +218,10 @@ fn apply_op(
             }
             world.entity_mut(entity).despawn();
             touched.push(id);
-            Some(Op::Spawn { id, components: captured })
+            Some(Op::Spawn {
+                id,
+                components: captured,
+            })
         }
         Op::Reparent { target, parent } => {
             let entity = resolve(world, &target)?;
@@ -231,7 +239,10 @@ fn apply_op(
                 }
             }
             touched.push(target);
-            Some(Op::Reparent { target, parent: old_parent })
+            Some(Op::Reparent {
+                target,
+                parent: old_parent,
+            })
         }
     }
 }
@@ -272,8 +283,13 @@ pub fn apply_edits(world: &mut World) {
     let depth_before_queue = world.resource::<History>().undo.len();
 
     for transaction in queue {
-        let inverse =
-            apply_ops(world, &registry, &editor_components, transaction.ops, &mut touched);
+        let inverse = apply_ops(
+            world,
+            &registry,
+            &editor_components,
+            transaction.ops,
+            &mut touched,
+        );
         if inverse.is_empty() {
             continue;
         }
@@ -283,7 +299,10 @@ pub fn apply_edits(world: &mut World) {
         // original entry's inverse already restores to pre-gesture state; the new
         // forward ops are applied but their inverses are DISCARDED.
         let coalesce = transaction.gesture.is_some()
-            && history.undo.last().is_some_and(|e| e.gesture == transaction.gesture);
+            && history
+                .undo
+                .last()
+                .is_some_and(|e| e.gesture == transaction.gesture);
         if !coalesce {
             history.undo.push(HistoryEntry {
                 label: transaction.label,
@@ -294,11 +313,20 @@ pub fn apply_edits(world: &mut World) {
     }
 
     if let Some(gesture) = requests.cancel_gesture {
-        let matches =
-            world.resource::<History>().undo.last().is_some_and(|e| e.gesture == Some(gesture));
+        let matches = world
+            .resource::<History>()
+            .undo
+            .last()
+            .is_some_and(|e| e.gesture == Some(gesture));
         if matches {
             let entry = world.resource_mut::<History>().undo.pop().unwrap();
-            apply_ops(world, &registry, &editor_components, entry.inverse, &mut touched);
+            apply_ops(
+                world,
+                &registry,
+                &editor_components,
+                entry.inverse,
+                &mut touched,
+            );
         }
     }
 
@@ -320,9 +348,16 @@ pub fn apply_edits(world: &mut World) {
     }
 
     for _ in 0..requests.undo {
-        let Some(entry) = world.resource_mut::<History>().undo.pop() else { break };
-        let redo_ops =
-            apply_ops(world, &registry, &editor_components, entry.inverse, &mut touched);
+        let Some(entry) = world.resource_mut::<History>().undo.pop() else {
+            break;
+        };
+        let redo_ops = apply_ops(
+            world,
+            &registry,
+            &editor_components,
+            entry.inverse,
+            &mut touched,
+        );
         world.resource_mut::<History>().redo.push(HistoryEntry {
             label: entry.label,
             gesture: None,
@@ -330,9 +365,16 @@ pub fn apply_edits(world: &mut World) {
         });
     }
     for _ in 0..requests.redo {
-        let Some(entry) = world.resource_mut::<History>().redo.pop() else { break };
-        let undo_ops =
-            apply_ops(world, &registry, &editor_components, entry.inverse, &mut touched);
+        let Some(entry) = world.resource_mut::<History>().redo.pop() else {
+            break;
+        };
+        let undo_ops = apply_ops(
+            world,
+            &registry,
+            &editor_components,
+            entry.inverse,
+            &mut touched,
+        );
         world.resource_mut::<History>().undo.push(HistoryEntry {
             label: entry.label,
             gesture: None,
@@ -366,9 +408,9 @@ mod tests {
             FeatureManifest::new("test", "Test")
         }
         fn register(&self, reg: &mut FeatureRegistry) {
-            reg.component::<Health>().component::<Transform>().action(
-                ActionDef::new("test.heal", "Heal").edit(),
-            );
+            reg.component::<Health>()
+                .component::<Transform>()
+                .action(ActionDef::new("test.heal", "Heal").edit());
         }
     }
 
@@ -419,13 +461,23 @@ mod tests {
                 ops: vec![Op::Spawn {
                     id: a,
                     components: vec![
-                        Box::new(Health { current: 10.0, max: 10.0 }).into_partial_reflect(),
+                        Box::new(Health {
+                            current: 10.0,
+                            max: 10.0,
+                        })
+                        .into_partial_reflect(),
                     ],
                 }],
             });
         });
         assert_eq!(app.world_mut().resource::<SceneIndex>().len(), 1);
-        assert_eq!(snapshot(&mut app)[0].1, Some(Health { current: 10.0, max: 10.0 }));
+        assert_eq!(
+            snapshot(&mut app)[0].1,
+            Some(Health {
+                current: 10.0,
+                max: 10.0
+            })
+        );
 
         edit(&mut app, |q| {
             q.0.push(Transaction {
@@ -433,11 +485,21 @@ mod tests {
                 gesture: None,
                 ops: vec![Op::Set {
                     target: a,
-                    value: Box::new(Health { current: 3.0, max: 10.0 }).into_partial_reflect(),
+                    value: Box::new(Health {
+                        current: 3.0,
+                        max: 10.0,
+                    })
+                    .into_partial_reflect(),
                 }],
             });
         });
-        assert_eq!(snapshot(&mut app)[0].1, Some(Health { current: 3.0, max: 10.0 }));
+        assert_eq!(
+            snapshot(&mut app)[0].1,
+            Some(Health {
+                current: 3.0,
+                max: 10.0
+            })
+        );
 
         edit(&mut app, |q| {
             q.0.push(Transaction {
@@ -465,7 +527,11 @@ mod tests {
                 ops: vec![Op::Spawn {
                     id: a,
                     components: vec![
-                        Box::new(Health { current: 5.0, max: 9.0 }).into_partial_reflect(),
+                        Box::new(Health {
+                            current: 5.0,
+                            max: 9.0,
+                        })
+                        .into_partial_reflect(),
                         Box::new(Transform::from_xyz(1.0, 2.0, 3.0)).into_partial_reflect(),
                     ],
                 }],
@@ -476,11 +542,17 @@ mod tests {
                 label: "spawn b + edit a".into(),
                 gesture: None,
                 ops: vec![
-                    Op::Spawn { id: b, components: vec![] },
+                    Op::Spawn {
+                        id: b,
+                        components: vec![],
+                    },
                     Op::Set {
                         target: a,
-                        value: Box::new(Health { current: 1.0, max: 9.0 })
-                            .into_partial_reflect(),
+                        value: Box::new(Health {
+                            current: 1.0,
+                            max: 9.0,
+                        })
+                        .into_partial_reflect(),
                     },
                 ],
             });
@@ -503,8 +575,17 @@ mod tests {
         redo(&mut app, 3);
         assert_eq!(snapshot(&mut app), fin, "redo-all must restore final");
         undo(&mut app, 1);
-        let row_a = snapshot(&mut app).into_iter().find(|(id, ..)| *id == a).unwrap();
-        assert_eq!(row_a.1, Some(Health { current: 1.0, max: 9.0 }));
+        let row_a = snapshot(&mut app)
+            .into_iter()
+            .find(|(id, ..)| *id == a)
+            .unwrap();
+        assert_eq!(
+            row_a.1,
+            Some(Health {
+                current: 1.0,
+                max: 9.0
+            })
+        );
     }
 
     // F1 contract: a coalesced gesture is ONE entry and undo restores pre-gesture.
@@ -537,7 +618,11 @@ mod tests {
                 });
             });
         }
-        assert_eq!(app.world().resource::<History>().undo_depth(), 2, "spawn + ONE gesture");
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            2,
+            "spawn + ONE gesture"
+        );
         undo(&mut app, 1);
         assert_eq!(
             snapshot(&mut app)[0].2,
@@ -557,8 +642,14 @@ mod tests {
                 label: "spawn".into(),
                 gesture: None,
                 ops: vec![
-                    Op::Spawn { id: parent, components: vec![] },
-                    Op::Spawn { id: child, components: vec![] },
+                    Op::Spawn {
+                        id: parent,
+                        components: vec![],
+                    },
+                    Op::Spawn {
+                        id: child,
+                        components: vec![],
+                    },
                 ],
             });
         });
@@ -566,13 +657,19 @@ mod tests {
             q.0.push(Transaction {
                 label: "reparent".into(),
                 gesture: None,
-                ops: vec![Op::Reparent { target: child, parent: Some(parent) }],
+                ops: vec![Op::Reparent {
+                    target: child,
+                    parent: Some(parent),
+                }],
             });
         });
         let world = app.world_mut();
         let child_entity = world.resource::<SceneIndex>().get(&child).unwrap();
         let parent_entity = world.resource::<SceneIndex>().get(&parent).unwrap();
-        assert_eq!(world.get::<ChildOf>(child_entity).map(|c| c.parent()), Some(parent_entity));
+        assert_eq!(
+            world.get::<ChildOf>(child_entity).map(|c| c.parent()),
+            Some(parent_entity)
+        );
         undo(&mut app, 1);
         let world = app.world_mut();
         let child_entity = world.resource::<SceneIndex>().get(&child).unwrap();

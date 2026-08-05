@@ -44,10 +44,7 @@ pub(crate) struct PreviewRig {
 #[derive(Component)]
 pub(crate) struct PreviewContent;
 
-pub(crate) fn setup_preview_rig(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-) {
+pub(crate) fn setup_preview_rig(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let image = images.add(Image::new_target_texture(
         PREVIEW_SIZE,
         PREVIEW_SIZE,
@@ -55,7 +52,10 @@ pub(crate) fn setup_preview_rig(
         None,
     ));
     let root = commands
-        .spawn((Transform::from_translation(PREVIEW_HOME), Visibility::default()))
+        .spawn((
+            Transform::from_translation(PREVIEW_HOME),
+            Visibility::default(),
+        ))
         .id();
     let camera = commands
         .spawn((
@@ -73,12 +73,19 @@ pub(crate) fn setup_preview_rig(
         ))
         .id();
     commands.spawn((
-        DirectionalLight { illuminance: 6_000.0, ..default() },
+        DirectionalLight {
+            illuminance: 6_000.0,
+            ..default()
+        },
         Transform::from_translation(PREVIEW_HOME + Vec3::new(3.0, 6.0, 2.0))
             .looking_at(PREVIEW_HOME, Vec3::Y),
         RenderLayers::layer(PREVIEW_LAYER),
     ));
-    commands.insert_resource(PreviewRig { image, camera, root });
+    commands.insert_resource(PreviewRig {
+        image,
+        camera,
+        root,
+    });
 }
 
 /// Rebuild the preview content when the highlighted subject changes; keep the
@@ -118,8 +125,10 @@ pub(crate) fn sync_preview_content(world: &mut World) {
     match subject {
         None => {}
         Some(Subject::Kind(kind)) => {
-            let Some(components) =
-                world.resource::<KindCatalog>().get(&kind).map(|d| (d.components)(Vec3::ZERO))
+            let Some(components) = world
+                .resource::<KindCatalog>()
+                .get(&kind)
+                .map(|d| (d.components)(Vec3::ZERO))
             else {
                 return;
             };
@@ -128,13 +137,23 @@ pub(crate) fn sync_preview_content(world: &mut World) {
         Some(Subject::Prefab(prefab)) => {
             // Template records → preview entities (same reflection path as
             // stamping, minus every piece of scene bookkeeping).
-            let records: Vec<(SceneId, Option<SceneId>, Vec<Box<dyn bevy::reflect::PartialReflect>>)> = {
+            let records: Vec<(
+                SceneId,
+                Option<SceneId>,
+                Vec<Box<dyn bevy::reflect::PartialReflect>>,
+            )> = {
                 let library = world.resource::<PrefabLibrary>();
-                let Some(def) = library.prefabs.get(&prefab) else { return };
+                let Some(def) = library.prefabs.get(&prefab) else {
+                    return;
+                };
                 def.template
                     .records()
                     .map(|(id, parent, components)| {
-                        (id, parent, components.iter().map(|c| c.to_dynamic()).collect())
+                        (
+                            id,
+                            parent,
+                            components.iter().map(|c| c.to_dynamic()).collect(),
+                        )
                     })
                     .collect()
             };
@@ -148,10 +167,10 @@ pub(crate) fn sync_preview_content(world: &mut World) {
                 }
             }
             for (id, parent, _) in &records {
-                if let Some(parent_entity) = parent.and_then(|p| spawned.get(&p)) {
-                    if let Some(entity) = spawned.get(id) {
-                        world.entity_mut(*entity).insert(ChildOf(*parent_entity));
-                    }
+                if let Some(parent_entity) = parent.and_then(|p| spawned.get(&p))
+                    && let Some(entity) = spawned.get(id)
+                {
+                    world.entity_mut(*entity).insert(ChildOf(*parent_entity));
                 }
             }
         }
@@ -188,14 +207,19 @@ fn spawn_preview_entity(
         ))
         .id();
     for value in components {
-        let Some(info) = value.get_represented_type_info() else { continue };
-        let Some(registration) = registry.get(info.type_id()) else { continue };
-        let Some(reflect_component) =
-            registration.data::<bevy::ecs::reflect::ReflectComponent>()
+        let Some(info) = value.get_represented_type_info() else {
+            continue;
+        };
+        let Some(registration) = registry.get(info.type_id()) else {
+            continue;
+        };
+        let Some(reflect_component) = registration.data::<bevy::ecs::reflect::ReflectComponent>()
         else {
             continue;
         };
-        let Ok(mut entity_mut) = world.get_entity_mut(entity) else { continue };
+        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+            continue;
+        };
         reflect_component.apply_or_insert_mapped(
             &mut entity_mut,
             value.as_ref(),
@@ -215,7 +239,9 @@ pub(crate) fn inherit_preview_layer(
     mut commands: Commands,
 ) {
     for entity in &added {
-        commands.entity(entity).insert(RenderLayers::layer(PREVIEW_LAYER));
+        commands
+            .entity(entity)
+            .insert(RenderLayers::layer(PREVIEW_LAYER));
     }
 }
 

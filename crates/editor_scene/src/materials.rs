@@ -61,7 +61,11 @@ pub struct MaterialLibrary {
 
 impl Default for MaterialLibrary {
     fn default() -> Self {
-        Self { materials: Vec::new(), path: PathBuf::from("materials.ron"), generation: 0 }
+        Self {
+            materials: Vec::new(),
+            path: PathBuf::from("materials.ron"),
+            generation: 0,
+        }
     }
 }
 
@@ -131,10 +135,7 @@ pub(crate) fn load_library_at_startup(mut library: ResMut<MaterialLibrary>) {
 }
 
 /// Library mutations persist immediately (atomic).
-pub(crate) fn save_library_on_change(
-    library: Res<MaterialLibrary>,
-    mut last_saved: Local<u64>,
-) {
+pub(crate) fn save_library_on_change(library: Res<MaterialLibrary>, mut last_saved: Local<u64>) {
     if library.generation == *last_saved || library.generation == 0 {
         return;
     }
@@ -218,27 +219,36 @@ mod tests {
 
         let (a, b) = (SceneId::random(), SceneId::random());
         for id in [a, b] {
-            app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-                label: "spawn".into(),
-                gesture: None,
-                ops: vec![Op::Spawn { id, components: vec![] }],
-            });
+            app.world_mut()
+                .resource_mut::<EditQueue>()
+                .0
+                .push(Transaction {
+                    label: "spawn".into(),
+                    gesture: None,
+                    ops: vec![Op::Spawn {
+                        id,
+                        components: vec![],
+                    }],
+                });
         }
         app.update();
 
         let material = Uuid::new_v4();
         let depth = app.world().resource::<History>().undo_depth();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Assign Material".into(),
-            gesture: None,
-            ops: [a, b]
-                .into_iter()
-                .map(|target| Op::Set {
-                    target,
-                    value: Box::new(MaterialRef(material)).into_partial_reflect(),
-                })
-                .collect(),
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Assign Material".into(),
+                gesture: None,
+                ops: [a, b]
+                    .into_iter()
+                    .map(|target| Op::Set {
+                        target,
+                        value: Box::new(MaterialRef(material)).into_partial_reflect(),
+                    })
+                    .collect(),
+            });
         app.update();
         let world = app.world_mut();
         let assigned = world
@@ -247,12 +257,20 @@ mod tests {
             .filter(|m| m.0 == material)
             .count();
         assert_eq!(assigned, 2);
-        assert_eq!(world.resource::<History>().undo_depth(), depth + 1, "one entry");
+        assert_eq!(
+            world.resource::<History>().undo_depth(),
+            depth + 1,
+            "one entry"
+        );
 
         world.resource_mut::<HistoryRequests>().undo = 1;
         app.update();
         let world = app.world_mut();
-        assert_eq!(world.query::<&MaterialRef>().iter(world).count(), 0, "undo removes");
+        assert_eq!(
+            world.query::<&MaterialRef>().iter(world).count(),
+            0,
+            "undo removes"
+        );
     }
 
     // C6: versioned envelope round-trips byte-identically; future versions refuse.

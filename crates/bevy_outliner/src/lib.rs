@@ -45,9 +45,9 @@ mod jfa_material;
 mod silhouette_material;
 
 pub mod prelude {
+    pub use crate::OutlinePlugin;
     pub use crate::components::{MeshOutline, OutlineSettings};
     pub use crate::jfa_material::{HasSilhouetteMesh, SilhouetteCamera, SilhouetteMesh};
-    pub use crate::OutlinePlugin;
 }
 
 pub use components::*;
@@ -55,8 +55,8 @@ pub use components::*;
 use bevy::{asset::embedded_asset, prelude::*};
 
 use jfa_material::{
-    resize_silhouette_textures, setup_outline_camera, sync_outline_meshes, sync_silhouette_cameras,
-    OutlineRenderPlugin,
+    OutlineRenderPlugin, resize_silhouette_textures, setup_outline_camera, sync_outline_meshes,
+    sync_silhouette_cameras,
 };
 use silhouette_material::SilhouetteMaterial;
 

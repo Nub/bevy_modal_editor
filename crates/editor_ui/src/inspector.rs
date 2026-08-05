@@ -107,20 +107,49 @@ pub(crate) struct InspectorGroups {
 pub(crate) enum RowSpec {
     /// WHAT is selected: THE editable name + id (+ multi-select count) — always
     /// first, and the ONLY place Name appears (owner: consolidated).
-    Header { name: String, detail: String, field: InspectorField },
+    Header {
+        name: String,
+        detail: String,
+        field: InspectorField,
+    },
     /// Prefab identity line under the header: "◆ instance of NAME", with
     /// apply-to-all / reset buttons when override deltas exist (redesign #3).
-    PrefabStatus { name: String, overrides: usize },
+    PrefabStatus {
+        name: String,
+        overrides: usize,
+    },
     /// Collapsible group header (Tags / Read-only).
-    GroupHeader { title: String, count: usize, open: bool, group: GroupKind },
+    GroupHeader {
+        title: String,
+        count: usize,
+        open: bool,
+        group: GroupKind,
+    },
     /// Compact name chips (group contents).
     Chips(Vec<String>),
     Section(String),
-    Triple { label: String, fields: Vec<NumberSpec> },
-    Number { label: String, field: NumberSpec },
-    Toggle { label: String, value: bool, field: InspectorField },
-    TextField { label: String, value: String, field: InspectorField },
-    ReadOnly { label: String, value: String },
+    Triple {
+        label: String,
+        fields: Vec<NumberSpec>,
+    },
+    Number {
+        label: String,
+        field: NumberSpec,
+    },
+    Toggle {
+        label: String,
+        value: bool,
+        field: InspectorField,
+    },
+    TextField {
+        label: String,
+        value: String,
+        field: InspectorField,
+    },
+    ReadOnly {
+        label: String,
+        value: String,
+    },
 }
 
 /// The collected view of the selection — plain data between the two phases.
@@ -188,8 +217,7 @@ pub(crate) fn collect_inspector(world: &mut World) {
 
     let selected: Vec<(Entity, SceneId)> = {
         let mut query = world.query_filtered::<(Entity, &SceneId), With<Selected>>();
-        let mut all: Vec<(Entity, SceneId)> =
-            query.iter(world).map(|(e, id)| (e, *id)).collect();
+        let mut all: Vec<(Entity, SceneId)> = query.iter(world).map(|(e, id)| (e, *id)).collect();
         all.sort_by_key(|(_, id)| id.0);
         all
     };
@@ -232,21 +260,23 @@ pub(crate) fn collect_inspector(world: &mut World) {
                     .map(|s| s.instance_root)
                     .and_then(|root| world.resource::<SceneIndex>().get(&root))
             };
-            if let Some(root) = root_entity {
-                if let Some(instance) = world.get::<PrefabInstance>(root) {
-                    let prefab_name = world
-                        .resource::<PrefabLibrary>()
-                        .prefabs
-                        .get(&instance.0)
-                        .map(|p| p.name.clone())
-                        .unwrap_or_else(|| "missing prefab".into());
-                    let override_count =
-                        world.get::<PrefabOverrides>(root).map(|o| o.0.len()).unwrap_or(0);
-                    rows.push(RowSpec::PrefabStatus {
-                        name: prefab_name,
-                        overrides: override_count,
-                    });
-                }
+            if let Some(root) = root_entity
+                && let Some(instance) = world.get::<PrefabInstance>(root)
+            {
+                let prefab_name = world
+                    .resource::<PrefabLibrary>()
+                    .prefabs
+                    .get(&instance.0)
+                    .map(|p| p.name.clone())
+                    .unwrap_or_else(|| "missing prefab".into());
+                let override_count = world
+                    .get::<PrefabOverrides>(root)
+                    .map(|o| o.0.len())
+                    .unwrap_or(0);
+                rows.push(RowSpec::PrefabStatus {
+                    name: prefab_name,
+                    overrides: override_count,
+                });
             }
         }
 
@@ -283,10 +313,19 @@ pub(crate) fn collect_inspector(world: &mut World) {
         ];
         let mut present: Vec<(TypeId, &'static str)> = Vec::new();
         for &component_id in world.entity(entity).archetype().components() {
-            let Some(info) = world.components().get_info(component_id) else { continue };
-            let Some(type_id) = info.type_id() else { continue };
-            let Some(registration) = registry.get(type_id) else { continue };
-            if registration.data::<bevy::ecs::reflect::ReflectComponent>().is_none() {
+            let Some(info) = world.components().get_info(component_id) else {
+                continue;
+            };
+            let Some(type_id) = info.type_id() else {
+                continue;
+            };
+            let Some(registration) = registry.get(type_id) else {
+                continue;
+            };
+            if registration
+                .data::<bevy::ecs::reflect::ReflectComponent>()
+                .is_none()
+            {
                 continue;
             }
             let type_path = registration.type_info().type_path();
@@ -300,11 +339,19 @@ pub(crate) fn collect_inspector(world: &mut World) {
         // common it always leads); then registered order; then alphabetical.
         const PINNED: &[&str] = &["Transform", "Name"];
         present.sort_by_key(|(type_id, type_path)| {
-            let short = type_path.rsplit("::").next().unwrap_or(type_path).to_string();
-            let pinned_index =
-                PINNED.iter().position(|p| *p == short).unwrap_or(usize::MAX);
-            let registered_index =
-                registered.iter().position(|r| r.type_id == *type_id).unwrap_or(usize::MAX);
+            let short = type_path
+                .rsplit("::")
+                .next()
+                .unwrap_or(type_path)
+                .to_string();
+            let pinned_index = PINNED
+                .iter()
+                .position(|p| *p == short)
+                .unwrap_or(usize::MAX);
+            let registered_index = registered
+                .iter()
+                .position(|r| r.type_id == *type_id)
+                .unwrap_or(usize::MAX);
             (pinned_index, registered_index, short)
         });
 
@@ -313,7 +360,9 @@ pub(crate) fn collect_inspector(world: &mut World) {
         let mut tags: Vec<String> = Vec::new();
         let mut readonly: Vec<String> = Vec::new();
         for (type_id, type_path) in present {
-            let Some(registration) = registry.get(type_id) else { continue };
+            let Some(registration) = registry.get(type_id) else {
+                continue;
+            };
             let Some(reflect_component) =
                 registration.data::<bevy::ecs::reflect::ReflectComponent>()
             else {
@@ -340,7 +389,10 @@ pub(crate) fn collect_inspector(world: &mut World) {
             if component_rows.is_empty() {
                 // Field-less marker: a TAG — name only, no section (owner).
                 tags.push(short.to_string());
-            } else if component_rows.iter().all(|r| matches!(r, RowSpec::ReadOnly { .. })) {
+            } else if component_rows
+                .iter()
+                .all(|r| matches!(r, RowSpec::ReadOnly { .. }))
+            {
                 // Nothing editable in it: Read-only group, name only (owner).
                 readonly.push(short.to_string());
             } else {
@@ -411,8 +463,16 @@ fn collect_transform(
     _world: &World,
     rows: &mut Vec<RowSpec>,
 ) -> bool {
-    let Some(transform) = value.try_downcast_ref::<Transform>() else { return false };
-    rows.push(triple(target, type_path, "Position", "translation", transform.translation));
+    let Some(transform) = value.try_downcast_ref::<Transform>() else {
+        return false;
+    };
+    rows.push(triple(
+        target,
+        type_path,
+        "Position",
+        "translation",
+        transform.translation,
+    ));
     let (x, y, z) = transform.rotation.to_euler(EulerRot::XYZ);
     let degrees = Vec3::new(x.to_degrees(), y.to_degrees(), z.to_degrees());
     rows.push(RowSpec::Triple {
@@ -452,8 +512,11 @@ fn walk_fields(
             }
             for i in 0..s.field_len() {
                 let name = s.name_at(i).unwrap_or_default().to_string();
-                let path =
-                    if prefix.is_empty() { name.clone() } else { format!("{prefix}.{name}") };
+                let path = if prefix.is_empty() {
+                    name.clone()
+                } else {
+                    format!("{prefix}.{name}")
+                };
                 let Some(field) = s.field_at(i) else { continue };
                 walk_fields(target, type_path, &path, field, rows);
             }
@@ -516,8 +579,7 @@ fn collect_material(
     world: &World,
     rows: &mut Vec<RowSpec>,
 ) -> bool {
-    let Some(material_ref) =
-        value.try_downcast_ref::<editor_scene::materials::MaterialRef>()
+    let Some(material_ref) = value.try_downcast_ref::<editor_scene::materials::MaterialRef>()
     else {
         return false;
     };
@@ -558,7 +620,11 @@ fn collect_material(
     ] {
         rows.push(RowSpec::Number {
             label: label.into(),
-            field: NumberSpec { value, axis: None, field: field(FieldKind::MaterialParam(index)) },
+            field: NumberSpec {
+                value,
+                axis: None,
+                field: field(FieldKind::MaterialParam(index)),
+            },
         });
     }
     true
@@ -613,13 +679,14 @@ pub(crate) fn probe_inspector(
             source: InvocationSource::Test,
         });
     }
-    if *frames > 120 && !*selected_once {
-        if let Some(entity) = scene.iter().next() {
-            commands.entity(entity).insert(Selected);
-            changed.write(SelectionChanged);
-            *selected_once = true;
-            info!("PROBE selected {entity:?}");
-        }
+    if *frames > 120
+        && !*selected_once
+        && let Some(entity) = scene.iter().next()
+    {
+        commands.entity(entity).insert(Selected);
+        changed.write(SelectionChanged);
+        *selected_once = true;
+        info!("PROBE selected {entity:?}");
     }
     if *frames == 240 {
         // Drive the Name field: focus inner editable, then type via key events.
@@ -627,58 +694,58 @@ pub(crate) fn probe_inspector(
             .iter()
             .find(|(_, f)| f.kind == FieldKind::NameText)
             .map(|(e, _)| e);
-        if let Some((container, inner)) = name_container.and_then(|c| {
-            find_editable(&children_q, &editable_q, c).map(|inner| (c, inner))
-        }) {
+        if let Some((container, inner)) = name_container
+            .and_then(|c| find_editable(&children_q, &editable_q, c).map(|inner| (c, inner)))
+        {
             info!("PROBE name field container={container:?} inner={inner:?}");
             focus_res.set(inner, bevy::input_focus::FocusCause::Navigated);
         } else {
             info!("PROBE no name field found");
         }
     }
-    if *frames == 270 || *frames == 272 {
-        if let Ok(window) = window.single() {
-            key_events.write(bevy::input::keyboard::KeyboardInput {
-                key_code: KeyCode::KeyZ,
-                logical_key: bevy::input::keyboard::Key::Character("z".into()),
-                state: if *frames == 270 {
-                    bevy::input::ButtonState::Pressed
-                } else {
-                    bevy::input::ButtonState::Released
-                },
-                text: (*frames == 270).then(|| "z".into()),
-                repeat: false,
-                window,
-            });
-        }
+    if (*frames == 270 || *frames == 272)
+        && let Ok(window) = window.single()
+    {
+        key_events.write(bevy::input::keyboard::KeyboardInput {
+            key_code: KeyCode::KeyZ,
+            logical_key: bevy::input::keyboard::Key::Character("z".into()),
+            state: if *frames == 270 {
+                bevy::input::ButtonState::Pressed
+            } else {
+                bevy::input::ButtonState::Released
+            },
+            text: (*frames == 270).then(|| "z".into()),
+            repeat: false,
+            window,
+        });
     }
     if *frames == 300 {
         for (container, field) in name_field.iter() {
             if field.kind != FieldKind::NameText {
                 continue;
             }
-            if let Some(inner) = find_editable(&children_q, &editable_q, container) {
-                if let Ok(text) = editable_q.get(inner) {
-                    info!("PROBE name field text now: {:?}", text.value().to_string());
-                }
+            if let Some(inner) = find_editable(&children_q, &editable_q, container)
+                && let Ok(text) = editable_q.get(inner)
+            {
+                info!("PROBE name field text now: {:?}", text.value().to_string());
             }
         }
     }
-    if *frames == 310 || *frames == 312 {
-        if let Ok(window) = window.single() {
-            key_events.write(bevy::input::keyboard::KeyboardInput {
-                key_code: KeyCode::Enter,
-                logical_key: bevy::input::keyboard::Key::Enter,
-                state: if *frames == 310 {
-                    bevy::input::ButtonState::Pressed
-                } else {
-                    bevy::input::ButtonState::Released
-                },
-                text: None,
-                repeat: false,
-                window,
-            });
-        }
+    if (*frames == 310 || *frames == 312)
+        && let Ok(window) = window.single()
+    {
+        key_events.write(bevy::input::keyboard::KeyboardInput {
+            key_code: KeyCode::Enter,
+            logical_key: bevy::input::keyboard::Key::Enter,
+            state: if *frames == 310 {
+                bevy::input::ButtonState::Pressed
+            } else {
+                bevy::input::ButtonState::Released
+            },
+            text: None,
+            repeat: false,
+            window,
+        });
     }
     if *frames == 360 {
         for (entity, name) in named.iter() {
@@ -704,21 +771,21 @@ pub(crate) fn probe_inspector(
     if std::env::var("TAB_PROBE").is_ok() && *frames >= 280 && *frames <= 680 {
         // Send a Tab press/release every 20 frames; log focus + selection between.
         let phase = (*frames - 280) % 20;
-        if phase == 0 || phase == 2 {
-            if let Ok(window) = window.single() {
-                key_events.write(bevy::input::keyboard::KeyboardInput {
-                    key_code: KeyCode::Tab,
-                    logical_key: bevy::input::keyboard::Key::Tab,
-                    state: if phase == 0 {
-                        bevy::input::ButtonState::Pressed
-                    } else {
-                        bevy::input::ButtonState::Released
-                    },
-                    text: None,
-                    repeat: false,
-                    window,
-                });
-            }
+        if (phase == 0 || phase == 2)
+            && let Ok(window) = window.single()
+        {
+            key_events.write(bevy::input::keyboard::KeyboardInput {
+                key_code: KeyCode::Tab,
+                logical_key: bevy::input::keyboard::Key::Tab,
+                state: if phase == 0 {
+                    bevy::input::ButtonState::Pressed
+                } else {
+                    bevy::input::ButtonState::Released
+                },
+                text: None,
+                repeat: false,
+                window,
+            });
         }
         if phase == 10 {
             let focus_entity = focus_res.get();
@@ -745,7 +812,7 @@ pub(crate) fn probe_inspector(
         });
         info!("PROBE reload triggered");
     }
-    if *frames > 150 && *frames % 60 == 0 {
+    if *frames > 150 && (*frames).is_multiple_of(60) {
         info!(
             "PROBE rows={} gen={} dirty={}",
             model.rows.len(),
@@ -805,21 +872,21 @@ pub(crate) fn render_inspector(
         return;
     }
     *last_generation = model.generation;
-    let Some((body_entity, _)) =
-        body.iter().find(|(_, b)| b.0.as_str() == INSPECTOR_PANEL)
-    else {
+    let Some((body_entity, _)) = body.iter().find(|(_, b)| b.0.as_str() == INSPECTOR_PANEL) else {
         return;
     };
     // Rebuilds despawn every widget — if focus is on one of ours (Tab landed on a
     // checkbox, say), remember WHICH field so the equivalent new widget can take
     // focus back; otherwise Tab strands on a dead entity (owner-reported).
-    let focused_field: Option<InspectorField> = focus.get().and_then(|mut current| loop {
-        if let Ok(field) = fields.get(current) {
-            break Some(field.clone());
-        }
-        match parents.get(current) {
-            Ok(parent) => current = parent.parent(),
-            Err(_) => break None,
+    let focused_field: Option<InspectorField> = focus.get().and_then(|mut current| {
+        loop {
+            if let Ok(field) = fields.get(current) {
+                break Some(field.clone());
+            }
+            match parents.get(current) {
+                Ok(parent) => current = parent.parent(),
+                Err(_) => break None,
+            }
         }
     });
     let ui = settings.ui.clone();
@@ -838,7 +905,11 @@ pub(crate) fn render_inspector(
 
     for spec in &model.rows {
         match spec {
-            RowSpec::Header { name, detail, field } => {
+            RowSpec::Header {
+                name,
+                detail,
+                field,
+            } => {
                 let header = commands
                     .spawn(Node {
                         flex_direction: FlexDirection::Column,
@@ -928,7 +999,12 @@ pub(crate) fn render_inspector(
                     }
                 }
             }
-            RowSpec::GroupHeader { title, count, open, group } => {
+            RowSpec::GroupHeader {
+                title,
+                count,
+                open,
+                group,
+            } => {
                 let glyph = if *open { "▾" } else { "▸" };
                 let group = *group;
                 let header = commands
@@ -950,9 +1026,7 @@ pub(crate) fn render_inspector(
                               mut model: ResMut<InspectorModel>| {
                             match group {
                                 GroupKind::Tags => groups.tags_open = !groups.tags_open,
-                                GroupKind::ReadOnly => {
-                                    groups.readonly_open = !groups.readonly_open
-                                }
+                                GroupKind::ReadOnly => groups.readonly_open = !groups.readonly_open,
                             }
                             model.dirty = true;
                         },
@@ -1035,7 +1109,11 @@ pub(crate) fn render_inspector(
                 let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
                 spawn_number_field(&mut commands, row, field);
             }
-            RowSpec::Toggle { label, value, field } => {
+            RowSpec::Toggle {
+                label,
+                value,
+                field,
+            } => {
                 let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
                 let checkbox = commands.spawn_scene(bsn! { @FeathersCheckbox }).id();
                 commands
@@ -1046,7 +1124,11 @@ pub(crate) fn render_inspector(
                     commands.entity(checkbox).insert(bevy::ui::Checked);
                 }
             }
-            RowSpec::TextField { label, value, field } => {
+            RowSpec::TextField {
+                label,
+                value,
+                field,
+            } => {
                 let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
                 spawn_text_field(&mut commands, row, value, field);
             }
@@ -1070,7 +1152,10 @@ pub(crate) fn render_inspector(
         commands.queue(move |world: &mut World| {
             let target = {
                 let mut query = world.query::<(Entity, &InspectorField)>();
-                query.iter(world).find(|(_, f)| **f == field).map(|(e, _)| e)
+                query
+                    .iter(world)
+                    .find(|(_, f)| **f == field)
+                    .map(|(e, _)| e)
             };
             if let Some(root) = target {
                 let focus_target = find_editable_descendant(world, root).unwrap_or(root);
@@ -1085,12 +1170,7 @@ pub(crate) fn render_inspector(
 /// One text-input spawner (header name + string fields): seeds the value and
 /// attaches the Enter-commit observer DIRECTLY to the inner input — feathers
 /// attaches its own key handlers there, so Enter cannot be assumed to bubble.
-fn spawn_text_field(
-    commands: &mut Commands,
-    parent: Entity,
-    value: &str,
-    field: &InspectorField,
-) {
+fn spawn_text_field(commands: &mut Commands, parent: Entity, value: &str, field: &InspectorField) {
     let container = commands
         .spawn_scene(bsn! {
             @FeathersTextInputContainer
@@ -1103,11 +1183,15 @@ fn spawn_text_field(
             ]
         })
         .id();
-    commands.entity(container).insert((field.clone(), ChildOf(parent)));
+    commands
+        .entity(container)
+        .insert((field.clone(), ChildOf(parent)));
     let seed = value.to_string();
     commands.queue(move |world: &mut World| {
         if let Some(inner) = find_editable_descendant(world, container) {
-            world.entity_mut(inner).insert(bevy::text::EditableText::new(seed));
+            world
+                .entity_mut(inner)
+                .insert(bevy::text::EditableText::new(seed));
             world.entity_mut(inner).observe(commit_text_on_enter);
         }
     });
@@ -1211,9 +1295,10 @@ fn queue_set(
         // Asset edits target the LIBRARY, not a component.
         match (&field.kind, &new_value) {
             (FieldKind::MaterialParam(param), FieldNewValue::F32(v)) => {
-                let Ok(uuid) = field.path.parse::<uuid::Uuid>() else { return };
-                let mut library =
-                    world.resource_mut::<editor_scene::materials::MaterialLibrary>();
+                let Ok(uuid) = field.path.parse::<uuid::Uuid>() else {
+                    return;
+                };
+                let mut library = world.resource_mut::<editor_scene::materials::MaterialLibrary>();
                 if let Some(def) = library.get_mut(&uuid) {
                     match param {
                         0..=3 => def.base_color[*param as usize] = *v,
@@ -1224,9 +1309,10 @@ fn queue_set(
                 return;
             }
             (FieldKind::MaterialName, FieldNewValue::Text(text)) => {
-                let Ok(uuid) = field.path.parse::<uuid::Uuid>() else { return };
-                let mut library =
-                    world.resource_mut::<editor_scene::materials::MaterialLibrary>();
+                let Ok(uuid) = field.path.parse::<uuid::Uuid>() else {
+                    return;
+                };
+                let mut library = world.resource_mut::<editor_scene::materials::MaterialLibrary>();
                 if let Some(def) = library.get_mut(&uuid) {
                     def.name = text.clone();
                 }
@@ -1234,12 +1320,15 @@ fn queue_set(
             }
             _ => {}
         }
-        let Some(entity) = world.resource::<SceneIndex>().get(&field.target) else { return };
+        let Some(entity) = world.resource::<SceneIndex>().get(&field.target) else {
+            return;
+        };
         let registry = world.resource::<AppTypeRegistry>().clone();
         let registry = registry.read();
-        let Some(registration) = registry.get_with_type_path(field.type_path) else { return };
-        let Some(reflect_component) =
-            registration.data::<bevy::ecs::reflect::ReflectComponent>()
+        let Some(registration) = registry.get_with_type_path(field.type_path) else {
+            return;
+        };
+        let Some(reflect_component) = registration.data::<bevy::ecs::reflect::ReflectComponent>()
         else {
             return;
         };
@@ -1253,8 +1342,12 @@ fn queue_set(
             (FieldKind::Direct, FieldNewValue::F32(new_value)) => {
                 let Some(current) = current else { return };
                 let mut dynamic = current.as_partial_reflect().to_dynamic();
-                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
-                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
+                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else {
+                    return;
+                };
+                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else {
+                    return;
+                };
                 match element.try_downcast_mut::<f32>() {
                     Some(slot) => *slot = new_value,
                     None => return,
@@ -1264,8 +1357,12 @@ fn queue_set(
             (FieldKind::Bool, FieldNewValue::Bool(new_value)) => {
                 let Some(current) = current else { return };
                 let mut dynamic = current.as_partial_reflect().to_dynamic();
-                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
-                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
+                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else {
+                    return;
+                };
+                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else {
+                    return;
+                };
                 match element.try_downcast_mut::<bool>() {
                     Some(slot) => *slot = new_value,
                     None => return,
@@ -1275,8 +1372,12 @@ fn queue_set(
             (FieldKind::Str, FieldNewValue::Text(new_value)) => {
                 let Some(current) = current else { return };
                 let mut dynamic = current.as_partial_reflect().to_dynamic();
-                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else { return };
-                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else { return };
+                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else {
+                    return;
+                };
+                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else {
+                    return;
+                };
                 match element.try_downcast_mut::<String>() {
                     Some(slot) => *slot = new_value,
                     None => return,
@@ -1284,13 +1385,10 @@ fn queue_set(
                 dynamic
             }
             // Name's hash is derived — always rebuild through the constructor.
-            (FieldKind::NameText, FieldNewValue::Text(new_value)) => {
-                Box::new(Name::new(new_value))
-            }
+            (FieldKind::NameText, FieldNewValue::Text(new_value)) => Box::new(Name::new(new_value)),
             (FieldKind::EulerDeg(axis), FieldNewValue::F32(new_value)) => {
                 let Some(current) = current else { return };
-                let Some(transform) =
-                    current.as_partial_reflect().try_downcast_ref::<Transform>()
+                let Some(transform) = current.as_partial_reflect().try_downcast_ref::<Transform>()
                 else {
                     return;
                 };
@@ -1315,7 +1413,10 @@ fn queue_set(
                 field.type_path.rsplit("::").next().unwrap_or("field")
             ),
             gesture,
-            ops: vec![Op::Set { target: field.target, value: boxed }],
+            ops: vec![Op::Set {
+                target: field.target,
+                value: boxed,
+            }],
         });
     });
 }
@@ -1336,8 +1437,15 @@ fn commit_number(
     if !change.is_final {
         return;
     }
-    let Ok(field) = fields.get(change.source) else { return };
-    queue_set(&mut commands, field.clone(), FieldNewValue::F32(change.value), None);
+    let Ok(field) = fields.get(change.source) else {
+        return;
+    };
+    queue_set(
+        &mut commands,
+        field.clone(),
+        FieldNewValue::F32(change.value),
+        None,
+    );
 
     let still_ours = focus.get().is_some_and(|focused| {
         let mut current = focused;
@@ -1363,8 +1471,15 @@ fn commit_bool(
     mut model: ResMut<InspectorModel>,
     mut commands: Commands,
 ) {
-    let Ok(field) = fields.get(change.source) else { return };
-    queue_set(&mut commands, field.clone(), FieldNewValue::Bool(change.value), None);
+    let Ok(field) = fields.get(change.source) else {
+        return;
+    };
+    queue_set(
+        &mut commands,
+        field.clone(),
+        FieldNewValue::Bool(change.value),
+        None,
+    );
     model.dirty = true;
 }
 
@@ -1397,11 +1512,22 @@ fn commit_text_on_enter(
     // The focused inner input is the event target; our field data sits on its
     // container (the entity this observer is attached to = the input's parent).
     let inner = event.event_target();
-    let Ok(container) = parents.get(inner).map(|p| p.parent()) else { return };
-    let Ok(field) = fields.get(container) else { return };
-    let Ok(text) = editable.get(inner) else { return };
+    let Ok(container) = parents.get(inner).map(|p| p.parent()) else {
+        return;
+    };
+    let Ok(field) = fields.get(container) else {
+        return;
+    };
+    let Ok(text) = editable.get(inner) else {
+        return;
+    };
     let value = text.value().to_string();
-    queue_set(&mut commands, field.clone(), FieldNewValue::Text(value), None);
+    queue_set(
+        &mut commands,
+        field.clone(),
+        FieldNewValue::Text(value),
+        None,
+    );
 
     let still_ours = focus.get().is_some_and(|focused| {
         let mut current = focused;
@@ -1428,10 +1554,12 @@ fn field_drag_start(
     mut counter: ResMut<GestureCounter>,
     mut commands: Commands,
 ) {
-    let Ok(value) = fields.get(drag.entity) else { return };
+    let Ok(value) = fields.get(drag.entity) else {
+        return;
+    };
     commands.entity(drag.entity).insert(FieldDrag {
         start: value.0,
-        gesture: counter.next(),
+        gesture: counter.begin(),
     });
 }
 
@@ -1441,13 +1569,20 @@ fn field_drag(
     keys: Option<Res<ButtonInput<KeyCode>>>,
     mut commands: Commands,
 ) {
-    let Ok((field_drag, field)) = state.get(drag.entity) else { return };
+    let Ok((field_drag, field)) = state.get(drag.entity) else {
+        return;
+    };
     let fine = keys
         .map(|k| k.pressed(KeyCode::ShiftLeft) || k.pressed(KeyCode::ShiftRight))
         .unwrap_or(false);
     let step = if fine { 0.01 } else { 0.1 };
     let value = field_drag.start + drag.distance.x * step;
-    queue_set(&mut commands, field.clone(), FieldNewValue::F32(value), Some(field_drag.gesture));
+    queue_set(
+        &mut commands,
+        field.clone(),
+        FieldNewValue::F32(value),
+        Some(field_drag.gesture),
+    );
     commands.trigger(UpdateNumberInput {
         entity: drag.entity,
         value: NumberInputValue::F32(value),
@@ -1481,7 +1616,10 @@ pub(crate) fn stamp_tab_indices(
     unstamped: Query<
         Entity,
         (
-            Or<(With<bevy::text::EditableText>, With<bevy::ui_widgets::Checkbox>)>,
+            Or<(
+                With<bevy::text::EditableText>,
+                With<bevy::ui_widgets::Checkbox>,
+            )>,
             Without<TabOrdered>,
         ),
     >,
@@ -1506,7 +1644,9 @@ pub(crate) fn stamp_tab_indices(
             // Freshly spawned widgets have zeroed geometry until layout runs —
             // stamping now would sort every field at (0,0) and Tab order would be
             // garbage. Defer the WHOLE batch until all candidates are laid out.
-            let Ok((node, transform)) = geometry.get(entity) else { return };
+            let Ok((node, transform)) = geometry.get(entity) else {
+                return;
+            };
             if node.size() == Vec2::ZERO {
                 return;
             }
@@ -1532,8 +1672,8 @@ pub(crate) fn stamp_tab_indices(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use editor_core::prelude::History;
     use editor_core::EditorCorePlugin;
+    use editor_core::prelude::History;
 
     struct TestFeature;
     impl EditorFeature for TestFeature {
@@ -1557,14 +1697,17 @@ mod tests {
     }
 
     fn spawn_transform(app: &mut App, id: SceneId, transform: Transform) {
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "spawn".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id,
-                components: vec![Box::new(transform).into_partial_reflect()],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![Box::new(transform).into_partial_reflect()],
+                }],
+            });
         app.update();
     }
 
@@ -1599,7 +1742,10 @@ mod tests {
             world.resource_mut::<EditQueue>().0.push(Transaction {
                 label: "Edit Transform".into(),
                 gesture: None,
-                ops: vec![Op::Set { target: id, value: dynamic }],
+                ops: vec![Op::Set {
+                    target: id,
+                    value: dynamic,
+                }],
             });
         }
         app.update();
@@ -1628,15 +1774,18 @@ mod tests {
         let depth_before = app.world().resource::<History>().undo_depth();
 
         for value in [0.5_f32, 1.0, 1.5] {
-            app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-                label: "Edit Transform".into(),
-                gesture: Some(999),
-                ops: vec![Op::Set {
-                    target: id,
-                    value: Box::new(Transform::from_xyz(value, 0.0, 0.0))
-                        .into_partial_reflect(),
-                }],
-            });
+            app.world_mut()
+                .resource_mut::<EditQueue>()
+                .0
+                .push(Transaction {
+                    label: "Edit Transform".into(),
+                    gesture: Some(999),
+                    ops: vec![Op::Set {
+                        target: id,
+                        value: Box::new(Transform::from_xyz(value, 0.0, 0.0))
+                            .into_partial_reflect(),
+                    }],
+                });
             app.update();
         }
         assert_eq!(

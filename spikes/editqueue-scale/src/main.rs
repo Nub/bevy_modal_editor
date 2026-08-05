@@ -53,6 +53,7 @@ enum Op {
     Translate { targets: Vec<Uuid>, delta: Vec3 },
 }
 
+#[allow(dead_code, reason = "spike: label kept for debug printing")]
 struct Applied {
     label: String,
     gesture: Option<u64>,
@@ -111,16 +112,14 @@ fn commit(
     let registry = registry_arc.read();
 
     // Gesture coalescing path.
-    if let (Some(g), [Op::Translate { targets, delta }]) = (gesture, ops.as_slice()) {
-        if let Some(prev) = history.undo.last_mut() {
-            if prev.gesture == Some(g) {
-                if let Some(Op::Translate { delta: inv, .. }) = prev.inverse.first_mut() {
-                    *inv -= *delta;
-                    apply_translate(world, index, targets, *delta);
-                    return;
-                }
-            }
-        }
+    if let (Some(g), [Op::Translate { targets, delta }]) = (gesture, ops.as_slice())
+        && let Some(prev) = history.undo.last_mut()
+        && prev.gesture == Some(g)
+        && let Some(Op::Translate { delta: inv, .. }) = prev.inverse.first_mut()
+    {
+        *inv -= *delta;
+        apply_translate(world, index, targets, *delta);
+        return;
     }
 
     let mut inverse = Vec::with_capacity(ops.len());
@@ -130,8 +129,8 @@ fn commit(
                 target, type_id, ..
             } => {
                 let entity = index.0[target];
-                let old = clone_component(world, &registry, entity, *type_id)
-                    .expect("component present");
+                let old =
+                    clone_component(world, &registry, entity, *type_id).expect("component present");
                 inverse.push(Op::Set {
                     target: *target,
                     type_id: *type_id,
@@ -299,7 +298,11 @@ fn main() {
             ops,
         );
     });
-    verdict("1000-entity reflection transaction", &full, BUDGET_FULL_SCENE_US);
+    verdict(
+        "1000-entity reflection transaction",
+        &full,
+        BUDGET_FULL_SCENE_US,
+    );
 
     // 3. Simulated drag: 60 frames of Translate on 250 entities, one gesture id.
     //    Measures per-frame cost; asserts coalescing → exactly one history entry.
@@ -330,7 +333,11 @@ fn main() {
         mean_us: frame_costs.iter().sum::<u128>() / frame_costs.len() as u128,
         p99_us: frame_costs[frame_costs.len() * 99 / 100],
     };
-    verdict("drag frame (250 entities, coalesced)", &drag, BUDGET_DRAG_FRAME_US);
+    verdict(
+        "drag frame (250 entities, coalesced)",
+        &drag,
+        BUDGET_DRAG_FRAME_US,
+    );
     let entries = history.undo.len() - history_before;
     println!(
         "{:<38} {} entr{} for {} frames              {}",
@@ -364,7 +371,11 @@ fn main() {
     // 5. Undo of the full-scene transaction.
     let t = Instant::now();
     undo(&mut world, &index, &mut history);
-    println!("{:<38} {}µs", "undo 1000-entity transaction", t.elapsed().as_micros());
+    println!(
+        "{:<38} {}µs",
+        "undo 1000-entity transaction",
+        t.elapsed().as_micros()
+    );
 
     println!("\nhistory depth after run: {}", history.undo.len());
 }

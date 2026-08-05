@@ -3,11 +3,7 @@
 //! This material outputs solid white with no lighting calculations,
 //! replacing the heavyweight PBR shader for silhouette passes.
 
-use bevy::{
-    prelude::*,
-    render::render_resource::AsBindGroup,
-    shader::ShaderRef,
-};
+use bevy::{prelude::*, render::render_resource::AsBindGroup, shader::ShaderRef};
 
 /// A minimal material that outputs solid white.
 /// Used for silhouette rendering where we only need object presence.

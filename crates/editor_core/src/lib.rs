@@ -22,23 +22,23 @@ use bevy::prelude::*;
 use editor_api::prelude::*;
 
 pub mod prelude {
+    pub use crate::EditorCorePlugin;
+    pub use crate::camera::{FlyingCamera, is_viewport_camera};
     pub use crate::clipboard::EditorClipboard;
     pub use crate::edits::{EditorComponents, History, HistoryRequests};
-    pub use crate::camera::{is_viewport_camera, FlyingCamera};
-    pub use crate::settings::EditorSettings;
-    pub use crate::gesture::{GestureCounter, GestureMotion, MoveGesture, GESTURE_MOVE_CONTEXT};
+    pub use crate::gesture::{GESTURE_MOVE_CONTEXT, GestureCounter, GestureMotion, MoveGesture};
     pub use crate::insert::{
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
     };
     pub use crate::keymap_data::KeymapPaths;
-    pub use crate::selection::{Selected, SelectionChanged, SelectionScope};
-    pub use crate::modes::{CurrentMode, ModeChanged, Modes, MODE_NORMAL};
+    pub use crate::modes::{CurrentMode, MODE_NORMAL, ModeChanged, Modes};
     pub use crate::panels::{PanelCatalog, PanelFocus, PanelStates};
     pub use crate::resolver::{
-        active_contexts, which_key_continuations, ActionCatalog, EditorState, KeyCapture,
-        KeysUnresolved, OverlayContext, PendingKeys, PointerOverChrome, ResolvedKeymap,
+        ActionCatalog, EditorState, KeyCapture, KeysUnresolved, OverlayContext, PendingKeys,
+        PointerOverChrome, ResolvedKeymap, active_contexts, which_key_continuations,
     };
-    pub use crate::EditorCorePlugin;
+    pub use crate::selection::{Selected, SelectionChanged, SelectionScope};
+    pub use crate::settings::EditorSettings;
     pub use crate::{ProcessorCatalog, ValidatorCatalog};
     pub use editor_api::prelude::*;
 }
@@ -65,74 +65,80 @@ impl EditorFeature for CoreFeature {
         FeatureManifest::new("core", "Editor Core")
     }
     fn register(&self, reg: &mut FeatureRegistry) {
-        reg.mode(ModeDef::new("normal", "Normal").hint("RMB fly · click select · w move · i insert"))
-            .mode(ModeDef::new("insert", "Insert").hint("click place · shift multi · esc done"))
-            .action(
-                ActionDef::new("mode.insert", "Insert Mode")
-                    .describe("Place new entities")
-                    .context("normal")
-                    .bind("i"),
-            )
-            .action(
-                ActionDef::new("core.toggle-grid-snap", "Toggle Grid Snap")
-                    .describe("Quantize placement and movement to the grid")
-                    .context("normal")
-                    .context("insert")
-                    .bind("space g"),
-            )
-            .action(
-                ActionDef::new("core.toggle-editor", "Toggle Editor")
-                    .describe("Switch between game and editor")
-                    .bind("f12"),
-            )
-            .action(
-                ActionDef::new("core.palette", "Command Palette")
-                    .describe("Search and run any action")
-                    .context("normal")
-                    .context("insert")
-                    .bind("shift+semicolon") // ':'
-                    .bind("space p"), // leader style — also demos which-key
-            )
-            .action(
-                ActionDef::new("core.find-object", "Find Object")
-                    .describe("Search scene entities by name and select")
-                    .context("normal")
-                    .bind("space f"),
-            )
-            .action(
-                ActionDef::new("panel.focus-left", "Focus Panel Left")
-                    .describe("Move focus toward the left dock")
-                    .bind("ctrl+h"),
-            )
-            .action(
-                ActionDef::new("panel.focus-down", "Focus Panel Down")
-                    .describe("Move focus downward (dock stack, then bottom dock)")
-                    .bind("ctrl+j"),
-            )
-            .action(
-                ActionDef::new("panel.focus-up", "Focus Panel Up")
-                    .describe("Move focus upward")
-                    .bind("ctrl+k"),
-            )
-            .action(
-                ActionDef::new("panel.focus-right", "Focus Panel Right")
-                    .describe("Move focus toward the right dock")
-                    .bind("ctrl+l"),
-            )
-            // Undo/redo are GLOBAL (owner: "edit then u" must work from any panel
-            // focus); the handler gates on editor ownership so play is untouched.
-            .action(
-                ActionDef::new("core.undo", "Undo")
-                    .describe("Undo the last edit")
-                    .bind("u"),
-            )
-            .action(
-                ActionDef::new("core.redo", "Redo")
-                    .describe("Redo the last undone edit")
-                    .bind("ctrl+r"),
-            );
+        reg.mode(
+            ModeDef::new("normal", "Normal").hint("RMB fly · click select · w move · i insert"),
+        )
+        .mode(ModeDef::new("insert", "Insert").hint("click place · shift multi · esc done"))
+        .action(
+            ActionDef::new("mode.insert", "Insert Mode")
+                .describe("Place new entities")
+                .context("normal")
+                .bind("i"),
+        )
+        .action(
+            ActionDef::new("core.toggle-grid-snap", "Toggle Grid Snap")
+                .describe("Quantize placement and movement to the grid")
+                .context("normal")
+                .context("insert")
+                .bind("space g"),
+        )
+        .action(
+            ActionDef::new("core.toggle-editor", "Toggle Editor")
+                .describe("Switch between game and editor")
+                .bind("f12"),
+        )
+        .action(
+            ActionDef::new("core.palette", "Command Palette")
+                .describe("Search and run any action")
+                .context("normal")
+                .context("insert")
+                .bind("shift+semicolon") // ':'
+                .bind("space p"), // leader style — also demos which-key
+        )
+        .action(
+            ActionDef::new("core.find-object", "Find Object")
+                .describe("Search scene entities by name and select")
+                .context("normal")
+                .bind("space f"),
+        )
+        .action(
+            ActionDef::new("panel.focus-left", "Focus Panel Left")
+                .describe("Move focus toward the left dock")
+                .bind("ctrl+h"),
+        )
+        .action(
+            ActionDef::new("panel.focus-down", "Focus Panel Down")
+                .describe("Move focus downward (dock stack, then bottom dock)")
+                .bind("ctrl+j"),
+        )
+        .action(
+            ActionDef::new("panel.focus-up", "Focus Panel Up")
+                .describe("Move focus upward")
+                .bind("ctrl+k"),
+        )
+        .action(
+            ActionDef::new("panel.focus-right", "Focus Panel Right")
+                .describe("Move focus toward the right dock")
+                .bind("ctrl+l"),
+        )
+        // Undo/redo are GLOBAL (owner: "edit then u" must work from any panel
+        // focus); the handler gates on editor ownership so play is untouched.
+        .action(
+            ActionDef::new("core.undo", "Undo")
+                .describe("Undo the last edit")
+                .bind("u"),
+        )
+        .action(
+            ActionDef::new("core.redo", "Redo")
+                .describe("Redo the last undone edit")
+                .bind("ctrl+r"),
+        );
         // Escape as data: global binding the conventions system (and features) react to.
-        reg.action(ActionDef::new("core.escape-home", "Escape").bind("escape").hidden());
+        reg.action(
+            ActionDef::new("core.escape-home", "Escape")
+                .bind("escape")
+                .hidden(),
+        );
         // Selection is the text object (keymap doc): d cut, y yank, p paste.
         reg.action(
             ActionDef::new("select.delete", "Delete Selection")
@@ -256,7 +262,13 @@ impl Plugin for EditorCorePlugin {
 
         app.configure_sets(
             Update,
-            (EditorSet::Input, EditorSet::Tools, EditorSet::Mutate, EditorSet::Sync).chain(),
+            (
+                EditorSet::Input,
+                EditorSet::Tools,
+                EditorSet::Mutate,
+                EditorSet::Sync,
+            )
+                .chain(),
         );
 
         // Registration happens in a Startup system so features added after the plugin
@@ -323,7 +335,10 @@ fn host_features(world: &mut World) {
                     ContextId::new_static("insert"),
                 ],
                 default_bindings: Vec::new(),
-                flags: editor_api::actions::ActionFlags { is_edit: true, hidden: false },
+                flags: editor_api::actions::ActionFlags {
+                    is_edit: true,
+                    hidden: false,
+                },
             };
             (feature.clone(), def)
         })
@@ -378,7 +393,11 @@ fn host_features(world: &mut World) {
             (reg.register)(&registry);
         }
         world.insert_resource(edits::EditorComponents {
-            types: validated.components.iter().map(|(_, r)| r.clone()).collect(),
+            types: validated
+                .components
+                .iter()
+                .map(|(_, r)| r.clone())
+                .collect(),
         });
     }
 
@@ -386,16 +405,28 @@ fn host_features(world: &mut World) {
         kinds: validated.kinds.iter().map(|(_, k)| k.clone()).collect(),
     });
     world.insert_resource(ValidatorCatalog {
-        validators: validated.validators.iter().map(|(_, v)| v.clone()).collect(),
+        validators: validated
+            .validators
+            .iter()
+            .map(|(_, v)| v.clone())
+            .collect(),
     });
     world.insert_resource(ProcessorCatalog {
-        processors: validated.processors.iter().map(|(_, p)| p.clone()).collect(),
+        processors: validated
+            .processors
+            .iter()
+            .map(|(_, p)| p.clone())
+            .collect(),
     });
     world.insert_resource(panels::PanelCatalog {
         panels: validated.panels.iter().map(|(_, p)| p.clone()).collect(),
     });
     world.insert_resource(panels::PanelStates(
-        validated.panels.iter().map(|(_, p)| (p.id.clone(), p.default_open)).collect(),
+        validated
+            .panels
+            .iter()
+            .map(|(_, p)| (p.id.clone(), p.default_open))
+            .collect(),
     ));
     world.insert_resource(modes::Modes::from_validated(&validated));
     world.insert_resource(modes::CurrentMode(MODE_NORMAL));

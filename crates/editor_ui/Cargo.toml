@@ -17,3 +17,6 @@ editor_core.workspace = true
 editor_prefabs.workspace = true
 editor_scene.workspace = true
 uuid.workspace = true
+
+[lints]
+workspace = true

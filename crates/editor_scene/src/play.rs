@@ -3,7 +3,7 @@
 //! virtual time; Reset restores the snapshot EXACTLY — selection, camera, dirty flag,
 //! and undo history intact (SceneId-targeted history survives the respawn).
 
-use crate::{apply_scene, capture_scene, SceneDirty, SceneIoFeedback, SceneSnapshot};
+use crate::{SceneDirty, SceneIoFeedback, SceneSnapshot, apply_scene, capture_scene};
 use bevy::prelude::*;
 use editor_core::prelude::*;
 
@@ -92,8 +92,12 @@ pub(crate) fn perform_play(world: &mut World) {
             .find(|(c, _, target)| is_viewport_camera(c, *target))
             .map(|(_, t, _)| *t);
         let dirty = world.resource::<SceneDirty>().0;
-        world.resource_mut::<PlayState>().0 =
-            Some(PlaySession { snapshot, selected, camera, dirty });
+        world.resource_mut::<PlayState>().0 = Some(PlaySession {
+            snapshot,
+            selected,
+            camera,
+            dirty,
+        });
         world.resource_mut::<EditorState>().active = false;
         world.write_message(SceneIoFeedback {
             message: "playing — F6 pause · F7 reset".into(),
@@ -101,48 +105,48 @@ pub(crate) fn perform_play(world: &mut World) {
         });
     }
 
-    if requests.pause {
-        if let Some(mut time) = world.get_resource_mut::<Time<Virtual>>() {
-            if time.is_paused() {
-                time.unpause();
-            } else {
-                time.pause();
-            }
+    if requests.pause
+        && let Some(mut time) = world.get_resource_mut::<Time<Virtual>>()
+    {
+        if time.is_paused() {
+            time.unpause();
+        } else {
+            time.pause();
         }
     }
 
-    if requests.reset {
-        if let Some(session) = world.resource_mut::<PlayState>().0.take() {
-            // Exact restore through the one choke point; history is PRESERVED.
-            apply_scene(world, &session.snapshot, false);
+    if requests.reset
+        && let Some(session) = world.resource_mut::<PlayState>().0.take()
+    {
+        // Exact restore through the one choke point; history is PRESERVED.
+        apply_scene(world, &session.snapshot, false);
 
-            // Selection back onto the (re-spawned) entities.
-            for id in &session.selected {
-                if let Some(entity) = world.resource::<SceneIndex>().get(id) {
-                    world.entity_mut(entity).insert(Selected);
-                }
+        // Selection back onto the (re-spawned) entities.
+        for id in &session.selected {
+            if let Some(entity) = world.resource::<SceneIndex>().get(id) {
+                world.entity_mut(entity).insert(Selected);
             }
-            // Camera exactly where the editor left it.
-            if let Some(saved) = session.camera {
-                let camera = world
-                    .query::<(&Camera, &mut Transform, Option<&bevy::camera::RenderTarget>)>()
-                    .iter_mut(world)
-                    .find(|(c, _, target)| is_viewport_camera(c, target.as_deref()))
-                    .map(|(_, t, _)| t);
-                if let Some(mut transform) = camera {
-                    *transform = saved;
-                }
-            }
-            world.resource_mut::<SceneDirty>().0 = session.dirty;
-            if let Some(mut time) = world.get_resource_mut::<Time<Virtual>>() {
-                time.unpause();
-            }
-            world.resource_mut::<EditorState>().active = true;
-            world.write_message(SceneIoFeedback {
-                message: "reset to pre-play state".into(),
-                success: true,
-            });
         }
+        // Camera exactly where the editor left it.
+        if let Some(saved) = session.camera {
+            let camera = world
+                .query::<(&Camera, &mut Transform, Option<&bevy::camera::RenderTarget>)>()
+                .iter_mut(world)
+                .find(|(c, _, target)| is_viewport_camera(c, target.as_deref()))
+                .map(|(_, t, _)| t);
+            if let Some(mut transform) = camera {
+                *transform = saved;
+            }
+        }
+        world.resource_mut::<SceneDirty>().0 = session.dirty;
+        if let Some(mut time) = world.get_resource_mut::<Time<Virtual>>() {
+            time.unpause();
+        }
+        world.resource_mut::<EditorState>().active = true;
+        world.write_message(SceneIoFeedback {
+            message: "reset to pre-play state".into(),
+            success: true,
+        });
     }
 }
 
@@ -160,11 +164,17 @@ mod tests {
         // Select `a`, note history + serialized state.
         let entity_a = app.world().resource::<SceneIndex>().get(&a).unwrap();
         app.world_mut().entity_mut(entity_a).insert(Selected);
-        let depth_before = app.world().resource::<editor_core::prelude::History>().undo_depth();
+        let depth_before = app
+            .world()
+            .resource::<editor_core::prelude::History>()
+            .undo_depth();
         let state_before = scene_ron(&mut app);
 
         invoke(&mut app, "editor.play");
-        assert!(!app.world().resource::<EditorState>().active, "game owns input");
+        assert!(
+            !app.world().resource::<EditorState>().active,
+            "game owns input"
+        );
         assert!(app.world().resource::<PlayState>().0.is_some());
 
         // Simulate gameplay chaos: mutate a transform directly, despawn an entity.
@@ -179,14 +189,22 @@ mod tests {
 
         invoke(&mut app, "editor.reset");
         assert_eq!(scene_ron(&mut app), state_before, "exact scene restore");
-        assert!(app.world().resource::<EditorState>().active, "editor input back");
+        assert!(
+            app.world().resource::<EditorState>().active,
+            "editor input back"
+        );
         assert_eq!(
-            app.world().resource::<editor_core::prelude::History>().undo_depth(),
+            app.world()
+                .resource::<editor_core::prelude::History>()
+                .undo_depth(),
             depth_before,
             "history preserved across reset (B10)"
         );
         let world = app.world_mut();
         let entity_a = world.resource::<SceneIndex>().get(&a).unwrap();
-        assert!(world.get::<Selected>(entity_a).is_some(), "selection restored");
+        assert!(
+            world.get::<Selected>(entity_a).is_some(),
+            "selection restored"
+        );
     }
 }

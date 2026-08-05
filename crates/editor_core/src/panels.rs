@@ -97,7 +97,11 @@ fn first_open(
     states: &PanelStates,
     placement: Placement,
 ) -> Option<PanelId> {
-    catalog.in_placement(placement).map(|p| &p.id).find(|id| states.open(id)).cloned()
+    catalog
+        .in_placement(placement)
+        .map(|p| &p.id)
+        .find(|id| states.open(id))
+        .cloned()
 }
 
 /// Neighbor within the focused panel's own dock stack (+1 = down, -1 = up).
@@ -114,7 +118,10 @@ fn dock_neighbor(
         .filter(|id| states.open(id))
         .collect();
     let index = stack.iter().position(|id| *id == current)? as isize;
-    stack.get(usize::try_from(index + delta).ok()?).copied().cloned()
+    stack
+        .get(usize::try_from(index + delta).ok()?)
+        .copied()
+        .cloned()
 }
 
 fn step_focus(focus: &mut PanelFocus, catalog: &PanelCatalog, states: &PanelStates, dir: Dir) {
@@ -150,9 +157,9 @@ fn step_focus(focus: &mut PanelFocus, catalog: &PanelCatalog, states: &PanelStat
                             .flatten()
                     })
                     .or_else(|| Some(current.clone())),
-                (_, Dir::Up) => {
-                    Some(dock_neighbor(catalog, states, current, -1).unwrap_or_else(|| current.clone()))
-                }
+                (_, Dir::Up) => Some(
+                    dock_neighbor(catalog, states, current, -1).unwrap_or_else(|| current.clone()),
+                ),
                 // No panel further outward: stay put.
                 _ => Some(current.clone()),
             }
@@ -164,9 +171,9 @@ fn step_focus(focus: &mut PanelFocus, catalog: &PanelCatalog, states: &PanelStat
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resolver::{active_contexts, EditorState, OverlayContext};
-    use crate::modes::CurrentMode;
     use crate::EditorCorePlugin;
+    use crate::modes::CurrentMode;
+    use crate::resolver::{EditorState, OverlayContext, active_contexts};
 
     struct PanelFeature;
     impl EditorFeature for PanelFeature {
@@ -214,7 +221,11 @@ mod tests {
     }
 
     fn focused(app: &App) -> Option<String> {
-        app.world().resource::<PanelFocus>().0.as_ref().map(|id| id.to_string())
+        app.world()
+            .resource::<PanelFocus>()
+            .0
+            .as_ref()
+            .map(|id| id.to_string())
     }
 
     // C1: registration populates the catalog; focus is spatial; the focused panel's
@@ -258,7 +269,11 @@ mod tests {
         invoke(&mut app, "panel.focus-left");
         invoke(&mut app, "panel.toggle.hierarchy-test");
         assert_eq!(focused(&app), None);
-        assert!(!app.world().resource::<PanelStates>().open(&PanelId::new_static("hierarchy-test")));
+        assert!(
+            !app.world()
+                .resource::<PanelStates>()
+                .open(&PanelId::new_static("hierarchy-test"))
+        );
 
         // Editor deactivation always lands focus back in the viewport.
         invoke(&mut app, "panel.focus-right");

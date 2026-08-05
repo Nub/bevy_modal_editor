@@ -96,8 +96,7 @@ pub(crate) fn perform_reload(world: &mut World) {
         query.iter(world).copied().collect()
     };
     let camera = {
-        let mut query = world
-            .query::<(&Camera, &Transform, Option<&bevy::camera::RenderTarget>)>();
+        let mut query = world.query::<(&Camera, &Transform, Option<&bevy::camera::RenderTarget>)>();
         query
             .iter(world)
             .find(|(c, _, target)| is_viewport_camera(c, *target))
@@ -110,11 +109,15 @@ pub(crate) fn perform_reload(world: &mut World) {
         editor_active: world.resource::<EditorState>().active,
         written_at: now_unix(),
     };
-    let Ok(text) = ron::to_string(&session) else { return };
+    let Ok(text) = ron::to_string(&session) else {
+        return;
+    };
     if std::fs::write(SESSION_PATH, text).is_err() {
         return;
     }
-    let Ok(current) = std::env::current_exe() else { return };
+    let Ok(current) = std::env::current_exe() else {
+        return;
+    };
     match std::process::Command::new(current).spawn() {
         Ok(_) => {
             world.write_message(bevy::app::AppExit::Success);
@@ -140,12 +143,21 @@ mod tests {
         let old = std::env::current_dir().unwrap();
         std::env::set_current_dir(dir.path()).unwrap();
 
-        let fresh = EditorSession { written_at: now_unix(), ..Default::default() };
+        let fresh = EditorSession {
+            written_at: now_unix(),
+            ..Default::default()
+        };
         std::fs::write(SESSION_PATH, ron::to_string(&fresh).unwrap()).unwrap();
         assert!(take_session().is_some(), "fresh session consumed");
-        assert!(!std::path::Path::new(SESSION_PATH).exists(), "sidecar removed");
+        assert!(
+            !std::path::Path::new(SESSION_PATH).exists(),
+            "sidecar removed"
+        );
 
-        let stale = EditorSession { written_at: now_unix() - 3600, ..Default::default() };
+        let stale = EditorSession {
+            written_at: now_unix() - 3600,
+            ..Default::default()
+        };
         std::fs::write(SESSION_PATH, ron::to_string(&stale).unwrap()).unwrap();
         assert!(take_session().is_none(), "stale session ignored");
 

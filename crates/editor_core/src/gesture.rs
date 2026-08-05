@@ -43,7 +43,7 @@ pub struct GestureCounter(u64);
 impl GestureCounter {
     /// A fresh gesture id: transactions sharing it coalesce into ONE history entry
     /// (drags, held-key repeats, inspector slide-edits).
-    pub fn next(&mut self) -> u64 {
+    pub fn begin(&mut self) -> u64 {
         self.0 += 1;
         self.0
     }
@@ -103,7 +103,11 @@ pub(crate) fn handle_gesture_actions(
 fn set_axis(gesture: &mut MoveGesture, which: usize) {
     if let MoveGesture::Active { axis, .. } = gesture {
         // Same axis again clears the constraint (Blender idiom).
-        *axis = if *axis == Some(which) { None } else { Some(which) };
+        *axis = if *axis == Some(which) {
+            None
+        } else {
+            Some(which)
+        };
     }
 }
 
@@ -114,10 +118,18 @@ pub(crate) fn drive_gesture(
     mut motion: ResMut<GestureMotion>,
     mut edits: EditScope,
 ) {
-    let MoveGesture::Active { id, axis, accumulated, originals } = &mut *gesture else {
+    let MoveGesture::Active {
+        id,
+        axis,
+        accumulated,
+        originals,
+    } = &mut *gesture
+    else {
         return;
     };
-    let Some(mut delta) = motion.0.take() else { return };
+    let Some(mut delta) = motion.0.take() else {
+        return;
+    };
     if let Some(axis) = axis {
         let mut constrained = Vec3::ZERO;
         constrained[*axis] = delta[*axis];
@@ -150,8 +162,7 @@ fn axis_movement(
     let Ok(screen_pos) = camera.world_to_viewport(camera_transform, pivot) else {
         return 0.0;
     };
-    let Ok(screen_axis_pos) = camera.world_to_viewport(camera_transform, pivot + axis_dir)
-    else {
+    let Ok(screen_axis_pos) = camera.world_to_viewport(camera_transform, pivot + axis_dir) else {
         return 0.0;
     };
     let screen_axis = screen_axis_pos - screen_pos;
@@ -168,12 +179,22 @@ fn axis_movement(
 /// that world axis with the same pixel accuracy.
 pub(crate) fn motion_from_cursor(
     gesture: Res<MoveGesture>,
-    camera: Query<(&Camera, &GlobalTransform, Option<&bevy::camera::RenderTarget>)>,
+    camera: Query<(
+        &Camera,
+        &GlobalTransform,
+        Option<&bevy::camera::RenderTarget>,
+    )>,
     window: Query<&Window, With<PrimaryWindow>>,
     mut last_cursor: Local<Option<Vec2>>,
     mut motion: ResMut<GestureMotion>,
 ) {
-    let MoveGesture::Active { axis, accumulated, originals, .. } = &*gesture else {
+    let MoveGesture::Active {
+        axis,
+        accumulated,
+        originals,
+        ..
+    } = &*gesture
+    else {
         *last_cursor = None;
         return;
     };
@@ -185,7 +206,9 @@ pub(crate) fn motion_from_cursor(
     ) else {
         return;
     };
-    let Some(cursor) = window.cursor_position() else { return };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
     let Some(last) = *last_cursor else {
         *last_cursor = Some(cursor);
         return;
@@ -195,8 +218,11 @@ pub(crate) fn motion_from_cursor(
     if mouse_delta == Vec2::ZERO {
         return;
     }
-    let pivot =
-        originals.first().map(|(_, t)| t.translation).unwrap_or(Vec3::ZERO) + *accumulated;
+    let pivot = originals
+        .first()
+        .map(|(_, t)| t.translation)
+        .unwrap_or(Vec3::ZERO)
+        + *accumulated;
 
     let world_delta = match axis {
         Some(index) => {
@@ -233,9 +259,9 @@ pub(crate) fn commit_on_click(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::EditorCorePlugin;
     use crate::edits::History;
     use crate::resolver::EditorState;
-    use crate::EditorCorePlugin;
 
     struct TestFeature;
     impl EditorFeature for TestFeature {
@@ -335,13 +361,20 @@ mod tests {
         assert_ne!(translation(&mut app, id), Vec3::new(2.0, 0.0, 3.0));
 
         invoke(&mut app, "transform.cancel");
-        assert_eq!(translation(&mut app, id), Vec3::new(2.0, 0.0, 3.0), "exact restore");
+        assert_eq!(
+            translation(&mut app, id),
+            Vec3::new(2.0, 0.0, 3.0),
+            "exact restore"
+        );
         assert_eq!(
             app.world().resource::<History>().undo_depth(),
             depth_before,
             "cancelled gesture leaves no history"
         );
-        assert!(matches!(*app.world().resource::<MoveGesture>(), MoveGesture::Idle));
+        assert!(matches!(
+            *app.world().resource::<MoveGesture>(),
+            MoveGesture::Idle
+        ));
         assert!(app.world().resource::<OverlayContext>().0.is_none());
     }
 
@@ -353,7 +386,11 @@ mod tests {
         invoke(&mut app, "transform.move");
         invoke(&mut app, "transform.axis-x");
         push_delta(&mut app, Vec3::new(3.0, 0.0, 9.0));
-        assert_eq!(translation(&mut app, id), Vec3::new(3.0, 0.0, 0.0), "x-only");
+        assert_eq!(
+            translation(&mut app, id),
+            Vec3::new(3.0, 0.0, 0.0),
+            "x-only"
+        );
         invoke(&mut app, "transform.cancel");
     }
 }

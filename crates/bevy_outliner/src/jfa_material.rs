@@ -7,25 +7,28 @@
 
 use bevy::{
     asset::RenderAssetUsages,
-    camera::{visibility::RenderLayers, RenderTarget},
-    core_pipeline::{tonemapping::tonemapping, Core3d, Core3dSystems},
+    camera::{RenderTarget, visibility::RenderLayers},
+    core_pipeline::{Core3d, Core3dSystems, tonemapping::tonemapping},
     prelude::*,
     render::{
+        Extract, Render, RenderApp, RenderSystems,
         render_asset::RenderAssets,
         render_resource::{
-            binding_types::{sampler as sampler_layout, texture_2d, texture_storage_2d, uniform_buffer},
-            BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntries,
-            Buffer, CachedComputePipelineId, CachedRenderPipelineId, ColorTargetState, ColorWrites,
-            ComputePassDescriptor, ComputePipelineDescriptor, Extent3d, FragmentState,
-            MultisampleState, Operations, PipelineCache, PrimitiveState, RenderPassColorAttachment,
-            RenderPassDescriptor, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, ShaderType, StorageTextureAccess, TextureDimension,
-            TextureFormat, TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutDescriptor,
+            BindGroupLayoutEntries, Buffer, CachedComputePipelineId, CachedRenderPipelineId,
+            ColorTargetState, ColorWrites, ComputePassDescriptor, ComputePipelineDescriptor,
+            Extent3d, FragmentState, MultisampleState, Operations, PipelineCache, PrimitiveState,
+            RenderPassColorAttachment, RenderPassDescriptor, RenderPipelineDescriptor, Sampler,
+            SamplerBindingType, SamplerDescriptor, ShaderStages, ShaderType, StorageTextureAccess,
+            TextureDimension, TextureFormat, TextureSampleType, TextureUsages, TextureView,
+            TextureViewDescriptor,
+            binding_types::{
+                sampler as sampler_layout, texture_2d, texture_storage_2d, uniform_buffer,
+            },
         },
         renderer::{RenderContext, RenderDevice, RenderQueue, ViewQuery},
         texture::GpuImage,
         view::ViewTarget,
-        Extract, Render, RenderApp, RenderSystems,
     },
 };
 
@@ -113,7 +116,13 @@ pub fn setup_outline_camera(
     mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<SilhouetteMaterial>>,
     cameras: Query<
-        (Entity, &Camera, &Transform, &Projection, Option<&RenderTarget>),
+        (
+            Entity,
+            &Camera,
+            &Transform,
+            &Projection,
+            Option<&RenderTarget>,
+        ),
         (With<OutlineSettings>, Without<OutlineCameraLink>),
     >,
     windows: Query<&Window>,
@@ -233,7 +242,10 @@ pub fn sync_outline_meshes(
     >,
     mut silhouettes: Query<(Entity, &mut Transform), (With<SilhouetteMesh>, Without<MeshOutline>)>,
     // Only query sources with changed transforms
-    changed_sources: Query<(Entity, &GlobalTransform), (With<MeshOutline>, Changed<GlobalTransform>)>,
+    changed_sources: Query<
+        (Entity, &GlobalTransform),
+        (With<MeshOutline>, Changed<GlobalTransform>),
+    >,
     // Sources whose Mesh3d handle changed — update the silhouette mesh
     changed_meshes: Query<(&Mesh3d, &HasSilhouetteMesh), (With<MeshOutline>, Changed<Mesh3d>)>,
     // Track entities that had MeshOutline removed
@@ -275,13 +287,13 @@ pub fn sync_outline_meshes(
 
     // Update silhouette transforms - O(n) by iterating changed sources directly
     for (source_entity, global_transform) in changed_sources.iter() {
-        if let Ok((_, has_silhouette)) = sources_with_silhouettes.get(source_entity) {
-            if let Ok((_, mut sil_transform)) = silhouettes.get_mut(has_silhouette.silhouette) {
-                let (scale, rotation, translation) = global_transform.to_scale_rotation_translation();
-                sil_transform.translation = translation;
-                sil_transform.rotation = rotation;
-                sil_transform.scale = scale;
-            }
+        if let Ok((_, has_silhouette)) = sources_with_silhouettes.get(source_entity)
+            && let Ok((_, mut sil_transform)) = silhouettes.get_mut(has_silhouette.silhouette)
+        {
+            let (scale, rotation, translation) = global_transform.to_scale_rotation_translation();
+            sil_transform.translation = translation;
+            sil_transform.rotation = rotation;
+            sil_transform.scale = scale;
         }
     }
 
@@ -375,30 +387,27 @@ pub fn resize_silhouette_textures(
         };
 
         // Resize silhouette texture
-        if let Some(silhouette_image) = images.get(&link.silhouette_texture) {
-            if silhouette_image.size() != target_size {
-                if let Some(mut img) = images.get_mut(&link.silhouette_texture) {
-                    img.resize(extent);
-                }
-            }
+        if let Some(silhouette_image) = images.get(&link.silhouette_texture)
+            && silhouette_image.size() != target_size
+            && let Some(mut img) = images.get_mut(&link.silhouette_texture)
+        {
+            img.resize(extent);
         }
 
         // Resize JFA ping texture
-        if let Some(jfa_ping_image) = images.get(&link.jfa_ping_texture) {
-            if jfa_ping_image.size() != target_size {
-                if let Some(mut img) = images.get_mut(&link.jfa_ping_texture) {
-                    img.resize(extent);
-                }
-            }
+        if let Some(jfa_ping_image) = images.get(&link.jfa_ping_texture)
+            && jfa_ping_image.size() != target_size
+            && let Some(mut img) = images.get_mut(&link.jfa_ping_texture)
+        {
+            img.resize(extent);
         }
 
         // Resize JFA pong texture
-        if let Some(jfa_pong_image) = images.get(&link.jfa_pong_texture) {
-            if jfa_pong_image.size() != target_size {
-                if let Some(mut img) = images.get_mut(&link.jfa_pong_texture) {
-                    img.resize(extent);
-                }
-            }
+        if let Some(jfa_pong_image) = images.get(&link.jfa_pong_texture)
+            && jfa_pong_image.size() != target_size
+            && let Some(mut img) = images.get_mut(&link.jfa_pong_texture)
+        {
+            img.resize(extent);
         }
     }
 }
@@ -415,7 +424,9 @@ pub fn extract_outline_data(
     let Some(first_outline) = outlines.iter().next() else {
         for (entity, _, _) in cameras.iter() {
             if let Ok(render_entity) = render_entity_lookup.get(entity) {
-                commands.entity(render_entity.id()).remove::<ExtractedOutlineData>();
+                commands
+                    .entity(render_entity.id())
+                    .remove::<ExtractedOutlineData>();
             }
         }
         return;
@@ -435,17 +446,19 @@ pub fn extract_outline_data(
             continue;
         };
 
-        commands.entity(render_entity.id()).insert(ExtractedOutlineData {
-            silhouette_texture: link.silhouette_texture.clone(),
-            jfa_ping_texture: link.jfa_ping_texture.clone(),
-            jfa_pong_texture: link.jfa_pong_texture.clone(),
-            settings: OutlineShaderSettings {
-                color,
-                width,
-                enabled: if settings.enabled { 1.0 } else { 0.0 },
-                _padding: [0.0; 2],
-            },
-        });
+        commands
+            .entity(render_entity.id())
+            .insert(ExtractedOutlineData {
+                silhouette_texture: link.silhouette_texture.clone(),
+                jfa_ping_texture: link.jfa_ping_texture.clone(),
+                jfa_pong_texture: link.jfa_pong_texture.clone(),
+                settings: OutlineShaderSettings {
+                    color,
+                    width,
+                    enabled: if settings.enabled { 1.0 } else { 0.0 },
+                    _padding: [0.0; 2],
+                },
+            });
     }
 }
 
@@ -456,7 +469,11 @@ pub fn prepare_outline_resources(
     render_queue: Res<RenderQueue>,
     outline_pipeline: Res<OutlinePipeline>,
     gpu_images: Res<RenderAssets<GpuImage>>,
-    query: Query<(Entity, &ExtractedOutlineData, Option<&OutlineRenderResources>)>,
+    query: Query<(
+        Entity,
+        &ExtractedOutlineData,
+        Option<&OutlineRenderResources>,
+    )>,
 ) {
     for (entity, outline_data, existing_resources) in query.iter() {
         // Get GPU textures
@@ -475,20 +492,19 @@ pub fn prepare_outline_resources(
         let width = outline_data.settings.width;
 
         // Check if we can reuse existing resources
-        if let Some(existing) = existing_resources {
-            if existing.cached_width == width
-                && existing.cached_texture_size == (tex_width, tex_height)
-            {
-                // Only update settings buffer if settings actually changed
-                if existing.cached_settings != outline_data.settings {
-                    render_queue.write_buffer(
-                        &existing.settings_buffer,
-                        0,
-                        bytemuck::bytes_of(&outline_data.settings),
-                    );
-                }
-                continue;
+        if let Some(existing) = existing_resources
+            && existing.cached_width == width
+            && existing.cached_texture_size == (tex_width, tex_height)
+        {
+            // Only update settings buffer if settings actually changed
+            if existing.cached_settings != outline_data.settings {
+                render_queue.write_buffer(
+                    &existing.settings_buffer,
+                    0,
+                    bytemuck::bytes_of(&outline_data.settings),
+                );
             }
+            continue;
         }
 
         // Need to create or recreate resources
@@ -810,10 +826,14 @@ pub fn outline_pass(
         };
 
         // Get compute pipelines
-        let Some(init_pipeline) = pipeline_cache.get_compute_pipeline(outline_pipeline.init_pipeline_id) else {
+        let Some(init_pipeline) =
+            pipeline_cache.get_compute_pipeline(outline_pipeline.init_pipeline_id)
+        else {
             return;
         };
-        let Some(step_pipeline) = pipeline_cache.get_compute_pipeline(outline_pipeline.step_pipeline_id) else {
+        let Some(step_pipeline) =
+            pipeline_cache.get_compute_pipeline(outline_pipeline.step_pipeline_id)
+        else {
             return;
         };
 
@@ -823,7 +843,8 @@ pub fn outline_pass(
             } else {
                 outline_pipeline.composite_pipeline_id
             };
-        let Some(composite_pipeline) = pipeline_cache.get_render_pipeline(composite_pipeline_id) else {
+        let Some(composite_pipeline) = pipeline_cache.get_render_pipeline(composite_pipeline_id)
+        else {
             return;
         };
 
@@ -832,8 +853,8 @@ pub fn outline_pass(
         // Calculate workgroup count (8x8 workgroups)
         let tex_width = jfa_ping_gpu.texture.width();
         let tex_height = jfa_ping_gpu.texture.height();
-        let workgroups_x = (tex_width + 7) / 8;
-        let workgroups_y = (tex_height + 7) / 8;
+        let workgroups_x = tex_width.div_ceil(8);
+        let workgroups_y = tex_height.div_ceil(8);
 
         // Init Compute Pass: Convert silhouette to seed coordinates
         {

@@ -84,13 +84,18 @@ struct FieldPatch {
 type PrefabFn = fn() -> Box<dyn Scene>;
 type PatchFn = fn(f32) -> Box<dyn Scene>;
 
-fn registries() -> (HashMap<&'static str, PrefabFn>, HashMap<(&'static str, &'static str), PatchFn>) {
+fn registries() -> (
+    HashMap<&'static str, PrefabFn>,
+    HashMap<(&'static str, &'static str), PatchFn>,
+) {
     let mut prefabs: HashMap<&'static str, PrefabFn> = HashMap::new();
     prefabs.insert("barrel", || Box::new(barrel()));
     prefabs.insert("exploding_barrel", || Box::new(exploding_barrel()));
 
     let mut patches: HashMap<(&'static str, &'static str), PatchFn> = HashMap::new();
-    patches.insert(("Health", "max"), |v| Box::new(Health::patch(move |t, _| t.max = v)));
+    patches.insert(("Health", "max"), |v| {
+        Box::new(Health::patch(move |t, _| t.max = v))
+    });
     patches.insert(("Health", "current"), |v| {
         Box::new(Health::patch(move |t, _| t.current = v))
     });
@@ -102,7 +107,11 @@ fn registries() -> (HashMap<&'static str, PrefabFn>, HashMap<(&'static str, &'st
 
 fn main() {
     let mut app = App::new();
-    app.add_plugins((MinimalPlugins, AssetPlugin::default(), bevy::scene::ScenePlugin));
+    app.add_plugins((
+        MinimalPlugins,
+        AssetPlugin::default(),
+        bevy::scene::ScenePlugin,
+    ));
     let world = app.world_mut();
 
     // A. Instance override: spawn prefab + per-field patch; untouched fields survive.
@@ -113,7 +122,10 @@ fn main() {
     let h = world.get::<Health>(e).unwrap();
     check(
         "A  per-field override merges (current kept, max set)",
-        *h == Health { current: 100.0, max: 200.0 },
+        *h == Health {
+            current: 100.0,
+            max: 200.0,
+        },
     );
 
     // B. Variant chain: base -> variant -> instance override; document order wins.
@@ -122,10 +134,15 @@ fn main() {
         .expect("spawn")
         .id();
     let h = world.get::<Health>(e).unwrap();
-    let name_ok = world.get::<Name>(e).is_some_and(|n| n.as_str() == "ExplodingBarrel");
+    let name_ok = world
+        .get::<Name>(e)
+        .is_some_and(|n| n.as_str() == "ExplodingBarrel");
     check(
         "B  variant inheritance (base->variant->instance)",
-        *h == Health { current: 25.0, max: 50.0 } && name_ok,
+        *h == Health {
+            current: 25.0,
+            max: 50.0,
+        } && name_ok,
     );
 
     // C. SceneId UUID round-trip through BSN spawn.
@@ -147,8 +164,16 @@ fn main() {
                 id: Uuid::new_v4(),
                 prefab: "barrel".into(),
                 overrides: vec![
-                    FieldPatch { component: "Health".into(), field: "max".into(), value: 300.0 },
-                    FieldPatch { component: "Transform".into(), field: "x".into(), value: 7.5 },
+                    FieldPatch {
+                        component: "Health".into(),
+                        field: "max".into(),
+                        value: 300.0,
+                    },
+                    FieldPatch {
+                        component: "Transform".into(),
+                        field: "x".into(),
+                        value: 7.5,
+                    },
                 ],
             },
             EntityRecord {
@@ -160,7 +185,10 @@ fn main() {
     };
     let text = ron::ser::to_string_pretty(&envelope, Default::default()).unwrap();
     let parsed: Envelope = ron::from_str(&text).unwrap();
-    check("D1 envelope serializes/deserializes (RON)", parsed.format_version == 1);
+    check(
+        "D1 envelope serializes/deserializes (RON)",
+        parsed.format_version == 1,
+    );
 
     let (prefabs, patchers) = registries();
     let mut spawned = Vec::new();
@@ -179,13 +207,21 @@ fn main() {
     let t0 = world.get::<Transform>(spawned[0]).unwrap();
     check(
         "D2 deserialized overrides drive BSN patches",
-        *h0 == Health { current: 100.0, max: 300.0 } && t0.translation.x == 7.5,
+        *h0 == Health {
+            current: 100.0,
+            max: 300.0,
+        } && t0.translation.x == 7.5,
     );
     let h1 = world.get::<Health>(spawned[1]).unwrap();
-    let id_ok = world.get::<SceneId>(spawned[1]).is_some_and(|s| s.0 == parsed.entities[1].id);
+    let id_ok = world
+        .get::<SceneId>(spawned[1])
+        .is_some_and(|s| s.0 == parsed.entities[1].id);
     check(
         "D3 variant prefab from envelope + SceneId assigned",
-        *h1 == Health { current: 100.0, max: 50.0 } && id_ok,
+        *h1 == Health {
+            current: 100.0,
+            max: 50.0,
+        } && id_ok,
     );
 
     println!("\nall claims hold — see FINDINGS.md");

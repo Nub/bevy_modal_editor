@@ -88,7 +88,10 @@ pub(crate) fn spawn_statusbar(
                 style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
             ));
-            bar.spawn(Node { flex_grow: 1.0, ..default() });
+            bar.spawn(Node {
+                flex_grow: 1.0,
+                ..default()
+            });
             bar.spawn((
                 StatusKeys,
                 Text::new(""),
@@ -142,23 +145,36 @@ pub(crate) fn update_statusbar(
     mut bar: Query<&mut Visibility, With<StatusBar>>,
     mut mode_text: Query<
         &mut Text,
-        (With<StatusModeText>, Without<StatusHint>, Without<StatusKeys>),
+        (
+            With<StatusModeText>,
+            Without<StatusHint>,
+            Without<StatusKeys>,
+        ),
     >,
     mut hint_text: Query<
         &mut Text,
-        (With<StatusHint>, Without<StatusModeText>, Without<StatusKeys>),
+        (
+            With<StatusHint>,
+            Without<StatusModeText>,
+            Without<StatusKeys>,
+        ),
     >,
     mut keys_text: Query<
         (&mut Text, &mut TextColor),
-        (With<StatusKeys>, Without<StatusModeText>, Without<StatusHint>),
+        (
+            With<StatusKeys>,
+            Without<StatusModeText>,
+            Without<StatusHint>,
+        ),
     >,
-    mut dirty_dot: Query<
-        &mut Visibility,
-        (With<StatusDirty>, Without<StatusBar>),
-    >,
+    mut dirty_dot: Query<&mut Visibility, (With<StatusDirty>, Without<StatusBar>)>,
 ) {
     for mut visibility in &mut bar {
-        *visibility = if data.state.active { Visibility::Visible } else { Visibility::Hidden };
+        *visibility = if data.state.active {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
     if !data.state.active {
         return;
@@ -190,7 +206,9 @@ pub(crate) fn update_statusbar(
         } else if inserting.is_some() {
             "INSERT".to_string()
         } else {
-            mode_def.map(|m| m.name.to_uppercase()).unwrap_or_else(|| "?".into())
+            mode_def
+                .map(|m| m.name.to_uppercase())
+                .unwrap_or_else(|| "?".into())
         };
         if text.0 != name {
             text.0 = name;
@@ -207,14 +225,20 @@ pub(crate) fn update_statusbar(
         } else if let Some(kind_name) = inserting {
             format!("inserting {kind_name} · click place · ⇧click multi · ⎋ done")
         } else {
-            mode_def.map(|m| m.statusline_hint.to_string()).unwrap_or_default()
+            mode_def
+                .map(|m| m.statusline_hint.to_string())
+                .unwrap_or_default()
         };
         if text.0 != hint {
             text.0 = hint;
         }
     }
     for mut visibility in &mut dirty_dot {
-        *visibility = if data.dirty.0 { Visibility::Visible } else { Visibility::Hidden };
+        *visibility = if data.dirty.0 {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
     // Keys slot: pending glyphs win; then selection count; then transient feedback.
     let selection_count = selected.iter().count();

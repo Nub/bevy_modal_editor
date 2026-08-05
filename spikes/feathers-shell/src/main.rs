@@ -13,27 +13,28 @@
 //! Judge interactively: scroll the big list (entity count stays ~constant — printed),
 //! drag the splitter, tab through controls, type/select/copy in the text field.
 
+use bevy::feathers::cursor::EntityCursor;
 use bevy::feathers::{
+    FeathersPlugins,
     controls::{
         FeathersCheckbox, FeathersNumberInput, FeathersScrollbar, FeathersSlider,
         FeathersTextInput, FeathersTextInputContainer, NumberInputValue, UpdateNumberInput,
     },
     dark_theme::create_dark_theme,
     theme::{ThemeBackgroundColor, ThemeToken, ThemedText, UiTheme},
-    tokens, FeathersPlugins,
+    tokens,
 };
 use bevy::input_focus::tab_navigation::TabGroup;
 use bevy::input_focus::{FocusCause, FocusLost, InputFocus};
 use bevy::prelude::*;
 use bevy::scene::SpawnListSystem;
 use bevy::text::TextEditChange;
-use bevy::ui::{px, percent, Checked, ScrollPosition};
+use bevy::ui::{Checked, ScrollPosition, percent, px};
 use bevy::ui_widgets::{
-    checkbox_self_update, slider_self_update, ControlOrientation, ScrollArea, SliderPrecision,
-    SliderStep, ValueChange,
+    ControlOrientation, ScrollArea, SliderPrecision, SliderStep, ValueChange, checkbox_self_update,
+    slider_self_update,
 };
 use bevy::window::SystemCursorIcon;
-use bevy::feathers::cursor::EntityCursor;
 
 /// Owner call: input frames read as backgrounds, not borders (borders look like
 /// buttons). Custom theme token, registered at startup.
@@ -82,13 +83,21 @@ fn main() {
             props
         }))
         .insert_resource(ListData {
-            items: (0..TOTAL_ROWS).map(|i| format!("Entity {i:05}  (Cube)")).collect(),
+            items: (0..TOTAL_ROWS)
+                .map(|i| format!("Entity {i:05}  (Cube)"))
+                .collect(),
         })
         .init_resource::<DemoState>()
         .add_systems(Startup, shell.spawn())
         .add_systems(
             Update,
-            (virtualize_list, update_status, report_entity_count, seed_name, seed_axis_inputs),
+            (
+                virtualize_list,
+                update_status,
+                report_entity_count,
+                seed_name,
+                seed_axis_inputs,
+            ),
         )
         .add_observer(axis_empty_blur_reset)
         .run();
@@ -337,7 +346,10 @@ fn seed_axis_inputs(
     mut commands: Commands,
 ) {
     for entity in &q {
-        commands.trigger(UpdateNumberInput { entity, value: NumberInputValue::F32(0.0) });
+        commands.trigger(UpdateNumberInput {
+            entity,
+            value: NumberInputValue::F32(0.0),
+        });
     }
 }
 
@@ -351,11 +363,15 @@ fn axis_empty_blur_reset(
     mut commands: Commands,
 ) {
     let text_entity = focus_lost.event_target();
-    let Ok(text) = q_text.get(text_entity) else { return };
+    let Ok(text) = q_text.get(text_entity) else {
+        return;
+    };
     if !text.value().to_string().trim().is_empty() {
         return;
     }
-    let Ok(parent) = q_parent.get(text_entity) else { return };
+    let Ok(parent) = q_parent.get(text_entity) else {
+        return;
+    };
     if q_axis.get(parent.parent()).is_ok() {
         commands.trigger(UpdateNumberInput {
             entity: parent.parent(),
@@ -382,7 +398,12 @@ fn update_status(state: Res<DemoState>, mut q: Query<&mut Text, With<StatusText>
     for mut t in &mut q {
         t.0 = format!(
             "name: {:?}   pos: [{:.1}, {:.1}, {:.1}]   scale: {:.2}   visible: {}",
-            state.name, state.position.x, state.position.y, state.position.z, state.scale, state.visible
+            state.name,
+            state.position.x,
+            state.position.y,
+            state.position.z,
+            state.scale,
+            state.visible
         );
     }
 }
@@ -392,6 +413,9 @@ fn update_status(state: Res<DemoState>, mut q: Query<&mut Text, With<StatusText>
 fn report_entity_count(nodes: Query<(), With<Node>>, time: Res<Time>, mut last: Local<f32>) {
     if *last == 0.0 || time.elapsed_secs() - *last > 5.0 {
         *last = time.elapsed_secs();
-        info!("UI node entities: {} (10,000 data rows)", nodes.iter().count());
+        info!(
+            "UI node entities: {} (10,000 data rows)",
+            nodes.iter().count()
+        );
     }
 }

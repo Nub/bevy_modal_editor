@@ -75,8 +75,7 @@ pub(crate) fn fuzzy_score(query: &str, haystack: &str) -> Option<i32> {
         if previous_match == Some(index.wrapping_sub(1)) {
             score += 5; // consecutive run
         }
-        let boundary = index == 0
-            || matches!(hay[index - 1], ' ' | '.' | '-' | '_' | ':' | '/');
+        let boundary = index == 0 || matches!(hay[index - 1], ' ' | '.' | '-' | '_' | ':' | '/');
         if boundary {
             score += 3;
         }

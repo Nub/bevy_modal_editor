@@ -3,16 +3,12 @@
 //! the catalog holds against a source asset and returns `Problem`s — the
 //! caller surfaces them (import report / problems panel). Never a silent pass.
 
-use editor_api::validate::{Problem, Severity, ValidateCx, ValidatorDef};
 use editor_api::prelude::ValidatorId;
+use editor_api::validate::{Problem, Severity, ValidateCx, ValidatorDef};
 use std::path::Path;
 
 /// Run every applicable validator (by extension) against a source asset.
-pub fn run_validators(
-    source: &Path,
-    bytes: &[u8],
-    validators: &[ValidatorDef],
-) -> Vec<Problem> {
+pub fn run_validators(source: &Path, bytes: &[u8], validators: &[ValidatorDef]) -> Vec<Problem> {
     let extension = source
         .extension()
         .and_then(|e| e.to_str())
@@ -73,7 +69,7 @@ fn parse_gltf(cx: &ValidateCx) -> Result<gltf::json::Root, Problem> {
                     validator: ValidatorId::new_static("gltf.parse"),
                     severity: Severity::Error,
                     message: format!("{}: not a readable GLB: {e}", cx.source.display()),
-                })
+                });
             }
         }
     } else {
@@ -96,7 +92,10 @@ fn validate_gltf_units(cx: &ValidateCx) -> Vec<Problem> {
     let mut problems = Vec::new();
     for node in &root.nodes {
         let Some(scale) = node.scale else { continue };
-        if scale.iter().any(|s| s.abs() > 100.0 || (s.abs() < 0.01 && s.abs() > 0.0)) {
+        if scale
+            .iter()
+            .any(|s| s.abs() > 100.0 || (s.abs() < 0.01 && s.abs() > 0.0))
+        {
             problems.push(Problem {
                 validator: ValidatorId::new_static("gltf.units"),
                 severity: Severity::Warning,
@@ -139,7 +138,11 @@ mod tests {
     use super::*;
 
     fn tiny_gltf(scale: f32, with_material: bool) -> String {
-        let material_field = if with_material { r#","material":0"# } else { "" };
+        let material_field = if with_material {
+            r#","material":0"#
+        } else {
+            ""
+        };
         let materials = if with_material {
             r#""materials":[{"name":"m"}],"#
         } else {
@@ -163,17 +166,24 @@ mod tests {
         let bad = tiny_gltf(1000.0, false);
         let problems = run_validators(path, bad.as_bytes(), &validators);
         assert!(
-            problems.iter().any(|p| p.validator.as_str() == "gltf.units"),
+            problems
+                .iter()
+                .any(|p| p.validator.as_str() == "gltf.units"),
             "units mismatch flagged: {problems:?}"
         );
         assert!(
-            problems.iter().any(|p| p.validator.as_str() == "gltf.materials"),
+            problems
+                .iter()
+                .any(|p| p.validator.as_str() == "gltf.materials"),
             "missing material flagged"
         );
 
         let good = tiny_gltf(1.0, true);
         let problems = run_validators(path, good.as_bytes(), &validators);
-        assert!(problems.is_empty(), "clean asset passes clean: {problems:?}");
+        assert!(
+            problems.is_empty(),
+            "clean asset passes clean: {problems:?}"
+        );
 
         // Non-gltf assets skip gltf validators entirely.
         let problems = run_validators(Path::new("readme.txt"), b"hi", &validators);
@@ -181,6 +191,9 @@ mod tests {
 
         // Any-asset validator: empty file is an ERROR.
         let problems = run_validators(Path::new("empty.png"), b"", &validators);
-        assert!(matches!(problems.first().map(|p| p.severity), Some(Severity::Error)));
+        assert!(matches!(
+            problems.first().map(|p| p.severity),
+            Some(Severity::Error)
+        ));
     }
 }

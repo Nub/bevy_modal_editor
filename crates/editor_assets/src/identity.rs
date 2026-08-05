@@ -44,8 +44,14 @@ pub enum ImportError {
     Io(std::io::Error),
     /// Sidecar exists but cannot be understood — regenerating would orphan
     /// references, so this is fatal and loud.
-    CorruptSidecar { path: PathBuf, message: String },
-    FutureVersion { found: u32, supported: u32 },
+    CorruptSidecar {
+        path: PathBuf,
+        message: String,
+    },
+    FutureVersion {
+        found: u32,
+        supported: u32,
+    },
 }
 
 impl std::fmt::Display for ImportError {
@@ -82,9 +88,11 @@ pub fn read_identity(source: &Path) -> Result<Option<AssetIdentity>, ImportError
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(ImportError::Io(e)),
     };
-    let identity: AssetIdentity = ron::from_str(&text).map_err(|e| {
-        ImportError::CorruptSidecar { path: sidecar.clone(), message: e.to_string() }
-    })?;
+    let identity: AssetIdentity =
+        ron::from_str(&text).map_err(|e| ImportError::CorruptSidecar {
+            path: sidecar.clone(),
+            message: e.to_string(),
+        })?;
     if identity.format_version > IMPORT_FORMAT_VERSION {
         return Err(ImportError::FutureVersion {
             found: identity.format_version,
@@ -102,15 +110,20 @@ pub fn import_file(source: &Path) -> Result<AssetIdentity, ImportError> {
 
     let mut identity = match read_identity(source)? {
         Some(existing) => existing,
-        None => AssetIdentity { uuid: Uuid::new_v4(), ..Default::default() },
+        None => AssetIdentity {
+            uuid: Uuid::new_v4(),
+            ..Default::default()
+        },
     };
     identity.format_version = IMPORT_FORMAT_VERSION;
     identity.content_hash = content_hash;
 
-    let text = ron::ser::to_string_pretty(&identity, ron::ser::PrettyConfig::default())
-        .map_err(|e| ImportError::CorruptSidecar {
-            path: sidecar_path(source),
-            message: e.to_string(),
+    let text =
+        ron::ser::to_string_pretty(&identity, ron::ser::PrettyConfig::default()).map_err(|e| {
+            ImportError::CorruptSidecar {
+                path: sidecar_path(source),
+                message: e.to_string(),
+            }
         })?;
     // Atomic sidecar write (same discipline as scenes/materials).
     let sidecar = sidecar_path(source);
@@ -160,6 +173,9 @@ mod tests {
 
         // Corruption is loud, never silently regenerated.
         std::fs::write(sidecar_path(&source), "not ron at all {{{").unwrap();
-        assert!(matches!(import_file(&source), Err(ImportError::CorruptSidecar { .. })));
+        assert!(matches!(
+            import_file(&source),
+            Err(ImportError::CorruptSidecar { .. })
+        ));
     }
 }

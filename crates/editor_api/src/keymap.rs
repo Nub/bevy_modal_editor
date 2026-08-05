@@ -44,28 +44,83 @@ fn parse_key(token: &str) -> Option<KeyCode> {
     use KeyCode::*;
     Some(match token {
         // letters
-        "a" => KeyA, "b" => KeyB, "c" => KeyC, "d" => KeyD, "e" => KeyE, "f" => KeyF,
-        "g" => KeyG, "h" => KeyH, "i" => KeyI, "j" => KeyJ, "k" => KeyK, "l" => KeyL,
-        "m" => KeyM, "n" => KeyN, "o" => KeyO, "p" => KeyP, "q" => KeyQ, "r" => KeyR,
-        "s" => KeyS, "t" => KeyT, "u" => KeyU, "v" => KeyV, "w" => KeyW, "x" => KeyX,
-        "y" => KeyY, "z" => KeyZ,
+        "a" => KeyA,
+        "b" => KeyB,
+        "c" => KeyC,
+        "d" => KeyD,
+        "e" => KeyE,
+        "f" => KeyF,
+        "g" => KeyG,
+        "h" => KeyH,
+        "i" => KeyI,
+        "j" => KeyJ,
+        "k" => KeyK,
+        "l" => KeyL,
+        "m" => KeyM,
+        "n" => KeyN,
+        "o" => KeyO,
+        "p" => KeyP,
+        "q" => KeyQ,
+        "r" => KeyR,
+        "s" => KeyS,
+        "t" => KeyT,
+        "u" => KeyU,
+        "v" => KeyV,
+        "w" => KeyW,
+        "x" => KeyX,
+        "y" => KeyY,
+        "z" => KeyZ,
         // digits
-        "0" => Digit0, "1" => Digit1, "2" => Digit2, "3" => Digit3, "4" => Digit4,
-        "5" => Digit5, "6" => Digit6, "7" => Digit7, "8" => Digit8, "9" => Digit9,
+        "0" => Digit0,
+        "1" => Digit1,
+        "2" => Digit2,
+        "3" => Digit3,
+        "4" => Digit4,
+        "5" => Digit5,
+        "6" => Digit6,
+        "7" => Digit7,
+        "8" => Digit8,
+        "9" => Digit9,
         // named
-        "space" => Space, "esc" | "escape" => Escape, "enter" | "return" => Enter,
-        "tab" => Tab, "backspace" => Backspace, "delete" | "del" => Delete,
-        "up" => ArrowUp, "down" => ArrowDown, "left" => ArrowLeft, "right" => ArrowRight,
-        "home" => Home, "end" => End, "pageup" => PageUp, "pagedown" => PageDown,
+        "space" => Space,
+        "esc" | "escape" => Escape,
+        "enter" | "return" => Enter,
+        "tab" => Tab,
+        "backspace" => Backspace,
+        "delete" | "del" => Delete,
+        "up" => ArrowUp,
+        "down" => ArrowDown,
+        "left" => ArrowLeft,
+        "right" => ArrowRight,
+        "home" => Home,
+        "end" => End,
+        "pageup" => PageUp,
+        "pagedown" => PageDown,
         // punctuation (vim-critical)
-        "comma" | "," => Comma, "period" | "." => Period, "slash" | "/" => Slash,
-        "backslash" => Backslash, "semicolon" | ";" => Semicolon,
-        "quote" | "'" => Quote, "backtick" | "`" | "grave" => Backquote,
-        "minus" | "-" => Minus, "equals" | "=" => Equal,
-        "bracketleft" | "[" => BracketLeft, "bracketright" | "]" => BracketRight,
+        "comma" | "," => Comma,
+        "period" | "." => Period,
+        "slash" | "/" => Slash,
+        "backslash" => Backslash,
+        "semicolon" | ";" => Semicolon,
+        "quote" | "'" => Quote,
+        "backtick" | "`" | "grave" => Backquote,
+        "minus" | "-" => Minus,
+        "equals" | "=" => Equal,
+        "bracketleft" | "[" => BracketLeft,
+        "bracketright" | "]" => BracketRight,
         // function keys
-        "f1" => F1, "f2" => F2, "f3" => F3, "f4" => F4, "f5" => F5, "f6" => F6,
-        "f7" => F7, "f8" => F8, "f9" => F9, "f10" => F10, "f11" => F11, "f12" => F12,
+        "f1" => F1,
+        "f2" => F2,
+        "f3" => F3,
+        "f4" => F4,
+        "f5" => F5,
+        "f6" => F6,
+        "f7" => F7,
+        "f8" => F8,
+        "f9" => F9,
+        "f10" => F10,
+        "f11" => F11,
+        "f12" => F12,
         _ => return None,
     })
 }
@@ -87,7 +142,10 @@ fn key_name(key: KeyCode) -> String {
 impl FromStr for Chord {
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let err = |message: &str| ParseError { input: s.to_string(), message: message.into() };
+        let err = |message: &str| ParseError {
+            input: s.to_string(),
+            message: message.into(),
+        };
         let mut modifiers = Modifiers::default();
         let mut key = None;
         for part in s.split('+') {
@@ -102,13 +160,15 @@ impl FromStr for Chord {
                         return Err(err("multiple non-modifier keys in one chord"));
                     }
                     key = Some(
-                        parse_key(token)
-                            .ok_or_else(|| err(&format!("unknown key {token:?}")))?,
+                        parse_key(token).ok_or_else(|| err(&format!("unknown key {token:?}")))?,
                     );
                 }
             }
         }
-        Ok(Chord { modifiers, key: key.ok_or_else(|| err("chord has no key"))? })
+        Ok(Chord {
+            modifiers,
+            key: key.ok_or_else(|| err("chord has no key"))?,
+        })
     }
 }
 
@@ -117,7 +177,10 @@ impl FromStr for Binding {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let trimmed = s.trim();
         if trimmed.is_empty() {
-            return Err(ParseError { input: s.into(), message: "empty binding".into() });
+            return Err(ParseError {
+                input: s.into(),
+                message: "empty binding".into(),
+            });
         }
         let chords = trimmed
             .split_whitespace()
@@ -129,10 +192,18 @@ impl FromStr for Binding {
 
 impl fmt::Display for Chord {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.modifiers.ctrl { write!(f, "ctrl+")?; }
-        if self.modifiers.shift { write!(f, "shift+")?; }
-        if self.modifiers.alt { write!(f, "alt+")?; }
-        if self.modifiers.cmd { write!(f, "cmd+")?; }
+        if self.modifiers.ctrl {
+            write!(f, "ctrl+")?;
+        }
+        if self.modifiers.shift {
+            write!(f, "shift+")?;
+        }
+        if self.modifiers.alt {
+            write!(f, "alt+")?;
+        }
+        if self.modifiers.cmd {
+            write!(f, "cmd+")?;
+        }
         f.write_str(&key_name(self.key))
     }
 }
@@ -153,19 +224,37 @@ impl fmt::Display for Binding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Conflict {
     /// Identical sequences bound to different actions.
-    Duplicate { binding: String, first: String, second: String },
+    Duplicate {
+        binding: String,
+        first: String,
+        second: String,
+    },
     /// One binding is a strict prefix of another — the shorter would shadow the longer.
-    PrefixShadow { prefix: String, prefix_owner: String, shadowed: String, shadowed_owner: String },
+    PrefixShadow {
+        prefix: String,
+        prefix_owner: String,
+        shadowed: String,
+        shadowed_owner: String,
+    },
 }
 
 impl fmt::Display for Conflict {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Conflict::Duplicate { binding, first, second } => write!(
+            Conflict::Duplicate {
+                binding,
+                first,
+                second,
+            } => write!(
                 f,
                 "duplicate binding {binding:?}: bound by both {first:?} and {second:?}"
             ),
-            Conflict::PrefixShadow { prefix, prefix_owner, shadowed, shadowed_owner } => write!(
+            Conflict::PrefixShadow {
+                prefix,
+                prefix_owner,
+                shadowed,
+                shadowed_owner,
+            } => write!(
                 f,
                 "binding {prefix:?} ({prefix_owner:?}) shadows {shadowed:?} ({shadowed_owner:?})"
             ),
@@ -215,11 +304,22 @@ mod tests {
     // A1: parse + round-trip
     #[test]
     fn parses_and_round_trips() {
-        for s in ["ctrl+z", "g g", "space p p", "shift+4", "ctrl+shift+p", "f12", "."] {
+        for s in [
+            "ctrl+z",
+            "g g",
+            "space p p",
+            "shift+4",
+            "ctrl+shift+p",
+            "f12",
+            ".",
+        ] {
             let binding = b(s);
             let shown = binding.to_string();
             let reparsed: Binding = shown.parse().unwrap();
-            assert_eq!(binding, reparsed, "round-trip failed for {s:?} -> {shown:?}");
+            assert_eq!(
+                binding, reparsed,
+                "round-trip failed for {s:?} -> {shown:?}"
+            );
         }
         assert_eq!(b("ctrl+z").0.len(), 1);
         assert_eq!(b("g g").0.len(), 2);
@@ -246,11 +346,18 @@ mod tests {
             (b("ctrl+z"), "undo".to_string()),
         ];
         let conflicts = find_conflicts(&entries);
-        assert!(conflicts.iter().any(|c| matches!(c, Conflict::Duplicate { first, second, .. }
-            if first == "hierarchy.top" && second == "other.action")));
+        assert!(
+            conflicts
+                .iter()
+                .any(|c| matches!(c, Conflict::Duplicate { first, second, .. }
+            if first == "hierarchy.top" && second == "other.action"))
+        );
         // "g" shadows both "g g" entries
         assert_eq!(
-            conflicts.iter().filter(|c| matches!(c, Conflict::PrefixShadow { .. })).count(),
+            conflicts
+                .iter()
+                .filter(|c| matches!(c, Conflict::PrefixShadow { .. }))
+                .count(),
             2
         );
         // ctrl+z conflicts with nothing

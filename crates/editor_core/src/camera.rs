@@ -24,12 +24,8 @@ pub struct FlyingCamera(pub bool);
 /// "first active camera" breaks the moment any plugin adds an off-screen camera —
 /// the outliner's silhouette camera (active, renders to an image) once won that race
 /// and silently broke every cursor ray.
-pub fn is_viewport_camera(
-    camera: &Camera,
-    target: Option<&bevy::camera::RenderTarget>,
-) -> bool {
-    camera.is_active
-        && matches!(target, None | Some(bevy::camera::RenderTarget::Window(_)))
+pub fn is_viewport_camera(camera: &Camera, target: Option<&bevy::camera::RenderTarget>) -> bool {
+    camera.is_active && matches!(target, None | Some(bevy::camera::RenderTarget::Window(_)))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -48,7 +44,9 @@ pub(crate) fn editor_fly_camera(
     let was_flying = flying.0;
     let hold = state.active
         && !capture.0
-        && mouse.as_ref().is_some_and(|m| m.pressed(MouseButton::Right));
+        && mouse
+            .as_ref()
+            .is_some_and(|m| m.pressed(MouseButton::Right));
     flying.0 = hold;
 
     // Cursor policy while the editor owns input: locked during the hold, free
@@ -56,8 +54,11 @@ pub(crate) fn editor_fly_camera(
     // game's locked cursor always frees it (flow-audit: ownership handoff gaps).
     if state.active {
         for mut options in &mut cursor {
-            let (grab, visible) =
-                if hold { (CursorGrabMode::Locked, false) } else { (CursorGrabMode::None, true) };
+            let (grab, visible) = if hold {
+                (CursorGrabMode::Locked, false)
+            } else {
+                (CursorGrabMode::None, true)
+            };
             if options.grab_mode != grab {
                 options.grab_mode = grab;
                 options.visible = visible;
@@ -77,13 +78,13 @@ pub(crate) fn editor_fly_camera(
     };
 
     // Mouse look.
-    if let Some(motion) = motion {
-        if motion.delta != Vec2::ZERO {
-            let (mut yaw, mut pitch, _) = transform.rotation.to_euler(EulerRot::YXZ);
-            yaw -= motion.delta.x * settings.camera.look_sensitivity;
-            pitch = (pitch - motion.delta.y * settings.camera.look_sensitivity).clamp(-1.54, 1.54);
-            transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
-        }
+    if let Some(motion) = motion
+        && motion.delta != Vec2::ZERO
+    {
+        let (mut yaw, mut pitch, _) = transform.rotation.to_euler(EulerRot::YXZ);
+        yaw -= motion.delta.x * settings.camera.look_sensitivity;
+        pitch = (pitch - motion.delta.y * settings.camera.look_sensitivity).clamp(-1.54, 1.54);
+        transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0);
     }
 
     // WASD + QE locomotion, camera-relative.

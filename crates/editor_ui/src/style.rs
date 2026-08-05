@@ -139,9 +139,12 @@ pub fn pretty_chord(chord: &Chord) -> String {
         K::ArrowRight => "→".into(),
         _ => {
             // Reuse the canonical config-file spelling for letters/digits/f-keys.
-            let plain = Chord { modifiers: Default::default(), key: chord.key };
-            let s = plain.to_string();
-            s
+            let plain = Chord {
+                modifiers: Default::default(),
+                key: chord.key,
+            };
+
+            plain.to_string()
         }
     };
     out.push_str(&key);
@@ -149,9 +152,18 @@ pub fn pretty_chord(chord: &Chord) -> String {
 }
 
 pub fn pretty_binding(binding: &Binding) -> String {
-    binding.0.iter().map(pretty_chord).collect::<Vec<_>>().join(" ")
+    binding
+        .0
+        .iter()
+        .map(pretty_chord)
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn pretty_chords(chords: &[Chord]) -> String {
-    chords.iter().map(pretty_chord).collect::<Vec<_>>().join(" ")
+    chords
+        .iter()
+        .map(pretty_chord)
+        .collect::<Vec<_>>()
+        .join(" ")
 }

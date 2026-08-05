@@ -44,7 +44,10 @@ pub enum SceneError {
     Io(std::io::Error),
     /// Parse/resolve failure with full context in the message (entity, type path).
     Parse(String),
-    UnsupportedVersion { found: u32, supported: u32 },
+    UnsupportedVersion {
+        found: u32,
+        supported: u32,
+    },
 }
 
 impl std::fmt::Display for SceneError {
@@ -72,8 +75,9 @@ fn clone_component(
     entity: Entity,
     type_id: std::any::TypeId,
 ) -> Option<Box<dyn PartialReflect>> {
-    let reflect_component =
-        registry.get(type_id)?.data::<bevy::ecs::reflect::ReflectComponent>()?;
+    let reflect_component = registry
+        .get(type_id)?
+        .data::<bevy::ecs::reflect::ReflectComponent>()?;
     let entity_ref = world.get_entity(entity).ok()?;
     Some(reflect_component.reflect(entity_ref)?.to_dynamic())
 }
@@ -94,7 +98,11 @@ pub fn snapshot_from_parts(
 ) -> SceneSnapshot {
     let mut records: Vec<ResolvedRecord> = records
         .into_iter()
-        .map(|(id, parent, components)| ResolvedRecord { id, parent, components })
+        .map(|(id, parent, components)| ResolvedRecord {
+            id,
+            parent,
+            components,
+        })
         .collect();
     records.sort_by_key(|r| r.id.0);
     SceneSnapshot { records }
@@ -106,7 +114,9 @@ impl SceneSnapshot {
     pub fn records(
         &self,
     ) -> impl Iterator<Item = (SceneId, Option<SceneId>, &[Box<dyn PartialReflect>])> {
-        self.records.iter().map(|r| (r.id, r.parent, r.components.as_slice()))
+        self.records
+            .iter()
+            .map(|r| (r.id, r.parent, r.components.as_slice()))
     }
 }
 
@@ -130,7 +140,11 @@ pub fn capture_scene(world: &World) -> SceneSnapshot {
                 .get::<ChildOf>(entity)
                 .and_then(|c| world.get::<SceneId>(c.parent()))
                 .copied();
-            ResolvedRecord { id: *id, parent, components }
+            ResolvedRecord {
+                id: *id,
+                parent,
+                components,
+            }
         })
         .collect();
     records.sort_by_key(|r| r.id.0);
@@ -145,8 +159,11 @@ pub fn apply_scene(world: &mut World, snapshot: &SceneSnapshot, clear_history: b
     let registry = registry_arc.read();
 
     // Despawn the current scene.
-    let current: Vec<Entity> =
-        world.resource::<SceneIndex>().iter().map(|(_, &e)| e).collect();
+    let current: Vec<Entity> = world
+        .resource::<SceneIndex>()
+        .iter()
+        .map(|(_, &e)| e)
+        .collect();
     for entity in current {
         if let Ok(entity_mut) = world.get_entity_mut(entity) {
             entity_mut.despawn();
@@ -158,14 +175,20 @@ pub fn apply_scene(world: &mut World, snapshot: &SceneSnapshot, clear_history: b
     for record in &snapshot.records {
         let entity = world.spawn(record.id).id();
         for value in &record.components {
-            let Some(info) = value.get_represented_type_info() else { continue };
-            let Some(registration) = registry.get(info.type_id()) else { continue };
+            let Some(info) = value.get_represented_type_info() else {
+                continue;
+            };
+            let Some(registration) = registry.get(info.type_id()) else {
+                continue;
+            };
             let Some(reflect_component) =
                 registration.data::<bevy::ecs::reflect::ReflectComponent>()
             else {
                 continue;
             };
-            let Ok(mut entity_mut) = world.get_entity_mut(entity) else { continue };
+            let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+                continue;
+            };
             reflect_component.apply_or_insert_mapped(
                 &mut entity_mut,
                 value.as_ref(),
@@ -177,10 +200,10 @@ pub fn apply_scene(world: &mut World, snapshot: &SceneSnapshot, clear_history: b
         spawned.insert(record.id, entity);
     }
     for record in &snapshot.records {
-        if let (Some(&child), Some(parent_id)) = (spawned.get(&record.id), record.parent) {
-            if let Some(&parent) = spawned.get(&parent_id) {
-                world.entity_mut(child).insert(ChildOf(parent));
-            }
+        if let (Some(&child), Some(parent_id)) = (spawned.get(&record.id), record.parent)
+            && let Some(&parent) = spawned.get(&parent_id)
+        {
+            world.entity_mut(child).insert(ChildOf(parent));
         }
     }
 
@@ -201,7 +224,10 @@ impl SceneSnapshot {
             .new_line("\n".to_string())
             .indentor("    ".to_string());
         ron::ser::to_string_pretty(
-            &format::EnvelopeSer { records: &self.records, registry },
+            &format::EnvelopeSer {
+                records: &self.records,
+                registry,
+            },
             config,
         )
         .map_err(|e| SceneError::Parse(e.to_string()))
@@ -214,8 +240,7 @@ impl SceneSnapshot {
         struct Probe {
             format_version: u32,
         }
-        let probe: Probe =
-            ron::from_str(text).map_err(|e| SceneError::Parse(e.to_string()))?;
+        let probe: Probe = ron::from_str(text).map_err(|e| SceneError::Parse(e.to_string()))?;
         if probe.format_version > FORMAT_VERSION {
             return Err(SceneError::UnsupportedVersion {
                 found: probe.format_version,
@@ -224,8 +249,8 @@ impl SceneSnapshot {
         }
         // format_version < CURRENT: migration chain hooks in here (none yet for v1).
 
-        let mut deserializer = ron::Deserializer::from_str(text)
-            .map_err(|e| SceneError::Parse(e.to_string()))?;
+        let mut deserializer =
+            ron::Deserializer::from_str(text).map_err(|e| SceneError::Parse(e.to_string()))?;
         let mut records = format::EnvelopeSeed { registry }
             .deserialize(&mut deserializer)
             .map_err(|e| SceneError::Parse(e.to_string()))?;
@@ -370,7 +395,10 @@ fn perform_scene_io(world: &mut World) {
                     success: true,
                 }
             }
-            Err(e) => SceneIoFeedback { message: format!("save failed: {e}"), success: false },
+            Err(e) => SceneIoFeedback {
+                message: format!("save failed: {e}"),
+                success: false,
+            },
         };
         world.write_message(feedback);
     }
@@ -394,8 +422,8 @@ fn perform_scene_io(world: &mut World) {
 }
 
 pub mod materials;
-pub mod session;
 pub mod play;
+pub mod session;
 
 #[cfg(test)]
 pub(crate) mod tests_support {
@@ -428,7 +456,9 @@ pub(crate) mod tests_support {
         app.init_resource::<ButtonInput<MouseButton>>();
         app.finish();
         app.update();
-        app.world_mut().resource_mut::<editor_core::prelude::EditorState>().active = true;
+        app.world_mut()
+            .resource_mut::<editor_core::prelude::EditorState>()
+            .active = true;
         app
     }
 
@@ -453,11 +483,18 @@ pub(crate) mod tests_support {
                     Op::Spawn {
                         id: a,
                         components: vec![
-                            Box::new(Health { current: 7.5, max: 10.0 }).into_partial_reflect(),
+                            Box::new(Health {
+                                current: 7.5,
+                                max: 10.0,
+                            })
+                            .into_partial_reflect(),
                             Box::new(Transform::from_xyz(1.0, 2.0, 3.0)).into_partial_reflect(),
                         ],
                     },
-                    Op::Spawn { id: b, components: vec![] },
+                    Op::Spawn {
+                        id: b,
+                        components: vec![],
+                    },
                 ],
             });
         }
@@ -515,14 +552,13 @@ impl Plugin for EditorScenePlugin {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Wire format: hand-written serde so component values serialize INLINE through the
 // reflect (de)serializers — one coherent document, no RON-in-RON (v1 anti-pattern).
 // ---------------------------------------------------------------------------
 
 mod format {
-    use super::{ResolvedRecord, FORMAT_VERSION};
+    use super::{FORMAT_VERSION, ResolvedRecord};
     use bevy::reflect::serde::{TypedReflectDeserializer, TypedReflectSerializer};
     use bevy::reflect::{PartialReflect, ReflectFromReflect, TypeRegistry};
     use editor_api::prelude::SceneId;
@@ -543,7 +579,10 @@ mod format {
             st.serialize_field("format_version", &FORMAT_VERSION)?;
             st.serialize_field(
                 "entities",
-                &EntitiesSer { records: self.records, registry: self.registry },
+                &EntitiesSer {
+                    records: self.records,
+                    registry: self.registry,
+                },
             )?;
             st.end()
         }
@@ -558,7 +597,10 @@ mod format {
         fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
             let mut seq = serializer.serialize_seq(Some(self.records.len()))?;
             for record in self.records {
-                seq.serialize_element(&EntitySer { record, registry: self.registry })?;
+                seq.serialize_element(&EntitySer {
+                    record,
+                    registry: self.registry,
+                })?;
             }
             seq.end()
         }
@@ -576,7 +618,10 @@ mod format {
             st.serialize_field("parent", &self.record.parent.map(|p| p.0))?;
             st.serialize_field(
                 "components",
-                &ComponentsSer { record: self.record, registry: self.registry },
+                &ComponentsSer {
+                    record: self.record,
+                    registry: self.registry,
+                },
             )?;
             st.end()
         }
@@ -686,8 +731,9 @@ mod format {
                         map.next_value::<u32>()?;
                     }
                     "entities" => {
-                        entities =
-                            Some(map.next_value_seed(EntitiesSeed { registry: self.registry })?);
+                        entities = Some(map.next_value_seed(EntitiesSeed {
+                            registry: self.registry,
+                        })?);
                     }
                     _ => {
                         map.next_value::<IgnoredAny>()?;
@@ -716,9 +762,9 @@ mod format {
         }
         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
             let mut records = Vec::new();
-            while let Some(record) =
-                seq.next_element_seed(EntitySeed { registry: self.registry })?
-            {
+            while let Some(record) = seq.next_element_seed(EntitySeed {
+                registry: self.registry,
+            })? {
                 records.push(record);
             }
             Ok(records)
@@ -750,8 +796,9 @@ mod format {
                     "id" => id = Some(map.next_value()?),
                     "parent" => parent = Some(map.next_value()?),
                     "components" => {
-                        components =
-                            map.next_value_seed(ComponentsSeed { registry: self.registry })?;
+                        components = map.next_value_seed(ComponentsSeed {
+                            registry: self.registry,
+                        })?;
                     }
                     _ => {
                         map.next_value::<IgnoredAny>()?;
@@ -784,9 +831,9 @@ mod format {
         }
         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
             let mut values = Vec::new();
-            while let Some(value) =
-                seq.next_element_seed(ComponentSeed { registry: self.registry })?
-            {
+            while let Some(value) = seq.next_element_seed(ComponentSeed {
+                registry: self.registry,
+            })? {
                 values.push(value);
             }
             Ok(values)
@@ -893,12 +940,22 @@ mod tests {
                     Op::Spawn {
                         id: a,
                         components: vec![
-                            Box::new(Health { current: 7.5, max: 10.0 }).into_partial_reflect(),
+                            Box::new(Health {
+                                current: 7.5,
+                                max: 10.0,
+                            })
+                            .into_partial_reflect(),
                             Box::new(Transform::from_xyz(1.0, 2.0, 3.0)).into_partial_reflect(),
                         ],
                     },
-                    Op::Spawn { id: b, components: vec![] },
-                    Op::Reparent { target: b, parent: Some(a) },
+                    Op::Spawn {
+                        id: b,
+                        components: vec![],
+                    },
+                    Op::Reparent {
+                        target: b,
+                        parent: Some(a),
+                    },
                 ],
             });
         }
@@ -939,7 +996,10 @@ mod tests {
         let entity = world.resource::<SceneIndex>().get(&a).unwrap();
         assert_eq!(
             world.get::<Health>(entity),
-            Some(&Health { current: 7.5, max: 10.0 })
+            Some(&Health {
+                current: 7.5,
+                max: 10.0
+            })
         );
     }
 
@@ -954,7 +1014,11 @@ mod tests {
         let garbage = dir.path().join("level.ron");
         std::fs::write(&garbage, "(format_version: 1, entities: [ THIS IS NOT RON").unwrap();
         assert!(load_scene_file(app.world_mut(), &garbage).is_err());
-        assert_eq!(scene_ron(&mut app), before, "corrupt file must not destroy the scene");
+        assert_eq!(
+            scene_ron(&mut app),
+            before,
+            "corrupt file must not destroy the scene"
+        );
 
         // Unknown component type: fully rejected, still untouched.
         let unknown = dir.path().join("unknown.ron");
@@ -964,7 +1028,10 @@ mod tests {
         )
         .unwrap();
         let err = load_scene_file(app.world_mut(), &unknown).unwrap_err();
-        assert!(err.to_string().contains("no::such::Type"), "error names the type: {err}");
+        assert!(
+            err.to_string().contains("no::such::Type"),
+            "error names the type: {err}"
+        );
         assert_eq!(scene_ron(&mut app), before);
 
         // Future version: refused with the typed error.
@@ -989,7 +1056,13 @@ mod tests {
 
         // Change the scene, save again: .bak holds the previous save.
         {
-            let a = *app.world_mut().resource::<SceneIndex>().iter().next().unwrap().0;
+            let a = *app
+                .world_mut()
+                .resource::<SceneIndex>()
+                .iter()
+                .next()
+                .unwrap()
+                .0;
             let mut queue = app.world_mut().resource_mut::<EditQueue>();
             queue.0.push(Transaction {
                 label: "edit".into(),

@@ -50,3 +50,9 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 debug-assertions = false
+
+# Bevy system signatures legitimately exceed these thresholds; everything else
+# stays deny-by-warning through CI's `clippy -D warnings`.
+[workspace.lints.clippy]
+type_complexity = "allow"
+too_many_arguments = "allow"

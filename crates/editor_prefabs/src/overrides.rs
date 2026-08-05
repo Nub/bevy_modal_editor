@@ -41,8 +41,11 @@ fn diff_fields(
         (ReflectRef::Struct(t), ReflectRef::Struct(c)) => {
             for i in 0..c.field_len() {
                 let name = c.name_at(i).unwrap_or_default();
-                let path =
-                    if prefix.is_empty() { name.to_string() } else { format!("{prefix}.{name}") };
+                let path = if prefix.is_empty() {
+                    name.to_string()
+                } else {
+                    format!("{prefix}.{name}")
+                };
                 if let (Some(tf), Some(cf)) = (t.field(name), c.field_at(i)) {
                     diff_fields(registry, &path, tf, cf, out);
                 }
@@ -50,12 +53,11 @@ fn diff_fields(
         }
         _ => {
             let equal = template.reflect_partial_eq(current).unwrap_or(false);
-            if !equal {
-                if let Ok(value) = ron::ser::to_string(&TypedReflectSerializer::new(
-                    current, registry,
-                )) {
-                    out.push((prefix.to_string(), value));
-                }
+            if !equal
+                && let Ok(value) =
+                    ron::ser::to_string(&TypedReflectSerializer::new(current, registry))
+            {
+                out.push((prefix.to_string(), value));
             }
         }
     }
@@ -69,10 +71,18 @@ pub(crate) fn apply_patch_value(
     path: &str,
     value_ron: &str,
 ) -> bool {
-    let Ok(parsed) = ParsedPath::parse(path) else { return false };
-    let Ok(element) = parsed.reflect_element_mut(component) else { return false };
-    let Some(info) = element.get_represented_type_info() else { return false };
-    let Some(registration) = registry.get(info.type_id()) else { return false };
+    let Ok(parsed) = ParsedPath::parse(path) else {
+        return false;
+    };
+    let Ok(element) = parsed.reflect_element_mut(component) else {
+        return false;
+    };
+    let Some(info) = element.get_represented_type_info() else {
+        return false;
+    };
+    let Some(registration) = registry.get(info.type_id()) else {
+        return false;
+    };
     let mut deserializer = match ron::Deserializer::from_str(value_ron) {
         Ok(d) => d,
         Err(_) => return false,
@@ -95,17 +105,23 @@ pub struct OverrideCursor(bevy::ecs::message::MessageCursor<Edited>);
 /// write — derived state, like the SceneIndex; the USER-level undo lives in the
 /// component edits the diff derives from).
 pub fn sync_overrides(world: &mut World) {
-    let touched: Vec<SceneId> = world.resource_scope(
-        |world, mut cursor: Mut<OverrideCursor>| {
-            let messages = world.resource::<bevy::ecs::message::Messages<Edited>>();
-            cursor.0.read(messages).flat_map(|e| e.targets.clone()).collect()
-        },
-    );
+    let touched: Vec<SceneId> = world.resource_scope(|world, mut cursor: Mut<OverrideCursor>| {
+        let messages = world.resource::<bevy::ecs::message::Messages<Edited>>();
+        cursor
+            .0
+            .read(messages)
+            .flat_map(|e| e.targets.clone())
+            .collect()
+    });
     if touched.is_empty() {
         return;
     }
     // Which instance roots own touched STAMPED entities?
-    let open_root = world.resource::<crate::open_mode::OpenInstance>().0.as_ref().map(|o| o.root);
+    let open_root = world
+        .resource::<crate::open_mode::OpenInstance>()
+        .0
+        .as_ref()
+        .map(|o| o.root);
     let mut roots: Vec<SceneId> = touched
         .iter()
         .filter_map(|id| world.resource::<SceneIndex>().get(id))
@@ -124,8 +140,12 @@ pub fn sync_overrides(world: &mut World) {
 
     roots.dedup();
     for root_id in roots {
-        let Some(root_entity) = world.resource::<SceneIndex>().get(&root_id) else { continue };
-        let Some(instance) = world.get::<PrefabInstance>(root_entity).copied() else { continue };
+        let Some(root_entity) = world.resource::<SceneIndex>().get(&root_id) else {
+            continue;
+        };
+        let Some(instance) = world.get::<PrefabInstance>(root_entity).copied() else {
+            continue;
+        };
 
         // Gather stamped children of this root with their template ids.
         let children: Vec<(Entity, SceneId)> = {
@@ -139,20 +159,33 @@ pub fn sync_overrides(world: &mut World) {
         let mut patches: Vec<OverridePatch> = Vec::new();
         {
             let library = world.resource::<PrefabLibrary>();
-            let Some(prefab) = library.prefabs.get(&instance.0) else { continue };
-            let template: std::collections::HashMap<SceneId, &[Box<dyn PartialReflect>]> =
-                prefab.template.records().map(|(id, _, c)| (id, c)).collect();
+            let Some(prefab) = library.prefabs.get(&instance.0) else {
+                continue;
+            };
+            let template: std::collections::HashMap<SceneId, &[Box<dyn PartialReflect>]> = prefab
+                .template
+                .records()
+                .map(|(id, _, c)| (id, c))
+                .collect();
             for (entity, template_id) in &children {
-                let Some(template_components) = template.get(template_id) else { continue };
+                let Some(template_components) = template.get(template_id) else {
+                    continue;
+                };
                 for reg in &components {
-                    let Some(registration) = registry.get(reg.type_id) else { continue };
+                    let Some(registration) = registry.get(reg.type_id) else {
+                        continue;
+                    };
                     let Some(reflect_component) =
                         registration.data::<bevy::ecs::reflect::ReflectComponent>()
                     else {
                         continue;
                     };
-                    let Ok(entity_ref) = world.get_entity(*entity) else { continue };
-                    let Some(current) = reflect_component.reflect(entity_ref) else { continue };
+                    let Ok(entity_ref) = world.get_entity(*entity) else {
+                        continue;
+                    };
+                    let Some(current) = reflect_component.reflect(entity_ref) else {
+                        continue;
+                    };
                     let Some(template_value) = template_components.iter().find(|v| {
                         v.get_represented_type_info()
                             .is_some_and(|i| i.type_id() == reg.type_id)
@@ -181,10 +214,10 @@ pub fn sync_overrides(world: &mut World) {
         patches.sort_by(|a, b| {
             (&a.entity, &a.type_path, &a.path).cmp(&(&b.entity, &b.type_path, &b.path))
         });
-        if let Some(mut overrides) = world.get_mut::<PrefabOverrides>(root_entity) {
-            if overrides.0 != patches {
-                overrides.0 = patches;
-            }
+        if let Some(mut overrides) = world.get_mut::<PrefabOverrides>(root_entity)
+            && overrides.0 != patches
+        {
+            overrides.0 = patches;
         }
     }
 }
@@ -192,7 +225,7 @@ pub fn sync_overrides(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{stamp_prefab, EditorPrefabsPlugin, PrefabDef};
+    use crate::{EditorPrefabsPlugin, PrefabDef, stamp_prefab};
     use editor_scene::snapshot_from_parts;
     use uuid::Uuid;
 
@@ -233,24 +266,36 @@ mod tests {
             template: snapshot_from_parts(vec![(
                 template_child,
                 None,
-                vec![Box::new(Payload { power: 1.0, speed: 10.0 }).into_partial_reflect()],
+                vec![
+                    Box::new(Payload {
+                        power: 1.0,
+                        speed: 10.0,
+                    })
+                    .into_partial_reflect(),
+                ],
             )]),
         };
-        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(prefab_id, prefab);
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
 
         // Place an instance.
         let root_id = SceneId::random();
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Place".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id: root_id,
-                components: vec![
-                    Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
-                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
-                ],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
         app.update();
         app.update();
 
@@ -260,14 +305,21 @@ mod tests {
             let mut query = world.query_filtered::<&SceneId, With<StampedFrom>>();
             *query.iter(world).next().unwrap()
         };
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "Edit".into(),
-            gesture: None,
-            ops: vec![Op::Set {
-                target: stamped_id,
-                value: Box::new(Payload { power: 5.0, speed: 10.0 }).into_partial_reflect(),
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Edit".into(),
+                gesture: None,
+                ops: vec![Op::Set {
+                    target: stamped_id,
+                    value: Box::new(Payload {
+                        power: 5.0,
+                        speed: 10.0,
+                    })
+                    .into_partial_reflect(),
+                }],
+            });
         app.update();
 
         // Per-field patch derived onto the root.
@@ -286,7 +338,13 @@ mod tests {
             prefab.template = snapshot_from_parts(vec![(
                 template_child,
                 None,
-                vec![Box::new(Payload { power: 1.0, speed: 99.0 }).into_partial_reflect()],
+                vec![
+                    Box::new(Payload {
+                        power: 1.0,
+                        speed: 99.0,
+                    })
+                    .into_partial_reflect(),
+                ],
             )]);
         }
         // Re-stamp this instance (the propagation path).

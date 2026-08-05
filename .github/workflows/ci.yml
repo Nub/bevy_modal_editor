@@ -39,6 +39,27 @@ jobs:
             echo "editor crates leaked into the editor-less build" && exit 1
           fi
 
+  # UX flow probes: the real editor binary under software Vulkan + Xvfb, driven
+  # by injected keystrokes; each probe exits nonzero unless the USER-VISIBLE
+  # outcome holds (placed/selected/meshed/visible). Headless tests can't catch
+  # invisible-success bugs — this lane exists because two reached the owner.
+  flow-probes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: System deps (bevy + software vulkan + virtual display)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev \
+            libvulkan1 mesa-vulkan-drivers xvfb
+      - name: build
+        run: cargo build -p template_game --features editor
+      - name: prefab insert flow
+        run: xvfb-run -a env PREFAB_PROBE=1 cargo run -p template_game --features editor
+
   # M3-C9: every merge to v2 publishes a runnable editor-stripped artifact.
   publish:
     if: github.event_name == 'push'

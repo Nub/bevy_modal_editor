@@ -17,7 +17,10 @@ use std::path::{Path, PathBuf};
 pub enum ProcessError {
     Io(std::io::Error),
     /// The processor itself failed — surfaced with its id and message.
-    Processor { id: String, message: String },
+    Processor {
+        id: String,
+        message: String,
+    },
 }
 
 impl std::fmt::Display for ProcessError {
@@ -50,16 +53,24 @@ pub fn process_asset(
 ) -> Result<ProcessOutcome, ProcessError> {
     let output = cache_path(cache_dir, def, bytes);
     if output.exists() {
-        return Ok(ProcessOutcome { output, cache_hit: true });
+        return Ok(ProcessOutcome {
+            output,
+            cache_hit: true,
+        });
     }
-    let produced = (def.process)(&ProcessCx { source, bytes }).map_err(|message| {
-        ProcessError::Processor { id: def.id.to_string(), message }
-    })?;
+    let produced =
+        (def.process)(&ProcessCx { source, bytes }).map_err(|message| ProcessError::Processor {
+            id: def.id.to_string(),
+            message,
+        })?;
     std::fs::create_dir_all(cache_dir).map_err(ProcessError::Io)?;
     let tmp = output.with_extension("bin.tmp");
     std::fs::write(&tmp, &produced).map_err(ProcessError::Io)?;
     std::fs::rename(&tmp, &output).map_err(ProcessError::Io)?;
-    Ok(ProcessOutcome { output, cache_hit: false })
+    Ok(ProcessOutcome {
+        output,
+        cache_hit: false,
+    })
 }
 
 #[cfg(test)]
@@ -93,7 +104,11 @@ mod tests {
         let second = process_asset(source, b"hello", &def, &cache).unwrap();
         assert!(second.cache_hit, "same input + version = cache hit");
         assert_eq!(second.output, first.output);
-        assert_eq!(std::fs::read(&second.output).unwrap(), bytes_one, "byte-same");
+        assert_eq!(
+            std::fs::read(&second.output).unwrap(),
+            bytes_one,
+            "byte-same"
+        );
 
         let changed = process_asset(source, b"world", &def, &cache).unwrap();
         assert!(!changed.cache_hit, "content change misses");

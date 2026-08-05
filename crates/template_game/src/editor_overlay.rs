@@ -19,9 +19,12 @@ struct GameFeature;
 fn cube_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
     use bevy::reflect::PartialReflect;
     vec![
-        Box::new(Transform::from_translation(position + Vec3::Y * 0.5))
-            .into_partial_reflect(),
-        Box::new(Primitive { kind: PrimitiveKind::Cube, size: 1.0 }).into_partial_reflect(),
+        Box::new(Transform::from_translation(position + Vec3::Y * 0.5)).into_partial_reflect(),
+        Box::new(Primitive {
+            kind: PrimitiveKind::Cube,
+            size: 1.0,
+        })
+        .into_partial_reflect(),
         Box::new(Spinner::default()).into_partial_reflect(),
         Box::new(Name::new("Cube")).into_partial_reflect(),
     ]
@@ -30,9 +33,12 @@ fn cube_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>
 fn sphere_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
     use bevy::reflect::PartialReflect;
     vec![
-        Box::new(Transform::from_translation(position + Vec3::Y * 0.5))
-            .into_partial_reflect(),
-        Box::new(Primitive { kind: PrimitiveKind::Sphere, size: 1.0 }).into_partial_reflect(),
+        Box::new(Transform::from_translation(position + Vec3::Y * 0.5)).into_partial_reflect(),
+        Box::new(Primitive {
+            kind: PrimitiveKind::Sphere,
+            size: 1.0,
+        })
+        .into_partial_reflect(),
         Box::new(Name::new("Sphere")).into_partial_reflect(),
     ]
 }
@@ -117,15 +123,17 @@ fn sync_material_refs(
 ) {
     if library.is_changed() {
         for def in &library.materials {
-            if let Some(handle) = handles.0.get(&def.id) {
-                if let Some(mut material) = materials.get_mut(handle) {
-                    *material = standard_material(def);
-                }
+            if let Some(handle) = handles.0.get(&def.id)
+                && let Some(mut material) = materials.get_mut(handle)
+            {
+                *material = standard_material(def);
             }
         }
     }
     let mut apply = |entity: Entity, material_ref: &MaterialRef| {
-        let Some(def) = library.get(&material_ref.0) else { return };
+        let Some(def) = library.get(&material_ref.0) else {
+            return;
+        };
         let handle = handles
             .0
             .entry(def.id)
@@ -173,7 +181,6 @@ fn sync_game_input(
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Fast-relaunch session restore (M3-C8 fallback): a fresh sidecar written by
 // `editor.reload` drives boot straight back into the editing context — menu
@@ -196,7 +203,10 @@ struct SessionRestore {
 fn arm_session_restore(mut commands: Commands) {
     if let Some(session) = editor_scene::session::take_session() {
         info!("fast-relaunch: restoring editor session");
-        commands.insert_resource(SessionRestore { session, stage: RestoreStage::SkipMenu });
+        commands.insert_resource(SessionRestore {
+            session,
+            stage: RestoreStage::SkipMenu,
+        });
     }
 }
 
@@ -262,7 +272,6 @@ fn invoke_open_scene(actions: &mut MessageWriter<ActionInvoked>) {
     });
 }
 
-
 /// TEMP diagnostic (SPIN_PROBE=1, with INSPECTOR_PROBE=1 driving menu/editor):
 /// enable a spinner, trigger play, log every gate the spin system depends on.
 #[allow(clippy::too_many_arguments)]
@@ -276,11 +285,12 @@ pub(crate) fn probe_spin(
     time: Res<Time>,
 ) {
     *frames += 1;
-    if *frames == 300 && std::env::var("BOOL_PROBE").is_err() {
-        if let Some((entity, mut spinner, _)) = spinners.iter_mut().next() {
-            spinner.enabled = true;
-            info!("SPIN enabled directly on {entity:?}");
-        }
+    if *frames == 300
+        && std::env::var("BOOL_PROBE").is_err()
+        && let Some((entity, mut spinner, _)) = spinners.iter_mut().next()
+    {
+        spinner.enabled = true;
+        info!("SPIN enabled directly on {entity:?}");
     }
     if *frames == 360 {
         writer.write(ActionInvoked {
@@ -290,7 +300,7 @@ pub(crate) fn probe_spin(
         });
         info!("SPIN play triggered");
     }
-    if *frames > 400 && *frames % 60 == 0 {
+    if *frames > 400 && (*frames).is_multiple_of(60) {
         let enabled_count = spinners.iter().filter(|(_, s, _)| s.enabled).count();
         let rotation = spinners
             .iter()

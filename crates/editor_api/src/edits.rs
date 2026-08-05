@@ -15,15 +15,24 @@ use std::collections::HashMap;
 pub enum Op {
     /// Set (or insert) a component from a reflected value. Inverse: previous value,
     /// or `Remove` if the component was absent.
-    Set { target: SceneId, value: Box<dyn PartialReflect> },
+    Set {
+        target: SceneId,
+        value: Box<dyn PartialReflect>,
+    },
     /// Remove a component by stable type path. Inverse: `Set` of the captured value.
     Remove { target: SceneId, type_path: String },
     /// Spawn an entity with `SceneId` + reflected components. Inverse: `Despawn`.
-    Spawn { id: SceneId, components: Vec<Box<dyn PartialReflect>> },
+    Spawn {
+        id: SceneId,
+        components: Vec<Box<dyn PartialReflect>>,
+    },
     /// Despawn; inverse re-spawns with all registered editor components captured.
     Despawn { id: SceneId },
     /// Reparent (None = root). Inverse: previous parent.
-    Reparent { target: SceneId, parent: Option<SceneId> },
+    Reparent {
+        target: SceneId,
+        parent: Option<SceneId>,
+    },
 }
 
 /// One atomic, labeled unit of history.
@@ -77,7 +86,11 @@ impl EditScope<'_> {
     pub fn transaction(&mut self, label: impl Into<String>) -> TransactionBuilder<'_> {
         TransactionBuilder {
             queue: &mut self.queue,
-            transaction: Transaction { label: label.into(), gesture: None, ops: Vec::new() },
+            transaction: Transaction {
+                label: label.into(),
+                gesture: None,
+                ops: Vec::new(),
+            },
         }
     }
 }
@@ -94,7 +107,10 @@ impl TransactionBuilder<'_> {
         self
     }
     pub fn set(mut self, target: SceneId, value: impl PartialReflect) -> Self {
-        self.transaction.ops.push(Op::Set { target, value: Box::new(value) });
+        self.transaction.ops.push(Op::Set {
+            target,
+            value: Box::new(value),
+        });
         self
     }
     pub fn set_dynamic(mut self, target: SceneId, value: Box<dyn PartialReflect>) -> Self {
@@ -102,7 +118,10 @@ impl TransactionBuilder<'_> {
         self
     }
     pub fn remove(mut self, target: SceneId, type_path: impl Into<String>) -> Self {
-        self.transaction.ops.push(Op::Remove { target, type_path: type_path.into() });
+        self.transaction.ops.push(Op::Remove {
+            target,
+            type_path: type_path.into(),
+        });
         self
     }
     pub fn spawn(mut self, id: SceneId, components: Vec<Box<dyn PartialReflect>>) -> Self {

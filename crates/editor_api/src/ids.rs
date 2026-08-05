@@ -81,9 +81,7 @@ pub const GLOBAL_CONTEXT: ContextId = ContextId::new_static("global");
 /// Stable scene-entity identity (spec §5): all editor references target `SceneId`,
 /// never `Entity`. `Default + Clone` keeps it BSN-blanket-template compatible
 /// (proven in M0 spike 2).
-#[derive(
-    Component, Clone, Copy, PartialEq, Eq, Hash, Debug, Default, Serialize, Deserialize,
-)]
+#[derive(Component, Clone, Copy, PartialEq, Eq, Hash, Debug, Default, Serialize, Deserialize)]
 pub struct SceneId(pub Uuid);
 
 impl SceneId {

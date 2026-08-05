@@ -141,36 +141,37 @@ pub(crate) fn spawn_docks(
                         })
                         .insert(BodyWrapper)
                         .with_children(|wrapper| {
-                        wrapper.spawn((
-                            PanelBody(id.clone()),
-                            bevy::input_focus::tab_navigation::TabGroup::default(),
-                            // Wheel scrolling for every panel body.
-                            bevy::ui_widgets::ScrollArea,
-                            Node {
-                                flex_direction: FlexDirection::Column,
-                                row_gap: px(style::space::XS),
-                                flex_grow: 1.0,
-                                min_height: px(0),
-                                // Extra right padding: content never runs under
-                                // the scrollbar overlay (bar + inset + breathing).
-                                padding: UiRect {
-                                    left: px(style::space::S),
-                                    right: px(style::space::M + style::space::XS),
-                                    top: px(style::space::S),
-                                    bottom: px(style::space::S),
-                                },
-                                overflow: Overflow::scroll_y(),
-                                ..default()
-                            },
-                        ))
-                        .with_children(|body| {
-                            body.spawn((
-                                PanelEmptyState,
-                                Text::new("empty"),
-                                style::sans(&fonts, ui.font_size_s),
-                                TextColor(style::color::TEXT_DIM),
-                            ));
-                        });
+                            wrapper
+                                .spawn((
+                                    PanelBody(id.clone()),
+                                    bevy::input_focus::tab_navigation::TabGroup::default(),
+                                    // Wheel scrolling for every panel body.
+                                    bevy::ui_widgets::ScrollArea,
+                                    Node {
+                                        flex_direction: FlexDirection::Column,
+                                        row_gap: px(style::space::XS),
+                                        flex_grow: 1.0,
+                                        min_height: px(0),
+                                        // Extra right padding: content never runs under
+                                        // the scrollbar overlay (bar + inset + breathing).
+                                        padding: UiRect {
+                                            left: px(style::space::S),
+                                            right: px(style::space::M + style::space::XS),
+                                            top: px(style::space::S),
+                                            bottom: px(style::space::S),
+                                        },
+                                        overflow: Overflow::scroll_y(),
+                                        ..default()
+                                    },
+                                ))
+                                .with_children(|body| {
+                                    body.spawn((
+                                        PanelEmptyState,
+                                        Text::new("empty"),
+                                        style::sans(&fonts, ui.font_size_s),
+                                        TextColor(style::color::TEXT_DIM),
+                                    ));
+                                });
                         });
                     });
                 }
@@ -226,9 +227,13 @@ pub(crate) fn attach_scrollbars(
                 }
             })
             .id();
-        commands
-            .entity(scrollbar)
-            .insert((EditorScrollbar { width: 3.0, last_active: -10.0 }, ChildOf(wrapper)));
+        commands.entity(scrollbar).insert((
+            EditorScrollbar {
+                width: 3.0,
+                last_active: -10.0,
+            },
+            ChildOf(wrapper),
+        ));
         commands.entity(card).insert(ScrollbarAttached);
     }
 }
@@ -237,10 +242,18 @@ pub(crate) fn attach_scrollbars(
 /// hovered/dragged or the target scrolled recently, easing both ways.
 pub(crate) fn style_scrollbars(
     time: Res<Time>,
-    mut bars: Query<(Entity, &mut Node, &mut EditorScrollbar, &bevy::ui_widgets::Scrollbar)>,
+    mut bars: Query<(
+        Entity,
+        &mut Node,
+        &mut EditorScrollbar,
+        &bevy::ui_widgets::Scrollbar,
+    )>,
     children: Query<&Children>,
     thumbs: Query<
-        (&bevy::picking::hover::Hovered, Option<&bevy::ui_widgets::ScrollbarDragState>),
+        (
+            &bevy::picking::hover::Hovered,
+            Option<&bevy::ui_widgets::ScrollbarDragState>,
+        ),
         With<bevy::ui_widgets::ScrollbarThumb>,
     >,
     scrolled: Query<(), Changed<ScrollPosition>>,
@@ -264,7 +277,11 @@ pub(crate) fn style_scrollbars(
         if engaged {
             bar.last_active = now;
         }
-        let target_width = if now - bar.last_active < 0.8 { 7.0 } else { 3.0 };
+        let target_width = if now - bar.last_active < 0.8 {
+            7.0
+        } else {
+            3.0
+        };
         let speed = (time.delta_secs() * 14.0).min(1.0);
         bar.width += (target_width - bar.width) * speed;
         node.width = px(bar.width);
@@ -284,27 +301,45 @@ pub(crate) fn sync_dock_chrome(
 ) {
     for (dock, mut visibility) in &mut docks {
         let any_open = states.0.iter().any(|(id, open)| {
-            *open && cards.iter().any(|(card, _, _)| &card.0 == id && dock_has(dock, card))
+            *open
+                && cards
+                    .iter()
+                    .any(|(card, _, _)| &card.0 == id && dock_has(dock, card))
         });
-        *visibility = if state.active && any_open { Visibility::Visible } else { Visibility::Hidden };
+        *visibility = if state.active && any_open {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
     for (card, mut visibility, mut border) in &mut cards {
-        *visibility =
-            if states.open(&card.0) { Visibility::Inherited } else { Visibility::Hidden };
+        *visibility = if states.open(&card.0) {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
         let focused = focus.0.as_ref() == Some(&card.0);
-        let target = if focused { style::color::accent() } else { style::HAIRLINE };
+        let target = if focused {
+            style::color::accent()
+        } else {
+            style::HAIRLINE
+        };
         if border.top != target {
             *border = BorderColor::all(target);
         }
     }
     for (header, children) in &mut headers {
         let focused = focus.0.as_ref() == Some(&header.0);
-        let target = if focused { style::color::accent() } else { style::color::TEXT_KEYS };
+        let target = if focused {
+            style::color::accent()
+        } else {
+            style::color::TEXT_KEYS
+        };
         for child in children {
-            if let Ok(mut color) = titles.get_mut(*child) {
-                if color.0 != target {
-                    color.0 = target;
-                }
+            if let Ok(mut color) = titles.get_mut(*child)
+                && color.0 != target
+            {
+                color.0 = target;
             }
         }
     }
@@ -343,7 +378,6 @@ pub(crate) fn track_pointer_over_chrome(
     }
 }
 
-
 /// Accent frame around the viewport while a prefab instance is OPEN — the
 /// persistent "which reality am I in" signal (with the statusbar chip).
 #[derive(Component)]
@@ -376,7 +410,11 @@ pub(crate) fn sync_open_frame(
 ) {
     let visible = state.active && open.0.is_some();
     for mut visibility in &mut frame {
-        let target = if visible { Visibility::Visible } else { Visibility::Hidden };
+        let target = if visible {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
         if *visibility != target {
             *visibility = target;
         }

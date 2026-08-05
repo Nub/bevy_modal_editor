@@ -41,8 +41,10 @@ pub fn select_entity(world: &mut World, entity: Entity, extend: bool) {
 }
 
 fn clear_selection_world(world: &mut World) {
-    let selected: Vec<Entity> =
-        world.query_filtered::<Entity, With<Selected>>().iter(world).collect();
+    let selected: Vec<Entity> = world
+        .query_filtered::<Entity, With<Selected>>()
+        .iter(world)
+        .collect();
     for entity in selected {
         world.entity_mut(entity).remove::<Selected>();
     }
@@ -103,18 +105,21 @@ pub(crate) fn on_pointer_press(
     match target {
         Some(target) => {
             // Scoped editing (open prefab): clicks outside the scope are inert.
-            if let Some(scope) = &scope.0 {
-                if !scope.contains(&target) {
-                    return;
-                }
+            if let Some(scope) = &scope.0
+                && !scope.contains(&target)
+            {
+                return;
             }
             commands.queue(move |world: &mut World| select_entity(world, target, extend));
         }
         // Click on empty space (ground, sky) clears the selection — unless extending.
         None if !extend => {
             commands.queue(|world: &mut World| {
-                let had_selection =
-                    world.query_filtered::<(), With<Selected>>().iter(world).count() > 0;
+                let had_selection = world
+                    .query_filtered::<(), With<Selected>>()
+                    .iter(world)
+                    .count()
+                    > 0;
                 if had_selection {
                     clear_selection_world(world);
                     world.write_message(SelectionChanged);

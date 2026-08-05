@@ -54,7 +54,9 @@ pub(crate) struct Row {
 }
 
 #[derive(Component)]
-pub(crate) struct HierarchyRow(#[allow(dead_code, reason = "row identity for future drag/rename")] usize);
+pub(crate) struct HierarchyRow(
+    #[allow(dead_code, reason = "row identity for future drag/rename")] usize,
+);
 
 /// The cursor row (scroll-follow target).
 #[derive(Component)]
@@ -92,7 +94,9 @@ pub(crate) fn build_rows(
         collapsed: &HashSet<SceneId>,
         rows: &mut Vec<Row>,
     ) {
-        let Some(list) = children.get(&parent) else { return };
+        let Some(list) = children.get(&parent) else {
+            return;
+        };
         for id in list {
             let has_children = children.contains_key(&Some(*id));
             rows.push(Row {
@@ -107,7 +111,7 @@ pub(crate) fn build_rows(
             }
         }
     }
-    walk(None, 0, &children, &label_of, &collapsed, &mut rows);
+    walk(None, 0, &children, &label_of, collapsed, &mut rows);
     rows
 }
 
@@ -125,7 +129,9 @@ fn world_preserving_local(
         Some(parent) => globals.get(index.get(&parent)?).ok()?.affine().inverse(),
         None => return Some(child_global.compute_transform()),
     };
-    Some(Transform::from_matrix((parent_affine * child_global.affine()).into()))
+    Some(Transform::from_matrix(
+        (parent_affine * child_global.affine()).into(),
+    ))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -195,10 +201,10 @@ pub(crate) fn handle_hierarchy_actions(
                 // the parent row (tree-plugin convention).
                 if row.has_children && !state.collapsed.contains(&row.id) {
                     state.collapsed.insert(row.id);
-                } else if let Some(parent) = row.parent {
-                    if let Some(index) = rows.iter().position(|r| r.id == parent) {
-                        state.cursor = index;
-                    }
+                } else if let Some(parent) = row.parent
+                    && let Some(index) = rows.iter().position(|r| r.id == parent)
+                {
+                    state.cursor = index;
                 }
             }
             "hierarchy.unfold" => {
@@ -265,12 +271,10 @@ pub(crate) fn watch_hierarchy_inputs(
         state.dirty = true;
     }
     // Viewport -> hierarchy sync: cursor jumps to the (first) selected row.
-    if selection_changed {
-        if let Some(first) = selected.iter().next() {
-            let rows = build_rows(&entities, &scene_ids, &state.collapsed);
-            if let Some(index) = rows.iter().position(|r| r.id == *first) {
-                state.cursor = index;
-            }
+    if selection_changed && let Some(first) = selected.iter().next() {
+        let rows = build_rows(&entities, &scene_ids, &state.collapsed);
+        if let Some(index) = rows.iter().position(|r| r.id == *first) {
+            state.cursor = index;
         }
     }
 }
@@ -293,17 +297,17 @@ pub(crate) fn rebuild_hierarchy(
         return;
     }
     state.dirty = false;
-    let Some((body_entity, _)) =
-        body.iter().find(|(_, b)| b.0.as_str() == HIERARCHY_PANEL)
-    else {
+    let Some((body_entity, _)) = body.iter().find(|(_, b)| b.0.as_str() == HIERARCHY_PANEL) else {
         return;
     };
     let ui = settings.ui.clone();
     let rows = build_rows(&entities, &scene_ids, &state.collapsed);
     state.cursor = state.cursor.min(rows.len().saturating_sub(1));
     let cursor = state.cursor;
-    let panel_focused =
-        focus.0.as_ref().is_some_and(|id| id.as_str() == HIERARCHY_PANEL);
+    let panel_focused = focus
+        .0
+        .as_ref()
+        .is_some_and(|id| id.as_str() == HIERARCHY_PANEL);
     let selected_ids: HashSet<SceneId> = selected.iter().copied().collect();
     let instance_roots: HashSet<SceneId> = instances.iter().copied().collect();
     let stamped_ids: HashSet<SceneId> = stamped.iter().copied().collect();
@@ -329,106 +333,104 @@ pub(crate) fn rebuild_hierarchy(
             ..default()
         });
         list.with_children(|body| {
-        // Virtualization spacers stand in for the unmaterialized rows.
-        if first > 0 {
-            body.spawn(Node {
-                height: px(first as f32 * ROW_HEIGHT),
-                flex_shrink: 0.0,
-                ..default()
-            });
-        }
-        for (i, row) in rows.iter().enumerate().take(last).skip(first) {
-            let is_cursor = i == cursor;
-            let is_selected = selected_ids.contains(&row.id);
-            let mut entity = body.spawn((
-                HierarchyRow(i),
-                Node {
-                    align_items: AlignItems::Center,
-                    column_gap: px(style::space::XS),
-                    height: px(ROW_HEIGHT),
-                    padding: UiRect {
-                        left: px(style::space::S + row.depth as f32 * style::space::M),
-                        right: px(style::space::S),
-                        ..default()
-                    },
-                    border_radius: BorderRadius::all(px(style::radius::S)),
+            // Virtualization spacers stand in for the unmaterialized rows.
+            if first > 0 {
+                body.spawn(Node {
+                    height: px(first as f32 * ROW_HEIGHT),
                     flex_shrink: 0.0,
                     ..default()
-                },
-                BackgroundColor(if is_cursor && panel_focused {
-                    style::color::selection()
-                } else if is_selected {
-                    style::color::selection().with_alpha(0.15)
-                } else {
-                    Color::NONE
-                }),
-            ));
-            if is_cursor {
-                entity.insert(CursorRow);
-            }
-            entity
-                .observe(
-                    move |press: On<Pointer<Press>>,
-                          rows_q: Query<&HierarchyRow>,
-                          mut state: ResMut<HierarchyState>,
-                          mut actions: MessageWriter<ActionInvoked>| {
-                        if rows_q.get(press.entity).is_ok() {
-                            state.cursor = i;
-                            actions.write(ActionInvoked {
-                                action: ActionId::new_static("hierarchy.select"),
-                                args: None,
-                                source: InvocationSource::Palette,
-                            });
-                        }
-                    },
-                )
-                .with_children(|row_node| {
-                    // Fold affordance: ▸ folded / ▾ expanded / · leaf.
-                    let glyph = if !row.has_children {
-                        "·"
-                    } else if state.collapsed.contains(&row.id) {
-                        "▸"
-                    } else {
-                        "▾"
-                    };
-                    row_node.spawn((
-                        Text::new(glyph),
-                        style::mono(&fonts, ui.font_size_xs),
-                        TextColor(style::color::TEXT_DIM),
-                    ));
-                    // Prefabs read as GROUPS: ◆ accent on instance roots,
-                    // stamped members nested + dimmed but fully live.
-                    let is_instance = instance_roots.contains(&row.id);
-                    let is_stamped = stamped_ids.contains(&row.id);
-                    if is_instance {
-                        row_node.spawn((
-                            Text::new("◆"),
-                            style::mono(&fonts, ui.font_size_xs),
-                            TextColor(style::color::accent()),
-                        ));
-                    }
-                    row_node.spawn((
-                        Text::new(row.label.clone()),
-                        style::sans(&fonts, ui.font_size_s),
-                        TextColor(if is_instance {
-                            style::color::accent()
-                        } else if is_selected {
-                            style::color::accent()
-                        } else if is_stamped {
-                            style::color::TEXT_DIM
-                        } else {
-                            style::color::TEXT_KEYS
-                        }),
-                    ));
                 });
-        }
-        if last < rows.len() {
-            body.spawn(Node {
-                height: px((rows.len() - last) as f32 * ROW_HEIGHT),
-                flex_shrink: 0.0,
-                ..default()
-            });
-        }
+            }
+            for (i, row) in rows.iter().enumerate().take(last).skip(first) {
+                let is_cursor = i == cursor;
+                let is_selected = selected_ids.contains(&row.id);
+                let mut entity = body.spawn((
+                    HierarchyRow(i),
+                    Node {
+                        align_items: AlignItems::Center,
+                        column_gap: px(style::space::XS),
+                        height: px(ROW_HEIGHT),
+                        padding: UiRect {
+                            left: px(style::space::S + row.depth as f32 * style::space::M),
+                            right: px(style::space::S),
+                            ..default()
+                        },
+                        border_radius: BorderRadius::all(px(style::radius::S)),
+                        flex_shrink: 0.0,
+                        ..default()
+                    },
+                    BackgroundColor(if is_cursor && panel_focused {
+                        style::color::selection()
+                    } else if is_selected {
+                        style::color::selection().with_alpha(0.15)
+                    } else {
+                        Color::NONE
+                    }),
+                ));
+                if is_cursor {
+                    entity.insert(CursorRow);
+                }
+                entity
+                    .observe(
+                        move |press: On<Pointer<Press>>,
+                              rows_q: Query<&HierarchyRow>,
+                              mut state: ResMut<HierarchyState>,
+                              mut actions: MessageWriter<ActionInvoked>| {
+                            if rows_q.get(press.entity).is_ok() {
+                                state.cursor = i;
+                                actions.write(ActionInvoked {
+                                    action: ActionId::new_static("hierarchy.select"),
+                                    args: None,
+                                    source: InvocationSource::Palette,
+                                });
+                            }
+                        },
+                    )
+                    .with_children(|row_node| {
+                        // Fold affordance: ▸ folded / ▾ expanded / · leaf.
+                        let glyph = if !row.has_children {
+                            "·"
+                        } else if state.collapsed.contains(&row.id) {
+                            "▸"
+                        } else {
+                            "▾"
+                        };
+                        row_node.spawn((
+                            Text::new(glyph),
+                            style::mono(&fonts, ui.font_size_xs),
+                            TextColor(style::color::TEXT_DIM),
+                        ));
+                        // Prefabs read as GROUPS: ◆ accent on instance roots,
+                        // stamped members nested + dimmed but fully live.
+                        let is_instance = instance_roots.contains(&row.id);
+                        let is_stamped = stamped_ids.contains(&row.id);
+                        if is_instance {
+                            row_node.spawn((
+                                Text::new("◆"),
+                                style::mono(&fonts, ui.font_size_xs),
+                                TextColor(style::color::accent()),
+                            ));
+                        }
+                        row_node.spawn((
+                            Text::new(row.label.clone()),
+                            style::sans(&fonts, ui.font_size_s),
+                            TextColor(if is_instance || is_selected {
+                                style::color::accent()
+                            } else if is_stamped {
+                                style::color::TEXT_DIM
+                            } else {
+                                style::color::TEXT_KEYS
+                            }),
+                        ));
+                    });
+            }
+            if last < rows.len() {
+                body.spawn(Node {
+                    height: px((rows.len() - last) as f32 * ROW_HEIGHT),
+                    flex_shrink: 0.0,
+                    ..default()
+                });
+            }
         });
     });
 }
@@ -485,8 +487,8 @@ pub(crate) fn scroll_cursor_into_view(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use editor_core::prelude::History;
     use editor_core::EditorCorePlugin;
+    use editor_core::prelude::History;
 
     #[derive(Component, Reflect, Default, Clone, PartialEq, Debug)]
     #[reflect(Component)]
@@ -537,14 +539,17 @@ mod tests {
     }
 
     fn spawn_marker(app: &mut App, id: SceneId) {
-        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
-            label: "spawn".into(),
-            gesture: None,
-            ops: vec![Op::Spawn {
-                id,
-                components: vec![Box::new(Marker).into_partial_reflect()],
-            }],
-        });
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![Box::new(Marker).into_partial_reflect()],
+                }],
+            });
         app.update();
     }
 
@@ -602,10 +607,12 @@ mod tests {
         app.update();
         let world = app.world_mut();
         let child_entity = world.resource::<SceneIndex>().get(&second).unwrap();
-        assert!(world.get::<ChildOf>(child_entity).is_none(), "undo restores root");
+        assert!(
+            world.get::<ChildOf>(child_entity).is_none(),
+            "undo restores root"
+        );
     }
 }
-
 
 #[cfg(test)]
 mod virtualization_tests {

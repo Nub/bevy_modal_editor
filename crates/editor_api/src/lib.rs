@@ -28,12 +28,12 @@ pub mod prelude {
     pub use crate::actions::{ActionDef, ActionFlags, ActionInvoked, InvocationSource};
     pub use crate::edits::{EditQueue, EditScope, Edited, Op, SceneIndex, Transaction};
     pub use crate::feature::{
-        EditorAppExt, EditorFeature, FeatureManifest, FeatureRegistry, ModeDef,
-        PendingFeatures, RegistryError, ValidatedFeatures,
+        EditorAppExt, EditorFeature, FeatureManifest, FeatureRegistry, ModeDef, PendingFeatures,
+        RegistryError, ValidatedFeatures,
     };
     pub use crate::ids::{
-        ActionId, ContextId, EntityKindId, FeatureId, ModeId, PanelId, SceneId,
-        ProcessorId, ValidatorId, GLOBAL_CONTEXT,
+        ActionId, ContextId, EntityKindId, FeatureId, GLOBAL_CONTEXT, ModeId, PanelId, ProcessorId,
+        SceneId, ValidatorId,
     };
     pub use crate::keymap::{Binding, Chord, Modifiers};
     pub use crate::kinds::{EntityKindDef, InsertPreview};

@@ -59,7 +59,10 @@ fn entries_for(
     which_key_continuations(keymap, contexts, pending)
         .iter()
         .map(|(chord, binding, action)| {
-            let name = catalog.get(action).map(|d| d.name.as_ref()).unwrap_or(action.as_str());
+            let name = catalog
+                .get(action)
+                .map(|d| d.name.as_ref())
+                .unwrap_or(action.as_str());
             // Show the immediate next key; if the binding goes deeper, mark it as a
             // group with an ellipsis (nvim-which-key idiom).
             let deeper = binding.0.len() > pending.len() + 1;
@@ -134,8 +137,11 @@ pub(crate) fn rebuild_which_key(
     *visibility = Visibility::Visible;
 
     let header = content.header.clone();
-    let header_color =
-        if content.header_warn { style::color::TEXT_WARN } else { style::color::TEXT_DIM };
+    let header_color = if content.header_warn {
+        style::color::TEXT_WARN
+    } else {
+        style::color::TEXT_DIM
+    };
     let entries = content.entries.clone();
     let key_font = style::mono(&fonts, ui.font_size_s);
 
