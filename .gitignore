@@ -4,3 +4,4 @@
 /bake/
 .DS_Store
 *.prefab.ron.bak
+crates/editor_prefabs/prefabs/

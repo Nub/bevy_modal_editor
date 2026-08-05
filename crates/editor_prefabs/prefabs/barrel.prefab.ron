@@ -1,6 +1,0 @@
-(
-    format_version: 1,
-    id: "4c9ab49a-a698-4229-ac12-4761db8bc34f",
-    name: "Barrel",
-    template: "(\n    format_version: 1,\n    entities: [\n        (\n            id: \"2680b485-cf07-4aab-8cd8-0d12f542fd9b\",\n            parent: None,\n            components: [\n                (\n                    type_path: \"bevy_ecs::name::Name\",\n                    value: \"Entity fec0\",\n                ),\n                (\n                    type_path: \"bevy_transform::components::transform::Transform\",\n                    value: (\n                        translation: (0.0, 0.5, 0.0),\n                        rotation: (0.0, 0.0, 0.0, 1.0),\n                        scale: (1.0, 1.0, 1.0),\n                    ),\n                ),\n                (\n                    type_path: \"editor_prefabs::tests::Payload\",\n                    value: (7.0),\n                ),\n            ],\n        ),\n    ],\n)",
-)

@@ -1069,7 +1069,7 @@ pub(crate) mod tests {
         id
     }
 
-    fn cleanup_prefab_file(name: &str) {
+    pub(crate) fn cleanup_prefab_file(name: &str) {
         let _ = std::fs::remove_file(format!("prefabs/{name}.prefab.ron"));
         let _ = std::fs::remove_file(format!("prefabs/{name}.prefab.ron.bak"));
         let _ = std::fs::remove_dir("prefabs");
