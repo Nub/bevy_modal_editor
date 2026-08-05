@@ -25,6 +25,7 @@ pub mod authoring;
 pub mod bake;
 pub mod open_mode;
 pub mod overrides;
+pub mod paint;
 pub mod sockets;
 pub use overrides::{StampedFrom, sync_overrides};
 
@@ -373,6 +374,8 @@ impl Plugin for EditorPrefabsPlugin {
         app.init_resource::<editor_scene::SceneIoLock>();
         app.init_resource::<authoring::LastRestampedGeneration>();
         app.init_resource::<bake::BakeRequests>();
+        app.init_resource::<paint::PaintState>();
+        app.init_resource::<paint::PaintRequests>();
         app.init_resource::<bake::BakeDir>();
         app.init_resource::<bake::LastBakeCheck>();
         app.add_editor_feature(PrefabsFeature);
@@ -380,7 +383,10 @@ impl Plugin for EditorPrefabsPlugin {
         // BEFORE the conventions: escape layering reads PRE-press mode/panel state.
         app.add_systems(
             Update,
-            authoring::collect_prefab_actions
+            (
+                authoring::collect_prefab_actions,
+                paint::collect_paint_actions,
+            )
                 .before(editor_core::resolver::apply_action_conventions)
                 .in_set(editor_core::EditorSet::Tools),
         );
@@ -390,6 +396,8 @@ impl Plugin for EditorPrefabsPlugin {
                 authoring::perform_prefab_actions,
                 open_mode::maintain_open_instance,
                 authoring::restamp_on_library_change,
+                paint::perform_paint_actions,
+                paint::paint_click,
                 bake::perform_bake,
                 bake::watch_bake_staleness,
                 bake::headless_bake_mode,
@@ -411,6 +419,7 @@ impl EditorFeature for PrefabsFeature {
     }
     fn register(&self, reg: &mut FeatureRegistry) {
         // The instance root's serialized shape: {prefab_id, transform, overrides}.
+        reg.context(paint::PAINT_CONTEXT);
         reg.component::<PrefabInstance>()
             .component::<PrefabOverrides>()
             .component::<sockets::Socket>()
@@ -452,6 +461,17 @@ impl EditorFeature for PrefabsFeature {
                     .describe("Chain another instance of the selected piece at its free socket")
                     .context("normal")
                     .bind("o"),
+            )
+            .action(
+                ActionDef::new("prefab.paint", "Paint With Piece")
+                    .describe("Click a polyline; the selected piece chains along it, corners resolve from the kit")
+                    .context("normal"),
+            )
+            .action(
+                ActionDef::new("paint.exit", "Exit Paint")
+                    .context("paint")
+                    .bind("escape")
+                    .hidden(),
             )
             .action(
                 ActionDef::new("prefab.set-kit", "Set Prefab Kit")
@@ -1100,6 +1120,8 @@ pub(crate) mod tests {
             "prefab.repeat",
             "prefab.bake",
             "prefab.set-kit",
+            "prefab.paint",
+            "paint.exit",
         ] {
             assert!(
                 catalog.get(&ActionId::new(id.to_string())).is_some(),

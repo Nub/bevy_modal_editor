@@ -285,7 +285,7 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
 }
 
 /// Selected instance roots (a selected stamped child resolves to its root).
-fn selected_instance_roots(world: &mut World) -> Vec<SceneId> {
+pub(crate) fn selected_instance_roots(world: &mut World) -> Vec<SceneId> {
     let mut roots: Vec<SceneId> = {
         let mut query = world.query_filtered::<(
             Option<&StampedFrom>,
