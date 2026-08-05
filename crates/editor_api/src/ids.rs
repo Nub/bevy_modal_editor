@@ -74,6 +74,10 @@ string_id!(
     /// A registered asset processor ("gltf.mesh-optimize").
     ProcessorId
 );
+string_id!(
+    /// A registered bake step ("colliders.convex").
+    BakerId
+);
 
 /// The always-active keymap context.
 pub const GLOBAL_CONTEXT: ContextId = ContextId::new_static("global");

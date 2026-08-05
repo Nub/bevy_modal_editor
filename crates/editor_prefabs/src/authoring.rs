@@ -61,6 +61,7 @@ pub(crate) fn collect_prefab_actions(
     open: Res<crate::open_mode::OpenInstance>,
     mut prompt: ResMut<GroupPrompt>,
     mut requests: ResMut<PrefabRequests>,
+    mut bake_requests: ResMut<crate::bake::BakeRequests>,
 ) {
     if !state.active {
         return;
@@ -83,6 +84,7 @@ pub(crate) fn collect_prefab_actions(
             "prefab.apply-to-prefab" => requests.apply = true,
             "prefab.open" => requests.open_toggle = true,
             "prefab.flatten" => requests.flatten = true,
+            "prefab.bake" => bake_requests.bake = true,
             // One layer per press: a live SELECTION absorbs this Escape (the
             // selection handler clears it); only an empty-handed Escape closes.
             "core.escape-home"

@@ -61,6 +61,25 @@ impl EditorFeature for GameFeature {
                 id: EntityKindId::new_static("primitive.sphere"),
                 display_name: "Sphere",
                 components: sphere_components,
+            })
+            // D8 proof-of-seam: a game-registered bake step. Real games hang
+            // collider/LOD derivation here; the census proves determinism and
+            // the registry path end-to-end.
+            .baker(editor_api::prelude::BakerDef {
+                id: editor_api::prelude::BakerId::new_static("game.census"),
+                name: "Entity Census",
+                version: 1,
+                bake: |cx| {
+                    let spinners = cx.template_ron.matches("Spinner").count();
+                    let primitives = cx.template_ron.matches("Primitive").count();
+                    Ok(Some(
+                        format!(
+                            "(prefab: {:?}, spinners: {spinners}, primitives: {primitives})",
+                            cx.prefab_name
+                        )
+                        .into_bytes(),
+                    ))
+                },
             });
     }
 }

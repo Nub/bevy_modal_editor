@@ -24,8 +24,19 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some("bake") => {
+            // Batch bake (spec §6): only the GAME binary knows its bakers, so
+            // the CLI drives it headlessly via EDITOR_BAKE=1.
+            let status = Command::new("cargo")
+                .args(["run", "-p", "template_game", "--features", "editor"])
+                .env("EDITOR_BAKE", "1")
+                .current_dir(workspace_root())
+                .status()
+                .expect("cargo run");
+            std::process::exit(status.code().unwrap_or(1));
+        }
         _ => {
-            eprintln!("usage: editor publish [--boot-check]");
+            eprintln!("usage: editor publish [--boot-check] | editor bake");
             std::process::exit(2);
         }
     }

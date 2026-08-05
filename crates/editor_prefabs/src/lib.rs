@@ -22,6 +22,7 @@ use std::path::Path;
 use uuid::Uuid;
 
 pub mod authoring;
+pub mod bake;
 pub mod open_mode;
 pub mod overrides;
 pub use overrides::{StampedFrom, sync_overrides};
@@ -354,6 +355,9 @@ impl Plugin for EditorPrefabsPlugin {
         // plugin already initialized it (it always does in the real app).
         app.init_resource::<editor_scene::SceneIoLock>();
         app.init_resource::<authoring::LastRestampedGeneration>();
+        app.init_resource::<bake::BakeRequests>();
+        app.init_resource::<bake::BakeDir>();
+        app.init_resource::<bake::LastBakeCheck>();
         app.add_editor_feature(PrefabsFeature);
         app.add_systems(Startup, authoring::load_prefab_library);
         // BEFORE the conventions: escape layering reads PRE-press mode/panel state.
@@ -369,6 +373,9 @@ impl Plugin for EditorPrefabsPlugin {
                 authoring::perform_prefab_actions,
                 open_mode::maintain_open_instance,
                 authoring::restamp_on_library_change,
+                bake::perform_bake,
+                bake::watch_bake_staleness,
+                bake::headless_bake_mode,
                 stamp_new_instances,
                 authoring::select_grouped,
                 overrides::sync_overrides,
@@ -418,6 +425,11 @@ impl EditorFeature for PrefabsFeature {
                     .context("normal"),
             )
             .action(
+                ActionDef::new("prefab.bake", "Bake Now")
+                    .describe("Derive all registered bake artifacts (colliders, LODs) for the prefab library")
+                    .context("normal"),
+            )
+            .action(
                 ActionDef::new("prefab.flatten", "Flatten Prefab Hierarchy")
                     .describe("While open: every member becomes a direct child of the root, world pose kept")
                     .context("normal"),
@@ -442,7 +454,22 @@ pub(crate) mod tests {
         fn register(&self, reg: &mut FeatureRegistry) {
             reg.component::<Payload>()
                 .component::<Transform>()
-                .component::<Name>();
+                .component::<Name>()
+                .baker(editor_api::bake::BakerDef {
+                    id: editor_api::prelude::BakerId::new_static("test.digest"),
+                    name: "Template Digest",
+                    version: 1,
+                    bake: |cx| {
+                        Ok(Some(
+                            format!(
+                                "(name: {:?}, digest: {:?})",
+                                cx.prefab_name,
+                                blake3::hash(cx.template_ron.as_bytes()).to_hex().as_str()
+                            )
+                            .into_bytes(),
+                        ))
+                    },
+                });
         }
     }
 

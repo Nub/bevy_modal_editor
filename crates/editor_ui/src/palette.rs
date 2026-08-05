@@ -239,28 +239,54 @@ fn build_palette_items(
     items.0.clear();
     match state.filter {
         PaletteFilter::AddComponent => {
-            // Registered (serializable) components with a Default — what you add
-            // is what will SAVE; anything else would be a lie.
+            // EVERY reflectable component in the registry (owner: full
+            // reflection, like v1). SERIALIZED ones (feature-registered) rank
+            // in their own section first; the rest is the full surface.
+            // Non-defaultable ones show "(no default)" and refuse politely.
+            let registered: std::collections::HashSet<std::any::TypeId> =
+                components.types.iter().map(|r| r.type_id).collect();
             let registry = registry.read();
-            for reg in &components.types {
-                let Some(registration) = registry.get(reg.type_id) else {
-                    continue;
-                };
+            let mut entries: Vec<(bool, String, PaletteEntry)> = Vec::new();
+            for registration in registry.iter() {
                 if registration
-                    .data::<bevy::reflect::std_traits::ReflectDefault>()
+                    .data::<bevy::ecs::reflect::ReflectComponent>()
                     .is_none()
                 {
                     continue;
                 }
-                let short = reg.type_path.rsplit("::").next().unwrap_or(reg.type_path);
-                items.0.push(PaletteEntry {
-                    label: short.to_string(),
-                    category: Some("ADD COMPONENT".into()),
-                    keywords: reg.type_path.to_string(),
-                    suffix: String::new(),
-                    payload: PalettePayload::AddComponent(reg.type_id),
-                });
+                let info = registration.type_info();
+                let type_path = info.type_path();
+                let short = type_path.rsplit("::").next().unwrap_or(type_path);
+                let has_default = registration
+                    .data::<bevy::reflect::std_traits::ReflectDefault>()
+                    .is_some();
+                let serialized = registered.contains(&info.type_id());
+                let docs = info.docs().unwrap_or_default();
+                entries.push((
+                    serialized,
+                    short.to_string(),
+                    PaletteEntry {
+                        label: short.to_string(),
+                        category: Some(
+                            if serialized {
+                                "SERIALIZED"
+                            } else {
+                                "ALL COMPONENTS"
+                            }
+                            .into(),
+                        ),
+                        keywords: format!("{type_path} {docs}"),
+                        suffix: if has_default {
+                            String::new()
+                        } else {
+                            "(no default)".into()
+                        },
+                        payload: PalettePayload::AddComponent(info.type_id()),
+                    },
+                ));
             }
+            entries.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+            items.0.extend(entries.into_iter().map(|(_, _, e)| e));
         }
         PaletteFilter::ComponentSearch => {
             // Components ON the selection = the inspector's live section list.
@@ -878,6 +904,7 @@ fn rebuild_results(
     preview: Single<Entity, With<PalettePreview>>,
     fonts: Res<UiFonts>,
     rig: Option<Res<crate::palette_preview::PreviewRig>>,
+    registry: Res<AppTypeRegistry>,
     mut subject: ResMut<crate::palette_preview::PreviewSubject>,
     mut commands: Commands,
 ) {
@@ -1008,6 +1035,53 @@ fn rebuild_results(
                 style::sans(&fonts, ui.font_size_s),
                 TextColor(style::color::TEXT_DIM),
             ));
+            return;
+        }
+        if let Some(PalettePayload::AddComponent(type_id)) = &selected_payload {
+            // Docs preview (owner + v1 lineage): name, full path, and the
+            // component's doc comment straight from reflection.
+            let registry = registry.read();
+            if let Some(registration) = registry.get(*type_id) {
+                let info = registration.type_info();
+                let type_path = info.type_path();
+                let short = type_path.rsplit("::").next().unwrap_or(type_path);
+                pane.spawn((
+                    Text::new(short.to_string()),
+                    style::sans_medium(&fonts, ui.font_size_m),
+                ));
+                pane.spawn((
+                    Text::new(type_path.to_string()),
+                    style::mono(&fonts, ui.font_size_xs),
+                    TextColor(style::color::TEXT_DIM),
+                ));
+                let docs = info.docs().unwrap_or("No documentation.").trim();
+                pane.spawn((
+                    Text::new(docs.to_string()),
+                    style::sans(&fonts, ui.font_size_s),
+                    TextColor(style::color::TEXT_KEYS),
+                    Node {
+                        margin: UiRect::top(px(style::space::S)),
+                        max_width: px(300.0),
+                        ..default()
+                    },
+                ));
+                let insertable = registration
+                    .data::<bevy::reflect::std_traits::ReflectDefault>()
+                    .is_some();
+                pane.spawn((
+                    Text::new(if insertable {
+                        "\u{23ce} add to selection"
+                    } else {
+                        "not insertable — no Default impl"
+                    }),
+                    style::sans(&fonts, ui.font_size_s),
+                    TextColor(style::color::TEXT_DIM),
+                    Node {
+                        margin: UiRect::top(px(style::space::S)),
+                        ..default()
+                    },
+                ));
+            }
             return;
         }
         if let Some(PalettePayload::Entity(id)) = &selected_payload {

@@ -39,7 +39,7 @@ pub mod prelude {
     };
     pub use crate::selection::{PendingSelect, Selected, SelectionChanged, SelectionScope};
     pub use crate::settings::EditorSettings;
-    pub use crate::{ProcessorCatalog, ValidatorCatalog};
+    pub use crate::{BakerCatalog, ProcessorCatalog, ValidatorCatalog};
     pub use editor_api::prelude::*;
 }
 
@@ -522,6 +522,9 @@ fn host_features(world: &mut World) {
             .map(|(_, p)| p.clone())
             .collect(),
     });
+    world.insert_resource(BakerCatalog {
+        bakers: validated.bakers.iter().map(|(_, b)| b.clone()).collect(),
+    });
     world.insert_resource(panels::PanelCatalog {
         panels: validated.panels.iter().map(|(_, p)| p.clone()).collect(),
     });
@@ -551,4 +554,10 @@ pub struct ValidatorCatalog {
 #[derive(Resource, Default)]
 pub struct ProcessorCatalog {
     pub processors: Vec<editor_api::pipeline::ProcessorDef>,
+}
+
+/// Every registered bake step (M4-D8), for the bake runner + CLI.
+#[derive(Resource, Default)]
+pub struct BakerCatalog {
+    pub bakers: Vec<editor_api::bake::BakerDef>,
 }

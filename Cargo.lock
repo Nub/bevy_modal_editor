@@ -2408,6 +2408,7 @@ name = "editor_prefabs"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "blake3",
  "editor_api",
  "editor_core",
  "editor_scene",
