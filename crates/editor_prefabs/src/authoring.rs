@@ -23,6 +23,7 @@ pub(crate) struct PrefabRequests {
     flatten: bool,
     /// Instance root to socket-snap after a move gesture commits (D10).
     snap_after_move: Option<SceneId>,
+    repeat: bool,
 }
 
 /// What the inline name prompt is naming (title + commit routing).
@@ -90,6 +91,7 @@ pub(crate) fn collect_prefab_actions(
             "prefab.open" => requests.open_toggle = true,
             "prefab.flatten" => requests.flatten = true,
             "prefab.bake" => bake_requests.bake = true,
+            "prefab.repeat" => requests.repeat = true,
             // D10: when a move gesture commits on a single prefab instance,
             // try to mate it with a nearby compatible socket. Collect runs
             // pre-conventions, so the gesture is still Active here.
@@ -252,6 +254,9 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
     }
     if let Some(root_id) = requests.snap_after_move {
         snap_moved_instance(world, root_id);
+    }
+    if requests.repeat {
+        repeat_piece(world);
     }
     if let Some(name) = world.resource_mut::<GroupCommit>().0.take() {
         match world.resource::<GroupPrompt>().purpose {
@@ -631,6 +636,97 @@ fn make_variant(world: &mut World, name: String) {
     world.resource_mut::<PendingGroupSelect>().0 = Some(new_root);
     world.write_message(editor_scene::SceneIoFeedback {
         message: format!("\u{25c6} {name} — variant of {base_name}; base edits propagate"),
+        success: true,
+    });
+}
+
+/// D10 `o`: chain ANOTHER instance of the selected piece at its first FREE
+/// socket (one not already mated to a socket within 5cm) — `o o o` runs a
+/// wall. The new instance is selected, so the chain continues from the end.
+fn repeat_piece(world: &mut World) {
+    let Some(root_id) = selected_instance_roots(world).first().copied() else {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: "select a prefab instance to repeat".into(),
+            success: false,
+        });
+        return;
+    };
+    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
+        return;
+    };
+    let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
+        return;
+    };
+    let (name, def_sockets) = {
+        let library = world.resource::<PrefabLibrary>();
+        let Some(def) = library.prefabs.get(&instance.0) else {
+            return;
+        };
+        (def.name.clone(), crate::sockets::template_sockets(def))
+    };
+    if def_sockets.is_empty() {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: format!("{name} has no sockets to chain from"),
+            success: false,
+        });
+        return;
+    }
+    let members: Vec<Entity> = crate::open_mode::members_of(world, root);
+    let mut own_sockets: Vec<(Entity, GlobalTransform, Transform)> = Vec::new();
+    for member in &members {
+        if world.get::<crate::sockets::Socket>(*member).is_some()
+            && let (Some(global), Some(local)) = (
+                world.get::<GlobalTransform>(*member).copied(),
+                world.get::<Transform>(*member).copied(),
+            )
+        {
+            own_sockets.push((*member, global, local));
+        }
+    }
+    let other_positions: Vec<Vec3> = {
+        let mut query = world.query::<(Entity, &GlobalTransform, &crate::sockets::Socket)>();
+        query
+            .iter(world)
+            .filter(|(e, _, _)| !members.contains(e))
+            .map(|(_, g, _)| g.translation())
+            .collect()
+    };
+    let Some((_, exit_world, exit_local)) = own_sockets.iter().find(|(_, global, _)| {
+        !other_positions
+            .iter()
+            .any(|p| p.distance(global.translation()) < 0.05)
+    }) else {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: format!("{name}: every socket already mated"),
+            success: false,
+        });
+        return;
+    };
+    // Entry = a template socket that is NOT the exit's frame when possible
+    // (walls: exit east, enter west — the piece EXTENDS instead of stacking).
+    let entry = def_sockets
+        .iter()
+        .find(|(local, _)| local.translation.distance(exit_local.translation) > 0.05)
+        .or_else(|| def_sockets.first())
+        .unwrap();
+    let new_root = crate::sockets::mate_transform(exit_world, &entry.0);
+    let id = SceneId::random();
+    world.resource_mut::<EditQueue>().0.push(Transaction {
+        label: format!("Repeat {name}"),
+        gesture: None,
+        ops: vec![Op::Spawn {
+            id,
+            components: vec![
+                Box::new(PrefabInstance(instance.0)).into_partial_reflect(),
+                Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                Box::new(new_root).into_partial_reflect(),
+                Box::new(Name::new(name.clone())).into_partial_reflect(),
+            ],
+        }],
+    });
+    world.resource_mut::<PendingGroupSelect>().0 = Some(id);
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: format!("chained {name} — o again to continue"),
         success: true,
     });
 }

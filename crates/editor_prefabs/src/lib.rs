@@ -440,6 +440,12 @@ impl EditorFeature for PrefabsFeature {
                     .context("normal"),
             )
             .action(
+                ActionDef::new("prefab.repeat", "Repeat Piece")
+                    .describe("Chain another instance of the selected piece at its free socket")
+                    .context("normal")
+                    .bind("o"),
+            )
+            .action(
                 ActionDef::new("prefab.bake", "Bake Now")
                     .describe("Derive all registered bake artifacts (colliders, LODs) for the prefab library")
                     .context("normal"),
@@ -459,7 +465,7 @@ pub(crate) mod tests {
 
     #[derive(Component, Reflect, Default, Clone, PartialEq, Debug)]
     #[reflect(Component)]
-    struct Payload(f32);
+    pub(crate) struct Payload(pub f32);
 
     struct TestFeature;
     impl EditorFeature for TestFeature {
@@ -491,6 +497,8 @@ pub(crate) mod tests {
     pub(crate) fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(editor_core::EditorCorePlugin);
+        // Real GlobalTransforms — socket mating math reads world frames.
+        app.add_plugins(bevy::transform::TransformPlugin);
         app.add_plugins(EditorPrefabsPlugin);
         app.add_editor_feature(TestFeature);
         app.init_resource::<bevy::input::ButtonInput<bevy::input::keyboard::KeyCode>>();
@@ -1072,6 +1080,8 @@ pub(crate) mod tests {
             "prefab.apply-to-prefab",
             "prefab.make-variant",
             "prefab.flatten",
+            "prefab.repeat",
+            "prefab.bake",
         ] {
             assert!(
                 catalog.get(&ActionId::new(id.to_string())).is_some(),
@@ -1369,5 +1379,99 @@ mod escape_layering {
             "second escape closes the open instance"
         );
         cleanup_prefab_file("barrel");
+    }
+}
+
+#[cfg(test)]
+mod repeat_tests {
+    use super::tests::{Payload, invoke, test_app};
+    use super::*;
+    use crate::sockets::Socket;
+
+    // D10 `o`: each repeat chains a new instance mated at the free end —
+    // three walls in a straight run, exactly 2m apart.
+    #[test]
+    fn repeat_chains_instances() {
+        let mut app = test_app();
+        let wall_id = Uuid::new_v4();
+        let socket = |name: &str, x: f32, dir: Vec3| {
+            (
+                SceneId::random(),
+                None,
+                vec![
+                    Box::new(Socket {
+                        name: name.into(),
+                        socket_type: "wall".into(),
+                    })
+                    .into_partial_reflect(),
+                    Box::new(
+                        Transform::from_xyz(x, 0.5, 0.0)
+                            .with_rotation(Quat::from_rotation_arc(Vec3::Z, dir)),
+                    )
+                    .into_partial_reflect(),
+                ],
+            )
+        };
+        let def = PrefabDef {
+            id: wall_id,
+            name: "Wall".into(),
+            template: editor_scene::snapshot_from_parts(vec![
+                (
+                    SceneId::random(),
+                    None,
+                    vec![
+                        Box::new(Payload(1.0)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                ),
+                socket("west", -1.0, -Vec3::X),
+                socket("east", 1.0, Vec3::X),
+            ]),
+        };
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(wall_id, def);
+
+        let root_id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(wall_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+        {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            world.entity_mut(entity).insert(Selected);
+        }
+        invoke(&mut app, "prefab.repeat");
+        app.update();
+        invoke(&mut app, "prefab.repeat");
+        app.update();
+
+        let world = app.world_mut();
+        let mut xs: Vec<f32> = world
+            .query_filtered::<&Transform, (With<PrefabInstance>, Without<PrefabStamped>)>()
+            .iter(world)
+            .map(|t| t.translation.x)
+            .collect();
+        xs.sort_by(f32::total_cmp);
+        assert_eq!(xs.len(), 3, "o o chained two more walls");
+        assert!(
+            (xs[1] - xs[0] - 2.0).abs() < 1e-3 && (xs[2] - xs[1] - 2.0).abs() < 1e-3,
+            "each wall exactly one length further: {xs:?}"
+        );
     }
 }
