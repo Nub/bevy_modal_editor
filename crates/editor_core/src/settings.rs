@@ -16,6 +16,34 @@ pub struct EditorSettings {
     pub camera: CameraSettings,
     pub viewport: ViewportSettings,
     pub ui: UiSettings,
+    /// Component type paths pinned to the top of the add-component palette.
+    pub favorite_components: Vec<String>,
+}
+
+pub const SETTINGS_FILE: &str = "editor-settings.ron";
+
+impl EditorSettings {
+    /// Layer the user file over defaults (partial files work — serde defaults).
+    pub fn load_user() -> Self {
+        std::fs::read_to_string(SETTINGS_FILE)
+            .ok()
+            .and_then(|text| ron::from_str(&text).ok())
+            .unwrap_or_default()
+    }
+    /// Persist the full settings (v1 discipline: saved on every change).
+    pub fn save_user(&self) {
+        if let Ok(text) = ron::ser::to_string_pretty(self, ron::ser::PrettyConfig::default()) {
+            let _ = std::fs::write(SETTINGS_FILE, text);
+        }
+    }
+    pub fn toggle_favorite_component(&mut self, type_path: &str) {
+        if let Some(index) = self.favorite_components.iter().position(|p| p == type_path) {
+            self.favorite_components.remove(index);
+        } else {
+            self.favorite_components.push(type_path.to_string());
+        }
+        self.save_user();
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

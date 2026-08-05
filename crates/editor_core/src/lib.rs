@@ -334,7 +334,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<selection::SelectionScope>()
             .init_resource::<selection::PendingSelect>()
             .init_resource::<camera::FlyingCamera>()
-            .init_resource::<settings::EditorSettings>()
+            .insert_resource(settings::EditorSettings::load_user())
             .init_resource::<gesture::MoveGesture>()
             .init_resource::<gesture::GestureMotion>()
             .init_resource::<gesture::GestureCounter>()

@@ -224,6 +224,7 @@ fn build_palette_items(
     components: Res<editor_core::edits::EditorComponents>,
     registry: Res<AppTypeRegistry>,
     inspector_model: Res<crate::inspector::InspectorModel>,
+    settings: Res<EditorSettings>,
     mut edited: MessageReader<Edited>,
     mut items: ResMut<PaletteItems>,
 ) {
@@ -231,7 +232,8 @@ fn build_palette_items(
     let refresh = state.is_changed()
         || (scene_changed && state.filter == PaletteFilter::FindObject)
         || (library.is_changed() && state.filter == PaletteFilter::Materials)
-        || (prefabs.is_changed() && state.filter == PaletteFilter::InsertKinds);
+        || (prefabs.is_changed() && state.filter == PaletteFilter::InsertKinds)
+        || (settings.is_changed() && state.filter == PaletteFilter::AddComponent);
     if !refresh {
         return;
     }
@@ -645,7 +647,8 @@ fn palette_keys(
     mut event: On<FocusedInput<KeyboardInput>>,
     items: Res<PaletteItems>,
     index: Res<SceneIndex>,
-    settings: Res<EditorSettings>,
+    keys: Res<ButtonInput<KeyCode>>,
+    mut settings: ResMut<EditorSettings>,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
     mut focus: ResMut<InputFocus>,
@@ -659,6 +662,27 @@ fn palette_keys(
     let sections = display_sections(&items, &state.query, settings.ui.palette_max_results);
     let result_count = flat_len(&sections);
     match event.input.key_code {
+        // ⌃f: pin/unpin the highlighted component (owner: favorites on top).
+        KeyCode::KeyF
+            if keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight) =>
+        {
+            if state.filter == PaletteFilter::AddComponent {
+                let sections =
+                    display_sections(&items, &state.query, settings.ui.palette_max_results);
+                if let Some(row) = flat_get(&sections, state.selected) {
+                    if let PalettePayload::AddComponent(_) = &items.0[row.item].payload {
+                        let type_path = items.0[row.item]
+                            .keywords
+                            .split(' ')
+                            .next()
+                            .unwrap_or_default()
+                            .to_string();
+                        settings.toggle_favorite_component(&type_path);
+                    }
+                }
+            }
+            event.propagate(false);
+        }
         KeyCode::ArrowDown => {
             if result_count > 0 {
                 state.selected = (state.selected + 1).min(result_count - 1);
@@ -1080,9 +1104,9 @@ fn rebuild_results(
                     .is_some();
                 pane.spawn((
                     Text::new(if insertable {
-                        "\u{23ce} add to selection"
+                        "\u{23ce} add to selection · \u{2303}f favorite"
                     } else {
-                        "not insertable — no Default impl"
+                        "not insertable — no Default impl · \u{2303}f favorite"
                     }),
                     style::sans(&fonts, ui.font_size_s),
                     TextColor(style::color::TEXT_DIM),
