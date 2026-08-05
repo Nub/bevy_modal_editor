@@ -94,9 +94,11 @@ pub(crate) fn ensure_entity_names(
     mut commands: Commands,
 ) {
     for (entity, id) in &unnamed {
+        // try_insert: a same-frame restamp/close may despawn the entity after
+        // this queues (stamped children without a template Name) — never panic.
         commands
             .entity(entity)
-            .insert(Name::new(format!("Entity {}", &id.0.to_string()[..4])));
+            .try_insert(Name::new(format!("Entity {}", &id.0.to_string()[..4])));
     }
 }
 

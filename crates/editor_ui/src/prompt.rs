@@ -11,7 +11,7 @@ use bevy::input_focus::{FocusCause, FocusedInput, InputFocus};
 use bevy::prelude::*;
 use bevy::ui::px;
 use editor_core::prelude::*;
-use editor_prefabs::authoring::{GroupCommit, GroupPrompt};
+use editor_prefabs::authoring::{GroupCommit, GroupPrompt, PromptPurpose};
 
 use crate::style::{self, UiFonts};
 
@@ -19,6 +19,8 @@ use crate::style::{self, UiFonts};
 pub(crate) struct PromptRoot;
 #[derive(Component, Default, Clone)]
 pub(crate) struct PromptInput;
+#[derive(Component, Default, Clone)]
+pub(crate) struct PromptTitle;
 
 pub(crate) fn spawn_prompt(mut commands: Commands, fonts: Res<UiFonts>, settings: Res<EditorSettings>) {
     let ui = settings.ui.clone();
@@ -54,6 +56,7 @@ pub(crate) fn spawn_prompt(mut commands: Commands, fonts: Res<UiFonts>, settings
                 ))
                 .with_children(|panel| {
                     panel.spawn((
+                        PromptTitle,
                         Text::new("GROUP INTO PREFAB — name it"),
                         style::sans_medium(&fonts, ui.font_size_xs),
                         TextColor(style::color::TEXT_DIM),
@@ -94,6 +97,7 @@ pub(crate) fn attach_prompt_input(
 pub(crate) fn sync_prompt(
     prompt: Res<GroupPrompt>,
     mut root: Query<&mut Visibility, With<PromptRoot>>,
+    mut title: Query<&mut Text, With<PromptTitle>>,
     input: Query<Entity, With<PromptInput>>,
     mut editable: Query<&mut bevy::text::EditableText>,
     mut focus: ResMut<InputFocus>,
@@ -107,6 +111,12 @@ pub(crate) fn sync_prompt(
         *visibility = if prompt.open { Visibility::Visible } else { Visibility::Hidden };
     }
     if prompt.open {
+        for mut text in &mut title {
+            text.0 = match prompt.purpose {
+                PromptPurpose::Group => "GROUP INTO PREFAB — name it".into(),
+                PromptPurpose::Variant => "MAKE VARIANT — name it".into(),
+            };
+        }
         if let Ok(entity) = input.single() {
             if let Ok(mut text) = editable.get_mut(entity) {
                 text.clear();

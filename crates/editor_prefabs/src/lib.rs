@@ -152,6 +152,48 @@ impl PrefabDef {
     pub fn generation_note(&mut self) {}
 }
 
+/// Concrete `PrefabInstance` off a template record value (values may be
+/// DYNAMIC structs fresh off the RON deserializer).
+fn reflect_instance(value: &dyn bevy::reflect::PartialReflect) -> Option<PrefabInstance> {
+    let is_instance = value
+        .get_represented_type_info()
+        .is_some_and(|i| i.type_path() == <PrefabInstance as bevy::reflect::TypePath>::type_path());
+    if !is_instance {
+        return None;
+    }
+    <PrefabInstance as bevy::reflect::FromReflect>::from_reflect(value)
+}
+
+/// Prefabs directly referenced by a template (nested instance records).
+pub fn instances_in_template(def: &PrefabDef) -> Vec<Uuid> {
+    def.template
+        .records()
+        .flat_map(|(_, _, components)| {
+            components.iter().filter_map(|c| reflect_instance(c.as_partial_reflect()).map(|i| i.0))
+        })
+        .collect()
+}
+
+/// Transitive nesting check: does `candidate`'s template — through any chain of
+/// nested prefabs — reference `target`? THE cycle gate (D6): adding an instance
+/// of `candidate` inside `target` is legal iff this is false.
+pub fn closure_contains(library: &PrefabLibrary, candidate: Uuid, target: Uuid) -> bool {
+    let mut stack = vec![candidate];
+    let mut visited = std::collections::HashSet::new();
+    while let Some(current) = stack.pop() {
+        if current == target {
+            return true;
+        }
+        if !visited.insert(current) {
+            continue;
+        }
+        if let Some(def) = library.prefabs.get(&current) {
+            stack.extend(instances_in_template(def));
+        }
+    }
+    false
+}
+
 /// Stamp a prefab's template under an instance root: fresh runtime SceneIds
 /// (mapped from template-local ids), `PrefabStamped` markers (capture-excluded),
 /// components applied through the same reflection path as scene load.
@@ -490,6 +532,344 @@ mod tests {
         assert!(stamped[0].0, "Add observer fired for the reflected insert");
     }
 
+    // D6 nesting: a template referencing another prefab stamps RECURSIVELY —
+    // the nested root is a stamped reference, its subtree stamps beneath it,
+    // and scene capture still serializes exactly one record.
+    #[test]
+    fn nested_instances_stamp_recursively() {
+        let mut app = test_app();
+        let barrel = barrel_prefab();
+        let barrel_id = barrel.id;
+        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(barrel_id, barrel);
+
+        let crate_id = Uuid::new_v4();
+        let crate_def = PrefabDef {
+            id: crate_id,
+            name: "Crate".into(),
+            template: snapshot_from_parts(vec![
+                (
+                    SceneId::random(),
+                    None,
+                    vec![Box::new(Payload(1.0)).into_partial_reflect()],
+                ),
+                (
+                    SceneId::random(),
+                    None,
+                    vec![
+                        Box::new(PrefabInstance(barrel_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::from_xyz(1.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                ),
+            ]),
+        };
+        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(crate_id, crate_def);
+
+        let root_id = SceneId::random();
+        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
+            label: "Place Crate".into(),
+            gesture: None,
+            ops: vec![Op::Spawn {
+                id: root_id,
+                components: vec![
+                    Box::new(PrefabInstance(crate_id)).into_partial_reflect(),
+                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    Box::new(Transform::default()).into_partial_reflect(),
+                ],
+            }],
+        });
+        for _ in 0..4 {
+            app.update(); // outer stamp, then the nested instance stamps next pass
+        }
+
+        let world = app.world_mut();
+        // The nested barrel root exists as a stamped reference…
+        let nested_roots: Vec<Entity> = world
+            .query_filtered::<Entity, (With<PrefabInstance>, With<PrefabStamped>)>()
+            .iter(world)
+            .collect();
+        assert_eq!(nested_roots.len(), 1, "nested instance root stamped");
+        // …and the barrel's OWN payload stamped beneath it (recursion).
+        let payloads: Vec<f32> = world
+            .query_filtered::<&Payload, With<PrefabStamped>>()
+            .iter(world)
+            .map(|p| p.0)
+            .collect();
+        assert!(payloads.contains(&7.0), "barrel payload stamped through nesting: {payloads:?}");
+        assert!(payloads.contains(&1.0), "crate's own record stamped");
+        // Capture: still ONE record — nothing expands.
+        assert_eq!(capture_scene(world).records().count(), 1);
+    }
+
+    // D6 cycle chains: transitive closure detection, and placement-while-open
+    // refuses an instance that would close a chain (typed at author time).
+    #[test]
+    fn cycle_chains_refused() {
+        let mut app = test_app();
+        // Chain: A contains B, B contains C.
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let make = |name: &str, id: Uuid, nested: Option<Uuid>| PrefabDef {
+            id,
+            name: name.into(),
+            template: snapshot_from_parts(vec![(
+                SceneId::random(),
+                None,
+                match nested {
+                    Some(n) => vec![
+                        Box::new(PrefabInstance(n)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    ],
+                    None => vec![Box::new(Payload(3.0)).into_partial_reflect()],
+                },
+            )]),
+        };
+        {
+            let mut library = app.world_mut().resource_mut::<PrefabLibrary>();
+            library.prefabs.insert(a, make("A", a, Some(b)));
+            library.prefabs.insert(b, make("B", b, Some(c)));
+            library.prefabs.insert(c, make("C", c, None));
+        }
+        {
+            let library = app.world().resource::<PrefabLibrary>();
+            assert!(closure_contains(library, a, c), "A → B → C detected");
+            assert!(!closure_contains(library, c, a), "no reverse edge");
+        }
+
+        // Open an instance of C, then place an instance of A: adopting it
+        // would create C ∋ A ∋ B ∋ C — refused, left at scene root.
+        let c_root = SceneId::random();
+        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
+            label: "Place C".into(),
+            gesture: None,
+            ops: vec![Op::Spawn {
+                id: c_root,
+                components: vec![
+                    Box::new(PrefabInstance(c)).into_partial_reflect(),
+                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    Box::new(Transform::default()).into_partial_reflect(),
+                ],
+            }],
+        });
+        app.update();
+        app.update();
+        {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&c_root).unwrap();
+            world.entity_mut(entity).insert(Selected);
+        }
+        invoke(&mut app, "prefab.open");
+        assert!(app.world().resource::<open_mode::OpenInstance>().0.is_some());
+
+        let a_root = SceneId::random();
+        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
+            label: "Place A".into(),
+            gesture: None,
+            ops: vec![Op::Spawn {
+                id: a_root,
+                components: vec![
+                    Box::new(PrefabInstance(a)).into_partial_reflect(),
+                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    Box::new(Transform::default()).into_partial_reflect(),
+                ],
+            }],
+        });
+        app.update();
+        app.update();
+        let world = app.world_mut();
+        let a_entity = world.resource::<SceneIndex>().get(&a_root).unwrap();
+        assert!(
+            world.get::<ChildOf>(a_entity).is_none(),
+            "cycle-closing instance NOT adopted into the open prefab"
+        );
+        invoke(&mut app, "prefab.open"); // close cleanly
+        cleanup_prefab_file("c");
+    }
+
+    // D6 variants: variant = prefab whose template references the base with the
+    // captured deltas; base edits propagate to variant instances.
+    #[test]
+    fn variant_inherits_from_base() {
+        let mut app = test_app();
+        let barrel = barrel_prefab();
+        let barrel_id = barrel.id;
+        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(barrel_id, barrel);
+
+        let root_id = SceneId::random();
+        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
+            label: "Place".into(),
+            gesture: None,
+            ops: vec![Op::Spawn {
+                id: root_id,
+                components: vec![
+                    Box::new(PrefabInstance(barrel_id)).into_partial_reflect(),
+                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    Box::new(Transform::from_xyz(5.0, 0.0, 0.0)).into_partial_reflect(),
+                ],
+            }],
+        });
+        app.update();
+        app.update();
+        {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            world.entity_mut(entity).insert(Selected);
+        }
+        // Variant via the prompt path.
+        app.world_mut().resource_mut::<authoring::GroupPrompt>().purpose =
+            authoring::PromptPurpose::Variant;
+        app.world_mut().resource_mut::<authoring::GroupCommit>().0 =
+            Some("RedBarrel".into());
+        for _ in 0..4 {
+            app.update();
+        }
+
+        let world = app.world_mut();
+        // Original instance replaced by a variant instance at the same spot.
+        assert!(world.resource::<SceneIndex>().get(&root_id).is_none());
+        let variant_id = {
+            let library = world.resource::<PrefabLibrary>();
+            let def = library.prefabs.values().find(|p| p.name == "RedBarrel").unwrap();
+            assert_eq!(def.template.records().count(), 1, "variant template = one reference");
+            assert_eq!(instances_in_template(def), vec![barrel_id]);
+            def.id
+        };
+        let roots: Vec<(Entity, &PrefabInstance, &Transform)> = world
+            .query_filtered::<(Entity, &PrefabInstance, &Transform), Without<PrefabStamped>>()
+            .iter(world)
+            .collect();
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].1 .0, variant_id);
+        assert_eq!(roots[0].2.translation, Vec3::new(5.0, 0.0, 0.0));
+
+        // Inheritance: edit the BASE template; the variant instance follows.
+        {
+            let mut library = app.world_mut().resource_mut::<PrefabLibrary>();
+            let base = library.prefabs.get_mut(&barrel_id).unwrap();
+            let records: Vec<_> = base
+                .template
+                .records()
+                .map(|(id, parent, c)| {
+                    let values: Vec<Box<dyn bevy::reflect::PartialReflect>> = c
+                        .iter()
+                        .map(|v| {
+                            if v.get_represented_type_info().is_some_and(|i| {
+                                i.type_path().ends_with("Payload")
+                            }) {
+                                Box::new(Payload(99.0)).into_partial_reflect()
+                            } else {
+                                v.to_dynamic()
+                            }
+                        })
+                        .collect();
+                    (id, parent, values)
+                })
+                .collect();
+            base.template = snapshot_from_parts(records);
+            library.generation += 1;
+        }
+        for _ in 0..4 {
+            app.update();
+        }
+        let world = app.world_mut();
+        let payloads: Vec<f32> = world
+            .query_filtered::<&Payload, With<PrefabStamped>>()
+            .iter(world)
+            .map(|p| p.0)
+            .collect();
+        assert_eq!(payloads, vec![99.0], "base edit propagated through the variant chain");
+        cleanup_prefab_file("redbarrel");
+    }
+
+    // Owner ask: imported hierarchies can be flattened inside an open instance —
+    // members become direct root children, world pose preserved, undoable.
+    #[test]
+    fn flatten_inside_open_instance() {
+        let mut app = test_app();
+        // Template: parent (at x=2) → child (local x=1, world x=3).
+        let parent_id = SceneId::random();
+        let child_id = SceneId::random();
+        let prefab_id = Uuid::new_v4();
+        let def = PrefabDef {
+            id: prefab_id,
+            name: "DeepThing".into(),
+            template: snapshot_from_parts(vec![
+                (
+                    parent_id,
+                    None,
+                    vec![
+                        Box::new(Payload(1.0)).into_partial_reflect(),
+                        Box::new(Transform::from_xyz(2.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                ),
+                (
+                    child_id,
+                    Some(parent_id),
+                    vec![
+                        Box::new(Payload(2.0)).into_partial_reflect(),
+                        Box::new(Transform::from_xyz(1.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                ),
+            ]),
+        };
+        app.world_mut().resource_mut::<PrefabLibrary>().prefabs.insert(prefab_id, def);
+
+        let root_id = SceneId::random();
+        app.world_mut().resource_mut::<EditQueue>().0.push(Transaction {
+            label: "Place".into(),
+            gesture: None,
+            ops: vec![Op::Spawn {
+                id: root_id,
+                components: vec![
+                    Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    Box::new(Transform::default()).into_partial_reflect(),
+                ],
+            }],
+        });
+        app.update();
+        app.update();
+        {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            world.entity_mut(entity).insert(Selected);
+        }
+        invoke(&mut app, "prefab.open");
+        invoke(&mut app, "prefab.flatten");
+        app.update();
+
+        {
+            let world = app.world_mut();
+            let root = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            let stamped: Vec<(Entity, f32, &Transform, &ChildOf)> = world
+                .query_filtered::<(Entity, &Payload, &Transform, &ChildOf), With<PrefabStamped>>()
+                .iter(world)
+                .map(|(e, p, t, c)| (e, p.0, t, c))
+                .collect();
+            assert_eq!(stamped.len(), 2);
+            for (_, payload, transform, child_of) in &stamped {
+                assert_eq!(child_of.parent(), root, "all members direct under root");
+                if *payload == 2.0 {
+                    assert_eq!(
+                        transform.translation,
+                        Vec3::new(3.0, 0.0, 0.0),
+                        "world pose preserved through the reparent"
+                    );
+                }
+            }
+        }
+        // Close: the FLAT structure becomes the template.
+        invoke(&mut app, "prefab.open");
+        app.update();
+        let world = app.world_mut();
+        let library = world.resource::<PrefabLibrary>();
+        let def = library.prefabs.get(&prefab_id).unwrap();
+        assert!(
+            def.template.records().all(|(_, parent, _)| parent.is_none()),
+            "template records all top-level after flatten"
+        );
+        cleanup_prefab_file("deepthing");
+    }
+
     // Legacy templates (pre-rebase flow) migrate to the centered convention on
     // load: X/Z centroid moves to the root, member HEIGHTS are preserved.
     #[test]
@@ -516,7 +896,10 @@ mod tests {
             })
             .map(|t| t.translation)
             .collect();
-        assert_eq!(translations, vec![Vec3::new(-1.0, 0.5, -2.0), Vec3::new(1.0, 1.5, 2.0)]);
+        // Records are UUID-sorted — order is nondeterministic; compare as a set.
+        let mut sorted = translations.clone();
+        sorted.sort_by(|a, b| a.x.total_cmp(&b.x));
+        assert_eq!(sorted, vec![Vec3::new(-1.0, 0.5, -2.0), Vec3::new(1.0, 1.5, 2.0)]);
         // Already-centered templates are left alone (no save churn).
         assert!(authoring::center_template(&centered).is_none());
     }

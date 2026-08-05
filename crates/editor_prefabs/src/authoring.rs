@@ -20,12 +20,22 @@ pub(crate) struct PrefabRequests {
     apply: bool,
     open_toggle: bool,
     escape_close: bool,
+    flatten: bool,
+}
+
+/// What the inline name prompt is naming (title + commit routing).
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+pub enum PromptPurpose {
+    #[default]
+    Group,
+    Variant,
 }
 
 /// The inline name prompt state (UI renders it; Enter commits a name here).
 #[derive(Resource, Default)]
 pub struct GroupPrompt {
     pub open: bool,
+    pub purpose: PromptPurpose,
 }
 
 /// Set by the prompt UI on Enter; consumed by the group performer.
@@ -58,16 +68,21 @@ pub(crate) fn collect_prefab_actions(
     for invoked in reader.read() {
         match invoked.action.as_str() {
             "prefab.group" => {
-                if selection.is_empty() {
-                    // Feedback handled by the performer's empty-selection path.
-                    requests.revert |= false;
-                } else {
+                if !selection.is_empty() {
                     prompt.open = true;
+                    prompt.purpose = PromptPurpose::Group;
+                }
+            }
+            "prefab.make-variant" => {
+                if !selection.is_empty() {
+                    prompt.open = true;
+                    prompt.purpose = PromptPurpose::Variant;
                 }
             }
             "prefab.revert-overrides" => requests.revert = true,
             "prefab.apply-to-prefab" => requests.apply = true,
             "prefab.open" => requests.open_toggle = true,
+            "prefab.flatten" => requests.flatten = true,
             "core.escape-home" => {
                 if open.0.is_some()
                     && !escape_from_capture.0
@@ -199,8 +214,14 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
     if requests.escape_close {
         crate::open_mode::request_close(world);
     }
+    if requests.flatten {
+        crate::open_mode::flatten_open(world);
+    }
     if let Some(name) = world.resource_mut::<GroupCommit>().0.take() {
-        group_selection(world, name);
+        match world.resource::<GroupPrompt>().purpose {
+            PromptPurpose::Group => group_selection(world, name),
+            PromptPurpose::Variant => make_variant(world, name),
+        }
     }
     if requests.revert || requests.apply {
         let roots = selected_instance_roots(world);
@@ -244,7 +265,11 @@ fn restamp(world: &mut World, root_id: SceneId) {
             .collect()
     };
     for entity in stamped {
-        world.entity_mut(entity).despawn();
+        // Recursive despawn may have taken descendants that are ALSO in the
+        // list (hierarchical templates, nested instances) — guard, don't panic.
+        if let Ok(entity) = world.get_entity_mut(entity) {
+            entity.despawn();
+        }
     }
     let Some(root) = world.resource::<SceneIndex>().get(&root_id) else { return };
     let Some(instance) = world.get::<PrefabInstance>(root).copied() else { return };
@@ -458,6 +483,73 @@ pub(crate) fn select_grouped(
     }
     commands.entity(entity).insert(Selected);
     changed.write(SelectionChanged);
+}
+
+/// D6 variants: a variant is an ordinary prefab whose template is ONE record —
+/// an instance of the base carrying the captured override deltas. Inheritance
+/// and propagation then fall out of nested stamping: base edits restamp every
+/// variant instance, variant deltas re-apply on top.
+fn make_variant(world: &mut World, name: String) {
+    let Some(root_id) = selected_instance_roots(world).first().copied() else {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: "select a prefab instance to make a variant of".into(),
+            success: false,
+        });
+        return;
+    };
+    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else { return };
+    let Some(base) = world.get::<PrefabInstance>(root).copied() else { return };
+    let deltas = world.get::<PrefabOverrides>(root).cloned().unwrap_or_default();
+    let transform = world.get::<Transform>(root).copied().unwrap_or_default();
+    let base_name = world
+        .resource::<PrefabLibrary>()
+        .prefabs
+        .get(&base.0)
+        .map(|p| p.name.clone())
+        .unwrap_or_else(|| "prefab".into());
+
+    let variant_id = Uuid::new_v4();
+    let def = PrefabDef {
+        id: variant_id,
+        name: name.clone(),
+        template: snapshot_from_parts(vec![(
+            SceneId::random(),
+            None,
+            vec![
+                Box::new(base).into_partial_reflect(),
+                Box::new(deltas).into_partial_reflect(),
+                Box::new(Transform::default()).into_partial_reflect(),
+                Box::new(Name::new(base_name.clone())).into_partial_reflect(),
+            ],
+        )]),
+    };
+    save_prefab(world, &def);
+    world.resource_mut::<PrefabLibrary>().prefabs.insert(variant_id, def);
+    world.resource_mut::<PrefabLibrary>().generation += 1;
+
+    // Replace the source instance in place, one undoable transaction.
+    let new_root = SceneId::random();
+    world.resource_mut::<EditQueue>().0.push(Transaction {
+        label: format!("Make Variant {name}"),
+        gesture: None,
+        ops: vec![
+            Op::Despawn { id: root_id },
+            Op::Spawn {
+                id: new_root,
+                components: vec![
+                    Box::new(PrefabInstance(variant_id)).into_partial_reflect(),
+                    Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                    Box::new(transform).into_partial_reflect(),
+                    Box::new(Name::new(name.clone())).into_partial_reflect(),
+                ],
+            },
+        ],
+    });
+    world.resource_mut::<PendingGroupSelect>().0 = Some(new_root);
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: format!("\u{25c6} {name} — variant of {base_name}; base edits propagate"),
+        success: true,
+    });
 }
 
 /// Generation-driven propagation: any library change restamps every instance

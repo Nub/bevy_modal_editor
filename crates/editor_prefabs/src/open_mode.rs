@@ -12,7 +12,7 @@
 //! stamped entities that would half-serialize).
 
 use crate::{
-    authoring, PrefabDef, PrefabInstance, PrefabLibrary, PrefabOverrides,
+    authoring, closure_contains, PrefabDef, PrefabInstance, PrefabLibrary, PrefabOverrides,
     StampedFrom,
 };
 use bevy::prelude::*;
@@ -97,7 +97,6 @@ fn loose_top_level(world: &mut World) -> HashSet<Entity> {
         With<SceneId>,
         Without<ChildOf>,
         Without<PrefabStamped>,
-        Without<PrefabInstance>,
     )>();
     query.iter(world).collect()
 }
@@ -119,6 +118,28 @@ pub(crate) fn members_of(world: &mut World, root_entity: Entity) -> Vec<Entity> 
     members
 }
 
+/// Capture traversal for CLOSE: like `members_of` but never descends INTO a
+/// nested instance — the nested ROOT record joins the template (a reference),
+/// its stamped subtree does not (instances never expand, D4/D6).
+fn capture_members(world: &mut World, root_entity: Entity) -> Vec<Entity> {
+    let mut members = Vec::new();
+    let mut stack = vec![root_entity];
+    while let Some(current) = stack.pop() {
+        if let Some(children) = world.get::<Children>(current) {
+            for child in children.iter() {
+                if world.get::<SceneId>(child).is_none() {
+                    continue;
+                }
+                members.push(child);
+                if world.get::<PrefabInstance>(child).is_none() {
+                    stack.push(child);
+                }
+            }
+        }
+    }
+    members
+}
+
 fn close(world: &mut World) {
     let Some(open) = world.resource_mut::<OpenInstance>().0.take() else { return };
     world.resource_mut::<SceneIoLock>().0 = false;
@@ -126,16 +147,17 @@ fn close(world: &mut World) {
 
     let Some(root_entity) = world.resource::<SceneIndex>().get(&open.root) else { return };
 
-    // The members' CURRENT structure is the new template.
-    let members: Vec<Entity> = members_of(world, root_entity)
-        .into_iter()
-        .filter(|e| *e != root_entity)
-        .collect();
+    // The members' CURRENT structure is the new template (nested instance
+    // roots join as REFERENCES; their stamped subtrees never do).
+    let members: Vec<Entity> = capture_members(world, root_entity);
 
-    // Direct-cycle guard (full chain detection is the D6 gate): the template
-    // must not contain an instance of the prefab being edited.
+    // Full-chain cycle guard (D6): no member instance may reference — through
+    // any nesting chain — the prefab being edited.
     let self_reference = members.iter().any(|e| {
-        world.get::<PrefabInstance>(*e).is_some_and(|i| i.0 == open.prefab)
+        world.get::<PrefabInstance>(*e).is_some_and(|i| {
+            i.0 == open.prefab
+                || closure_contains(world.resource::<PrefabLibrary>(), i.0, open.prefab)
+        })
     });
     if self_reference {
         world.resource_mut::<OpenInstance>().0 = Some(open);
@@ -204,7 +226,9 @@ fn close(world: &mut World) {
         overrides.0.clear();
     }
     for entity in members {
-        world.entity_mut(entity).despawn();
+        if let Ok(entity) = world.get_entity_mut(entity) {
+            entity.despawn();
+        }
     }
     let def_clone = clone_def(world, open.prefab);
     if let Some(def) = def_clone {
@@ -264,13 +288,33 @@ pub(crate) fn maintain_open_instance(world: &mut World) {
         return;
     };
 
-    // Adopt fresh top-level spawns (place_on_click, paste) into the open group;
-    // bystanders from before the open stay untouched.
+    // Adopt fresh top-level spawns (place_on_click, paste, nested prefab
+    // placement) into the open group; bystanders from before the open stay
+    // untouched; instances that would close a nesting cycle are refused loudly.
+    let open_prefab = world.resource::<OpenInstance>().0.as_ref().map(|o| o.prefab);
     let fresh: Vec<Entity> = loose_top_level(world)
         .into_iter()
         .filter(|e| *e != root_entity && !leave_alone.contains(e))
         .collect();
     for entity in fresh {
+        if let (Some(target), Some(instance)) =
+            (open_prefab, world.get::<PrefabInstance>(entity).copied())
+        {
+            let cycles = instance.0 == target
+                || closure_contains(world.resource::<PrefabLibrary>(), instance.0, target);
+            if cycles {
+                world.write_message(editor_scene::SceneIoFeedback {
+                    message: "a prefab cannot contain itself — placed at scene root instead"
+                        .into(),
+                    success: false,
+                });
+                // Mark it a bystander so the refusal happens ONCE.
+                if let Some(open) = world.resource_mut::<OpenInstance>().0.as_mut() {
+                    open.leave_alone.insert(entity);
+                }
+                continue;
+            }
+        }
         world.entity_mut(entity).insert(ChildOf(root_entity));
     }
 
@@ -283,4 +327,62 @@ pub(crate) fn request_close(world: &mut World) {
     if world.resource::<OpenInstance>().0.is_some() {
         close(world);
     }
+}
+
+/// `prefab.flatten` (owner ask: imported assets carry undesirable hierarchies):
+/// while an instance is OPEN, every member becomes a DIRECT child of the root,
+/// world pose preserved, as ONE undoable transaction. Nested instances move as
+/// units (their stamped subtrees are never ripped apart). Esc then saves the
+/// flat structure as the template.
+pub(crate) fn flatten_open(world: &mut World) {
+    let Some(root_id) = world.resource::<OpenInstance>().0.as_ref().map(|o| o.root) else {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: "open a prefab instance to flatten it".into(),
+            success: false,
+        });
+        return;
+    };
+    let Some(root_entity) = world.resource::<SceneIndex>().get(&root_id) else { return };
+
+    // Capture set = template members (stops inside nested instances).
+    let members = capture_members(world, root_entity);
+    let mut ops = Vec::new();
+    for entity in &members {
+        let direct = world.get::<ChildOf>(*entity).is_some_and(|c| c.parent() == root_entity);
+        if direct {
+            continue;
+        }
+        let Some(id) = world.get::<SceneId>(*entity).copied() else { continue };
+        // Root-relative pose from the local-transform chain (GlobalTransform
+        // may be stale mid-frame after this frame's edits).
+        let mut acc = world.get::<Transform>(*entity).copied().unwrap_or_default();
+        let mut current = *entity;
+        while let Some(parent) = world.get::<ChildOf>(current).map(|c| c.parent()) {
+            if parent == root_entity {
+                break;
+            }
+            let parent_local = world.get::<Transform>(parent).copied().unwrap_or_default();
+            acc = parent_local.mul_transform(acc);
+            current = parent;
+        }
+        ops.push(Op::Reparent { target: id, parent: Some(root_id) });
+        ops.push(Op::Set { target: id, value: Box::new(acc).into_partial_reflect() });
+    }
+    if ops.is_empty() {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: "already flat".into(),
+            success: true,
+        });
+        return;
+    }
+    let moved = ops.len() / 2;
+    world.resource_mut::<EditQueue>().0.push(Transaction {
+        label: "Flatten Prefab".into(),
+        gesture: None,
+        ops,
+    });
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: format!("flattened — {moved} entities now direct children · ⎋ saves"),
+        success: true,
+    });
 }
