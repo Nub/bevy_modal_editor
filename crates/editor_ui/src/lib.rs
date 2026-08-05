@@ -126,6 +126,12 @@ impl Plugin for EditorUiPlugin {
                 // Scrollbars are indicators, not focus (owner): drop the accent
                 // thumb for a low-contrast neutral.
                 let mut theme = UiTheme(create_dark_theme());
+                // Elevation ramp (design pass): window < body < header — the
+                // stock feathers darks are nearly flat, so panels read as one
+                // undifferentiated slab. Cool-tinted, three clear steps.
+                theme.set_color("feathers.window.bg", Color::srgb(0.055, 0.06, 0.075));
+                theme.set_color("feathers.pane.body.bg", Color::srgb(0.082, 0.088, 0.105));
+                theme.set_color("feathers.pane.header.bg", Color::srgb(0.115, 0.122, 0.145));
                 theme.set_color("feathers.scrollbar.bg", Color::NONE);
                 theme.set_color(
                     "feathers.scrollbar.thumb",

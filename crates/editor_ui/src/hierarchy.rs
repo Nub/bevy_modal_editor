@@ -17,7 +17,7 @@ pub(crate) const HIERARCHY_PANEL: &str = "hierarchy";
 /// Fixed row height (logical px) — the virtualization contract: only the rows
 /// inside the scroll viewport (plus overscan) exist as UI nodes, so a 10k-entity
 /// scene renders ~30 rows, not 10k (C4).
-pub(crate) const ROW_HEIGHT: f32 = 22.0;
+pub(crate) const ROW_HEIGHT: f32 = 25.0;
 const OVERSCAN: usize = 4;
 
 /// Which slice of `rows` to materialize for a viewport.
