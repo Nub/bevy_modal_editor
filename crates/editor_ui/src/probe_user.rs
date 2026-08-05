@@ -173,6 +173,11 @@ pub(crate) fn probe_user(world: &mut World) {
         180 => {
             let active = world.resource::<EditorState>().active;
             check(world, active, "F12 switches into the editor");
+            let grid_visible = world
+                .query_filtered::<&Visibility, With<crate::grid::EditorGrid>>()
+                .iter(world)
+                .any(|v| *v == Visibility::Visible);
+            check(world, grid_visible, "ground grid is visible in the editor");
             shot(world, "01-editor");
         }
         // ── Insert a sphere: i → type → Enter picks kind → ghost → click ──
@@ -262,6 +267,30 @@ pub(crate) fn probe_user(world: &mut World) {
                 _ => false,
             };
             check(world, moved, "x-constrained drag actually moved the sphere");
+        }
+        // ── zz frames the selection ────────────────────────────────────────
+        552 => tap(world, KeyCode::KeyZ, "z"),
+        554 => tap(world, KeyCode::KeyZ, "z"),
+        562 => {
+            let camera_at = world
+                .query::<(&bevy::camera::Camera, &Transform)>()
+                .iter(world)
+                .find(|(c, _)| c.is_active && c.order >= 0)
+                .map(|(_, t)| t.translation);
+            let sphere_at = spheres(world)
+                .first()
+                .and_then(|e| world.get::<Transform>(*e))
+                .map(|t| t.translation);
+            let framed = match (camera_at, sphere_at) {
+                (Some(cam), Some(sphere)) => cam.distance(sphere) < 12.0,
+                _ => false,
+            };
+            check(
+                world,
+                framed,
+                "zz frames the selection (camera moved close)",
+            );
+            shot(world, "04b-framed");
         }
         // ── Group everything into a prefab ─────────────────────────────────
         // Hold ctrl ACROSS frames — press+release in one frame never registers

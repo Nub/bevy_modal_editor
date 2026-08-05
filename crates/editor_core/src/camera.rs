@@ -119,3 +119,52 @@ pub(crate) fn editor_fly_camera(
     transform.translation +=
         wish.normalize_or_zero() * settings.camera.fly_speed * boost * time.delta_secs();
 }
+
+use crate::selection::Selected;
+use editor_api::prelude::{ActionInvoked, SceneId};
+
+/// `zz` / `zf` (spec §4, keymap doc): frame the selection (or the whole scene)
+/// — keep the current view direction, pull back far enough that everything
+/// selected fits with padding. The keyboard-first answer to "where did it go".
+pub(crate) fn handle_frame_actions(
+    mut reader: MessageReader<ActionInvoked>,
+    state: Res<EditorState>,
+    selected: Query<&GlobalTransform, (With<Selected>, With<SceneId>)>,
+    everything: Query<&GlobalTransform, With<SceneId>>,
+    mut cameras: Query<(&Camera, &mut Transform, Option<&bevy::camera::RenderTarget>)>,
+) {
+    for invoked in reader.read() {
+        let frame_selection = invoked.action.as_str() == "camera.frame";
+        let frame_scene = invoked.action.as_str() == "camera.frame-scene";
+        if !(frame_selection || frame_scene) || !state.active {
+            continue;
+        }
+        let points: Vec<Vec3> = if frame_selection && !selected.is_empty() {
+            selected.iter().map(|t| t.translation()).collect()
+        } else {
+            everything.iter().map(|t| t.translation()).collect()
+        };
+        if points.is_empty() {
+            continue;
+        }
+        let center = points.iter().sum::<Vec3>() / points.len() as f32;
+        let radius = points
+            .iter()
+            .map(|p| p.distance(center))
+            .fold(1.0f32, f32::max)
+            + 1.5;
+        let Some((_, mut transform, _)) = cameras
+            .iter_mut()
+            .find(|(camera, _, target)| is_viewport_camera(camera, target.as_deref()))
+        else {
+            continue;
+        };
+        let back = transform
+            .forward()
+            .try_normalize()
+            .unwrap_or(bevy::math::Dir3::NEG_Z.as_vec3());
+        let distance = radius * 2.4;
+        transform.translation = center - back * distance + Vec3::Y * (radius * 0.35);
+        transform.look_at(center, Vec3::Y);
+    }
+}

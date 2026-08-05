@@ -124,6 +124,24 @@ impl EditorFeature for CoreFeature {
         // Undo/redo are GLOBAL (owner: "edit then u" must work from any panel
         // focus); the handler gates on editor ownership so play is untouched.
         .action(
+            ActionDef::new("camera.frame", "Frame Selection")
+                .describe("Pull the camera back until the selection fits the view")
+                .context("normal")
+                .bind("z z"),
+        )
+        .action(
+            ActionDef::new("camera.frame-scene", "Frame Scene")
+                .describe("Fit the whole scene in view")
+                .context("normal")
+                .bind("z f"),
+        )
+        .action(
+            ActionDef::new("view.toggle-grid", "Toggle Grid")
+                .describe("Show or hide the editor's ground grid")
+                .context("normal")
+                .bind("space t g"),
+        )
+        .action(
             ActionDef::new("core.undo", "Undo")
                 .describe("Undo the last edit")
                 .bind("u"),
@@ -289,6 +307,7 @@ impl Plugin for EditorCorePlugin {
                     edits::handle_history_actions,
                     selection::handle_selection_actions,
                     selection::select_pending,
+                    camera::handle_frame_actions,
                     gesture::handle_gesture_actions,
                     gesture::motion_from_cursor,
                     gesture::drive_gesture,

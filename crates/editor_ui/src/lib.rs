@@ -11,6 +11,7 @@ pub mod style;
 
 mod dock;
 mod ghost;
+mod grid;
 mod hierarchy;
 mod inspector;
 mod outline;
@@ -145,6 +146,7 @@ impl Plugin for EditorUiPlugin {
 
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<probe_user::UserProbe>();
+        app.init_resource::<grid::GridVisible>();
         app.init_resource::<palette_preview::PreviewSubject>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
@@ -192,6 +194,8 @@ impl Plugin for EditorUiPlugin {
                 prompt::sync_prompt,
                 prompt::close_prompt_on_escape,
                 dock::sync_open_frame,
+                grid::handle_grid_actions,
+                grid::sync_grid,
                 palette_preview::sync_preview_content,
                 palette_preview::inherit_preview_layer,
                 palette_preview::turn_preview,
@@ -208,6 +212,7 @@ impl Plugin for EditorUiPlugin {
                 statusbar::spawn_statusbar,
                 which_key::spawn_which_key,
                 prompt::spawn_prompt,
+                grid::spawn_grid,
                 palette_preview::setup_preview_rig,
                 dock::spawn_docks,
                 dock::spawn_open_frame,

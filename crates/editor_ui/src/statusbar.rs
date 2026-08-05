@@ -113,8 +113,30 @@ pub(crate) fn collect_io_feedback(
         flash.success = feedback.success;
         flash.until = time.elapsed_secs() + settings.ui.status_flash_secs;
     }
-    // Unbound keys flash quietly here — feedback without a popup (owner).
-    if let Some(keys) = unresolved.read().last() {
+    // Unbound keys flash quietly here — feedback without a popup (owner). Bare
+    // digits are RESERVED for count prefixes (keymap doc): flashing them as
+    // unbound reads as breakage for a planned feature, so they stay silent.
+    let is_bare_digit = |chord: &editor_api::keymap::Chord| {
+        chord.modifiers == editor_api::keymap::Modifiers::default()
+            && matches!(
+                chord.key,
+                KeyCode::Digit0
+                    | KeyCode::Digit1
+                    | KeyCode::Digit2
+                    | KeyCode::Digit3
+                    | KeyCode::Digit4
+                    | KeyCode::Digit5
+                    | KeyCode::Digit6
+                    | KeyCode::Digit7
+                    | KeyCode::Digit8
+                    | KeyCode::Digit9
+            )
+    };
+    if let Some(keys) = unresolved
+        .read()
+        .filter(|k| !k.0.iter().all(is_bare_digit))
+        .last()
+    {
         flash.text = format!("{} · unbound", style::pretty_chords(&keys.0));
         flash.success = false;
         flash.until = time.elapsed_secs() + settings.ui.status_flash_secs * 0.5;
