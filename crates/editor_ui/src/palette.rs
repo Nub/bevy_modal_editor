@@ -365,7 +365,12 @@ fn build_palette_items(
                 });
             }
             // MODELS: imported sources (D12) — placing references BY UUID.
-            let mut model_entries: Vec<_> = models.entries.iter().collect();
+            // Textures are material inputs, not placeable objects.
+            let mut model_entries: Vec<_> = models
+                .entries
+                .iter()
+                .filter(|e| e.kind == editor_scene::models::EntryKind::Model)
+                .collect();
             model_entries.sort_by(|a, b| a.name.cmp(&b.name));
             for entry in model_entries {
                 items.0.push(PaletteEntry {

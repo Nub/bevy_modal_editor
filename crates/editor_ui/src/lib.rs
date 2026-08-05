@@ -15,6 +15,7 @@ mod ghost;
 mod grid;
 mod hierarchy;
 mod inspector;
+mod material_editor;
 mod open_indicator;
 mod outline;
 mod palette;
@@ -22,6 +23,7 @@ mod palette_engine;
 mod palette_preview;
 mod probe_barrel;
 mod probe_kit;
+mod probe_material;
 mod probe_prefab;
 mod probe_user;
 mod prompt;
@@ -152,6 +154,8 @@ impl Plugin for EditorUiPlugin {
                 // Axis sigils at chrome volume: dusty triad in the palette's
                 // range — the stock saturated R/G/B were the loudest pixels on
                 // screen for the least important labels.
+                theme.set_color("feathers.slider.bar", Color::srgb(0.30, 0.40, 0.56));
+                theme.set_color("feathers.slider.bar.hover", Color::srgb(0.36, 0.47, 0.66));
                 theme.set_color("feathers.textinput.axis.x", Color::srgb(0.71, 0.44, 0.44));
                 theme.set_color("feathers.textinput.axis.y", Color::srgb(0.55, 0.64, 0.42));
                 theme.set_color("feathers.textinput.axis.z", Color::srgb(0.45, 0.57, 0.75));
@@ -166,17 +170,22 @@ impl Plugin for EditorUiPlugin {
             bevy_outliner::OutlinePlugin,
         ));
         app.add_editor_feature(EditorUiFeature);
+        app.add_editor_feature(material_editor::MaterialEditorFeature);
         app.add_observer(socket_gizmo::on_socket_added);
 
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<probe_user::UserProbe>();
         app.init_resource::<probe_kit::KitProbe>();
         app.init_resource::<probe_barrel::BarrelProbe>();
+        app.init_resource::<probe_material::MaterialProbe>();
         app.init_resource::<grid::GridVisible>();
         app.init_resource::<socket_gizmo::SocketGizmoAssets>();
         app.init_resource::<open_indicator::DimAssets>();
         app.init_resource::<inspector::InspectorReveal>();
         app.init_resource::<palette_preview::PreviewSubject>();
+        app.init_resource::<material_editor::MaterialEditorState>();
+        app.init_resource::<material_editor::MaterialHistory>();
+        app.init_resource::<material_editor::PendingSeeds>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
         app.init_resource::<inspector::InspectorGroups>();
@@ -237,7 +246,20 @@ impl Plugin for EditorUiPlugin {
                 probe_user::log_actions.run_if(|| std::env::var("USER_PROBE").is_ok()),
                 probe_kit::probe_kit.run_if(|| std::env::var("KIT_PROBE").is_ok()),
                 probe_barrel::probe_barrel.run_if(|| std::env::var("BARREL_PROBE").is_ok()),
+                probe_material::probe_material.run_if(|| std::env::var("MATERIAL_PROBE").is_ok()),
             )
+                .in_set(editor_core::EditorSet::Sync),
+        );
+        app.add_systems(
+            Update,
+            (
+                material_editor::collect_editor_actions,
+                material_editor::apply_material_history,
+                material_editor::sync_editor_ui,
+                material_editor::seed_slider_values,
+                material_editor::sync_preview,
+            )
+                .chain()
                 .in_set(editor_core::EditorSet::Sync),
         );
         app.add_systems(
@@ -250,6 +272,8 @@ impl Plugin for EditorUiPlugin {
                 prompt::spawn_prompt,
                 grid::spawn_grid,
                 palette_preview::setup_preview_rig,
+                material_editor::setup_material_preview,
+                material_editor::spawn_editor_root,
                 dock::spawn_docks,
                 open_indicator::spawn_open_pill,
                 dock::attach_scrollbars,

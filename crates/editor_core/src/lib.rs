@@ -25,7 +25,7 @@ pub mod prelude {
     pub use crate::EditorCorePlugin;
     pub use crate::camera::{FlyingCamera, is_viewport_camera};
     pub use crate::clipboard::EditorClipboard;
-    pub use crate::edits::{EditorComponents, History, HistoryRequests};
+    pub use crate::edits::{EditorComponents, History, HistoryRequests, HistoryScope};
     pub use crate::gesture::{GESTURE_MOVE_CONTEXT, GestureCounter, GestureMotion, MoveGesture};
     pub use crate::insert::{
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
@@ -328,6 +328,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<edits::EditorComponents>()
             .init_resource::<edits::History>()
             .init_resource::<edits::HistoryRequests>()
+            .init_resource::<edits::HistoryScope>()
             .init_resource::<resolver::OverlayContext>()
             .init_resource::<resolver::EscapeFromCapture>()
             .init_resource::<resolver::PointerOverChrome>()

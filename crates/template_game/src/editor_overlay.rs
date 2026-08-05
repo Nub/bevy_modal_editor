@@ -116,18 +116,13 @@ impl Plugin for EditorOverlayPlugin {
 #[derive(Resource, Default)]
 struct MaterialHandles(HashMap<uuid::Uuid, Handle<StandardMaterial>>);
 
-fn standard_material(def: &editor_scene::materials::MaterialDef) -> StandardMaterial {
-    StandardMaterial {
-        base_color: Color::srgba(
-            def.base_color[0],
-            def.base_color[1],
-            def.base_color[2],
-            def.base_color[3],
-        ),
-        metallic: def.metallic,
-        perceptual_roughness: def.roughness.clamp(0.089, 1.0),
-        ..default()
-    }
+/// One conversion for the whole editor (defined next to `MaterialDef`).
+fn standard_material(
+    def: &editor_scene::materials::MaterialDef,
+    models: &editor_scene::models::ModelLibrary,
+    assets: Option<&AssetServer>,
+) -> StandardMaterial {
+    editor_scene::materials::to_standard_material(def, models, assets)
 }
 
 /// `MaterialRef` -> `MeshMaterial3d`: assignment/undo re-shade via change
@@ -137,6 +132,8 @@ fn standard_material(def: &editor_scene::materials::MaterialDef) -> StandardMate
 fn sync_material_refs(
     library: Res<MaterialLibrary>,
     assets: Res<crate::game::PrimitiveAssets>,
+    models: Res<editor_scene::models::ModelLibrary>,
+    asset_server: Option<Res<AssetServer>>,
     mut handles: ResMut<MaterialHandles>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     changed: Query<(Entity, &MaterialRef), Changed<MaterialRef>>,
@@ -145,12 +142,13 @@ fn sync_material_refs(
     primitives: Query<(), With<Primitive>>,
     mut commands: Commands,
 ) {
+    let server = asset_server.as_deref();
     if library.is_changed() {
         for def in &library.materials {
             if let Some(handle) = handles.0.get(&def.id)
                 && let Some(mut material) = materials.get_mut(handle)
             {
-                *material = standard_material(def);
+                *material = standard_material(def, &models, server);
             }
         }
     }
@@ -161,7 +159,7 @@ fn sync_material_refs(
         let handle = handles
             .0
             .entry(def.id)
-            .or_insert_with(|| materials.add(standard_material(def)))
+            .or_insert_with(|| materials.add(standard_material(def, &models, server)))
             .clone();
         commands.entity(entity).insert(MeshMaterial3d(handle));
     };

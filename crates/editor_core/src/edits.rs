@@ -72,6 +72,16 @@ impl History {
 #[derive(Resource, Default)]
 pub struct MergeFrameEntries(pub bool);
 
+/// Who owns Ctrl+Z right now (M4-D11 asset history): the SCENE history by
+/// default; an open asset editor (materials) claims the scope so undo targets
+/// the asset being edited, never silently unwinding scene work behind it.
+#[derive(Resource, Default, PartialEq, Eq, Clone, Copy)]
+pub enum HistoryScope {
+    #[default]
+    Scene,
+    Asset,
+}
+
 /// Undo/redo requests, set by the action handler (Tools), consumed at Mutate.
 #[derive(Resource, Default)]
 pub struct HistoryRequests {
@@ -126,12 +136,14 @@ pub(crate) fn ensure_entity_names(
 pub(crate) fn handle_history_actions(
     mut reader: MessageReader<ActionInvoked>,
     state: Res<crate::resolver::EditorState>,
+    scope: Res<HistoryScope>,
     mut requests: ResMut<HistoryRequests>,
 ) {
     for invoked in reader.read() {
         // Global bindings, editor-gated semantics: undo/redo never fire while the
-        // game owns input (play sessions must not eat the history).
-        if !state.active {
+        // game owns input (play sessions must not eat the history), and an open
+        // asset editor owns them while it holds the scope.
+        if !state.active || *scope == HistoryScope::Asset {
             continue;
         }
         match invoked.action.as_str() {

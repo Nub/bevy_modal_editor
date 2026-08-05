@@ -39,10 +39,20 @@ pub struct MeshNode {
     pub material: String,
 }
 
+/// What an imported source IS — placement and pickers filter on this.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EntryKind {
+    /// GLB/GLTF — placeable in the scene via `MeshRef`.
+    Model,
+    /// Image — referenced by materials (D11 texture slots).
+    Texture,
+}
+
 /// One imported source asset the editor knows about.
 #[derive(Clone, Debug)]
 pub struct ModelEntry {
     pub uuid: Uuid,
+    pub kind: EntryKind,
     /// Display name (file stem).
     pub name: String,
     /// AssetServer-relative path ("models/barrel.glb").
@@ -93,63 +103,73 @@ fn assets_fs_root() -> PathBuf {
     base.join("assets")
 }
 
-/// The models subtree inside the asset root — imports scan here.
+/// Import subtrees inside the asset root — the scan covers both.
 pub const MODELS_DIR: &str = "models";
+pub const TEXTURES_DIR: &str = "textures";
 
-/// Scan + import every model source under `<assets>/models`: assigns/refreshes
-/// identity sidecars, runs the validator catalog, returns entries + problems.
-/// Pure with respect to the world — callers surface the problems.
+/// Scan + import every source under `<assets>/models` and `<assets>/textures`:
+/// assigns/refreshes identity sidecars, runs the validator catalog, returns
+/// entries + problems. Pure with respect to the world — callers surface the
+/// problems.
 pub fn scan_models(
     fs_root: &std::path::Path,
     validators: &[editor_api::validate::ValidatorDef],
 ) -> (Vec<ModelEntry>, Vec<String>) {
-    let dir = fs_root.join(MODELS_DIR);
     let mut entries = Vec::new();
     let mut problems = Vec::new();
-    let Ok(read) = std::fs::read_dir(&dir) else {
-        return (entries, problems); // no models dir yet — nothing imported
+    let kind_of = |p: &std::path::Path| match p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .as_deref()
+    {
+        Some("glb") | Some("gltf") => Some(EntryKind::Model),
+        Some("png") | Some("jpg") | Some("jpeg") | Some("ktx2") => Some(EntryKind::Texture),
+        _ => None,
     };
-    let mut sources: Vec<PathBuf> = read
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| {
-            matches!(
-                p.extension().and_then(|e| e.to_str()),
-                Some("glb") | Some("gltf")
-            )
-        })
-        .collect();
-    sources.sort(); // deterministic order
-    for source in sources {
-        let identity = match editor_assets::import_file(&source) {
-            Ok(identity) => identity,
-            Err(e) => {
-                problems.push(format!("{}: {e}", source.display()));
-                continue;
-            }
+    for dir_name in [MODELS_DIR, TEXTURES_DIR] {
+        let Ok(read) = std::fs::read_dir(fs_root.join(dir_name)) else {
+            continue; // subtree absent — nothing imported from it
         };
-        match std::fs::read(&source) {
-            Ok(bytes) => {
-                for problem in editor_assets::run_validators(&source, &bytes, validators) {
-                    problems.push(format!("{:?}: {}", problem.severity, problem.message));
+        let mut sources: Vec<PathBuf> = read
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| kind_of(p).is_some())
+            .collect();
+        sources.sort(); // deterministic order
+        for source in sources {
+            let kind = kind_of(&source).expect("filtered above");
+            let identity = match editor_assets::import_file(&source) {
+                Ok(identity) => identity,
+                Err(e) => {
+                    problems.push(format!("{}: {e}", source.display()));
+                    continue;
                 }
+            };
+            match std::fs::read(&source) {
+                Ok(bytes) => {
+                    for problem in editor_assets::run_validators(&source, &bytes, validators) {
+                        problems.push(format!("{:?}: {}", problem.severity, problem.message));
+                    }
+                }
+                Err(e) => problems.push(format!("{}: {e}", source.display())),
             }
-            Err(e) => problems.push(format!("{}: {e}", source.display())),
+            let name = source
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("asset")
+                .to_string();
+            let asset_path = format!(
+                "{dir_name}/{}",
+                source.file_name().and_then(|s| s.to_str()).unwrap_or("")
+            );
+            entries.push(ModelEntry {
+                uuid: identity.uuid,
+                kind,
+                name,
+                asset_path,
+                content_hash: identity.content_hash,
+            });
         }
-        let name = source
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("model")
-            .to_string();
-        let asset_path = format!(
-            "{MODELS_DIR}/{}",
-            source.file_name().and_then(|s| s.to_str()).unwrap_or("")
-        );
-        entries.push(ModelEntry {
-            uuid: identity.uuid,
-            name,
-            asset_path,
-            content_hash: identity.content_hash,
-        });
     }
     (entries, problems)
 }
@@ -185,12 +205,12 @@ pub(crate) struct ImportRequested(pub bool);
 #[derive(Resource, Default)]
 pub(crate) struct FlattenRequested(pub bool);
 
-/// Live root `Gltf` handles per imported source. Without these the root asset
-/// is dropped (only labeled `#Scene0` sub-assets are referenced by spawns) and
-/// `AssetServer::reload` has nothing to reload — re-imports would silently
-/// serve stale content forever.
+/// Live root handles per imported source (Gltf for models, Image for
+/// textures). Without these the root asset is dropped (only labeled/derived
+/// sub-assets are referenced) and `AssetServer::reload` has nothing to reload
+/// — re-imports would silently serve stale content forever.
 #[derive(Resource, Default)]
-pub(crate) struct ModelHandles(pub std::collections::HashMap<Uuid, Handle<bevy::gltf::Gltf>>);
+pub(crate) struct ModelHandles(pub std::collections::HashMap<Uuid, UntypedHandle>);
 
 pub(crate) fn collect_model_actions(
     mut reader: MessageReader<ActionInvoked>,
@@ -258,7 +278,12 @@ pub(crate) fn perform_import(
         handles
             .0
             .entry(entry.uuid)
-            .or_insert_with(|| assets.load(entry.asset_path.clone()));
+            .or_insert_with(|| match entry.kind {
+                EntryKind::Model => assets
+                    .load::<bevy::gltf::Gltf>(entry.asset_path.clone())
+                    .untyped(),
+                EntryKind::Texture => assets.load::<Image>(entry.asset_path.clone()).untyped(),
+            });
     }
     for path in reload_paths {
         info!("asset import: reloading changed source {path}");

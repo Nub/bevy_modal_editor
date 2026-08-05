@@ -22,6 +22,17 @@ pub const MATERIALS_FORMAT_VERSION: u32 = 1;
 #[reflect(Component)]
 pub struct MaterialRef(pub Uuid);
 
+/// How alpha is interpreted (mirrors `bevy::pbr::AlphaMode`'s designer-facing
+/// subset). String-tagged in RON, serde-default Opaque — old files load clean.
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug, Default)]
+pub enum MaterialAlphaMode {
+    #[default]
+    Opaque,
+    Blend,
+    /// Cutout: alpha below `alpha_cutoff` discards the fragment.
+    Mask,
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub struct MaterialDef {
@@ -30,6 +41,15 @@ pub struct MaterialDef {
     pub base_color: [f32; 4],
     pub metallic: f32,
     pub roughness: f32,
+    /// Linear-space emissive color, scaled by `emissive_intensity`.
+    pub emissive: [f32; 3],
+    pub emissive_intensity: f32,
+    pub alpha_mode: MaterialAlphaMode,
+    pub alpha_cutoff: f32,
+    pub unlit: bool,
+    pub double_sided: bool,
+    /// Imported texture (identity pipeline uuid) for the base color slot.
+    pub base_color_texture: Option<Uuid>,
 }
 
 impl Default for MaterialDef {
@@ -40,7 +60,75 @@ impl Default for MaterialDef {
             base_color: [0.8, 0.8, 0.8, 1.0],
             metallic: 0.0,
             roughness: 0.6,
+            emissive: [0.0, 0.0, 0.0],
+            emissive_intensity: 1.0,
+            alpha_mode: MaterialAlphaMode::Opaque,
+            alpha_cutoff: 0.5,
+            unlit: false,
+            double_sided: false,
+            base_color_texture: None,
         }
+    }
+}
+
+/// THE def → render-material conversion (game world and editor preview both
+/// use this — one source of truth for how a `MaterialDef` looks). Textures
+/// resolve through the identity pipeline (uuid → imported path), sampled
+/// sRGB with repeat wrapping.
+pub fn to_standard_material(
+    def: &MaterialDef,
+    models: &crate::models::ModelLibrary,
+    assets: Option<&AssetServer>,
+) -> bevy::pbr::StandardMaterial {
+    let base_color_texture = def
+        .base_color_texture
+        .as_ref()
+        .and_then(|uuid| models.get(uuid))
+        .zip(assets)
+        .map(|(entry, assets)| {
+            assets.load_with_settings(
+                entry.asset_path.clone(),
+                |settings: &mut bevy::image::ImageLoaderSettings| {
+                    settings.is_srgb = true;
+                    settings.sampler = bevy::image::ImageSampler::Descriptor(
+                        bevy::image::ImageSamplerDescriptor {
+                            address_mode_u: bevy::image::ImageAddressMode::Repeat,
+                            address_mode_v: bevy::image::ImageAddressMode::Repeat,
+                            ..bevy::image::ImageSamplerDescriptor::linear()
+                        },
+                    );
+                },
+            )
+        });
+    bevy::pbr::StandardMaterial {
+        base_color: Color::srgba(
+            def.base_color[0],
+            def.base_color[1],
+            def.base_color[2],
+            def.base_color[3],
+        ),
+        base_color_texture,
+        metallic: def.metallic,
+        perceptual_roughness: def.roughness.clamp(0.089, 1.0),
+        emissive: LinearRgba::new(
+            def.emissive[0] * def.emissive_intensity,
+            def.emissive[1] * def.emissive_intensity,
+            def.emissive[2] * def.emissive_intensity,
+            1.0,
+        ),
+        alpha_mode: match def.alpha_mode {
+            MaterialAlphaMode::Opaque => AlphaMode::Opaque,
+            MaterialAlphaMode::Blend => AlphaMode::Blend,
+            MaterialAlphaMode::Mask => AlphaMode::Mask(def.alpha_cutoff),
+        },
+        unlit: def.unlit,
+        double_sided: def.double_sided,
+        cull_mode: if def.double_sided {
+            None
+        } else {
+            Some(bevy::render::render_resource::Face::Back)
+        },
+        ..Default::default()
     }
 }
 
