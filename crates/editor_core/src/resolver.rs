@@ -198,11 +198,21 @@ pub fn resolve_input(
     mut pending: ResMut<PendingKeys>,
     mut actions: MessageWriter<ActionInvoked>,
     mut unresolved: MessageWriter<KeysUnresolved>,
+    mut was_captured: Local<bool>,
 ) {
     let Some(keys) = keys else { return };
     // Fly-nav owns the keyboard while RMB is held (WASD is locomotion, not actions).
     if flying.0 {
         pending.0.clear();
+        return;
+    }
+    // A capturing surface that commits-and-closes (palette Enter) releases the
+    // flag DURING this frame's focused-input dispatch — before this system runs.
+    // Without the one-frame latch the very key that committed would be resolved
+    // a second time here (Enter → prefab.open while the palette also committed).
+    let released_this_frame = *was_captured && !capture.0;
+    *was_captured = capture.0;
+    if released_this_frame {
         return;
     }
     if capture.0 {

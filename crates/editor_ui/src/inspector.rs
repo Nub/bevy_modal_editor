@@ -942,6 +942,10 @@ pub(crate) fn render_inspector(
                     .spawn(Node {
                         align_items: AlignItems::Center,
                         column_gap: px(style::space::S),
+                        // Chips wrap as whole units when the panel is narrow —
+                        // labels never break mid-phrase, buttons never clip.
+                        flex_wrap: FlexWrap::Wrap,
+                        row_gap: px(style::space::XS),
                         margin: UiRect::bottom(px(style::space::XS)),
                         flex_shrink: 0.0,
                         ..default()
@@ -951,6 +955,7 @@ pub(crate) fn render_inspector(
                 let label = commands
                     .spawn((
                         Text::new(format!("◆ instance of {name}")),
+                        style::no_wrap(),
                         style::sans_medium(&fonts, ui.font_size_xs),
                         TextColor(style::color::accent()),
                     ))
@@ -963,6 +968,7 @@ pub(crate) fn render_inspector(
                                 "{overrides} override{}",
                                 if *overrides == 1 { "" } else { "s" }
                             )),
+                            style::no_wrap(),
                             style::mono(&fonts, ui.font_size_xs),
                             TextColor(style::color::TEXT_DIM),
                         ))
@@ -983,6 +989,7 @@ pub(crate) fn render_inspector(
                                     ),
                                     border: UiRect::all(px(1.0)),
                                     border_radius: BorderRadius::all(px(style::radius::S)),
+                                    flex_shrink: 0.0,
                                     ..default()
                                 },
                                 BorderColor::all(style::HAIRLINE),
@@ -1003,6 +1010,7 @@ pub(crate) fn render_inspector(
                         let text = commands
                             .spawn((
                                 Text::new(title),
+                                style::no_wrap(),
                                 style::sans(&fonts, ui.font_size_xs),
                                 TextColor(style::color::TEXT_KEYS),
                             ))
@@ -1305,8 +1313,15 @@ fn spawn_number_field(commands: &mut Commands, parent: Entity, spec: &NumberSpec
         .observe(field_drag_end);
     commands.trigger(UpdateNumberInput {
         entity,
-        value: NumberInputValue::F32(spec.value),
+        value: NumberInputValue::F32(display_f32(spec.value)),
     });
+}
+
+/// Round for DISPLAY only (4 decimals — sub-0.1mm at meter scale): raw f32
+/// reprs like `0.50000024` overflow the field and read as noise, not numbers.
+/// Commits always carry the unrounded value.
+fn display_f32(v: f32) -> f32 {
+    (v * 1.0e4).round() / 1.0e4
 }
 
 /// Queue one `Set` through the EditQueue: full component with the edited field
@@ -1611,7 +1626,7 @@ fn field_drag(
     );
     commands.trigger(UpdateNumberInput {
         entity: drag.entity,
-        value: NumberInputValue::F32(value),
+        value: NumberInputValue::F32(display_f32(value)),
     });
 }
 

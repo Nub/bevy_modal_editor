@@ -377,7 +377,10 @@ pub(crate) fn rebuild_hierarchy(
                     BackgroundColor(if is_cursor && panel_focused {
                         style::color::selection()
                     } else if is_selected {
-                        style::color::selection().with_alpha(0.15)
+                        // Authored for LINEAR blending: UI alpha composites in
+                        // linear space, so tiny sRGB alphas read far stronger
+                        // over these darks — 0.03 lands as a quiet wash.
+                        style::color::selection().with_alpha(0.03)
                     } else {
                         Color::NONE
                     }),
@@ -430,8 +433,10 @@ pub(crate) fn rebuild_hierarchy(
                         row_node.spawn((
                             Text::new(row.label.clone()),
                             style::sans(&fonts, ui.font_size_s),
-                            TextColor(if is_instance || is_selected {
+                            TextColor(if is_instance {
                                 style::color::accent()
+                            } else if is_selected {
+                                style::color::TEXT_BRIGHT
                             } else if is_stamped {
                                 style::color::TEXT_DIM
                             } else {

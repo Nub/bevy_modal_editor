@@ -130,9 +130,9 @@ impl Plugin for EditorUiPlugin {
                 // Elevation ramp (design pass): window < body < header — the
                 // stock feathers darks are nearly flat, so panels read as one
                 // undifferentiated slab. Cool-tinted, three clear steps.
-                theme.set_color("feathers.window.bg", Color::srgb(0.055, 0.06, 0.075));
-                theme.set_color("feathers.pane.body.bg", Color::srgb(0.082, 0.088, 0.105));
-                theme.set_color("feathers.pane.header.bg", Color::srgb(0.115, 0.122, 0.145));
+                theme.set_color("feathers.window.bg", Color::srgb(0.047, 0.047, 0.055));
+                theme.set_color("feathers.pane.body.bg", Color::srgb(0.075, 0.075, 0.086));
+                theme.set_color("feathers.pane.header.bg", Color::srgb(0.098, 0.098, 0.113));
                 theme.set_color("feathers.scrollbar.bg", Color::NONE);
                 theme.set_color(
                     "feathers.scrollbar.thumb",

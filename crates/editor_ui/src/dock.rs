@@ -124,7 +124,6 @@ pub(crate) fn spawn_docks(
                                 ..default()
                             },
                             ThemeBackgroundColor(tokens::PANE_HEADER_BG),
-                            style::header_gradient(),
                             BorderColor::all(style::HAIRLINE),
                         ))
                         .with_children(|header| {

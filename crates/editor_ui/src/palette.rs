@@ -263,7 +263,9 @@ fn build_palette_items(
                 }
                 let info = registration.type_info();
                 let type_path = info.type_path();
-                let short = type_path.rsplit("::").next().unwrap_or(type_path);
+                // Generic-aware short name — naive `rsplit("::")` leaves
+                // dangling brackets on generics ("SpriteMaterial>").
+                let short = info.type_path_table().short_path();
                 let has_default = registration
                     .data::<bevy::reflect::std_traits::ReflectDefault>()
                     .is_some();
@@ -346,6 +348,20 @@ fn build_palette_items(
             // already says INSERT ("Sphere", never "Insert: Sphere").
             // ONE insert surface (owner): everything placeable — registered
             // kinds AND library prefabs, grouped.
+            // PREFABS first: on a ranking tie (a prefab named like a kind,
+            // e.g. "cube" vs Cube), the user's authored content wins over the
+            // built-in primitive — source order is the fuzzy tiebreak.
+            let mut defs: Vec<_> = prefabs.prefabs.values().collect();
+            defs.sort_by(|a, b| a.name.cmp(&b.name));
+            for def in defs {
+                items.0.push(PaletteEntry {
+                    label: def.name.clone(),
+                    category: Some("PREFABS".into()),
+                    keywords: def.id.to_string(),
+                    suffix: "prefab".into(),
+                    payload: PalettePayload::Prefab(def.id),
+                });
+            }
             let mut kinds = Vec::new();
             for def in &catalog.actions {
                 if def.flags.hidden || !def.id.as_str().starts_with("insert.kind.") {
@@ -359,17 +375,6 @@ fn build_palette_items(
             }
             kinds.sort_by(|a, b| a.label.cmp(&b.label));
             items.0.extend(kinds);
-            let mut defs: Vec<_> = prefabs.prefabs.values().collect();
-            defs.sort_by(|a, b| a.name.cmp(&b.name));
-            for def in defs {
-                items.0.push(PaletteEntry {
-                    label: def.name.clone(),
-                    category: Some("PREFABS".into()),
-                    keywords: def.id.to_string(),
-                    suffix: "prefab".into(),
-                    payload: PalettePayload::Prefab(def.id),
-                });
-            }
         }
         PaletteFilter::Commands => {
             // EDITOR block first, then per-mode blocks (owner rule) — the engine
@@ -620,6 +625,10 @@ fn close_when_focus_leaves(
     mut root: Single<&mut Visibility, With<PaletteRoot>>,
 ) {
     if state.open && focus.get() != Some(*input) {
+        info!(
+            "palette closed: focus left the input (now {:?})",
+            focus.get()
+        );
         close_palette(&mut state, &mut capture, &mut focus, &mut root);
     }
 }
@@ -702,6 +711,10 @@ fn palette_keys(
             event.propagate(false);
         }
         KeyCode::Enter => {
+            debug!(
+                "palette Enter: filter={:?} query={:?} selected={} rows={}",
+                state.filter, state.query, state.selected, result_count
+            );
             if let Some(row) = flat_get(&sections, state.selected) {
                 match &items.0[row.item].payload {
                     PalettePayload::Action(action) => {
@@ -1108,7 +1121,7 @@ fn rebuild_results(
             if let Some(registration) = registry.get(*type_id) {
                 let info = registration.type_info();
                 let type_path = info.type_path();
-                let short = type_path.rsplit("::").next().unwrap_or(type_path);
+                let short = info.type_path_table().short_path();
                 // The pane announces its role — "two sections" read as a
                 // mystery without it (owner).
                 pane.spawn((

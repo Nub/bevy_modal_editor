@@ -13,6 +13,8 @@ use crate::style::{self, UiFonts};
 #[derive(Component, Default, Clone)]
 pub(crate) struct StatusBar;
 #[derive(Component, Default, Clone)]
+pub(crate) struct StatusModeChip;
+#[derive(Component, Default, Clone)]
 pub(crate) struct StatusModeText;
 #[derive(Component, Default, Clone)]
 pub(crate) struct StatusHint;
@@ -57,6 +59,7 @@ pub(crate) fn spawn_statusbar(
         ))
         .with_children(|bar| {
             bar.spawn((
+                StatusModeChip,
                 Node {
                     padding: UiRect::axes(px(style::space::S), px(2.0)),
                     align_items: AlignItems::Center,
@@ -64,15 +67,16 @@ pub(crate) fn spawn_statusbar(
                     border_radius: BorderRadius::all(px(style::radius::S)),
                     ..default()
                 },
-                BackgroundColor(style::color::accent()),
-                style::accent_gradient(),
+                // At rest the chip is quiet; update_statusbar swaps in the accent
+                // fill for any departure (gesture, insert, editing, panel focus).
+                BackgroundColor(style::color::CHIP_REST),
             ))
             .with_children(|chip| {
                 chip.spawn((
                     StatusModeText,
                     Text::new("NORMAL"),
                     style::sans_medium(&fonts, ui.font_size_xs),
-                    TextColor(style::color::TEXT_ON_ACCENT),
+                    TextColor(style::color::TEXT_KEYS),
                 ));
             });
             bar.spawn((
@@ -168,8 +172,9 @@ pub(crate) fn update_statusbar(
     data: StatusData,
     selected: Query<(), With<Selected>>,
     mut bar: Query<&mut Visibility, With<StatusBar>>,
+    mut mode_chip: Query<&mut BackgroundColor, With<StatusModeChip>>,
     mut mode_text: Query<
-        &mut Text,
+        (&mut Text, &mut TextColor),
         (
             With<StatusModeText>,
             Without<StatusHint>,
@@ -221,7 +226,32 @@ pub(crate) fn update_statusbar(
         .and_then(|id| data.kinds.get(id))
         .map(|k| k.display_name);
     let mode_def = data.modes.get(&data.mode.0);
-    for mut text in &mut mode_text {
+    // The resting state is the quietest thing on screen; the accent fill is the
+    // signal that the editor has left NORMAL (design bar).
+    let at_rest = !gesture_active
+        && open_prefab.is_none()
+        && focused_panel.is_none()
+        && inserting.is_none()
+        && data.mode.0 == MODE_NORMAL;
+    for mut chip_bg in &mut mode_chip {
+        let want = if at_rest {
+            style::color::CHIP_REST
+        } else {
+            style::color::accent()
+        };
+        if chip_bg.0 != want {
+            chip_bg.0 = want;
+        }
+    }
+    for (mut text, mut text_color) in &mut mode_text {
+        let want = if at_rest {
+            style::color::TEXT_KEYS
+        } else {
+            style::color::TEXT_ON_ACCENT
+        };
+        if text_color.0 != want {
+            text_color.0 = want;
+        }
         let name = if gesture_active {
             match &*data.gesture {
                 MoveGesture::Active { axis, typed, .. } => {
@@ -287,7 +317,7 @@ pub(crate) fn update_statusbar(
             if text.0 != data.flash.text {
                 text.0 = data.flash.text.clone();
                 color.0 = if data.flash.success {
-                    Color::srgb(0.55, 0.78, 0.55)
+                    style::color::TEXT_OK
                 } else {
                     style::color::TEXT_WARN
                 };
