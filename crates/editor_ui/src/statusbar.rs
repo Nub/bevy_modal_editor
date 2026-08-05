@@ -316,8 +316,10 @@ pub(crate) fn update_statusbar(
         } else if data.time.elapsed_secs() < data.flash.until {
             if text.0 != data.flash.text {
                 text.0 = data.flash.text.clone();
+                // Success speaks in the content tier — the message IS the
+                // signal; a hue per outcome read as terminal noise (owner).
                 color.0 = if data.flash.success {
-                    style::color::TEXT_OK
+                    style::color::TEXT_KEYS
                 } else {
                     style::color::TEXT_WARN
                 };

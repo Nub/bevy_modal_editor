@@ -58,7 +58,7 @@ pub(crate) fn spawn_open_pill(
                         ..default()
                     },
                     BackgroundColor(Color::srgba(0.08, 0.09, 0.11, 0.92)),
-                    BorderColor::all(style::color::accent().with_alpha(0.55)),
+                    BorderColor::all(style::HAIRLINE),
                     bevy::picking::Pickable::IGNORE,
                 ))
                 .with_children(|pill| {

@@ -204,13 +204,16 @@ pub(crate) fn rebuild_which_key(
                                 border_radius: BorderRadius::all(px(style::radius::S)),
                                 ..default()
                             },
-                            BackgroundColor(style::color::selection()),
+                            // Quiet chip, accent GLYPH: fills mean active (the
+                            // held prefix); a grid of filled chips was a wall
+                            // of accent for mere hints.
+                            BackgroundColor(style::color::CHIP_REST),
                         ))
                         .with_children(|badge| {
                             badge.spawn((
                                 Text::new(key),
                                 key_font.clone(),
-                                TextColor(style::color::TEXT_KEYS),
+                                TextColor(style::color::accent()),
                             ));
                         });
                         cell.spawn((

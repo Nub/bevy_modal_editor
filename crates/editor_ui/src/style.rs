@@ -31,27 +31,32 @@ pub mod glyph {
     pub const COMPONENT: &str = "\u{f12e}";
 }
 
-/// THE chrome palette — one disciplined set, never ad-hoc RGB. Neutral dark
-/// ramp (no color cast), one calibrated accent, three text tiers.
+/// THE chrome palette — one disciplined set, never ad-hoc RGB.
+///
+/// System (owner: cohesion over contrast): a WARM graphite ramp (theme tokens
+/// in lib.rs) shared with the scene's temperature; three warm-gray text tiers
+/// where brightness = emphasis, never decoration; ONE cool steel accent —
+/// warm ground, cool signal is the whole color story. Feedback is text-first:
+/// success speaks in the content tier (the message is the signal), only
+/// failure gets the warm amber.
 pub mod color {
     use super::*;
-    /// Secondary text/labels — readable, never competing with content.
-    pub const TEXT_DIM: Color = Color::srgb(0.58, 0.59, 0.63);
-    /// Primary chrome text (names, values, keys).
-    pub const TEXT_KEYS: Color = Color::srgb(0.82, 0.83, 0.86);
-    /// Emphasized text (selected rows, titles) — bright neutral, NOT accent:
-    /// accent-colored text is reserved for identity marks (◆, prefab names).
-    pub const TEXT_BRIGHT: Color = Color::srgb(0.91, 0.92, 0.94);
-    pub const TEXT_ON_ACCENT: Color = Color::srgb(0.04, 0.06, 0.10);
-    pub const TEXT_WARN: Color = Color::srgb(0.85, 0.62, 0.42);
-    pub const TEXT_OK: Color = Color::srgb(0.55, 0.78, 0.55);
+    /// Wayfinding tier: captions, labels, hints — the quietest text on screen.
+    pub const TEXT_DIM: Color = Color::srgb(0.50, 0.49, 0.47);
+    /// Content tier: list rows, values, keys — comfortable, not shouting.
+    pub const TEXT_KEYS: Color = Color::srgb(0.70, 0.69, 0.67);
+    /// Emphasis tier: THE selected/focused thing only — bright neutral, NOT
+    /// accent: accent-colored text is reserved for identity marks (◆, names).
+    pub const TEXT_BRIGHT: Color = Color::srgb(0.86, 0.85, 0.83);
+    pub const TEXT_ON_ACCENT: Color = Color::srgb(0.05, 0.06, 0.08);
+    pub const TEXT_WARN: Color = Color::srgb(0.82, 0.60, 0.40);
     /// Quiet chip fill for at-rest states (the NORMAL mode chip): the resting
     /// state must be the quietest thing on screen — accent fills mean departure.
-    pub const CHIP_REST: Color = Color::srgba(1.0, 1.0, 1.0, 0.07);
-    /// Calibrated soft blue — luminous on the dark ramp without the stock
-    /// bootstrap harshness.
+    pub const CHIP_REST: Color = Color::srgba(1.0, 1.0, 1.0, 0.06);
+    /// The one accent: steel blue, desaturated to sit IN the palette rather
+    /// than on top of it. Duties: selection, cursor, ◆ identity, active fills.
     pub fn accent() -> Color {
-        Color::srgb(0.42, 0.62, 0.95)
+        Color::srgb(0.47, 0.62, 0.86)
     }
     pub fn selection() -> Color {
         accent().with_alpha(0.22)

@@ -127,12 +127,14 @@ impl Plugin for EditorUiPlugin {
                 // Scrollbars are indicators, not focus (owner): drop the accent
                 // thumb for a low-contrast neutral.
                 let mut theme = UiTheme(create_dark_theme());
-                // Elevation ramp (design pass): window < body < header — the
-                // stock feathers darks are nearly flat, so panels read as one
-                // undifferentiated slab. Cool-tinted, three clear steps.
-                theme.set_color("feathers.window.bg", Color::srgb(0.047, 0.047, 0.055));
-                theme.set_color("feathers.pane.body.bg", Color::srgb(0.075, 0.075, 0.086));
-                theme.set_color("feathers.pane.header.bg", Color::srgb(0.098, 0.098, 0.113));
+                // Elevation ramp (design pass): window < body < header, three
+                // clear steps on a WARM graphite base. Near-black panels punched
+                // holes against the (warm, light) viewport — the ramp sits
+                // several value steps up so chrome and scene share one range,
+                // and the slight warm tilt (R ≥ G ≥ B) ties chrome to content.
+                theme.set_color("feathers.window.bg", Color::srgb(0.098, 0.096, 0.092));
+                theme.set_color("feathers.pane.body.bg", Color::srgb(0.125, 0.122, 0.117));
+                theme.set_color("feathers.pane.header.bg", Color::srgb(0.150, 0.147, 0.141));
                 theme.set_color("feathers.scrollbar.bg", Color::NONE);
                 theme.set_color(
                     "feathers.scrollbar.thumb",
@@ -142,6 +144,16 @@ impl Plugin for EditorUiPlugin {
                     "feathers.scrollbar.thumb.hover",
                     Color::srgba(1.0, 1.0, 1.0, 0.32),
                 );
+                // Feathers text tokens joined to OUR tiers — widget text
+                // (inputs, checkboxes) lands in the content tier, not white.
+                theme.set_color("feathers.text.main", Color::srgb(0.76, 0.75, 0.73));
+                theme.set_color("feathers.text.dim", Color::srgb(0.50, 0.49, 0.47));
+                // Axis sigils at chrome volume: dusty triad in the palette's
+                // range — the stock saturated R/G/B were the loudest pixels on
+                // screen for the least important labels.
+                theme.set_color("feathers.textinput.axis.x", Color::srgb(0.71, 0.44, 0.44));
+                theme.set_color("feathers.textinput.axis.y", Color::srgb(0.55, 0.64, 0.42));
+                theme.set_color("feathers.textinput.axis.z", Color::srgb(0.45, 0.57, 0.75));
                 theme
             });
 
