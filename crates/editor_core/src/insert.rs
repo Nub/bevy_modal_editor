@@ -67,6 +67,7 @@ pub(crate) fn cursor_ground(
     )>,
     window: Query<&Window, With<PrimaryWindow>>,
     pointers: Query<&bevy::picking::pointer::PointerInteraction>,
+    locations: Query<&bevy::picking::pointer::PointerLocation>,
     mut cursor: ResMut<CursorGround>,
 ) {
     if !state.active || over_chrome.0 {
@@ -92,7 +93,16 @@ pub(crate) fn cursor_ground(
     ) else {
         return;
     };
-    let Some(position) = window.cursor_position() else {
+    // The pointer LOCATION (message-driven, what picking uses) outlives the
+    // window's cursor field, which winit clears whenever the OS mouse isn't
+    // over the window — synthetic input (probes, remote control) only exists
+    // on the pointer path.
+    let position = window.cursor_position().or_else(|| {
+        locations
+            .iter()
+            .find_map(|l| l.location.as_ref().map(|loc| loc.position))
+    });
+    let Some(position) = position else {
         cursor.0 = None;
         return;
     };

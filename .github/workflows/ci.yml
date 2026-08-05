@@ -59,6 +59,10 @@ jobs:
         run: cargo build -p template_game --features editor
       - name: prefab insert flow
         run: xvfb-run -a env PREFAB_PROBE=1 cargo run -p template_game --features editor
+      - name: user session flow
+        run: xvfb-run -a env USER_PROBE=1 cargo run -p template_game --features editor
+      - name: kit and painting flow
+        run: xvfb-run -a env KIT_PROBE=1 cargo run -p template_game --features editor
 
   # M3-C9: every merge to v2 publishes a runnable editor-stripped artifact.
   publish:

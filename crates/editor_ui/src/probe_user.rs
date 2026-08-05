@@ -31,7 +31,13 @@ pub(crate) struct UserProbe {
     generation_before_close: u64,
 }
 
-fn key(world: &mut World, code: KeyCode, logical: Key, text: Option<&str>, pressed: bool) {
+pub(crate) fn key(
+    world: &mut World,
+    code: KeyCode,
+    logical: Key,
+    text: Option<&str>,
+    pressed: bool,
+) {
     let Some(window) = window_of(world) else {
         return;
     };
@@ -50,24 +56,24 @@ fn key(world: &mut World, code: KeyCode, logical: Key, text: Option<&str>, press
 }
 
 /// One full press+release of a character key (text drives focused inputs).
-fn tap(world: &mut World, code: KeyCode, ch: &str) {
+pub(crate) fn tap(world: &mut World, code: KeyCode, ch: &str) {
     key(world, code, Key::Character(ch.into()), Some(ch), true);
     key(world, code, Key::Character(ch.into()), Some(ch), false);
 }
 
-fn tap_named(world: &mut World, code: KeyCode, logical: Key) {
+pub(crate) fn tap_named(world: &mut World, code: KeyCode, logical: Key) {
     key(world, code, logical.clone(), None, true);
     key(world, code, logical, None, false);
 }
 
-fn window_of(world: &mut World) -> Option<Entity> {
+pub(crate) fn window_of(world: &mut World) -> Option<Entity> {
     world
         .query_filtered::<Entity, With<PrimaryWindow>>()
         .iter(world)
         .next()
 }
 
-fn move_cursor(world: &mut World, position: Vec2) {
+pub(crate) fn move_cursor(world: &mut World, position: Vec2) {
     let Some(window) = window_of(world) else {
         return;
     };
@@ -79,9 +85,28 @@ fn move_cursor(world: &mut World, position: Vec2) {
         position,
         delta: None,
     });
+    // Deterministic pointer state: winit only feeds PointerLocation from REAL
+    // mouse events, so probe runs flapped with wherever the OS cursor sat.
+    // Write the location directly — the same state real input produces.
+    if let Some(target) =
+        bevy::camera::RenderTarget::Window(bevy::window::WindowRef::Primary).normalize(Some(window))
+    {
+        let mut pointers = world.query::<(
+            &bevy::picking::pointer::PointerId,
+            &mut bevy::picking::pointer::PointerLocation,
+        )>();
+        for (id, mut location) in pointers.iter_mut(world) {
+            if *id == bevy::picking::pointer::PointerId::Mouse {
+                location.location = Some(bevy::picking::pointer::Location {
+                    target: target.clone(),
+                    position,
+                });
+            }
+        }
+    }
 }
 
-fn click(world: &mut World, pressed: bool) {
+pub(crate) fn click(world: &mut World, pressed: bool) {
     let Some(window) = window_of(world) else {
         return;
     };
@@ -96,7 +121,7 @@ fn click(world: &mut World, pressed: bool) {
     });
 }
 
-fn viewport_center(world: &mut World) -> Vec2 {
+pub(crate) fn viewport_center(world: &mut World) -> Vec2 {
     let size = window_of(world)
         .and_then(|w| world.get::<Window>(w))
         .map(|w| Vec2::new(w.width(), w.height()))
@@ -106,14 +131,14 @@ fn viewport_center(world: &mut World) -> Vec2 {
     Vec2::new(size.x * 0.42, size.y * 0.78)
 }
 
-fn shot(world: &mut World, name: &str) {
+pub(crate) fn shot(world: &mut World, name: &str) {
     let path = format!("{SHOT_DIR}/{name}.png");
     world
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(path));
 }
 
-fn check(world: &mut World, ok: bool, what: &str) {
+pub(crate) fn check(world: &mut World, ok: bool, what: &str) {
     if ok {
         info!("USER-PROBE PASS: {what}");
     } else {

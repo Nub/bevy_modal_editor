@@ -2,285 +2,7 @@
     format_version: 1,
     entities: [
         (
-            id: "0fc0ada9-7b07-4d64-8ef6-efa58dba8b06",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Wall",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (0.0, 0.0, 4.0),
-                        rotation: (0.0, 0.0, 0.0, 1.0),
-                        scale: (1.0, 1.0, 1.0),
-                    ),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabInstance",
-                    value: ("138f063b-3ee1-4f96-ab2e-95f747737a77"),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabOverrides",
-                    value: ([]),
-                ),
-            ],
-        ),
-        (
-            id: "2efb9271-f003-4afd-8bdf-27794a19b864",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Box",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (7.0, 0.75, 2.0),
-                        rotation: (0.0, 0.0, 0.0, 1.0),
-                        scale: (1.0, 1.0, 1.0),
-                    ),
-                ),
-                (
-                    type_path: "template_game::game::Primitive",
-                    value: (
-                        kind: Cube,
-                        size: 1.5,
-                    ),
-                ),
-                (
-                    type_path: "template_game::game::Spinner",
-                    value: (
-                        enabled: false,
-                        degrees_per_sec: 45.0,
-                    ),
-                ),
-            ],
-        ),
-        (
-            id: "3203a9a3-b27c-40b9-88c0-0b9787aa3866",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Corner",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (0.9999969, 0.0, 1.9999995),
-                        rotation: (0.0, 0.00000037153703, 0.0, 1.0),
-                        scale: (0.9999984, 1.0, 0.9999984),
-                    ),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabInstance",
-                    value: ("fb04ce45-d179-4952-aba1-1b7d24a50540"),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabOverrides",
-                    value: ([]),
-                ),
-            ],
-        ),
-        (
-            id: "39be9472-05c9-4e95-a3e6-c11c76d77bec",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Box",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (-5.0, 1.5, -3.0),
-                        rotation: (0.0, 0.0, 0.0, 1.0),
-                        scale: (1.0, 1.0, 1.0),
-                    ),
-                ),
-                (
-                    type_path: "template_game::game::Primitive",
-                    value: (
-                        kind: Cube,
-                        size: 3.0,
-                    ),
-                ),
-                (
-                    type_path: "template_game::game::Spinner",
-                    value: (
-                        enabled: false,
-                        degrees_per_sec: 45.0,
-                    ),
-                ),
-            ],
-        ),
-        (
-            id: "5230bb8f-f38e-443c-92f0-94676e2c7cd9",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Corner",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (0.9999986, 0.0, 3.999996),
-                        rotation: (0.0, -0.7071064, 0.0, 0.70710707),
-                        scale: (0.99999785, 1.0, 0.99999785),
-                    ),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabInstance",
-                    value: ("fb04ce45-d179-4952-aba1-1b7d24a50540"),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabOverrides",
-                    value: ([]),
-                ),
-            ],
-        ),
-        (
-            id: "696ae81e-c588-47fd-87b3-3e8eefb960a7",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Gate",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (-0.0000019073486, 0.0, 2.0000002),
-                        rotation: (0.0, 1.0, 0.0, -0.000000371537),
-                        scale: (0.9999988, 1.0, 0.9999988),
-                    ),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabInstance",
-                    value: ("8f914695-ba33-4f47-a226-1082abb910bd"),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabOverrides",
-                    value: ([]),
-                ),
-            ],
-        ),
-        (
-            id: "8b33446c-526f-43e9-b9ae-e65f9c96aec7",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Wall",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (-1.0000004, 0.0, 3.0000005),
-                        rotation: (0.0, -0.7071066, 0.0, 0.70710695),
-                        scale: (0.99999946, 1.0, 0.99999946),
-                    ),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabInstance",
-                    value: ("138f063b-3ee1-4f96-ab2e-95f747737a77"),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabOverrides",
-                    value: ([]),
-                ),
-            ],
-        ),
-        (
-            id: "8d6a40ff-c6d1-4973-ad5c-ee21253633c1",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Wall",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (0.9999978, 0.0, 2.9999979),
-                        rotation: (0.0, 0.70710707, 0.0, 0.7071064),
-                        scale: (0.9999983, 1.0, 0.9999983),
-                    ),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabInstance",
-                    value: ("138f063b-3ee1-4f96-ab2e-95f747737a77"),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabOverrides",
-                    value: ([]),
-                ),
-            ],
-        ),
-        (
-            id: "b25e6f9e-6915-4e67-a33d-25984f8df1eb",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Box",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (0.0, 1.25, -10.0),
-                        rotation: (0.0, 0.0, 0.0, 1.0),
-                        scale: (1.0, 1.0, 1.0),
-                    ),
-                ),
-                (
-                    type_path: "template_game::game::Primitive",
-                    value: (
-                        kind: Cube,
-                        size: 2.5,
-                    ),
-                ),
-                (
-                    type_path: "template_game::game::Spinner",
-                    value: (
-                        enabled: false,
-                        degrees_per_sec: 45.0,
-                    ),
-                ),
-            ],
-        ),
-        (
-            id: "b2d113e1-8bcc-420a-8818-fe30a35b755d",
-            parent: None,
-            components: [
-                (
-                    type_path: "bevy_ecs::name::Name",
-                    value: "Corner",
-                ),
-                (
-                    type_path: "bevy_transform::components::transform::Transform",
-                    value: (
-                        translation: (-1.0, 0.0, 4.0),
-                        rotation: (0.0, 1.0, 0.0, -0.00000013311836),
-                        scale: (0.9999996, 1.0, 0.9999996),
-                    ),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabInstance",
-                    value: ("fb04ce45-d179-4952-aba1-1b7d24a50540"),
-                ),
-                (
-                    type_path: "editor_prefabs::PrefabOverrides",
-                    value: ([]),
-                ),
-            ],
-        ),
-        (
-            id: "b67ff8aa-e335-4265-9c31-1c209cb0b74f",
+            id: "0be6502c-ca80-47a2-8628-d90d41a00871",
             parent: None,
             components: [
                 (
@@ -312,7 +34,285 @@
             ],
         ),
         (
-            id: "e4afe37b-899a-4136-a011-70203d877436",
+            id: "2559fcbf-5497-43e4-9ce0-72f38e34b421",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Box",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (0.0, 1.25, -10.0),
+                        rotation: (0.0, 0.0, 0.0, 1.0),
+                        scale: (1.0, 1.0, 1.0),
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Primitive",
+                    value: (
+                        kind: Cube,
+                        size: 2.5,
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Spinner",
+                    value: (
+                        enabled: false,
+                        degrees_per_sec: 45.0,
+                    ),
+                ),
+            ],
+        ),
+        (
+            id: "2602275c-d87e-491c-a204-9ef456dcc192",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Corner",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (0.9999969, 0.0, 1.9999995),
+                        rotation: (0.0, 0.00000037153703, 0.0, 1.0),
+                        scale: (0.9999984, 1.0, 0.9999984),
+                    ),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabInstance",
+                    value: ("a298ae95-366a-4d35-89ff-63754a7ee9f4"),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabOverrides",
+                    value: ([]),
+                ),
+            ],
+        ),
+        (
+            id: "4c326802-0ef2-44ee-9292-3cb0df01241d",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Box",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (-5.0, 1.5, -3.0),
+                        rotation: (0.0, 0.0, 0.0, 1.0),
+                        scale: (1.0, 1.0, 1.0),
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Primitive",
+                    value: (
+                        kind: Cube,
+                        size: 3.0,
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Spinner",
+                    value: (
+                        enabled: false,
+                        degrees_per_sec: 45.0,
+                    ),
+                ),
+            ],
+        ),
+        (
+            id: "53802bb0-fea9-4f2d-9744-3ce850640c54",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Wall",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (-1.0000004, 0.0, 3.0000005),
+                        rotation: (0.0, -0.7071066, 0.0, 0.70710695),
+                        scale: (0.99999946, 1.0, 0.99999946),
+                    ),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabInstance",
+                    value: ("3af25ffa-8056-4f8d-bca4-e1e86fefaa7e"),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabOverrides",
+                    value: ([]),
+                ),
+            ],
+        ),
+        (
+            id: "65ed63ba-e556-4814-88d6-81a6608837a5",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Corner",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (-1.0, 0.0, 4.0),
+                        rotation: (0.0, 1.0, 0.0, -0.00000013311836),
+                        scale: (0.9999996, 1.0, 0.9999996),
+                    ),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabInstance",
+                    value: ("a298ae95-366a-4d35-89ff-63754a7ee9f4"),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabOverrides",
+                    value: ([]),
+                ),
+            ],
+        ),
+        (
+            id: "6dbc6993-d8ec-452e-a2e5-4b4de4833041",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Box",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (7.0, 0.75, 2.0),
+                        rotation: (0.0, 0.0, 0.0, 1.0),
+                        scale: (1.0, 1.0, 1.0),
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Primitive",
+                    value: (
+                        kind: Cube,
+                        size: 1.5,
+                    ),
+                ),
+                (
+                    type_path: "template_game::game::Spinner",
+                    value: (
+                        enabled: false,
+                        degrees_per_sec: 45.0,
+                    ),
+                ),
+            ],
+        ),
+        (
+            id: "86cdfd1a-f856-45c3-a57e-9940c89f28b9",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Wall",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (0.0, 0.0, 4.0),
+                        rotation: (0.0, 0.0, 0.0, 1.0),
+                        scale: (1.0, 1.0, 1.0),
+                    ),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabInstance",
+                    value: ("3af25ffa-8056-4f8d-bca4-e1e86fefaa7e"),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabOverrides",
+                    value: ([]),
+                ),
+            ],
+        ),
+        (
+            id: "9c7c23b9-e77c-469a-8a82-b7367805c515",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Corner",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (0.9999986, 0.0, 3.999996),
+                        rotation: (0.0, -0.7071064, 0.0, 0.70710707),
+                        scale: (0.99999785, 1.0, 0.99999785),
+                    ),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabInstance",
+                    value: ("a298ae95-366a-4d35-89ff-63754a7ee9f4"),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabOverrides",
+                    value: ([]),
+                ),
+            ],
+        ),
+        (
+            id: "de7e8210-67de-4b37-b3e8-87a3fdb210a4",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Gate",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (-0.0000019073486, 0.0, 2.0000002),
+                        rotation: (0.0, 1.0, 0.0, -0.000000371537),
+                        scale: (0.9999988, 1.0, 0.9999988),
+                    ),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabInstance",
+                    value: ("e5ae35b9-6881-453a-bbd6-a44f734e7609"),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabOverrides",
+                    value: ([]),
+                ),
+            ],
+        ),
+        (
+            id: "e84ab1fb-1d8b-4db0-bccf-7455d6b3cce6",
+            parent: None,
+            components: [
+                (
+                    type_path: "bevy_ecs::name::Name",
+                    value: "Wall",
+                ),
+                (
+                    type_path: "bevy_transform::components::transform::Transform",
+                    value: (
+                        translation: (0.9999978, 0.0, 2.9999979),
+                        rotation: (0.0, 0.70710707, 0.0, 0.7071064),
+                        scale: (0.9999983, 1.0, 0.9999983),
+                    ),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabInstance",
+                    value: ("3af25ffa-8056-4f8d-bca4-e1e86fefaa7e"),
+                ),
+                (
+                    type_path: "editor_prefabs::PrefabOverrides",
+                    value: ([]),
+                ),
+            ],
+        ),
+        (
+            id: "f204e6c6-099a-466e-98ef-a989e8eb216d",
             parent: None,
             components: [
                 (
@@ -329,7 +329,7 @@
                 ),
                 (
                     type_path: "editor_prefabs::PrefabInstance",
-                    value: ("fb04ce45-d179-4952-aba1-1b7d24a50540"),
+                    value: ("a298ae95-366a-4d35-89ff-63754a7ee9f4"),
                 ),
                 (
                     type_path: "editor_prefabs::PrefabOverrides",
