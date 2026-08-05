@@ -83,11 +83,14 @@ pub(crate) fn collect_prefab_actions(
             "prefab.apply-to-prefab" => requests.apply = true,
             "prefab.open" => requests.open_toggle = true,
             "prefab.flatten" => requests.flatten = true,
+            // One layer per press: a live SELECTION absorbs this Escape (the
+            // selection handler clears it); only an empty-handed Escape closes.
             "core.escape-home"
                 if open.0.is_some()
                     && !escape_from_capture.0
                     && panel_focus.0.is_none()
-                    && mode.0 == editor_core::MODE_NORMAL =>
+                    && mode.0 == editor_core::MODE_NORMAL
+                    && selection.is_empty() =>
             {
                 requests.escape_close = true;
             }

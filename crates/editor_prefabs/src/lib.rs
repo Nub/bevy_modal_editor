@@ -426,7 +426,7 @@ impl EditorFeature for PrefabsFeature {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use editor_scene::{capture_scene, snapshot_from_parts};
 
@@ -446,7 +446,7 @@ mod tests {
         }
     }
 
-    fn test_app() -> App {
+    pub(crate) fn test_app() -> App {
         let mut app = App::new();
         app.add_plugins(editor_core::EditorCorePlugin);
         app.add_plugins(EditorPrefabsPlugin);
@@ -458,7 +458,7 @@ mod tests {
         app
     }
 
-    fn barrel_prefab() -> PrefabDef {
+    pub(crate) fn barrel_prefab() -> PrefabDef {
         let child = SceneId::random();
         PrefabDef {
             id: Uuid::new_v4(),
@@ -1038,7 +1038,7 @@ mod tests {
         }
     }
 
-    fn invoke(app: &mut App, action: &str) {
+    pub(crate) fn invoke(app: &mut App, action: &str) {
         app.world_mut().write_message(ActionInvoked {
             action: ActionId::new(action.to_string()),
             args: None,
@@ -1258,5 +1258,74 @@ mod tests {
         assert_eq!(records, 3, "two roots + bystander, never expanded trees");
         cleanup_prefab_file("openclosetest");
         cleanup_prefab_file("barrel"); // close() re-saves under the def name
+    }
+}
+// Escape layering (owner grammar): a live selection absorbs one Escape; only
+// an empty-handed Escape closes the open instance.
+#[cfg(test)]
+mod escape_layering {
+    use super::tests::*;
+    use super::*;
+    use editor_core::prelude::*;
+
+    #[test]
+    fn escape_clears_selection_while_instance_open() {
+        let mut app = test_app();
+        let prefab = barrel_prefab();
+        let prefab_id = prefab.id;
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
+        let root_id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(PrefabOverrides::default()).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+        {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            world.entity_mut(entity).insert(Selected);
+        }
+        invoke(&mut app, "prefab.open");
+        assert!(
+            app.world()
+                .resource::<open_mode::OpenInstance>()
+                .0
+                .is_some()
+        );
+
+        invoke(&mut app, "core.escape-home");
+        let world = app.world_mut();
+        let selected = world
+            .query_filtered::<(), With<Selected>>()
+            .iter(world)
+            .count();
+        assert_eq!(selected, 0, "escape clears the selection (one layer)");
+        assert!(
+            world.resource::<open_mode::OpenInstance>().0.is_some(),
+            "instance still open after the selection-clearing escape"
+        );
+        // The SECOND empty-handed escape closes.
+        invoke(&mut app, "core.escape-home");
+        let world = app.world_mut();
+        assert!(
+            world.resource::<open_mode::OpenInstance>().0.is_none(),
+            "second escape closes the open instance"
+        );
+        cleanup_prefab_file("barrel");
     }
 }

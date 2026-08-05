@@ -334,7 +334,35 @@ pub(crate) fn probe_user(world: &mut World) {
             check(world, open, "Enter on the instance opens it in place");
             shot(world, "07-open-instance");
         }
+        // Esc first: i means ADD COMPONENT while holding a selection (owner),
+        // so placing inside starts with empty hands.
+        792 => {
+            let count = world
+                .query_filtered::<(), With<Selected>>()
+                .iter(world)
+                .count();
+            let esc_cap = world
+                .resource::<editor_core::resolver::EscapeFromCapture>()
+                .0;
+            let capture = world.resource::<editor_core::resolver::KeyCapture>().0;
+            info!("USER-PROBE diag pre-esc: selection={count} esc_cap={esc_cap} capture={capture}");
+        }
+        794 => tap_named(world, KeyCode::Escape, Key::Escape),
+        798 => {
+            let count = world
+                .query_filtered::<(), With<Selected>>()
+                .iter(world)
+                .count();
+            info!("USER-PROBE diag pre-i: selection={count}");
+        }
         800 => tap(world, KeyCode::KeyI, "i"),
+        830 => {
+            let state = world.resource::<crate::palette::PaletteState>();
+            info!(
+                "USER-PROBE diag post-i: filter={:?} open={}",
+                state.filter, state.open
+            );
+        }
         840 => tap(world, KeyCode::KeyS, "s"),
         844 => tap(world, KeyCode::KeyP, "p"),
         848 => tap(world, KeyCode::KeyH, "h"),
@@ -379,7 +407,10 @@ pub(crate) fn probe_user(world: &mut World) {
                 "USER-PROBE diag esc-gates: mode={mode:?} panel_focus={panel:?} capture={capture} escape_from_capture={esc_cap}"
             );
         }
+        // Two escapes: first clears the placed sphere's selection, second
+        // closes the open instance (one layer per press).
         990 => tap_named(world, KeyCode::Escape, Key::Escape),
+        1010 => tap_named(world, KeyCode::Escape, Key::Escape),
         1050 => {
             let closed = world.resource::<OpenInstance>().0.is_none();
             check(world, closed, "Esc closes the open instance");
@@ -393,6 +424,7 @@ pub(crate) fn probe_user(world: &mut World) {
             shot(world, "08-closed");
         }
         // ── Second instance: propagation visible ───────────────────────────
+        1064 => tap_named(world, KeyCode::Escape, Key::Escape),
         1070 => tap(world, KeyCode::KeyI, "i"),
         1110 => tap(world, KeyCode::KeyK, "k"),
         1114 => tap(world, KeyCode::KeyI, "i"),
@@ -501,8 +533,67 @@ pub(crate) fn probe_user(world: &mut World) {
             check(world, active, "F7 resets back to the editor");
             shot(world, "14-reset");
         }
+        // ── i with selection = ADD COMPONENT; / = component search ─────────
+        1890 => key(world, KeyCode::ControlLeft, Key::Control, None, true),
+        1893 => tap(world, KeyCode::KeyA, "a"),
+        1897 => key(world, KeyCode::ControlLeft, Key::Control, None, false),
+        1900 => tap(world, KeyCode::KeyI, "i"),
+        1930 => {
+            let filter_ok = world.resource::<crate::palette::PaletteState>().filter
+                == crate::palette::PaletteFilter::AddComponent;
+            check(
+                world,
+                filter_ok,
+                "i with a selection opens the ADD COMPONENT palette",
+            );
+            for (code, ch) in [
+                (KeyCode::KeyS, "s"),
+                (KeyCode::KeyP, "p"),
+                (KeyCode::KeyI, "i"),
+                (KeyCode::KeyN, "n"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        1948 => {
+            let state = world.resource::<crate::palette::PaletteState>();
+            let capture = world.resource::<editor_core::resolver::KeyCapture>().0;
+            let focus = world
+                .resource::<bevy::input_focus::InputFocus>()
+                .get()
+                .is_some();
+            info!(
+                "USER-PROBE diag pre-enter: palette_open={} filter={:?} query={:?} capture={capture} focus={focus}",
+                state.open, state.filter, state.query
+            );
+        }
+        1950 => tap_named(world, KeyCode::Enter, Key::Enter),
+        1990 => {
+            let flash = world
+                .resource::<crate::statusbar::StatusFlash>()
+                .text
+                .clone();
+            check(
+                world,
+                flash.contains("Spinner added"),
+                "component added to the selection with feedback",
+            );
+            shot(world, "15-add-component");
+        }
+        2000 => tap(world, KeyCode::Slash, "/"),
+        2030 => {
+            let state = world.resource::<crate::palette::PaletteState>();
+            let filter_ok = state.filter == crate::palette::PaletteFilter::ComponentSearch;
+            check(
+                world,
+                filter_ok,
+                "/ with a selection searches components ON it",
+            );
+            shot(world, "16-component-search");
+        }
+        2040 => tap_named(world, KeyCode::Escape, Key::Escape),
         // ── Verdict ────────────────────────────────────────────────────────
-        1960 => {
+        2100 => {
             let failures = world.resource::<UserProbe>().failures.clone();
             if failures.is_empty() {
                 info!("USER-PROBE PASS: full session ({SHOT_DIR}/*.png for visual review)");
@@ -515,5 +606,13 @@ pub(crate) fn probe_user(world: &mut World) {
             }
         }
         _ => {}
+    }
+}
+
+/// Probe-only: every action that fires, in order — the ground truth for "did
+/// that keypress become the action I think it did".
+pub(crate) fn log_actions(mut reader: MessageReader<ActionInvoked>) {
+    for invoked in reader.read() {
+        info!("USER-PROBE action: {}", invoked.action.as_str());
     }
 }

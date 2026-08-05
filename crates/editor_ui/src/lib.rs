@@ -147,6 +147,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<probe_user::UserProbe>();
         app.init_resource::<grid::GridVisible>();
+        app.init_resource::<inspector::InspectorReveal>();
         app.init_resource::<palette_preview::PreviewSubject>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
@@ -196,11 +197,13 @@ impl Plugin for EditorUiPlugin {
                 dock::sync_open_frame,
                 grid::handle_grid_actions,
                 grid::sync_grid,
+                inspector::reveal_section,
                 palette_preview::sync_preview_content,
                 palette_preview::inherit_preview_layer,
                 palette_preview::turn_preview,
                 probe_prefab::probe_prefab.run_if(|| std::env::var("PREFAB_PROBE").is_ok()),
                 probe_user::probe_user.run_if(|| std::env::var("USER_PROBE").is_ok()),
+                probe_user::log_actions.run_if(|| std::env::var("USER_PROBE").is_ok()),
             )
                 .in_set(editor_core::EditorSet::Sync),
         );

@@ -25,7 +25,7 @@ pub(crate) struct StatusDirty;
 /// sequence is pending.
 #[derive(Resource, Default)]
 pub(crate) struct StatusFlash {
-    text: String,
+    pub(crate) text: String,
     success: bool,
     until: f32,
 }
@@ -158,6 +158,8 @@ pub(crate) struct StatusData<'w> {
     panel_focus: Res<'w, PanelFocus>,
     panel_catalog: Res<'w, PanelCatalog>,
     open_instance: Res<'w, editor_prefabs::open_mode::OpenInstance>,
+    grid_snap: Res<'w, GridSnap>,
+    settings: Res<'w, EditorSettings>,
 }
 
 #[allow(clippy::type_complexity)]
@@ -236,23 +238,20 @@ pub(crate) fn update_statusbar(
             text.0 = name;
         }
     }
+    // STATUS, never key hints (owner 2026-08-04): which-key owns discoverability;
+    // this slot reports live editor state that has no other visual — snap state,
+    // the armed insert kind.
     for mut text in &mut hint_text {
-        let hint = if gesture_active {
-            "moving selection · x/y/z constrain · click ⏎ commit · ⎋ cancel".to_string()
-        } else if open_prefab.is_some() {
-            "editing inside the prefab · i add · d delete · ⎋ close & save all instances"
-                .to_string()
-        } else if focused_panel.is_some() {
-            "panel focused · ⌃h/j/k/l move focus · ⎋ viewport".to_string()
-        } else if let Some(kind_name) = inserting {
-            format!("inserting {kind_name} · click place · ⇧click multi · ⎋ done")
-        } else {
-            mode_def
-                .map(|m| m.statusline_hint.to_string())
-                .unwrap_or_default()
-        };
-        if text.0 != hint {
-            text.0 = hint;
+        let mut parts: Vec<String> = Vec::new();
+        if let Some(kind_name) = inserting {
+            parts.push(format!("inserting {kind_name}"));
+        }
+        if data.grid_snap.enabled {
+            parts.push(format!("snap {}m", data.settings.viewport.grid_step));
+        }
+        let status = parts.join("  ·  ");
+        if text.0 != status {
+            text.0 = status;
         }
     }
     for mut visibility in &mut dirty_dot {

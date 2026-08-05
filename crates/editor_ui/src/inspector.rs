@@ -170,6 +170,13 @@ pub(crate) type CollectOverride =
 #[derive(Resource, Default)]
 pub(crate) struct InspectorOverrides(pub Vec<(TypeId, CollectOverride)>);
 
+/// `/`-search jump target: scroll the inspector to this section (rapid editing).
+#[derive(Resource, Default)]
+pub(crate) struct InspectorReveal(pub Option<String>);
+
+#[derive(Component)]
+pub(crate) struct SectionTitle(pub String);
+
 pub(crate) fn default_overrides() -> InspectorOverrides {
     InspectorOverrides(vec![
         (TypeId::of::<Transform>(), collect_transform),
@@ -1079,6 +1086,7 @@ pub(crate) fn render_inspector(
             RowSpec::Section(title) => {
                 let header = commands
                     .spawn((
+                        SectionTitle(title.clone()),
                         Node {
                             margin: UiRect::top(px(style::space::S)),
                             padding: UiRect::bottom(px(2.0)),
@@ -1803,4 +1811,51 @@ mod tests {
             "undo restores pre-drag value"
         );
     }
+}
+
+/// Scroll the requested section into view once its geometry exists (the reveal
+/// may race a rebuild — retry until laid out, give up quietly after a second).
+pub(crate) fn reveal_section(
+    mut reveal: ResMut<InspectorReveal>,
+    sections: Query<(&SectionTitle, &UiGlobalTransform, &ComputedNode)>,
+    mut body: Query<(
+        &ComputedNode,
+        &UiGlobalTransform,
+        &mut ScrollPosition,
+        &crate::dock::PanelBody,
+    )>,
+    mut tries: Local<u32>,
+) {
+    let Some(target) = reveal.0.clone() else {
+        *tries = 0;
+        return;
+    };
+    *tries += 1;
+    if *tries > 120 {
+        reveal.0 = None;
+        return;
+    }
+    let Some((body_node, body_transform, mut scroll, _)) = body
+        .iter_mut()
+        .find(|(_, _, _, panel)| panel.0.as_str() == INSPECTOR_PANEL)
+    else {
+        return;
+    };
+    if body_node.size() == Vec2::ZERO {
+        return;
+    }
+    let Some((_, section_transform, section_node)) = sections
+        .iter()
+        .find(|(title, _, _)| title.0.eq_ignore_ascii_case(&target))
+    else {
+        return;
+    };
+    if section_node.size() == Vec2::ZERO {
+        return;
+    }
+    let scale = body_node.inverse_scale_factor();
+    let body_top = (body_transform.translation.y - body_node.size().y / 2.0) * scale;
+    let section_top = (section_transform.translation.y - section_node.size().y / 2.0) * scale;
+    scroll.y += section_top - body_top;
+    reveal.0 = None;
 }

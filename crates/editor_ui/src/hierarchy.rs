@@ -422,6 +422,13 @@ pub(crate) fn rebuild_hierarchy(
                                 style::color::TEXT_KEYS
                             }),
                         ));
+                        // Identity at a glance (owner): the short SceneId, quieter
+                        // than the name — same id the inspector header shows.
+                        row_node.spawn((
+                            Text::new(row.id.0.to_string()[..8].to_string()),
+                            style::mono(&fonts, ui.font_size_xs),
+                            TextColor(style::color::TEXT_DIM.with_alpha(0.6)),
+                        ));
                     });
             }
             if last < rows.len() {

@@ -22,7 +22,7 @@ impl Default for GameInputActive {
 /// via the regenerate observer (spec §5 marker/regenerate pattern) — in editor, in
 /// game, on load, on undo, identically.
 #[derive(Component, Reflect, Default, Clone, PartialEq, Debug)]
-#[reflect(Component)]
+#[reflect(Component, Default)]
 pub struct Primitive {
     pub kind: PrimitiveKind,
     pub size: f32,
@@ -141,7 +141,7 @@ fn menu_start(keys: Res<ButtonInput<KeyCode>>, mut next: ResMut<NextState<AppSta
 /// code for it (inspector edits, undo, serialization all fall out of registration).
 /// Enabled boxes spin during play; designers tune it entirely from the inspector.
 #[derive(Component, Reflect, Clone, PartialEq, Debug)]
-#[reflect(Component)]
+#[reflect(Component, Default)]
 pub struct Spinner {
     pub enabled: bool,
     pub degrees_per_sec: f32,

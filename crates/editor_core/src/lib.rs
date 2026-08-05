@@ -97,8 +97,9 @@ impl EditorFeature for CoreFeature {
         )
         .action(
             ActionDef::new("core.find-object", "Find Object")
-                .describe("Search scene entities by name and select")
+                .describe("Search the scene — or the selection's components when holding one")
                 .context("normal")
+                .bind("slash")
                 .bind("space f"),
         )
         .action(

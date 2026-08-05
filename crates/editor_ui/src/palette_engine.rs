@@ -21,6 +21,10 @@ pub(crate) enum PalettePayload {
     Material(uuid::Uuid),
     /// Place an instance of this prefab (M4-D5).
     Prefab(uuid::Uuid),
+    /// Insert this component (default value) onto every selected entity.
+    AddComponent(std::any::TypeId),
+    /// Jump the inspector to this component section (rapid editing).
+    RevealComponent(String),
 }
 
 #[derive(Clone)]

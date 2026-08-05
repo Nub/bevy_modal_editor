@@ -27,8 +27,12 @@ use crate::style::{self, UiFonts};
 
 /// What this palette is browsing (v1's typed open-modes, spec §7): filters are
 /// structural, never query-string hacks.
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PaletteFilter {
+    /// `i` with a selection: add a component to the selected entities.
+    AddComponent,
+    /// `/` with a selection: find a component ON the selection, jump to it.
+    ComponentSearch,
     #[default]
     Commands,
     InsertKinds,
@@ -214,6 +218,9 @@ fn build_palette_items(
     entities: Query<(&SceneId, &Name)>,
     library: Res<editor_scene::materials::MaterialLibrary>,
     prefabs: Res<editor_prefabs::PrefabLibrary>,
+    components: Res<editor_core::edits::EditorComponents>,
+    registry: Res<AppTypeRegistry>,
+    inspector_model: Res<crate::inspector::InspectorModel>,
     mut edited: MessageReader<Edited>,
     mut items: ResMut<PaletteItems>,
 ) {
@@ -231,6 +238,44 @@ fn build_palette_items(
     }
     items.0.clear();
     match state.filter {
+        PaletteFilter::AddComponent => {
+            // Registered (serializable) components with a Default — what you add
+            // is what will SAVE; anything else would be a lie.
+            let registry = registry.read();
+            for reg in &components.types {
+                let Some(registration) = registry.get(reg.type_id) else {
+                    continue;
+                };
+                if registration
+                    .data::<bevy::reflect::std_traits::ReflectDefault>()
+                    .is_none()
+                {
+                    continue;
+                }
+                let short = reg.type_path.rsplit("::").next().unwrap_or(reg.type_path);
+                items.0.push(PaletteEntry {
+                    label: short.to_string(),
+                    category: Some("ADD COMPONENT".into()),
+                    keywords: reg.type_path.to_string(),
+                    suffix: String::new(),
+                    payload: PalettePayload::AddComponent(reg.type_id),
+                });
+            }
+        }
+        PaletteFilter::ComponentSearch => {
+            // Components ON the selection = the inspector's live section list.
+            for row in &inspector_model.rows {
+                if let crate::inspector::RowSpec::Section(title) = row {
+                    items.0.push(PaletteEntry {
+                        label: title.clone(),
+                        category: Some("ON SELECTION".into()),
+                        keywords: String::new(),
+                        suffix: String::new(),
+                        payload: PalettePayload::RevealComponent(title.clone()),
+                    });
+                }
+            }
+        }
         PaletteFilter::Materials => {
             for def in &library.materials {
                 items.0.push(PaletteEntry {
@@ -405,6 +450,8 @@ fn close_palette(
 fn open_on_insert_mode(
     mut modes: MessageReader<ModeChanged>,
     mut just_picked: ResMut<editor_core::prelude::KindJustPicked>,
+    selection: Query<(), With<Selected>>,
+    mut commands: Commands,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
     mut focus: ResMut<InputFocus>,
@@ -418,6 +465,32 @@ fn open_on_insert_mode(
         // must reveal the scene + fresh ghost instead of re-covering them.
         let picked = std::mem::take(&mut just_picked.0);
         if change.to == editor_core::prelude::MODE_INSERT && !state.open && !picked {
+            // `i` while HOLDING a selection means "insert INTO what I hold":
+            // add-component palette, and insert mode never engages (owner).
+            if !selection.is_empty() {
+                // Deferred: this system READS ModeChanged, so the reset must not
+                // also write it inline (B0002).
+                commands.queue(|world: &mut World| {
+                    let changed = {
+                        let mut mode = world.resource_mut::<CurrentMode>();
+                        (mode.0 != editor_core::prelude::MODE_NORMAL).then(|| {
+                            std::mem::replace(&mut mode.0, editor_core::prelude::MODE_NORMAL)
+                        })
+                    };
+                    if let Some(from) = changed {
+                        world.write_message(ModeChanged {
+                            from,
+                            to: editor_core::prelude::MODE_NORMAL,
+                        });
+                    }
+                });
+                open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
+                state.filter = PaletteFilter::AddComponent;
+                if let Ok(mut text) = editable.get_mut(*input) {
+                    text.clear();
+                }
+                continue;
+            }
             open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
             state.filter = PaletteFilter::InsertKinds;
             if let Ok(mut text) = editable.get_mut(*input) {
@@ -434,6 +507,8 @@ fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<Palet
     }
     let label = match state.filter {
         PaletteFilter::InsertKinds => "INSERT OBJECT",
+        PaletteFilter::AddComponent => "ADD COMPONENT",
+        PaletteFilter::ComponentSearch => "COMPONENTS ON SELECTION",
         PaletteFilter::Commands => "COMMANDS",
         PaletteFilter::FindObject => "FIND OBJECT",
         PaletteFilter::Materials => "ASSIGN MATERIAL",
@@ -448,6 +523,7 @@ fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<Palet
 fn handle_open_action(
     mut reader: MessageReader<ActionInvoked>,
     mode: Res<CurrentMode>,
+    selection: Query<(), With<Selected>>,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
     mut focus: ResMut<InputFocus>,
@@ -477,7 +553,13 @@ fn handle_open_action(
         }
         if invoked.action.as_str() == "core.find-object" && !state.open {
             open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
-            state.filter = PaletteFilter::FindObject;
+            // `/` is search: the scene when hands are empty, the SELECTION's
+            // components when holding something (owner: rapid editing).
+            state.filter = if selection.is_empty() {
+                PaletteFilter::FindObject
+            } else {
+                PaletteFilter::ComponentSearch
+            };
             if let Ok(mut text) = editable.get_mut(*input) {
                 text.clear();
             }
@@ -566,6 +648,58 @@ fn palette_keys(
                             action: action.clone(),
                             args: None,
                             source: InvocationSource::Palette,
+                        });
+                    }
+                    PalettePayload::AddComponent(type_id) => {
+                        let type_id = *type_id;
+                        commands.queue(move |world: &mut World| {
+                            let selected: Vec<SceneId> = {
+                                let mut query = world.query_filtered::<&SceneId, With<Selected>>();
+                                query.iter(world).copied().collect()
+                            };
+                            if selected.is_empty() {
+                                return;
+                            }
+                            let registry_arc = world.resource::<AppTypeRegistry>().clone();
+                            let registry = registry_arc.read();
+                            let Some(registration) = registry.get(type_id) else {
+                                return;
+                            };
+                            let Some(reflect_default) =
+                                registration.data::<bevy::reflect::std_traits::ReflectDefault>()
+                            else {
+                                return;
+                            };
+                            let short = registration.type_info().type_path();
+                            let short = short.rsplit("::").next().unwrap_or(short).to_string();
+                            let count = selected.len();
+                            // ONE undoable transaction across the whole selection.
+                            let ops = selected
+                                .into_iter()
+                                .map(|target| Op::Set {
+                                    target,
+                                    value: reflect_default.default().into_partial_reflect(),
+                                })
+                                .collect();
+                            drop(registry);
+                            world.resource_mut::<EditQueue>().0.push(Transaction {
+                                label: format!("Add {short}"),
+                                gesture: None,
+                                ops,
+                            });
+                            world.write_message(editor_scene::SceneIoFeedback {
+                                message: format!("{short} added to {count} selected"),
+                                success: true,
+                            });
+                        });
+                    }
+                    PalettePayload::RevealComponent(section) => {
+                        let section = section.clone();
+                        commands.queue(move |world: &mut World| {
+                            world.resource_mut::<PanelFocus>().0 =
+                                Some(PanelId::new_static("inspector"));
+                            world.resource_mut::<crate::inspector::InspectorReveal>().0 =
+                                Some(section);
                         });
                     }
                     PalettePayload::Prefab(prefab) => {
