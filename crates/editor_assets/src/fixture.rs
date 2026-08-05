@@ -8,8 +8,10 @@
 //! Probes and CI build fixtures from THIS function so the corpus never rots in
 //! a binary blob nobody can regenerate.
 
-/// A complete, valid GLB: one mesh (24 verts, 36 indices), one material, one
-/// node, one scene. `scale` multiplies the whole body uniformly.
+/// A complete, valid GLB: one mesh (24 verts, 36 indices) shared by TWO nodes
+/// (body + a thin "lid" child with its own TRS — real hierarchy for the
+/// flatten-to-entities flow), one material, one scene. `scale` multiplies the
+/// whole body uniformly.
 pub fn barrel_glb(scale: f32) -> Vec<u8> {
     let r = 0.4 * scale; // half-width
     let h = 1.0 * scale; // height (base sits on y=0)
@@ -55,7 +57,9 @@ pub fn barrel_glb(scale: f32) -> Vec<u8> {
         concat!(
             r#"{{"asset":{{"version":"2.0","generator":"editor_assets fixture"}},"#,
             r#""scene":0,"scenes":[{{"nodes":[0]}}],"#,
-            r#""nodes":[{{"mesh":0,"name":"barrel"}}],"#,
+            r#""nodes":[
+{{"mesh":0,"name":"barrel","children":[1]}},
+{{"mesh":0,"name":"lid","translation":[0.0,{max_y},0.0],"scale":[0.8,0.1,0.8]}}],"#,
             r#""meshes":[{{"name":"barrel","primitives":[{{"attributes":{{"POSITION":0,"NORMAL":1}},"indices":2,"material":0}}]}}],"#,
             r#""materials":[{{"name":"barrel-wood","pbrMetallicRoughness":{{"baseColorFactor":[0.55,0.38,0.22,1.0],"metallicFactor":0.0,"roughnessFactor":0.8}}}}],"#,
             r#""accessors":[
@@ -119,6 +123,7 @@ mod tests {
             let glb = gltf::Glb::from_slice(&bytes).expect("container parses");
             let root = gltf::json::Root::from_slice(&glb.json).expect("json parses");
             assert_eq!(root.meshes.len(), 1);
+            assert_eq!(root.nodes.len(), 2, "body + lid hierarchy");
             assert_eq!(root.accessors[0].count.0, 24);
             assert_eq!(root.accessors[2].count.0, 36);
             let bin = glb.bin.expect("has binary chunk");

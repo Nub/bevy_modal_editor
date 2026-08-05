@@ -229,7 +229,15 @@ fn apply_op(
             Some(Op::Despawn { id })
         }
         Op::Despawn { id } => {
-            let entity = resolve(world, &id)?;
+            let entity = match resolve(world, &id) {
+                Some(entity) => entity,
+                None => {
+                    // A despawn that silently no-ops leaves ghosts behind —
+                    // this is always a caller bug worth hearing about.
+                    warn!("Op::Despawn target {id:?} not in SceneIndex — skipped");
+                    return None;
+                }
+            };
             let mut captured = Vec::new();
             for reg in &editor_components.types {
                 if let Some(value) = clone_component(world, registry, entity, reg.type_id) {

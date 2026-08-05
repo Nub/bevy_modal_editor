@@ -438,10 +438,34 @@ pub(crate) fn group_selection(world: &mut World, name: String) {
     let registry_arc = world.resource::<AppTypeRegistry>().clone();
     let registry = registry_arc.read();
     let components = world.resource::<EditorComponents>().types.clone();
+    let roots: Vec<Entity> = {
+        let mut query = world.query_filtered::<Entity, (With<Selected>, Without<PrefabStamped>)>();
+        query.iter(world).collect()
+    };
+    // Selection CLOSURE: selecting a parent means the THING, subtree included.
+    // Capturing only the selected entities would stamp a hollow template while
+    // the replace-despawn recursively deleted the uncaptured children.
+    // (depth rides along: despawn ops must run children-first so every
+    // member's inverse is captured for undo.)
+    let mut selected: Vec<(Entity, SceneId, usize)> = Vec::new();
+    let mut seen: std::collections::HashSet<SceneId> = Default::default();
+    let mut stack: Vec<(Entity, usize)> = roots.into_iter().map(|e| (e, 0)).collect();
+    while let Some((entity, depth)) = stack.pop() {
+        let Some(id) = world.get::<SceneId>(entity).copied() else {
+            continue; // derived subtrees (gltf spawns) stay derived
+        };
+        if !seen.insert(id) {
+            continue;
+        }
+        selected.push((entity, id, depth));
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter().map(|c| (c, depth + 1)));
+        }
+    }
+    let mut despawn_order = selected.clone();
+    despawn_order.sort_by(|a, b| b.2.cmp(&a.2)); // deepest first
     let selected: Vec<(Entity, SceneId)> = {
-        let mut query =
-            world.query_filtered::<(Entity, &SceneId), (With<Selected>, Without<PrefabStamped>)>();
-        let mut all: Vec<_> = query.iter(world).map(|(e, id)| (e, *id)).collect();
+        let mut all: Vec<_> = selected.into_iter().map(|(e, id, _)| (e, id)).collect();
         all.sort_by_key(|(_, id)| id.0);
         all
     };
@@ -527,10 +551,19 @@ pub(crate) fn group_selection(world: &mut World, name: String) {
     world.resource_mut::<PrefabLibrary>().generation += 1;
 
     // Replace the selection with an instance — ONE undoable transaction.
+    // Children despawn BEFORE parents: a recursive parent despawn would kill
+    // them without an inverse, and undo would restore a hollow subtree.
     let root_id = SceneId::random();
-    let mut ops: Vec<Op> = selected
+    debug!(
+        "group '{prefab_name}': despawning {:?}",
+        despawn_order
+            .iter()
+            .map(|(_, id, depth)| (*id, *depth))
+            .collect::<Vec<_>>()
+    );
+    let mut ops: Vec<Op> = despawn_order
         .iter()
-        .map(|(_, id)| Op::Despawn { id: *id })
+        .map(|(_, id, _)| Op::Despawn { id: *id })
         .collect();
     ops.push(Op::Spawn {
         id: root_id,

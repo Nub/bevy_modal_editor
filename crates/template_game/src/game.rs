@@ -156,6 +156,24 @@ impl Default for Spinner {
     }
 }
 
+/// Data-driven collision volume (M4-D12 game-ready flow): the game declares
+/// its collider as plain reflected data on the entity — the physics system of
+/// a real game consumes it; here it exists so imported models become GAME
+/// CONTENT (mesh + collider + behavior) with zero editor code.
+#[derive(Component, Reflect, Clone, Copy, PartialEq, Debug)]
+#[reflect(Component, Default)]
+pub struct BoxCollider {
+    pub half_extents: Vec3,
+}
+
+impl Default for BoxCollider {
+    fn default() -> Self {
+        Self {
+            half_extents: Vec3::splat(0.5),
+        }
+    }
+}
+
 /// Gameplay behavior for `Spinner` — runs only while the game owns input, so
 /// editing values in the editor never fights a live rotation.
 fn spin(

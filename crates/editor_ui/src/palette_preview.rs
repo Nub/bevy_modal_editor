@@ -115,7 +115,11 @@ pub(crate) fn sync_preview_content(world: &mut World) {
         query.iter(world).collect()
     };
     for entity in old {
-        world.entity_mut(entity).despawn();
+        // May already be gone: the palette UI despawns its pane's children
+        // (recursively, previews included) when it closes or rebuilds.
+        if let Ok(entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.despawn();
+        }
     }
     if let Some(mut camera) = world.get_mut::<Camera>(camera) {
         camera.is_active = subject.is_some();

@@ -10,7 +10,7 @@ use editor_scene::materials::{MaterialLibrary, MaterialRef};
 use editor_scene::session::EditorSession;
 use std::collections::HashMap;
 
-use crate::game::{GameInputActive, Primitive, PrimitiveKind, Spinner};
+use crate::game::{BoxCollider, GameInputActive, Primitive, PrimitiveKind, Spinner};
 
 /// The game's editor-facing registration: which components serialize, what can be
 /// placed. Lives editor-side; the game module stays editor-free.
@@ -51,6 +51,7 @@ impl EditorFeature for GameFeature {
         reg.component::<Transform>()
             .component::<Primitive>()
             .component::<Spinner>()
+            .component::<BoxCollider>()
             .component::<Name>()
             .entity_kind(EntityKindDef {
                 id: EntityKindId::new_static("primitive.cube"),

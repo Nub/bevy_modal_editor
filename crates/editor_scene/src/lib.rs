@@ -529,6 +529,7 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<materials::MaterialLibrary>()
             .init_resource::<models::ModelLibrary>()
             .init_resource::<models::ImportRequested>()
+            .init_resource::<models::FlattenRequested>()
             .init_resource::<models::ModelHandles>()
             .init_resource::<session::ReloadRequested>()
             .init_resource::<SceneIoLock>()
@@ -557,7 +558,9 @@ impl Plugin for EditorScenePlugin {
                     play::perform_play,
                     materials::save_library_on_change,
                     models::perform_import,
+                    models::perform_flatten,
                     models::resolve_mesh_refs,
+                    models::resolve_mesh_nodes,
                     session::perform_reload,
                 )
                     .chain()

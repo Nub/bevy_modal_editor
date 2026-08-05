@@ -1045,6 +1045,10 @@ fn rebuild_results(
     commands.entity(*results).despawn_related::<Children>();
     commands.entity(*preview).despawn_related::<Children>();
     if !state.open {
+        // Closing must clear the preview SUBJECT too — otherwise the last
+        // highlighted item's preview content (stamped copies, live camera)
+        // outlives the palette in the world.
+        subject.0 = None;
         return;
     }
     let ui = settings.ui.clone();

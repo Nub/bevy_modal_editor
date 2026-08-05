@@ -104,17 +104,19 @@ pub(crate) fn probe_barrel(world: &mut World) {
         let _ = std::fs::create_dir_all(crate::probe_user::SHOT_DIR);
         // Clean slate (owner rule): probe-owned artifacts never leak between
         // runs — the keg prefab AND the barrel source with its identity.
-        let _ = std::fs::remove_file("prefabs/keg.prefab.ron");
-        let _ = std::fs::remove_file("prefabs/keg.prefab.ron.bak");
-        let mut library = world.resource_mut::<PrefabLibrary>();
-        let ids: Vec<_> = library
-            .prefabs
-            .iter()
-            .filter(|(_, def)| def.name.eq_ignore_ascii_case("keg"))
-            .map(|(id, _)| *id)
-            .collect();
-        for id in ids {
-            library.prefabs.remove(&id);
+        for stale in ["keg", "cask"] {
+            let _ = std::fs::remove_file(format!("prefabs/{stale}.prefab.ron"));
+            let _ = std::fs::remove_file(format!("prefabs/{stale}.prefab.ron.bak"));
+            let mut library = world.resource_mut::<PrefabLibrary>();
+            let ids: Vec<_> = library
+                .prefabs
+                .iter()
+                .filter(|(_, def)| def.name.eq_ignore_ascii_case(stale))
+                .map(|(id, _)| *id)
+                .collect();
+            for id in ids {
+                library.prefabs.remove(&id);
+            }
         }
         let glb = glb_path(world);
         let _ = std::fs::create_dir_all(glb.parent().unwrap());
@@ -294,7 +296,200 @@ pub(crate) fn probe_barrel(world: &mut World) {
             check(world, intact, "instance transforms intact across re-import");
             shot(world, "19-barrel-reimported");
         }
-        1560 => {
+        // ══ ACT 2: game-ready prefab — GLB + configuration (owner ask) ══════
+        // Flatten the import to entities, add a collider + gameplay component
+        // through the REAL add-component flow, prefab it, instance it.
+        1560 => tap_named(world, KeyCode::Escape, Key::Escape),
+        1580 => tap(world, KeyCode::KeyI, "i"),
+        1610 => {
+            for (code, ch) in [
+                (KeyCode::KeyB, "b"),
+                (KeyCode::KeyA, "a"),
+                (KeyCode::KeyR, "r"),
+                (KeyCode::KeyR, "r"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        1640 => tap_named(world, KeyCode::Enter, Key::Enter),
+        1820 => invoke(world, "model.flatten"),
+        1900 => {
+            let nodes: Vec<String> = world
+                .query::<(&editor_scene::models::MeshNode, &Name)>()
+                .iter(world)
+                .map(|(_, name)| name.as_str().to_string())
+                .collect();
+            check(
+                world,
+                nodes.len() == 2
+                    && nodes.contains(&"barrel".into())
+                    && nodes.contains(&"lid".into()),
+                &format!("flatten materialized the gltf nodes as entities ({nodes:?})"),
+            );
+            let meshed = world
+                .query_filtered::<(), (With<editor_scene::models::MeshNode>, With<Mesh3d>)>()
+                .iter(world)
+                .count();
+            check(world, meshed == 2, "materialized nodes carry live meshes");
+            let flat_selected = world
+                .query_filtered::<(), (With<Selected>, Without<MeshRef>)>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                flat_selected == 1,
+                "flatten removed MeshRef and kept the root selected",
+            );
+        }
+        // Configuration via the real designer surface: i = add component.
+        1920 => tap(world, KeyCode::KeyI, "i"),
+        1950 => {
+            for (code, ch) in [
+                (KeyCode::KeyB, "b"),
+                (KeyCode::KeyO, "o"),
+                (KeyCode::KeyX, "x"),
+                (KeyCode::KeyC, "c"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        1980 => tap_named(world, KeyCode::Enter, Key::Enter),
+        2000 => {
+            let flash = world
+                .resource::<crate::statusbar::StatusFlash>()
+                .text
+                .clone();
+            check(
+                world,
+                flash.contains("BoxCollider added"),
+                "collider added via the add-component palette",
+            );
+            tap(world, KeyCode::KeyI, "i");
+        }
+        2030 => {
+            for (code, ch) in [
+                (KeyCode::KeyS, "s"),
+                (KeyCode::KeyP, "p"),
+                (KeyCode::KeyI, "i"),
+                (KeyCode::KeyN, "n"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        2060 => tap_named(world, KeyCode::Enter, Key::Enter),
+        2100 => {
+            let flash = world
+                .resource::<crate::statusbar::StatusFlash>()
+                .text
+                .clone();
+            check(
+                world,
+                flash.contains("Spinner added"),
+                "gameplay component added via the add-component palette",
+            );
+        }
+        // Prefab it: the GLB + configuration becomes reusable game content.
+        2120 => tap(world, KeyCode::KeyG, "g"),
+        2150 => {
+            for (code, ch) in [
+                (KeyCode::KeyC, "c"),
+                (KeyCode::KeyA, "a"),
+                (KeyCode::KeyS, "s"),
+                (KeyCode::KeyK, "k"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        2180 => tap_named(world, KeyCode::Enter, Key::Enter),
+        2220 => tap_named(world, KeyCode::Escape, Key::Escape),
+        2240 => tap(world, KeyCode::KeyI, "i"),
+        2270 => {
+            for (code, ch) in [
+                (KeyCode::KeyC, "c"),
+                (KeyCode::KeyA, "a"),
+                (KeyCode::KeyS, "s"),
+                (KeyCode::KeyK, "k"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        2300 => tap_named(world, KeyCode::Enter, Key::Enter),
+        2460 => {
+            let roots: Vec<(String, usize)> = {
+                let ids: Vec<Entity> = world
+                    .query_filtered::<Entity, (With<PrefabInstance>, Without<PrefabStamped>)>()
+                    .iter(world)
+                    .collect();
+                ids.into_iter()
+                    .map(|root| {
+                        let name = world
+                            .get::<Name>(root)
+                            .map(|n| n.as_str().to_string())
+                            .unwrap_or_default();
+                        let kids = world.get::<Children>(root).map(|c| c.len()).unwrap_or(0);
+                        (name, kids)
+                    })
+                    .collect()
+            };
+            let spinners = count_with_component(world, "Spinner");
+            let colliders = count_with_component(world, "BoxCollider");
+            let holders: Vec<(String, bool, Vec<String>)> =
+                entities_with_component(world, "BoxCollider")
+                    .into_iter()
+                    .map(|entity| {
+                        let mut ancestry = Vec::new();
+                        let mut current = entity;
+                        while let Some(parent) = world.get::<ChildOf>(current).map(|c| c.parent()) {
+                            ancestry.push(
+                                world
+                                    .get::<Name>(parent)
+                                    .map(|n| n.as_str().to_string())
+                                    .unwrap_or_else(|| format!("{parent:?}")),
+                            );
+                            current = parent;
+                        }
+                        (
+                            world
+                                .get::<Name>(entity)
+                                .map(|n| n.as_str().to_string())
+                                .unwrap_or_default(),
+                            world.get::<PrefabStamped>(entity).is_some(),
+                            ancestry,
+                        )
+                    })
+                    .collect();
+            info!(
+                "BARREL-PROBE diag2: roots={roots:?} spinners={spinners} colliders={colliders} holders={holders:?}"
+            );
+            // Two cask instances, each stamped GAME-READY: mesh nodes with live
+            // meshes, collider + gameplay component on the root.
+            let stamped_nodes = world
+                .query_filtered::<(), (With<editor_scene::models::MeshNode>, With<PrefabStamped>)>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                stamped_nodes == 4,
+                &format!("both cask instances stamped the mesh nodes ({stamped_nodes}/4)"),
+            );
+            let live = world
+                .query_filtered::<(), (
+                    With<editor_scene::models::MeshNode>,
+                    With<PrefabStamped>,
+                    With<Mesh3d>,
+                )>()
+                .iter(world)
+                .count();
+            check(world, live == 4, "every stamped node resolved its mesh");
+            let configured = count_with_component(world, "BoxCollider");
+            check(
+                world,
+                configured == 2,
+                &format!("both cask roots carry the collider config ({configured}/2)"),
+            );
+            shot(world, "20-gameready-cask");
+        }
+        2520 => {
             let failures = world.resource::<BarrelProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BARREL-PROBE PASS: the barrel workflow end-to-end");
@@ -306,4 +501,30 @@ pub(crate) fn probe_barrel(world: &mut World) {
         }
         _ => {}
     }
+}
+
+/// Count entities carrying a component the probe crate cannot name (game-crate
+/// types like BoxCollider) — resolved through the reflection registry.
+/// (`ComponentInfo::name()` is redacted without bevy's `debug` feature, so
+/// name matching on component infos silently never matches.)
+fn count_with_component(world: &mut World, short_name: &str) -> usize {
+    entities_with_component(world, short_name).len()
+}
+
+fn entities_with_component(world: &mut World, short_name: &str) -> Vec<Entity> {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let type_id = registry
+        .read()
+        .get_with_short_type_path(short_name)
+        .map(|registration| registration.type_id());
+    let Some(type_id) = type_id else {
+        return Vec::new();
+    };
+    let Some(id) = world.components().get_valid_id(type_id) else {
+        return Vec::new();
+    };
+    let mut query = bevy::ecs::query::QueryBuilder::<Entity>::new(world)
+        .with_id(id)
+        .build();
+    query.iter(world).collect()
 }

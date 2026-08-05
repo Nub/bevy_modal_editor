@@ -24,6 +24,21 @@ use uuid::Uuid;
 #[reflect(Component, Default)]
 pub struct MeshRef(pub Uuid);
 
+/// A materialized gltf node (`model.flatten`): references its mesh + material
+/// INSIDE the imported source by labeled asset path — fully serializable,
+/// resolved to live handles by `resolve_mesh_nodes`. This is what makes an
+/// import game-ready: each node is a real entity that colliders and gameplay
+/// components attach to.
+#[derive(Component, Reflect, Clone, PartialEq, Debug, Default)]
+#[reflect(Component, Default)]
+pub struct MeshNode {
+    pub model: Uuid,
+    /// Labeled mesh path ("models/barrel.glb#Mesh0/Primitive0").
+    pub mesh: String,
+    /// Labeled material path ("" = default material).
+    pub material: String,
+}
+
 /// One imported source asset the editor knows about.
 #[derive(Clone, Debug)]
 pub struct ModelEntry {
@@ -146,16 +161,29 @@ impl EditorFeature for ModelsFeature {
         FeatureManifest::new("models", "Imported Models")
     }
     fn register(&self, reg: &mut FeatureRegistry) {
-        reg.component::<MeshRef>().action(
-            ActionDef::new("asset.import", "Import Assets (rescan models)")
-                .describe("Scan assets/models, assign identities, validate, refresh instances")
-                .context("normal"),
-        );
+        reg.component::<MeshRef>()
+            .component::<MeshNode>()
+            .action(
+                ActionDef::new("asset.import", "Import Assets (rescan models)")
+                    .describe("Scan assets/models, assign identities, validate, refresh instances")
+                    .context("normal"),
+            )
+            .action(
+                ActionDef::new("model.flatten", "Flatten Model To Entities")
+                    .describe(
+                        "Materialize the selected model's gltf nodes as real, editable \
+                         entities (colliders and components attach per node)",
+                    )
+                    .context("normal"),
+            );
     }
 }
 
 #[derive(Resource, Default)]
 pub(crate) struct ImportRequested(pub bool);
+
+#[derive(Resource, Default)]
+pub(crate) struct FlattenRequested(pub bool);
 
 /// Live root `Gltf` handles per imported source. Without these the root asset
 /// is dropped (only labeled `#Scene0` sub-assets are referenced by spawns) and
@@ -167,10 +195,13 @@ pub(crate) struct ModelHandles(pub std::collections::HashMap<Uuid, Handle<bevy::
 pub(crate) fn collect_model_actions(
     mut reader: MessageReader<ActionInvoked>,
     mut requested: ResMut<ImportRequested>,
+    mut flatten: ResMut<FlattenRequested>,
 ) {
     for invoked in reader.read() {
-        if invoked.action.as_str() == "asset.import" {
-            requested.0 = true;
+        match invoked.action.as_str() {
+            "asset.import" => requested.0 = true,
+            "model.flatten" => flatten.0 = true,
+            _ => {}
         }
     }
 }
@@ -342,6 +373,157 @@ pub(crate) fn resolve_mesh_refs(
             content_hash: entry.content_hash.clone(),
             child,
         });
+    }
+}
+
+/// `model.flatten` (spec §6 "flatten-on-import"): materialize the SELECTED
+/// model's spawned gltf nodes as real scene entities — one per mesh-bearing
+/// node, root-relative transform, `MeshNode` carrying the labeled asset paths.
+/// One undoable transaction: spawn nodes, reparent under the root, remove the
+/// root's `MeshRef` (whose derived subtree despawns with it).
+pub(crate) fn perform_flatten(world: &mut World) {
+    if !std::mem::take(&mut world.resource_mut::<FlattenRequested>().0) {
+        return;
+    }
+    let selected: Vec<(Entity, SceneId, Uuid)> = {
+        let mut query = world.query_filtered::<(Entity, &SceneId, &MeshRef), With<Selected>>();
+        query
+            .iter(world)
+            .map(|(entity, id, mesh_ref)| (entity, *id, mesh_ref.0))
+            .collect()
+    };
+    if selected.is_empty() {
+        world.write_message(super::SceneIoFeedback {
+            message: "select a placed model to flatten".into(),
+            success: false,
+        });
+        return;
+    }
+    let mut flattened = 0usize;
+    for (root_entity, root_id, model) in selected {
+        let Some(derived_root) = world
+            .get::<MeshRefResolved>(root_entity)
+            .map(|resolved| resolved.child)
+        else {
+            continue; // still loading — nothing spawned to materialize yet
+        };
+        // Every mesh-bearing descendant, with its pose ACCUMULATED up to the
+        // referencing root — intermediate gltf nodes collapse away (flatten).
+        let mut nodes: Vec<(String, Transform, String, String)> = Vec::new();
+        let mut stack: Vec<(Entity, Transform)> = vec![(derived_root, Transform::IDENTITY)];
+        while let Some((entity, acc)) = stack.pop() {
+            let local = world.get::<Transform>(entity).copied().unwrap_or_default();
+            let acc = if entity == derived_root {
+                Transform::IDENTITY
+            } else {
+                acc.mul_transform(local)
+            };
+            if let Some(mesh) = world.get::<Mesh3d>(entity) {
+                let mesh_path = mesh.0.path().map(|p| p.to_string()).unwrap_or_default();
+                let material_path = world
+                    .get::<MeshMaterial3d<StandardMaterial>>(entity)
+                    .and_then(|m| m.0.path())
+                    .map(|p| p.to_string())
+                    .unwrap_or_default();
+                // bevy_gltf names primitive entities "mesh.material" — the
+                // authored NODE name lives on the parent node entity.
+                let name = world
+                    .get::<ChildOf>(entity)
+                    .map(|c| c.parent())
+                    .filter(|parent| *parent != derived_root)
+                    .and_then(|parent| world.get::<Name>(parent))
+                    .or_else(|| world.get::<Name>(entity))
+                    .map(|n| n.as_str().to_string())
+                    .unwrap_or_else(|| "node".into());
+                if mesh_path.is_empty() {
+                    warn!("model.flatten: node {name:?} has an unlabeled mesh — skipped");
+                } else {
+                    nodes.push((name, acc, mesh_path, material_path));
+                }
+            }
+            if let Some(children) = world.get::<Children>(entity) {
+                for child in children.iter() {
+                    stack.push((child, acc));
+                }
+            }
+        }
+        if nodes.is_empty() {
+            continue;
+        }
+        let mut ops = Vec::new();
+        for (name, transform, mesh_path, material_path) in nodes {
+            let id = SceneId::random();
+            ops.push(Op::Spawn {
+                id,
+                components: vec![
+                    Box::new(transform).into_partial_reflect(),
+                    Box::new(Name::new(name)).into_partial_reflect(),
+                    Box::new(MeshNode {
+                        model,
+                        mesh: mesh_path,
+                        material: material_path,
+                    })
+                    .into_partial_reflect(),
+                ],
+            });
+            ops.push(Op::Reparent {
+                target: id,
+                parent: Some(root_id),
+            });
+            flattened += 1;
+        }
+        ops.push(Op::Remove {
+            target: root_id,
+            type_path: <MeshRef as bevy::reflect::TypePath>::type_path().into(),
+        });
+        world.resource_mut::<EditQueue>().0.push(Transaction {
+            label: "Flatten Model".into(),
+            gesture: None,
+            ops,
+        });
+    }
+    let success = flattened > 0;
+    world.write_message(super::SceneIoFeedback {
+        message: if success {
+            format!(
+                "flattened {flattened} node{} to entities",
+                if flattened == 1 { "" } else { "s" }
+            )
+        } else {
+            "model still loading — try again in a moment".into()
+        },
+        success,
+    });
+}
+
+/// Attach live mesh/material handles to `MeshNode` entities (insert, scene
+/// load, undo/redo all funnel through Changed); removal strips them.
+pub(crate) fn resolve_mesh_nodes(
+    mut commands: Commands,
+    assets: Option<Res<AssetServer>>,
+    nodes: Query<(Entity, &MeshNode), Changed<MeshNode>>,
+    mut removed: RemovedComponents<MeshNode>,
+) {
+    let Some(assets) = assets else { return };
+    for entity in removed.read() {
+        if let Ok(mut e) = commands.get_entity(entity) {
+            e.remove::<(Mesh3d, MeshMaterial3d<StandardMaterial>)>();
+        }
+    }
+    for (entity, node) in &nodes {
+        if node.mesh.is_empty() {
+            continue;
+        }
+        commands
+            .entity(entity)
+            .insert(Mesh3d(assets.load(node.mesh.clone())));
+        if !node.material.is_empty() {
+            commands
+                .entity(entity)
+                .insert(MeshMaterial3d::<StandardMaterial>(
+                    assets.load(node.material.clone()),
+                ));
+        }
     }
 }
 
