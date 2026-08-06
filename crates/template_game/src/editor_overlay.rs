@@ -10,7 +10,7 @@ use editor_scene::materials::{MaterialLibrary, MaterialRef};
 use editor_scene::session::EditorSession;
 use std::collections::HashMap;
 
-use crate::game::{BoxCollider, GameInputActive, Primitive, PrimitiveKind, Spinner};
+use crate::game::{BoxCollider, GameInputActive, PhysicsBody, Primitive, PrimitiveKind, Spinner};
 
 /// The game's editor-facing registration: which components serialize, what can be
 /// placed. Lives editor-side; the game module stays editor-free.
@@ -78,10 +78,19 @@ impl EditorFeature for GameFeature {
                 problems
             },
         });
+        reg.action(
+            editor_api::actions::ActionDef::new("game.fit-collider", "Fit Collider To Bounds")
+                .describe(
+                    "Size a BoxCollider from the selection's visual bounds — \
+                     the asset-prep verb for imported models",
+                )
+                .context("normal"),
+        );
         reg.component::<Transform>()
             .component::<Primitive>()
             .component::<Spinner>()
             .component::<BoxCollider>()
+            .component::<PhysicsBody>()
             .component::<Name>()
             .entity_kind(EntityKindDef {
                 id: EntityKindId::new_static("primitive.cube"),
@@ -127,9 +136,18 @@ impl Plugin for EditorOverlayPlugin {
             Update,
             demo_kit_generator.run_if(|| std::env::var("EDITOR_DEMO_KIT").is_ok()),
         );
+        app.init_resource::<PhysicsProbe>();
         app.add_systems(
             Update,
-            (sync_game_input, sync_material_refs, drive_session_restore)
+            (
+                // Pause must follow the input handoff in the SAME frame, or
+                // reset leaks a few live sim steps before physics stops.
+                (sync_game_input, crate::game::sync_physics_pause_now).chain(),
+                sync_material_refs,
+                drive_session_restore,
+                handle_fit_collider,
+                probe_physics.run_if(|| std::env::var("PHYSICS_PROBE").is_ok()),
+            )
                 .in_set(editor_core::EditorSet::Sync),
         );
         app.add_systems(
@@ -517,5 +535,247 @@ pub(crate) fn demo_kit_generator(world: &mut World, mut frame: Local<u32>) {
             "demo kit: prefabs saved (Wall, Corner, Gate) and courtyard scene written to level.ron"
         );
         world.write_message(bevy::app::AppExit::Success);
+    }
+}
+
+/// `game.fit-collider` (owner ask, asset prep): compute the selection's
+/// visual bounds — every mesh Aabb in its subtree, derived gltf content
+/// included — in the entity's local space, and write a `BoxCollider` through
+/// the kernel (one undoable Set per entity).
+pub(crate) fn handle_fit_collider(
+    mut reader: MessageReader<ActionInvoked>,
+    selected: Query<(&SceneId, Entity, &GlobalTransform), With<Selected>>,
+    children: Query<&Children>,
+    aabbs: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
+    mut edits: EditScope,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    for invoked in reader.read() {
+        if invoked.action.as_str() != "game.fit-collider" {
+            continue;
+        }
+        let mut fitted = 0usize;
+        for (id, root, root_global) in &selected {
+            let to_local = root_global.affine().inverse();
+            let mut min = Vec3::MAX;
+            let mut max = Vec3::MIN;
+            let mut stack = vec![root];
+            while let Some(entity) = stack.pop() {
+                if let Ok((aabb, global)) = aabbs.get(entity) {
+                    let center = Vec3::from(aabb.center);
+                    let he = Vec3::from(aabb.half_extents);
+                    for corner in 0..8 {
+                        let sign = Vec3::new(
+                            if corner & 1 == 0 { -1.0 } else { 1.0 },
+                            if corner & 2 == 0 { -1.0 } else { 1.0 },
+                            if corner & 4 == 0 { -1.0 } else { 1.0 },
+                        );
+                        let world = global.transform_point(center + he * sign);
+                        let local = to_local.transform_point3(world);
+                        min = min.min(local);
+                        max = max.max(local);
+                    }
+                }
+                if let Ok(kids) = children.get(entity) {
+                    stack.extend(kids.iter());
+                }
+            }
+            if min.x > max.x {
+                continue; // no meshes under this selection (still loading?)
+            }
+            edits
+                .transaction("Fit Collider")
+                .set(
+                    *id,
+                    BoxCollider {
+                        half_extents: (max - min) * 0.5,
+                        offset: (max + min) * 0.5,
+                    },
+                )
+                .commit();
+            fitted += 1;
+        }
+        feedback.write(editor_scene::SceneIoFeedback {
+            message: if fitted > 0 {
+                format!(
+                    "collider fit to bounds on {fitted} entit{}",
+                    if fitted == 1 { "y" } else { "ies" }
+                )
+            } else {
+                "select something with visible meshes to fit a collider".into()
+            },
+            success: fitted > 0,
+        });
+    }
+}
+
+/// PHYSICS_PROBE: the avian loop end-to-end — paused while editing, fit
+/// collider from bounds, dynamic prop falls in play, reset restores.
+#[derive(Resource, Default)]
+pub(crate) struct PhysicsProbe {
+    frame: u32,
+    failures: Vec<String>,
+    prop: Option<SceneId>,
+}
+
+pub(crate) fn probe_physics(world: &mut World) {
+    use bevy::reflect::PartialReflect;
+    use editor_api::edits::{EditQueue, Op, Transaction};
+
+    fn check(world: &mut World, ok: bool, what: &str) {
+        if ok {
+            info!("PHYSICS-PROBE PASS: {what}");
+        } else {
+            error!("PHYSICS-PROBE FAIL: {what}");
+            world
+                .resource_mut::<PhysicsProbe>()
+                .failures
+                .push(what.to_string());
+        }
+    }
+    fn invoke(world: &mut World, action: &'static str) {
+        world.write_message(ActionInvoked {
+            action: ActionId::new_static(action),
+            args: None,
+            source: InvocationSource::Test,
+        });
+    }
+    fn prop_y(world: &mut World) -> Option<f32> {
+        let id = world.resource::<PhysicsProbe>().prop?;
+        let entity = world.resource::<SceneIndex>().get(&id)?;
+        world.get::<Transform>(entity).map(|t| t.translation.y)
+    }
+
+    world.resource_mut::<PhysicsProbe>().frame += 1;
+    let frame = world.resource::<PhysicsProbe>().frame;
+    match frame {
+        1 => {
+            info!("PHYSICS-PROBE armed");
+        }
+        60 => {
+            let window = world
+                .query_filtered::<Entity, With<bevy::window::PrimaryWindow>>()
+                .iter(world)
+                .next()
+                .unwrap_or(Entity::PLACEHOLDER);
+            world.write_message(bevy::input::keyboard::KeyboardInput {
+                key_code: KeyCode::Enter,
+                logical_key: bevy::input::keyboard::Key::Enter,
+                state: bevy::input::ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+        }
+        120 => invoke(world, "core.toggle-editor"),
+        // Stale props from a previous run's play-save.
+        160 => {
+            let stale: Vec<SceneId> = {
+                let mut query = world.query::<(&SceneId, &Name)>();
+                query
+                    .iter(world)
+                    .filter(|(_, n)| n.as_str() == "physics-prop")
+                    .map(|(id, _)| *id)
+                    .collect()
+            };
+            if !stale.is_empty() {
+                world.resource_mut::<EditQueue>().0.push(Transaction {
+                    label: "probe cleanup".into(),
+                    gesture: None,
+                    ops: stale.into_iter().map(|id| Op::Despawn { id }).collect(),
+                });
+            }
+        }
+        // A dynamic cube 5m up, through the kernel like any placement.
+        200 => {
+            let id = SceneId::random();
+            world.resource_mut::<PhysicsProbe>().prop = Some(id);
+            world.resource_mut::<EditQueue>().0.push(Transaction {
+                label: "probe spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![
+                        Box::new(Transform::from_xyz(6.0, 5.0, 6.0)).into_partial_reflect(),
+                        Box::new(Name::new("physics-prop")).into_partial_reflect(),
+                        Box::new(Primitive {
+                            kind: PrimitiveKind::Cube,
+                            size: 1.0,
+                        })
+                        .into_partial_reflect(),
+                        Box::new(BoxCollider {
+                            half_extents: Vec3::splat(2.0), // deliberately wrong
+                            offset: Vec3::ZERO,
+                        })
+                        .into_partial_reflect(),
+                        Box::new(PhysicsBody::Dynamic).into_partial_reflect(),
+                    ],
+                }],
+            });
+        }
+        // Editing: the paused simulation must not move it.
+        320 => {
+            let held = prop_y(world).is_some_and(|y| (y - 5.0).abs() < 0.001);
+            check(
+                world,
+                held,
+                "physics holds still while the editor owns input",
+            );
+            if let Some(id) = world.resource::<PhysicsProbe>().prop {
+                world
+                    .resource_mut::<editor_core::selection::PendingSelect>()
+                    .0 = Some(id);
+            }
+        }
+        360 => invoke(world, "game.fit-collider"),
+        420 => {
+            let fitted = {
+                let id = world.resource::<PhysicsProbe>().prop;
+                id.and_then(|id| world.resource::<SceneIndex>().get(&id))
+                    .and_then(|e| world.get::<BoxCollider>(e))
+                    .is_some_and(|c| (c.half_extents - Vec3::splat(0.5)).length() < 0.01)
+            };
+            check(
+                world,
+                fitted,
+                "Fit Collider sized the box from the mesh bounds",
+            );
+        }
+        440 => invoke(world, "editor.play"),
+        620 => {
+            let fell = prop_y(world).is_some_and(|y| y < 4.0);
+            check(world, fell, "the dynamic prop falls under avian in play");
+        }
+        640 => invoke(world, "editor.reset"),
+        760 => {
+            // Back at its AUTHORED spot (vs. < 4.0 where it fell) — a frame of
+            // engine settling is fine, staying fallen is not.
+            let y = prop_y(world);
+            check(
+                world,
+                y.is_some_and(|y| (y - 5.0).abs() < 0.05),
+                &format!("reset restores the pre-play physics state (y={y:?})"),
+            );
+        }
+        800 => {
+            if let Some(id) = world.resource::<PhysicsProbe>().prop {
+                world.resource_mut::<EditQueue>().0.push(Transaction {
+                    label: "probe cleanup".into(),
+                    gesture: None,
+                    ops: vec![Op::Despawn { id }],
+                });
+            }
+        }
+        860 => {
+            let failures = world.resource::<PhysicsProbe>().failures.clone();
+            if failures.is_empty() {
+                info!("PHYSICS-PROBE PASS: the avian loop end-to-end");
+                world.write_message(bevy::app::AppExit::Success);
+            } else {
+                error!("PHYSICS-PROBE FAILED: {failures:?}");
+                world.write_message(bevy::app::AppExit::error());
+            }
+        }
+        _ => {}
     }
 }

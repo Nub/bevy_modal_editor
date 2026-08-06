@@ -99,7 +99,7 @@ The dangerous bucket. Proposed dispositions:
 | 3.13 | **Material copy/paste across entities** (`Y`/`P`) | FOLD into M4 D11 scope explicitly |
 | 3.14 | **Preview mode** (hide all gizmos/chrome for screenshots) | FOLD into `Space t` toggle family (one compound toggle), M4 rider |
 | 3.15 | **Per-mode panel pinning** | DROP formally — v2's dock + panel-focus model supersedes it; confirm |
-| 3.16 | **Physics-aware editing** — sleep-while-dragging, physics sim toggle, avian integration in template_game | ADD M5/M6 line: when template_game gains physics, the editor needs the drag-sleep pattern + sim toggle. Spec is silent on avian entirely (v1 was avian-first). ⚠ owner: which milestone gets physics? |
+| 3.16 | **Physics-aware editing** — sleep-while-dragging, physics sim toggle, avian integration in template_game | RESOLVED (owner, 2026-08-06, landed in M4 tail): avian3d 0.7 lives GAME-side in template_game; the editor authors DATA (`BoxCollider {half_extents, offset}`, `PhysicsBody Static/Dynamic`) and avian components derive at runtime. Simulation pauses whenever the editor owns input (the drag-sleep pattern for free — nothing simulates while editing). `game.fit-collider` sizes colliders from visual bounds (asset prep). PHYSICS_PROBE covers pause/fit/fall/reset. |
 | 3.17 | **Spline proximity picking** (click near curve, no collider) | FOLD into M5 spline port (pick-arbitration already specced) |
 | 3.18 | **Name deduplication** on rename ("Crate" → "Crate 2") | Obsolete as *correctness* (UUIDs fixed name-refs) but ADD as M4 polish — duplicate names still confuse humans |
 

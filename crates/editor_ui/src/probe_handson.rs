@@ -546,7 +546,6 @@ pub(crate) fn probe_handson(world: &mut World) {
                 .resource::<crate::statusbar::StatusFlash>()
                 .text
                 .clone();
-            info!("HANDSON-PROBE diag: socket-stage flash={flash:?}");
             check(
                 world,
                 flash.contains("Socket added"),

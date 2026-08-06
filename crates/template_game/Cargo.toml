@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 bevy.workspace = true
 game_framework.workspace = true
+avian3d = "0.7"
 editor_api = { workspace = true, optional = true }
 editor_core = { workspace = true, optional = true }
 editor_prefabs = { workspace = true, optional = true }

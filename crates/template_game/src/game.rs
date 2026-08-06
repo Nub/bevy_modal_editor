@@ -2,6 +2,7 @@
 //! construction — this module must compile identically with and without the
 //! `editor` feature; the overlay only reads/writes `GameInputActive`.
 
+use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
@@ -91,8 +92,14 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Primitive>();
         app.register_type::<Spinner>();
+        app.register_type::<PhysicsBody>();
+        // Physics is part of the GAME (avian3d). While the editor owns input
+        // the simulation is paused — dynamic props hold still under editing
+        // and only live during play.
+        app.add_plugins(PhysicsPlugins::default());
         app.init_resource::<GameInputActive>()
             .add_systems(Startup, (init_primitive_assets, leave_boot))
+            .add_systems(Update, derive_physics)
             .add_observer(on_primitive_added)
             .add_systems(OnEnter(AppState::MainMenu), spawn_menu)
             .add_systems(OnExit(AppState::MainMenu), despawn_menu)
@@ -164,13 +171,99 @@ impl Default for Spinner {
 #[reflect(Component, Default)]
 pub struct BoxCollider {
     pub half_extents: Vec3,
+    /// Collider center relative to the entity (mesh bounds rarely sit on the
+    /// origin — Fit Collider writes this).
+    #[reflect(default)]
+    pub offset: Vec3,
 }
 
 impl Default for BoxCollider {
     fn default() -> Self {
         Self {
             half_extents: Vec3::splat(0.5),
+            offset: Vec3::ZERO,
         }
+    }
+}
+
+/// How the physics engine treats this entity (editor-authored DATA — avian
+/// components derive from it at runtime, they never serialize themselves).
+#[derive(Component, Reflect, Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[reflect(Component, Default)]
+pub enum PhysicsBody {
+    /// Immovable level geometry (walls, floors).
+    #[default]
+    Static,
+    /// Simulated: falls, collides, stacks (barrels, props).
+    Dynamic,
+}
+
+/// Derived marker: the avian collider child a `BoxCollider` spawns. Never
+/// serialized — rebuilt from the data component like every derived visual.
+#[derive(Component)]
+pub struct ColliderDerived;
+
+/// Editor owns input → physics holds still; play → simulate.
+pub fn sync_physics_pause_now(game_input: Res<GameInputActive>, mut time: ResMut<Time<Physics>>) {
+    if game_input.0 {
+        if time.is_paused() {
+            time.unpause();
+        }
+    } else if !time.is_paused() {
+        time.pause();
+    }
+}
+
+/// DATA → avian: `BoxCollider`/`PhysicsBody` (serialized, editor-authored)
+/// derive the runtime `RigidBody` + collider child. Re-derives on any edit;
+/// removal (undo) strips the runtime state.
+#[allow(clippy::type_complexity)]
+fn derive_physics(
+    changed: Query<
+        (Entity, &BoxCollider, Option<&PhysicsBody>),
+        Or<(Changed<BoxCollider>, Changed<PhysicsBody>)>,
+    >,
+    children: Query<&Children>,
+    derived: Query<(), With<ColliderDerived>>,
+    mut removed_colliders: RemovedComponents<BoxCollider>,
+    bodies: Query<(), With<RigidBody>>,
+    mut commands: Commands,
+) {
+    for entity in removed_colliders.read() {
+        if bodies.contains(entity) {
+            commands.entity(entity).remove::<RigidBody>();
+        }
+        if let Ok(kids) = children.get(entity) {
+            for kid in kids.iter() {
+                if derived.contains(kid) {
+                    commands.entity(kid).despawn();
+                }
+            }
+        }
+    }
+    for (entity, collider, body) in &changed {
+        if let Ok(kids) = children.get(entity) {
+            for kid in kids.iter() {
+                if derived.contains(kid) {
+                    commands.entity(kid).despawn();
+                }
+            }
+        }
+        let rigid = match body.copied().unwrap_or_default() {
+            PhysicsBody::Static => RigidBody::Static,
+            PhysicsBody::Dynamic => RigidBody::Dynamic,
+        };
+        commands.entity(entity).insert(rigid);
+        commands.spawn((
+            ColliderDerived,
+            Collider::cuboid(
+                collider.half_extents.x * 2.0,
+                collider.half_extents.y * 2.0,
+                collider.half_extents.z * 2.0,
+            ),
+            Transform::from_translation(collider.offset),
+            ChildOf(entity),
+        ));
     }
 }
 
@@ -208,6 +301,9 @@ fn spawn_level(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
         MeshMaterial3d(ground),
         Transform::IDENTITY,
+        // The floor every dynamic prop lands on.
+        RigidBody::Static,
+        Collider::cuboid(80.0, 0.1, 80.0),
     ));
     // Graybox content: SEMANTIC scene entities — meshes derive via the observer, and
     // (with the editor feature) these are selectable, movable, savable.

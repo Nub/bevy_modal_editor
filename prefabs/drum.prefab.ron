@@ -1,7 +1,7 @@
 (
     format_version: 1,
-    id: "36d6824a-8a34-4cf4-9a72-bfff2cc59d95",
+    id: "44ceb05e-ed63-4345-aa30-3dd762b2810a",
     name: "drum",
     kit: "",
-    template: "(\n    format_version: 1,\n    entities: [\n        (\n            id: \"6c54cc58-de65-47bb-bf44-9aac2c304f66\",\n            parent: None,\n            components: [\n                (\n                    type_path: \"bevy_ecs::name::Name\",\n                    value: \"barrel\",\n                ),\n                (\n                    type_path: \"bevy_transform::components::transform::Transform\",\n                    value: (\n                        translation: (1.0, -0.00000011920929, 0.0),\n                        rotation: (0.0, 0.0, 0.0, 1.0),\n                        scale: (1.0, 1.0, 1.0),\n                    ),\n                ),\n                (\n                    type_path: \"editor_scene::models::MeshRef\",\n                    value: (\"95882855-6ec1-481c-9259-e19cf6749b3e\"),\n                ),\n            ],\n        ),\n    ],\n)",
+    template: "(\n    format_version: 1,\n    entities: [\n        (\n            id: \"4cbb5704-e391-48b7-9996-86b089082d17\",\n            parent: None,\n            components: [\n                (\n                    type_path: \"bevy_ecs::name::Name\",\n                    value: \"barrel\",\n                ),\n                (\n                    type_path: \"bevy_transform::components::transform::Transform\",\n                    value: (\n                        translation: (1.0, -0.00000011920929, 0.0),\n                        rotation: (0.0, 0.0, 0.0, 1.0),\n                        scale: (1.0, 1.0, 1.0),\n                    ),\n                ),\n                (\n                    type_path: \"editor_scene::models::MeshRef\",\n                    value: (\"95882855-6ec1-481c-9259-e19cf6749b3e\"),\n                ),\n            ],\n        ),\n    ],\n)",
 )
