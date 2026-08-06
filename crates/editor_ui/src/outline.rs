@@ -33,24 +33,47 @@ pub(crate) fn ensure_outline_camera(
 
 /// `Selected` <-> `MeshOutline` sync. Outlines are editor-session visuals only:
 /// deactivating the editor (F12, play) strips them all so the game view is clean.
+///
+/// The outline covers the selection's whole VISUAL SUBTREE: imported models
+/// (`MeshRef`) and prefab instance roots carry no `Mesh3d` themselves — their
+/// meshes live on (derived) descendants, which must silhouette as one thing.
+/// Recomputed every frame: gltf content spawns async, so a selected model's
+/// meshes may not exist yet on the frame selection changes.
 pub(crate) fn sync_selection_outlines(
     state: Res<EditorState>,
     settings: Res<EditorSettings>,
     mut commands: Commands,
-    missing: Query<Entity, (With<Selected>, With<Mesh3d>, Without<MeshOutline>)>,
-    stale: Query<Entity, (With<MeshOutline>, Without<Selected>)>,
-    all_outlined: Query<Entity, With<MeshOutline>>,
+    selected: Query<Entity, With<Selected>>,
+    children_query: Query<&Children>,
+    meshes: Query<(), With<Mesh3d>>,
+    outlined: Query<Entity, With<MeshOutline>>,
 ) {
     if !state.active {
-        for entity in &all_outlined {
+        for entity in &outlined {
             commands.entity(entity).remove::<MeshOutline>();
         }
         return;
     }
-    for entity in &missing {
-        commands.entity(entity).insert(outline(&settings));
+    let mut desired: bevy::platform::collections::HashSet<Entity> = Default::default();
+    for root in &selected {
+        let mut stack = vec![root];
+        while let Some(entity) = stack.pop() {
+            if meshes.contains(entity) {
+                desired.insert(entity);
+            }
+            if let Ok(children) = children_query.get(entity) {
+                stack.extend(children.iter());
+            }
+        }
     }
-    for entity in &stale {
-        commands.entity(entity).remove::<MeshOutline>();
+    for entity in &outlined {
+        if !desired.contains(&entity) {
+            commands.entity(entity).remove::<MeshOutline>();
+        } else {
+            desired.remove(&entity);
+        }
+    }
+    for entity in desired {
+        commands.entity(entity).insert(outline(&settings));
     }
 }

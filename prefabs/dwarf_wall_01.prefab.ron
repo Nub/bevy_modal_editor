@@ -1,0 +1,7 @@
+(
+    format_version: 1,
+    id: "7540e67e-8e05-4699-aacf-446737a9b2b6",
+    name: "dwarf_wall_01",
+    kit: "",
+    template: "(\n    format_version: 1,\n    entities: [\n        (\n            id: \"287473c8-96ca-4104-b6df-71efafc3f4fe\",\n            parent: None,\n            components: [\n                (\n                    type_path: \"bevy_ecs::name::Name\",\n                    value: \"SM_Env_Dwarf_Wall_01\",\n                ),\n                (\n                    type_path: \"bevy_transform::components::transform::Transform\",\n                    value: (\n                        translation: (0.0, 0.0, 0.0),\n                        rotation: (0.0, 0.0, 0.0, 1.0),\n                        scale: (1.0, 1.0, 1.0),\n                    ),\n                ),\n                (\n                    type_path: \"editor_scene::models::MeshRef\",\n                    value: (\"3a638564-f26c-476a-9a23-21203a8b2698\"),\n                ),\n            ],\n        ),\n    ],\n)",
+)

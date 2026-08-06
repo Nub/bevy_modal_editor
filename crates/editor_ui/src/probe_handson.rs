@@ -242,10 +242,21 @@ pub(crate) fn probe_handson(world: &mut World) {
             let textured = probe_material
                 .and_then(|id| world.resource::<MaterialLibrary>().get(&id).cloned())
                 .and_then(|def| def.base_color_texture);
+            // ANY imported texture counts: real projects have their own
+            // textures in the tree and the cycle starts from the first —
+            // probes must survive live project content.
+            let _ = probe_texture;
+            let is_imported = textured.is_some_and(|uuid| {
+                world
+                    .resource::<ModelLibrary>()
+                    .entries
+                    .iter()
+                    .any(|e| e.kind == EntryKind::Texture && e.uuid == uuid)
+            });
             check(
                 world,
-                textured.is_some() && textured == probe_texture,
-                "clicking the texture chip bound the imported texture",
+                is_imported,
+                "clicking the texture chip bound an imported texture",
             );
             let preview_textured = {
                 let handle = world.resource::<MaterialPreviewRig>().material.clone();
@@ -379,6 +390,32 @@ pub(crate) fn probe_handson(world: &mut World) {
                 world,
                 member.is_some(),
                 "clicking the mesh selected the member",
+            );
+            // The selection outline must reach DERIVED meshes (imported models
+            // carry no Mesh3d themselves — the gltf children silhouette).
+            let outlined_derived = {
+                let mut found = false;
+                if let Some(member) = member {
+                    let mut stack = vec![member];
+                    while let Some(entity) = stack.pop() {
+                        if world
+                            .get::<bevy_outliner::prelude::MeshOutline>(entity)
+                            .is_some()
+                        {
+                            found = true;
+                            break;
+                        }
+                        if let Some(children) = world.get::<Children>(entity) {
+                            stack.extend(children.iter());
+                        }
+                    }
+                }
+                found
+            };
+            check(
+                world,
+                outlined_derived,
+                "the selection outline reaches the model's derived meshes",
             );
             let root = member.and_then(|m| world.get::<ChildOf>(m).map(|c| c.parent()));
             world.resource_mut::<HandsonProbe>().overridden_root = root;
