@@ -27,6 +27,7 @@ mod probe_kit;
 mod probe_material;
 mod probe_prefab;
 mod probe_user;
+mod problems;
 mod prompt;
 mod socket_gizmo;
 mod statusbar;
@@ -172,6 +173,7 @@ impl Plugin for EditorUiPlugin {
         ));
         app.add_editor_feature(EditorUiFeature);
         app.add_editor_feature(material_editor::MaterialEditorFeature);
+        app.add_editor_feature(problems::ProblemsFeature);
         app.add_observer(socket_gizmo::on_socket_added);
 
         app.init_resource::<which_key::WhichKey>();
@@ -188,6 +190,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<material_editor::MaterialEditorState>();
         app.init_resource::<material_editor::MaterialHistory>();
         app.init_resource::<material_editor::PendingSeeds>();
+        app.init_resource::<problems::ProblemsState>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
         app.init_resource::<inspector::InspectorGroups>();
@@ -261,6 +264,8 @@ impl Plugin for EditorUiPlugin {
                 material_editor::sync_editor_ui,
                 material_editor::seed_slider_values,
                 material_editor::sync_preview,
+                problems::collect_problem_actions,
+                problems::sync_problems_ui,
             )
                 .chain()
                 .in_set(editor_core::EditorSet::Sync),
@@ -277,6 +282,7 @@ impl Plugin for EditorUiPlugin {
                 palette_preview::setup_preview_rig,
                 material_editor::setup_material_preview,
                 material_editor::spawn_editor_root,
+                problems::spawn_problems_root,
                 dock::spawn_docks,
                 open_indicator::spawn_open_pill,
                 dock::attach_scrollbars,

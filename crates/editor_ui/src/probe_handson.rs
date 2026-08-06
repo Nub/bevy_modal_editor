@@ -58,13 +58,27 @@ fn type_word(world: &mut World, word: &str) {
             'c' => KeyCode::KeyC,
             'd' => KeyCode::KeyD,
             'e' => KeyCode::KeyE,
+            'f' => KeyCode::KeyF,
+            'g' => KeyCode::KeyG,
+            'h' => KeyCode::KeyH,
+            'i' => KeyCode::KeyI,
+            'j' => KeyCode::KeyJ,
             'k' => KeyCode::KeyK,
+            'l' => KeyCode::KeyL,
             'm' => KeyCode::KeyM,
+            'n' => KeyCode::KeyN,
             'o' => KeyCode::KeyO,
+            'p' => KeyCode::KeyP,
+            'q' => KeyCode::KeyQ,
             'r' => KeyCode::KeyR,
             's' => KeyCode::KeyS,
             't' => KeyCode::KeyT,
             'u' => KeyCode::KeyU,
+            'v' => KeyCode::KeyV,
+            'w' => KeyCode::KeyW,
+            'x' => KeyCode::KeyX,
+            'y' => KeyCode::KeyY,
+            'z' => KeyCode::KeyZ,
             _ => continue,
         };
         tap(world, code, &ch.to_string());
@@ -507,46 +521,117 @@ pub(crate) fn probe_handson(world: &mut World) {
                 .count();
             check(world, gizmos > 0, "the authored socket shows its gizmo");
         }
+        // ── Author a real problem: enabled spinner with zero speed ─────────
+        2000 => tap(world, KeyCode::KeyI, "i"),
+        2030 => type_word(world, "spin"),
+        2060 => tap_named(world, KeyCode::Enter, Key::Enter),
+        2100 => {
+            let field = world
+                .query::<(Entity, &crate::inspector::InspectorField)>()
+                .iter(world)
+                .find(|(_, f)| f.path == "enabled")
+                .map(|(e, _)| e);
+            match field {
+                Some(source) => world.trigger(bevy::ui_widgets::ValueChange {
+                    source,
+                    value: true,
+                    is_final: true,
+                }),
+                None => check(world, false, "inspector 'enabled' field present"),
+            }
+        }
+        2130 => {
+            let field = world
+                .query::<(Entity, &crate::inspector::InspectorField)>()
+                .iter(world)
+                .find(|(_, f)| f.path == "degrees_per_sec")
+                .map(|(e, _)| e);
+            match field {
+                Some(source) => world.trigger(bevy::ui_widgets::ValueChange {
+                    source,
+                    value: 0.0f32,
+                    is_final: true,
+                }),
+                None => check(world, false, "inspector 'degrees_per_sec' field present"),
+            }
+        }
+        // ── The validator flags it; the problems panel jumps to it ─────────
+        2170 => invoke(world, "level.validate"),
+        2210 => {
+            let warnings = world
+                .resource::<editor_scene::level_validation::LevelValidation>()
+                .count(editor_api::validate::Severity::Warning);
+            check(
+                world,
+                warnings >= 1,
+                "the game's level rule flagged the misconfigured spinner",
+            );
+            let opened = world.resource::<crate::problems::ProblemsState>().open;
+            check(
+                world,
+                opened,
+                "validate-with-problems auto-opened the panel",
+            );
+            shot(world, "24-level-problems");
+        }
+        2230 => {
+            let row = world
+                .query::<(Entity, &crate::problems::ProblemRow)>()
+                .iter(world)
+                .find(|(_, row)| row.0.is_some())
+                .map(|(e, _)| e);
+            match row.and_then(|r| ui_center(world, r)) {
+                Some(center) => move_cursor(world, center),
+                None => check(world, false, "an entity-shaped problem row exists"),
+            }
+        }
+        2240 => click(world, true),
+        2242 => click(world, false),
+        2270 => {
+            let offender = world
+                .resource::<editor_scene::level_validation::LevelValidation>()
+                .problems
+                .iter()
+                .find_map(|p| p.entity);
+            let selected: Vec<SceneId> = world
+                .query_filtered::<&SceneId, With<Selected>>()
+                .iter(world)
+                .copied()
+                .collect();
+            check(
+                world,
+                offender.is_some() && selected == vec![offender.unwrap()],
+                "clicking the problem row selected the offender",
+            );
+        }
+        2290 => tap_named(world, KeyCode::Escape, Key::Escape),
+        2310 => tap_named(world, KeyCode::Escape, Key::Escape),
+        2330 => {
+            let closed = !world.resource::<crate::problems::ProblemsState>().open;
+            check(world, closed, "empty-handed Escape closed the panel");
+        }
         // ── Checklist: play the authored content, reset back ───────────────
-        2000 => invoke(world, "editor.play"),
-        2060 => {
+        2350 => invoke(world, "editor.play"),
+        2410 => {
             let playing = !world.resource::<EditorState>().active;
             check(world, playing, "F5 hands the authored world to the game");
         }
-        2080 => invoke(world, "editor.reset"),
-        2160 => {
+        2430 => invoke(world, "editor.reset"),
+        2510 => {
             let back = world.resource::<EditorState>().active;
             check(world, back, "F7 returns to the editor");
             let drums = drum_roots(world).len();
             check(world, drums == 3, "authored instances survive play/reset");
         }
-        // ── Checklist bonus: the level validator runs over authored content ─
-        2170 => invoke(world, "level.validate"),
-        2190 => {
-            let ran = world
-                .resource::<editor_scene::level_validation::LevelValidation>()
-                .generation
-                > 0;
-            check(world, ran, "level validation ran over the authored scene");
-            let flash = world
-                .resource::<crate::statusbar::StatusFlash>()
-                .text
-                .clone();
-            check(
-                world,
-                flash.contains("level"),
-                "level.validate reports a summary",
-            );
-        }
         // ── Cleanup: nothing probe-owned outlives the run ──────────────────
-        2200 => {
+        2550 => {
             if let Some(id) = world.resource::<HandsonProbe>().material {
                 let mut library = world.resource_mut::<MaterialLibrary>();
                 library.materials.retain(|d| d.id != id);
                 library.generation += 1;
             }
         }
-        2260 => {
+        2610 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();
             if failures.is_empty() {
                 info!("HANDSON-PROBE PASS: the owner hands-on checklist end-to-end");

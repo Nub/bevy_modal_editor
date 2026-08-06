@@ -29,6 +29,10 @@ pub mod glyph {
     pub const INSERT: &str = "\u{f067}";
     /// Palette: component browse/insert.
     pub const COMPONENT: &str = "\u{f12e}";
+    /// Problems: error / warning / info (FontAwesome — Inter lacks ✕/⚠).
+    pub const ERROR: &str = "\u{f00d}";
+    pub const WARNING: &str = "\u{f071}";
+    pub const INFO: &str = "\u{f05a}";
 }
 
 /// THE chrome palette — one disciplined set, never ad-hoc RGB.

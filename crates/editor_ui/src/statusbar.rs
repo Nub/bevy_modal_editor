@@ -300,7 +300,8 @@ pub(crate) fn update_statusbar(
             .validation
             .count(editor_api::validate::Severity::Warning);
         if errors + warnings > 0 {
-            parts.push(format!("level \u{2715}{errors} \u{26a0}{warnings}"));
+            // Inter-covered glyphs only (× and ▲) — ✕/⚠ render tofu here.
+            parts.push(format!("level \u{d7}{errors} \u{25b2}{warnings}"));
         }
         let status = parts.join("  ·  ");
         if text.0 != status {
