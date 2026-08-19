@@ -38,7 +38,12 @@ pub(crate) fn editor_fly_camera(
     motion: Option<Res<AccumulatedMouseMotion>>,
     time: Option<Res<Time>>,
     mut flying: ResMut<FlyingCamera>,
-    mut camera: Query<(&Camera, &mut Transform, Option<&bevy::camera::RenderTarget>)>,
+    mut camera: Query<(
+        &Camera,
+        &mut Transform,
+        &mut Projection,
+        Option<&bevy::camera::RenderTarget>,
+    )>,
     mut cursor: Query<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
     let was_flying = flying.0;
@@ -70,12 +75,17 @@ pub(crate) fn editor_fly_camera(
         return;
     }
 
-    let Some((_, mut transform, _)) = camera
+    let Some((_, mut transform, mut projection, _)) = camera
         .iter_mut()
-        .find(|(camera, _, target)| is_viewport_camera(camera, target.as_deref()))
+        .find(|(camera, _, _, target)| is_viewport_camera(camera, target.as_deref()))
     else {
         return;
     };
+    // Flying LEAVES a canonical view: hand perspective back, or navigation
+    // happens inside an orthographic box and reads as nothing moving.
+    if matches!(*projection, Projection::Orthographic(_)) {
+        *projection = Projection::Perspective(PerspectiveProjection::default());
+    }
 
     // Mouse look.
     if let Some(motion) = motion
@@ -229,4 +239,108 @@ pub(crate) fn orbit_camera(
     };
     transform.translation = center + candidate;
     transform.look_at(center, Vec3::Y);
+}
+
+/// The six canonical views (keymap: `1` front, `2` left, `3` top; hold shift
+/// for the opposite face). Axis-aligned and ORTHOGRAPHIC, because that is what
+/// a "front view" is for: reading alignment and extents without perspective
+/// lying about them.
+///
+/// Flying restores perspective — leaving the canonical view is exactly the
+/// moment you want depth back.
+fn axis_view(action: &str) -> Option<(Vec3, Vec3)> {
+    // (direction the camera looks ALONG, up)
+    let view = match action {
+        "view.front" => (Vec3::NEG_Z, Vec3::Y),
+        "view.back" => (Vec3::Z, Vec3::Y),
+        "view.left" => (Vec3::X, Vec3::Y),
+        "view.right" => (Vec3::NEG_X, Vec3::Y),
+        // Looking straight down, "up" on screen is world -Z (north).
+        "view.top" => (Vec3::NEG_Y, Vec3::NEG_Z),
+        "view.bottom" => (Vec3::Y, Vec3::Z),
+        _ => return None,
+    };
+    Some(view)
+}
+
+/// `4`: back to the normal perspective view, keeping where you are looking.
+pub(crate) fn handle_perspective_view(
+    mut reader: MessageReader<ActionInvoked>,
+    state: Res<EditorState>,
+    mut cameras: Query<(
+        &Camera,
+        &mut Projection,
+        Option<&bevy::camera::RenderTarget>,
+    )>,
+) {
+    for invoked in reader.read() {
+        if invoked.action.as_str() != "view.perspective" || !state.active {
+            continue;
+        }
+        let Some((_, mut projection, _)) = cameras
+            .iter_mut()
+            .find(|(camera, _, target)| is_viewport_camera(camera, target.as_deref()))
+        else {
+            continue;
+        };
+        if matches!(*projection, Projection::Orthographic(_)) {
+            *projection = Projection::Perspective(PerspectiveProjection::default());
+        }
+    }
+}
+
+pub(crate) fn handle_axis_views(
+    mut reader: MessageReader<ActionInvoked>,
+    state: Res<EditorState>,
+    selected: Query<&GlobalTransform, (With<Selected>, With<SceneId>)>,
+    everything: Query<&GlobalTransform, With<SceneId>>,
+    mut cameras: Query<(
+        &Camera,
+        &mut Transform,
+        &mut Projection,
+        Option<&bevy::camera::RenderTarget>,
+    )>,
+) {
+    for invoked in reader.read() {
+        let Some((along, up)) = axis_view(invoked.action.as_str()) else {
+            continue;
+        };
+        if !state.active {
+            continue;
+        }
+        // Frame what you are looking at: the selection, else the whole scene.
+        let points: Vec<Vec3> = if selected.is_empty() {
+            everything.iter().map(|t| t.translation()).collect()
+        } else {
+            selected.iter().map(|t| t.translation()).collect()
+        };
+        let (center, radius) = if points.is_empty() {
+            (Vec3::ZERO, 8.0)
+        } else {
+            let center = points.iter().sum::<Vec3>() / points.len() as f32;
+            let radius = points
+                .iter()
+                .map(|p| p.distance(center))
+                .fold(1.0f32, f32::max)
+                + 1.5;
+            (center, radius)
+        };
+        let Some((_, mut transform, mut projection, _)) = cameras
+            .iter_mut()
+            .find(|(camera, _, _, target)| is_viewport_camera(camera, target.as_deref()))
+        else {
+            continue;
+        };
+        // Stand off far enough that near-plane clipping can't eat the subject;
+        // with an orthographic projection the distance costs nothing visually.
+        transform.translation = center - along * (radius * 4.0);
+        transform.look_to(along, up);
+        *projection = Projection::Orthographic(OrthographicProjection {
+            scaling_mode: bevy::camera::ScalingMode::AutoMin {
+                min_width: radius * 2.4,
+                min_height: radius * 2.4,
+            },
+            ..OrthographicProjection::default_3d()
+        });
+    }
 }

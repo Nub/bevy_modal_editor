@@ -167,8 +167,9 @@ pub(crate) fn probe_handson(world: &mut World) {
         let _ = std::fs::create_dir_all(crate::probe_user::SHOT_DIR);
         // Clean slate: probe-owned prefabs and sources never leak between runs.
         for stale in ["drum"] {
-            let _ = std::fs::remove_file(format!("prefabs/{stale}.prefab.ron"));
-            let _ = std::fs::remove_file(format!("prefabs/{stale}.prefab.ron.bak"));
+            let dir = editor_prefabs::authoring::prefabs_dir();
+            let _ = std::fs::remove_file(dir.join(format!("{stale}.prefab.ron")));
+            let _ = std::fs::remove_file(dir.join(format!("{stale}.prefab.ron.bak")));
             let mut library = world.resource_mut::<PrefabLibrary>();
             let ids: Vec<_> = library
                 .prefabs
@@ -220,6 +221,19 @@ pub(crate) fn probe_handson(world: &mut World) {
                 .last()
                 .map(|def| def.id);
             invoke(world, "material.edit");
+        }
+        // The editor scrolls: the texture slot sits below the fold on a short
+        // window, so reach it the way a user does — scroll, then aim.
+        290 => {
+            let body = world
+                .query_filtered::<Entity, With<crate::material_editor::MaterialEditorBody>>()
+                .iter(world)
+                .next();
+            if let Some(body) = body
+                && let Some(mut scroll) = world.get_mut::<bevy::ui::ScrollPosition>(body)
+            {
+                scroll.y = f32::MAX; // layout clamps to the real extent
+            }
         }
         300 => {
             let chip = world
@@ -381,6 +395,30 @@ pub(crate) fn probe_handson(world: &mut World) {
         }
         1330 => click(world, true),
         1332 => click(world, false),
+        // Owner rule: a prefab selects as a UNIT until opened. The click lands
+        // on the INSTANCE, and authoring on a member is a deliberate step in.
+        1336 => {
+            let picked_root = world
+                .query_filtered::<(), (With<Selected>, With<PrefabInstance>)>()
+                .iter(world)
+                .count();
+            let picked_member = world
+                .query_filtered::<(), (With<Selected>, With<PrefabStamped>)>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                picked_root == 1 && picked_member == 0,
+                "clicking a sealed prefab selects the INSTANCE, not the member",
+            );
+            invoke(world, "prefab.open");
+        }
+        1342 => {
+            let center = crate::probe_user::viewport_center(world);
+            move_cursor(world, center);
+        }
+        1345 => click(world, true),
+        1347 => click(world, false),
         1350 => {
             let member = world
                 .query_filtered::<Entity, (With<Selected>, With<PrefabStamped>)>()
@@ -389,7 +427,7 @@ pub(crate) fn probe_handson(world: &mut World) {
             check(
                 world,
                 member.is_some(),
-                "clicking the mesh selected the member",
+                "once OPEN, clicking the mesh selects the member",
             );
             // The selection outline must reach DERIVED meshes (imported models
             // carry no Mesh3d themselves — the gltf children silhouette).
@@ -538,6 +576,12 @@ pub(crate) fn probe_handson(world: &mut World) {
         1720 => tap(world, KeyCode::KeyI, "i"),
         1750 => type_word(world, "barr"),
         1780 => tap_named(world, KeyCode::Enter, Key::Enter),
+        // A freshly placed model is a LINKED reference, and components may not
+        // be added to one (owner rule) — its geometry lives in derived gltf
+        // children, so the component would land on an entity with no mesh.
+        // Flattening is the documented way to make the import authorable, and
+        // it is the step the refusal points at.
+        1810 => invoke(world, "model.flatten"),
         1860 => tap(world, KeyCode::KeyI, "i"),
         1890 => type_word(world, "socket"),
         1920 => tap_named(world, KeyCode::Enter, Key::Enter),
@@ -556,6 +600,25 @@ pub(crate) fn probe_handson(world: &mut World) {
                 .iter(world)
                 .count();
             check(world, gizmos > 0, "the authored socket shows its gizmo");
+        }
+        // ── The way back out: remove that component again, and undo it ─────
+        1990 => invoke(world, "component.remove"),
+        1993 => type_word(world, "socket"),
+        1996 => tap_named(world, KeyCode::Enter, Key::Enter),
+        1998 => {
+            let sockets = world
+                .query_filtered::<(), With<editor_prefabs::sockets::Socket>>()
+                .iter(world)
+                .count();
+            check(world, sockets == 0, "the component was removed");
+            invoke(world, "core.undo");
+        }
+        1999 => {
+            let restored = world
+                .query_filtered::<(), With<editor_prefabs::sockets::Socket>>()
+                .iter(world)
+                .count();
+            check(world, restored > 0, "undo puts the removed component back");
         }
         // ── Author a real problem: enabled spinner with zero speed ─────────
         2000 => tap(world, KeyCode::KeyI, "i"),

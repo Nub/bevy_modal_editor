@@ -12,7 +12,7 @@ use editor_scene::materials::{MaterialLibrary, load_materials};
 use uuid::Uuid;
 
 use crate::material_editor::{Field, MaterialEditorRoot, MaterialEditorState, MaterialPreviewRig};
-use crate::probe_user::{shot, tap_named};
+use crate::probe_user::{shot, tap, tap_named};
 
 #[derive(Resource, Default)]
 pub(crate) struct MaterialProbe {
@@ -20,6 +20,28 @@ pub(crate) struct MaterialProbe {
     failures: Vec<String>,
     created: Option<Uuid>,
     scene_undo_before: usize,
+    /// The model placed to prove assignment reaches derived gltf geometry.
+    placed: Option<SceneId>,
+}
+
+/// Every material handle on a mesh under `root`, derived subtree included —
+/// what the user actually SEES shading a placed model.
+fn subtree_materials(world: &mut World, root: Entity) -> Vec<Option<Handle<StandardMaterial>>> {
+    let mut found = Vec::new();
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if world.get::<Mesh3d>(entity).is_some() {
+            found.push(
+                world
+                    .get::<MeshMaterial3d<StandardMaterial>>(entity)
+                    .map(|m| m.0.clone()),
+            );
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    found
 }
 
 fn check(world: &mut World, ok: bool, what: &str) {
@@ -124,6 +146,21 @@ pub(crate) fn probe_material(world: &mut World) {
                 world.resource::<History>().undo_depth();
             slider_change(world, Field::Metallic, 0.5, false);
         }
+        // MID-drag (is_final was false): the thumb must already have moved.
+        // Writing `SliderValue` back is the app's job — skip it and the slider
+        // takes the pointer but never visibly slides.
+        305 => {
+            let shown = world
+                .query::<(&Field, &bevy::ui_widgets::SliderValue)>()
+                .iter(world)
+                .find(|(f, _)| matches!(f, Field::Metallic))
+                .map(|(_, v)| v.0);
+            check(
+                world,
+                shown.is_some_and(|v| (v - 0.5).abs() < 1e-5),
+                "the thumb follows the pointer DURING a drag",
+            );
+        }
         310 => slider_change(world, Field::Metallic, 0.9, true),
         340 => {
             let metallic_ok = created_def(world).is_some_and(|d| (d.metallic - 0.9).abs() < 1e-5);
@@ -202,8 +239,55 @@ pub(crate) fn probe_material(world: &mut World) {
                 metallic_widget.is_some_and(|v| (v - 0.9).abs() < 1e-5),
                 "the widget DISPLAYS the committed value",
             );
+            // The red track must paint THIS material's red axis. Left unset,
+            // `SliderBaseColor` is white — which renders red as cyan→white,
+            // a CMYK-looking track under an RGB label.
+            let base_tracked = {
+                let def = created_def(world);
+                let track = world
+                    .query::<(&Field, &bevy::feathers::controls::SliderBaseColor)>()
+                    .iter(world)
+                    .find(|(f, _)| matches!(f, Field::BaseR))
+                    .map(|(_, b)| b.0.to_srgba());
+                def.zip(track).is_some_and(|(def, track)| {
+                    (track.red - def.base_color[0]).abs() < 1e-3
+                        && (track.green - def.base_color[1]).abs() < 1e-3
+                        && (track.blue - def.base_color[2]).abs() < 1e-3
+                })
+            };
+            check(
+                world,
+                base_tracked,
+                "color tracks paint the material's own axes, not white's",
+            );
             shot(world, "21-material-editor");
         }
+        // ── Rename through THE name prompt, undoable like any material edit ─
+        640 => invoke(world, "material.rename"),
+        660 => {
+            let open = world
+                .resource::<editor_prefabs::authoring::GroupPrompt>()
+                .open;
+            check(world, open, "material.rename opens the name prompt");
+        }
+        664 => tap(world, KeyCode::KeyT, "t"),
+        668 => tap(world, KeyCode::KeyI, "i"),
+        672 => tap(world, KeyCode::KeyN, "n"),
+        676 => tap_named(world, KeyCode::Enter, Key::Enter),
+        690 => {
+            let renamed = created_def(world).is_some_and(|d| d.name == "tin");
+            check(world, renamed, "the committed name reached the library");
+            invoke(world, "core.undo");
+        }
+        694 => {
+            let reverted = created_def(world).is_some_and(|d| d.name != "tin");
+            check(
+                world,
+                reverted,
+                "undo takes the rename back like any other material edit",
+            );
+        }
+        696 => invoke(world, "core.redo"),
         // ── Escape grammar: empty-handed Esc closes; scope returns ─────────
         700 => tap_named(world, KeyCode::Escape, Key::Escape),
         740 => {
@@ -212,15 +296,101 @@ pub(crate) fn probe_material(world: &mut World) {
             let scope_back = *world.resource::<HistoryScope>() == HistoryScope::Scene;
             check(world, scope_back, "closing returned Ctrl+Z to the scene");
         }
-        // ── Cleanup: the probe's material never outlives the run ───────────
-        780 => {
+        // ── Assignment reaches a MODEL's geometry (the derived gltf subtree,
+        //    which is where the meshes actually are — spec §6/§7) ───────────
+        760 => {
+            let model = world
+                .resource::<editor_scene::models::ModelLibrary>()
+                .entries
+                .iter()
+                .find(|entry| entry.kind == editor_scene::models::EntryKind::Model)
+                .map(|entry| entry.uuid);
+            match model {
+                Some(model) => {
+                    let id = SceneId::random();
+                    world.resource_mut::<MaterialProbe>().placed = Some(id);
+                    world.resource_mut::<EditQueue>().0.push(Transaction {
+                        label: "Place Model".into(),
+                        gesture: None,
+                        ops: vec![Op::Spawn {
+                            id,
+                            components: vec![
+                                Box::new(editor_scene::models::MeshRef(model))
+                                    .into_partial_reflect(),
+                                Box::new(Transform::from_translation(Vec3::new(0.0, 0.0, -6.0)))
+                                    .into_partial_reflect(),
+                                Box::new(Name::new("probe model")).into_partial_reflect(),
+                            ],
+                        }],
+                    });
+                }
+                None => info!("MATERIAL-PROBE SKIP: no imported model to shade"),
+            }
+        }
+        // The gltf subtree resolves asynchronously — assign while it is still
+        // loading, exactly as a user would after placing.
+        790 => {
+            if let (Some(id), Some(material)) = (
+                world.resource::<MaterialProbe>().placed,
+                world.resource::<MaterialProbe>().created,
+            ) {
+                world.resource_mut::<EditQueue>().0.push(Transaction {
+                    label: "Assign Material".into(),
+                    gesture: None,
+                    ops: vec![Op::Set {
+                        target: id,
+                        value: Box::new(editor_scene::materials::MaterialRef(material))
+                            .into_partial_reflect(),
+                    }],
+                });
+            }
+        }
+        900 => {
+            if let (Some(id), Some(material)) = (
+                world.resource::<MaterialProbe>().placed,
+                world.resource::<MaterialProbe>().created,
+            ) {
+                let assigned = world
+                    .resource::<editor_scene::materials::MaterialHandles>()
+                    .0
+                    .get(&material)
+                    .cloned();
+                let root = world.resource::<editor_api::edits::SceneIndex>().get(&id);
+                let meshes = root
+                    .map(|root| subtree_materials(world, root))
+                    .unwrap_or_default();
+                check(
+                    world,
+                    !meshes.is_empty(),
+                    "the placed model spawned its gltf meshes",
+                );
+                check(
+                    world,
+                    assigned.is_some()
+                        && meshes
+                            .iter()
+                            .all(|handle| handle.as_ref() == assigned.as_ref()),
+                    "the assigned material reached EVERY mesh in the model subtree",
+                );
+                shot(world, "23-model-material");
+            }
+        }
+        // ── Cleanup: the probe's artifacts never outlive the run ───────────
+        940 => {
+            if let Some(id) = world.resource::<MaterialProbe>().placed
+                && let Some(entity) = world.resource::<editor_api::edits::SceneIndex>().get(&id)
+            {
+                world.entity_mut(entity).despawn();
+            }
+        }
+        960 => {
             if let Some(id) = world.resource::<MaterialProbe>().created {
                 let mut library = world.resource_mut::<MaterialLibrary>();
                 library.materials.retain(|d| d.id != id);
                 library.generation += 1;
             }
         }
-        840 => {
+        1000 => {
             let failures = world.resource::<MaterialProbe>().failures.clone();
             if failures.is_empty() {
                 info!("MATERIAL-PROBE PASS: the material editor end-to-end");

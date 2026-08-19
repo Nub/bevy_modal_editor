@@ -62,6 +62,9 @@ pub(crate) enum FieldKind {
     Str,
     /// The whole component is a `Name` (hash must be recomputed on set).
     NameText,
+    /// `path` names an enum leaf (empty = the component itself); the payload
+    /// carries the variant to switch to.
+    Variant,
 }
 
 /// The typed payload a commit carries (matched against `FieldKind`).
@@ -150,6 +153,13 @@ pub(crate) enum RowSpec {
         label: String,
         value: String,
     },
+    /// An enum's active variant — click to advance to the next CONSTRUCTIBLE
+    /// one (a variant whose payload we cannot build is not offered).
+    Variant {
+        label: String,
+        value: String,
+        field: InspectorField,
+    },
 }
 
 /// The collected view of the selection — plain data between the two phases.
@@ -159,6 +169,12 @@ pub(crate) struct InspectorModel {
     /// Bumped whenever `rows` is rebuilt (drives the render pass).
     pub generation: u64,
     pub dirty: bool,
+    /// Every reflectable component ON the selection, as `(type_path, short)` —
+    /// including the ones that render as tags or read-only rows. The inspector
+    /// already resolves this; publishing it gives the remove-component palette
+    /// the FULL surface instead of just the sections that happen to have
+    /// editable fields.
+    pub present: Vec<(String, String)>,
 }
 
 /// `TypeId → collect fn` (spec §7's type-override registry): returns true if it
@@ -366,6 +382,16 @@ pub(crate) fn collect_inspector(world: &mut World) {
         let (tags_open, readonly_open) = (groups.tags_open, groups.readonly_open);
         let mut tags: Vec<String> = Vec::new();
         let mut readonly: Vec<String> = Vec::new();
+        // Publish the full set before rendering splits it into sections, tags
+        // and read-only groups — removal needs all three.
+        let listed: Vec<(String, String)> = present
+            .iter()
+            .map(|(_, type_path)| {
+                let short = type_path.rsplit("::").next().unwrap_or(type_path);
+                (type_path.to_string(), short.to_string())
+            })
+            .collect();
+        world.resource_mut::<InspectorModel>().present = listed;
         for (type_id, type_path) in present {
             let Some(registration) = registry.get(type_id) else {
                 continue;
@@ -529,10 +555,42 @@ fn walk_fields(
             }
         }
         ReflectRef::Enum(e) => {
-            rows.push(RowSpec::ReadOnly {
-                label: leaf_label(prefix),
+            // A component that IS an enum has no field name — label it with the
+            // component instead of nothing at all.
+            let label = if prefix.is_empty() {
+                type_path
+                    .rsplit("::")
+                    .next()
+                    .unwrap_or(type_path)
+                    .to_string()
+            } else {
+                leaf_label(prefix)
+            };
+            rows.push(RowSpec::Variant {
+                label,
                 value: e.variant_name().to_string(),
+                field: InspectorField {
+                    target,
+                    type_path,
+                    path: prefix.to_string(),
+                    kind: FieldKind::Variant,
+                },
             });
+            // The ACTIVE variant's payload is ordinary data — walk it, so a
+            // Cuboid's lengths are editable and not just a variant name.
+            for i in 0..e.field_len() {
+                let Some(field) = e.field_at(i) else { continue };
+                let name = e
+                    .name_at(i)
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| i.to_string());
+                let path = if prefix.is_empty() {
+                    name
+                } else {
+                    format!("{prefix}.{name}")
+                };
+                walk_fields(target, type_path, &path, field, rows);
+            }
         }
         _ => {
             if let Some(v) = value.try_downcast_ref::<f32>() {
@@ -639,6 +697,70 @@ fn collect_material(
 
 fn leaf_label(path: &str) -> String {
     path.rsplit('.').next().unwrap_or(path).to_string()
+}
+
+/// Build `variant` of the enum described by `info`, defaulting its payload from
+/// the registry. Returns `None` when any field has no `ReflectDefault` — we
+/// offer only variants we can actually construct, rather than fabricating a
+/// value the engine may reject (avian's mesh-only collider constructors are
+/// exactly why: a bad default is a crash, not a warning).
+fn build_variant(
+    info: &bevy::reflect::enums::EnumInfo,
+    variant: &str,
+    registry: &bevy::reflect::TypeRegistry,
+) -> Option<bevy::reflect::enums::DynamicEnum> {
+    use bevy::reflect::enums::{DynamicVariant, VariantInfo};
+    use bevy::reflect::structs::DynamicStruct;
+    use bevy::reflect::tuple::DynamicTuple;
+    let default_for = |type_id: TypeId| -> Option<Box<dyn bevy::reflect::Reflect>> {
+        Some(
+            registry
+                .get(type_id)?
+                .data::<bevy::reflect::std_traits::ReflectDefault>()?
+                .default(),
+        )
+    };
+    let payload = match info.variant(variant)? {
+        VariantInfo::Unit(_) => DynamicVariant::Unit,
+        VariantInfo::Tuple(tuple) => {
+            let mut dynamic = DynamicTuple::default();
+            for i in 0..tuple.field_len() {
+                dynamic.insert_boxed(
+                    default_for(tuple.field_at(i)?.type_id())?.into_partial_reflect(),
+                );
+            }
+            DynamicVariant::Tuple(dynamic)
+        }
+        VariantInfo::Struct(structure) => {
+            let mut dynamic = DynamicStruct::default();
+            for i in 0..structure.field_len() {
+                let field = structure.field_at(i)?;
+                dynamic.insert_boxed(
+                    field.name(),
+                    default_for(field.type_id())?.into_partial_reflect(),
+                );
+            }
+            DynamicVariant::Struct(dynamic)
+        }
+    };
+    Some(bevy::reflect::enums::DynamicEnum::new(variant, payload))
+}
+
+/// The variant after `current`, wrapping — skipping any we cannot construct.
+fn next_variant(
+    info: &bevy::reflect::enums::EnumInfo,
+    current: &str,
+    registry: &bevy::reflect::TypeRegistry,
+) -> Option<bevy::reflect::enums::DynamicEnum> {
+    let names: Vec<&str> = info.iter().map(|v| v.name()).collect();
+    let start = names.iter().position(|n| *n == current).unwrap_or(0);
+    for step in 1..=names.len() {
+        let candidate = names[(start + step) % names.len()];
+        if let Some(built) = build_variant(info, candidate, registry) {
+            return Some(built);
+        }
+    }
+    None
 }
 
 /// TEMP diagnostic (INSPECTOR_PROBE=1): drive menu -> level -> select, log model.
@@ -1177,6 +1299,36 @@ pub(crate) fn render_inspector(
                     .id();
                 commands.entity(text).insert(ChildOf(row));
             }
+            RowSpec::Variant {
+                label,
+                value,
+                field,
+            } => {
+                let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
+                let chip = commands
+                    .spawn((
+                        field.clone(),
+                        Node {
+                            padding: UiRect::axes(px(style::space::S), px(style::space::XS)),
+                            border: UiRect::all(px(1.0)),
+                            border_radius: BorderRadius::all(px(style::radius::S)),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                        BorderColor::all(style::HAIRLINE),
+                        BackgroundColor(style::color::CHIP_REST),
+                        ChildOf(row),
+                    ))
+                    .observe(cycle_variant)
+                    .id();
+                commands.spawn((
+                    Text::new(value.clone()),
+                    style::no_wrap(),
+                    style::sans(&fonts, ui.font_size_s),
+                    TextColor(style::color::TEXT_KEYS),
+                    ChildOf(chip),
+                ));
+            }
         }
     }
 
@@ -1425,6 +1577,38 @@ fn queue_set(
                 }
                 dynamic
             }
+            // Advance to the next constructible variant, in place.
+            (FieldKind::Variant, _) => {
+                let Some(current) = current else { return };
+                let mut dynamic = current.as_partial_reflect().to_dynamic();
+                // The component itself may BE the enum (empty path).
+                let element: &mut dyn PartialReflect = if field.path.is_empty() {
+                    dynamic.as_mut()
+                } else {
+                    let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else {
+                        return;
+                    };
+                    let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else {
+                        return;
+                    };
+                    element
+                };
+                let ReflectRef::Enum(active) = element.reflect_ref() else {
+                    return;
+                };
+                let variant = active.variant_name().to_string();
+                let Some(bevy::reflect::TypeInfo::Enum(info)) = element.get_represented_type_info()
+                else {
+                    return;
+                };
+                let Some(next) = next_variant(info, &variant, &registry) else {
+                    return;
+                };
+                if element.try_apply(next.as_partial_reflect()).is_err() {
+                    return;
+                }
+                dynamic
+            }
             // Name's hash is derived — always rebuild through the constructor.
             (FieldKind::NameText, FieldNewValue::Text(new_value)) => Box::new(Name::new(new_value)),
             (FieldKind::EulerDeg(axis), FieldNewValue::F32(new_value)) => {
@@ -1506,6 +1690,26 @@ fn commit_number(
 }
 
 /// Checkbox commits are always final: one undo entry per toggle.
+/// Click a variant chip: advance to the next constructible variant. One
+/// undoable `Set` like every other inspector edit.
+fn cycle_variant(
+    press: On<Pointer<Press>>,
+    fields: Query<&InspectorField>,
+    mut model: ResMut<InspectorModel>,
+    mut commands: Commands,
+) {
+    let Ok(field) = fields.get(press.entity) else {
+        return;
+    };
+    queue_set(
+        &mut commands,
+        field.clone(),
+        FieldNewValue::Text(String::new()),
+        None,
+    );
+    model.dirty = true;
+}
+
 fn commit_bool(
     change: On<ValueChange<bool>>,
     fields: Query<&InspectorField>,

@@ -70,7 +70,91 @@ pub(crate) enum Field {
     Unlit,
     DoubleSided,
     AlphaMode,
+    /// Rename (through the name prompt) — coalesces like any other field.
+    Name,
     Texture,
+}
+
+/// Text mirroring a def field live. Color sliders draw no value of their own,
+/// and rows only rebuild on `refresh` — so a readout has to track the library
+/// rather than the layout, or it goes stale the moment a drag starts.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct FieldReadout(pub Field);
+
+/// The base-color chip in the section header: the resulting color, at a glance,
+/// without reading four numbers.
+#[derive(Component)]
+pub(crate) struct BaseColorSwatch;
+
+/// One option of the alpha-mode segmented control (a blind cycle hides the
+/// choices; a segment shows all three and which one is live).
+#[derive(Component, Clone, Copy)]
+pub(crate) struct AlphaModeChip(pub MaterialAlphaMode);
+
+/// The scalar a field edits, for readouts.
+fn field_value(def: &MaterialDef, field: Field) -> Option<f32> {
+    Some(match field {
+        Field::BaseR => def.base_color[0],
+        Field::BaseG => def.base_color[1],
+        Field::BaseB => def.base_color[2],
+        Field::BaseA => def.base_color[3],
+        Field::Metallic => def.metallic,
+        Field::Roughness => def.roughness,
+        Field::EmissiveR => def.emissive[0],
+        Field::EmissiveG => def.emissive[1],
+        Field::EmissiveB => def.emissive[2],
+        Field::EmissiveIntensity => def.emissive_intensity,
+        Field::AlphaCutoff => def.alpha_cutoff,
+        _ => return None,
+    })
+}
+
+/// Readouts and the swatch follow the LIBRARY, so they stay honest mid-drag
+/// and after undo — neither of which rebuilds the rows.
+pub(crate) fn sync_readouts(
+    state: Res<MaterialEditorState>,
+    library: Res<MaterialLibrary>,
+    mut readouts: Query<(&FieldReadout, &mut Text)>,
+    mut swatches: Query<&mut BackgroundColor, With<BaseColorSwatch>>,
+    mut tracks: Query<(&Field, &mut bevy::feathers::controls::SliderBaseColor)>,
+) {
+    if !state.open || !(library.is_changed() || state.is_changed()) {
+        return;
+    }
+    let Some(def) = state.target.and_then(|id| library.get(&id)) else {
+        return;
+    };
+    for (readout, mut text) in &mut readouts {
+        let Some(value) = field_value(def, readout.0) else {
+            continue;
+        };
+        let next = format!("{value:.2}");
+        if text.0 != next {
+            text.0 = next;
+        }
+    }
+    let base_color = Color::srgba(
+        def.base_color[0],
+        def.base_color[1],
+        def.base_color[2],
+        def.base_color[3],
+    );
+    let emissive_color = Color::srgb(def.emissive[0], def.emissive[1], def.emissive[2]);
+    for mut swatch in &mut swatches {
+        swatch.0 = base_color;
+    }
+    // Dragging red re-tints the green and blue tracks: each shows what its own
+    // channel does to the color as it stands now.
+    for (field, mut track) in &mut tracks {
+        let want = match field {
+            Field::BaseR | Field::BaseG | Field::BaseB | Field::BaseA => base_color,
+            Field::EmissiveR | Field::EmissiveG | Field::EmissiveB => emissive_color,
+            _ => continue,
+        };
+        if track.0 != want {
+            track.0 = want;
+        }
+    }
 }
 
 #[derive(Component)]
@@ -92,7 +176,19 @@ pub(crate) struct MaterialPreviewRig {
 /// inserts — and retained-scene patching strips marker COMPONENTS, so the
 /// pending seeds live in a resource the template can't touch.
 #[derive(Resource, Default)]
-pub(crate) struct PendingSeeds(Vec<(Entity, f32, f32, f32)>);
+pub(crate) struct PendingSeeds(Vec<Seed>);
+
+pub(crate) struct Seed {
+    entity: Entity,
+    value: f32,
+    min: f32,
+    max: f32,
+    /// Color sliders only: the OTHER channels, which decide the gradient the
+    /// track paints. `SliderBaseColor` defaults to white, so leaving it unset
+    /// paints the red channel cyan→white — a CMYK-looking track under an RGB
+    /// label, showing white's axes instead of this material's.
+    base: Option<Color>,
+}
 
 pub(crate) fn seed_slider_values(
     mut seeds: ResMut<PendingSeeds>,
@@ -100,26 +196,33 @@ pub(crate) fn seed_slider_values(
     entities: &bevy::ecs::entity::Entities,
     mut commands: Commands,
 ) {
-    seeds.0.retain(|(entity, value, min, max)| {
+    seeds.0.retain(|seed| {
         // Entities::contains sees RESERVED ids too — a component query here
         // would drop seeds queued this frame before their commands flushed.
-        if !entities.contains(*entity) {
+        if !entities.contains(seed.entity) {
             return false; // rebuilt away before its template ever landed
         }
-        if !ready.contains(*entity) {
+        if !ready.contains(seed.entity) {
             return true; // template not applied yet — keep waiting
         }
         // Immutable widget components: re-insert (which also fires the
         // Changed detection feathers' own sync systems key off).
-        debug!("seeding slider {entity:?} to {value} in [{min}, {max}]");
-        commands.entity(*entity).insert((
-            bevy::ui_widgets::SliderValue(*value),
-            bevy::ui_widgets::SliderRange::new(*min, *max),
+        debug!(
+            "seeding slider {:?} to {} in [{}, {}]",
+            seed.entity, seed.value, seed.min, seed.max
+        );
+        let mut entity = commands.entity(seed.entity);
+        entity.insert((
+            bevy::ui_widgets::SliderValue(seed.value),
+            bevy::ui_widgets::SliderRange::new(seed.min, seed.max),
             // Absent from the widget as spawned — and feathers' value/track
             // sync query REQUIRES it, so without this the display never
             // updates at all.
             bevy::ui_widgets::SliderPrecision(2),
         ));
+        if let Some(base) = seed.base {
+            entity.insert(bevy::feathers::controls::SliderBaseColor(base));
+        }
         false
     });
 }
@@ -136,6 +239,12 @@ impl EditorFeature for MaterialEditorFeature {
                 .describe("Open the material editor for the selection's material")
                 .context("normal")
                 .bind("space shift+m"),
+        );
+        reg.action(
+            ActionDef::new("material.rename", "Rename Material")
+                .describe("Rename the open (or selected) material")
+                .context("normal")
+                .bind("space r"),
         );
     }
 }
@@ -248,6 +357,88 @@ pub(crate) fn collect_editor_actions(
     }
 }
 
+/// `material.rename` through THE name prompt (the same surface prefab naming
+/// uses). Targets the open editor's material, else the selection's — so it
+/// works with the panel open or straight off a selected object.
+pub(crate) fn collect_rename(
+    mut reader: MessageReader<ActionInvoked>,
+    state: Res<MaterialEditorState>,
+    selection: Query<&editor_scene::materials::MaterialRef, With<Selected>>,
+    library: Res<MaterialLibrary>,
+    mut prompt: ResMut<editor_prefabs::authoring::GroupPrompt>,
+    mut target: ResMut<RenameTarget>,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    for invoked in reader.read() {
+        if invoked.action.as_str() != "material.rename" {
+            continue;
+        }
+        let wanted = state
+            .target
+            .or_else(|| selection.iter().next().map(|r| r.0))
+            .filter(|id| library.get(id).is_some());
+        match wanted {
+            Some(id) => {
+                target.0 = Some(id);
+                prompt.open = true;
+                prompt.purpose = editor_prefabs::authoring::PromptPurpose::RenameMaterial;
+            }
+            None => {
+                feedback.write(editor_scene::SceneIoFeedback {
+                    message: "no material to rename — open one or select a shaded object".into(),
+                    success: false,
+                });
+            }
+        }
+    }
+}
+
+/// Which material the open rename prompt is for.
+#[derive(Resource, Default)]
+pub(crate) struct RenameTarget(pub Option<Uuid>);
+
+/// Apply the committed name. Goes through `edit_material`, so a rename lands in
+/// the SAME asset history as every other material edit — Ctrl+Z takes it back.
+pub(crate) fn apply_rename(
+    prompt: Res<editor_prefabs::authoring::GroupPrompt>,
+    mut commit: ResMut<editor_prefabs::authoring::GroupCommit>,
+    mut target: ResMut<RenameTarget>,
+    time: Res<Time>,
+    mut library: ResMut<MaterialLibrary>,
+    mut history: ResMut<MaterialHistory>,
+    mut state: ResMut<MaterialEditorState>,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    if prompt.purpose != editor_prefabs::authoring::PromptPurpose::RenameMaterial {
+        return;
+    }
+    let Some(name) = commit.0.take() else { return };
+    let Some(id) = target.0.take() else { return };
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        feedback.write(editor_scene::SceneIoFeedback {
+            message: "a material needs a name".into(),
+            success: false,
+        });
+        return;
+    }
+    edit_material(
+        &mut library,
+        &mut history,
+        time.elapsed_secs_f64(),
+        id,
+        Field::Name,
+        true,
+        |def| def.name = name.clone(),
+    );
+    // The header shows the name — rebuild it.
+    state.refresh = true;
+    feedback.write(editor_scene::SceneIoFeedback {
+        message: format!("renamed to {name}"),
+        success: true,
+    });
+}
+
 /// Undo/redo while the editor holds the scope.
 pub(crate) fn apply_material_history(
     mut reader: MessageReader<ActionInvoked>,
@@ -322,12 +513,19 @@ pub(crate) fn on_field_value(
     time: Res<Time>,
     mut library: ResMut<MaterialLibrary>,
     mut history: ResMut<MaterialHistory>,
+    mut commands: Commands,
 ) {
     let Ok(field) = fields.get(change.source) else {
         return;
     };
     let Some(id) = state.target else { return };
     let value = change.value;
+    // The widget reports the drag; moving the thumb is OURS to do (see
+    // `bevy_ui_widgets::slider_self_update`). Without this write-back the
+    // slider never visibly slides, however far the pointer travels.
+    commands
+        .entity(change.source)
+        .insert(bevy::ui_widgets::SliderValue(value));
     edit_material(
         &mut library,
         &mut history,
@@ -392,6 +590,7 @@ pub(crate) fn on_field_toggle(
 pub(crate) fn on_chip_press(
     press: On<Pointer<Press>>,
     fields: Query<&Field>,
+    segments: Query<&AlphaModeChip>,
     time: Res<Time>,
     models: Res<ModelLibrary>,
     mut library: ResMut<MaterialLibrary>,
@@ -403,6 +602,9 @@ pub(crate) fn on_chip_press(
     };
     debug!("material chip pressed: {field:?}");
     let Some(id) = editor.target else { return };
+    // A segment says exactly which mode it is; only the legacy single chip
+    // cycles.
+    let segment = segments.get(press.entity).ok().map(|chip| chip.0);
     let textures: Vec<Uuid> = models
         .entries
         .iter()
@@ -418,11 +620,11 @@ pub(crate) fn on_chip_press(
         true,
         |def| match field {
             Field::AlphaMode => {
-                def.alpha_mode = match def.alpha_mode {
+                def.alpha_mode = segment.unwrap_or(match def.alpha_mode {
                     MaterialAlphaMode::Opaque => MaterialAlphaMode::Blend,
                     MaterialAlphaMode::Blend => MaterialAlphaMode::Mask,
                     MaterialAlphaMode::Mask => MaterialAlphaMode::Opaque,
-                };
+                });
             }
             Field::Texture => {
                 // none → tex0 → tex1 → … → none
@@ -473,7 +675,7 @@ pub(crate) fn sync_preview(
 
 /// Root surface, spawned hidden once at startup.
 pub(crate) fn spawn_editor_root(mut commands: Commands, fonts: Res<UiFonts>) {
-    commands
+    let root = commands
         .spawn((
             MaterialEditorRoot,
             FloatingSurface::default(),
@@ -482,7 +684,7 @@ pub(crate) fn spawn_editor_root(mut commands: Commands, fonts: Res<UiFonts>) {
                 right: px(480.0),
                 top: px(48.0),
                 bottom: px(56.0),
-                width: px(300.0),
+                width: px(340.0),
                 flex_direction: FlexDirection::Column,
                 row_gap: px(style::space::S),
                 padding: UiRect::all(px(style::space::M)),
@@ -525,20 +727,43 @@ pub(crate) fn spawn_editor_root(mut commands: Commands, fonts: Res<UiFonts>) {
                         TextColor(style::color::TEXT_DIM),
                     ));
                 });
-            root.spawn((
-                MaterialEditorBody,
-                Node {
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(style::space::XS),
-                    flex_grow: 1.0,
-                    min_height: px(0.0),
-                    // Clip, don't scroll: scroll containers unconstrain child
-                    // heights and collapse the widgets' percent-sized tracks.
-                    overflow: bevy::ui::Overflow::clip(),
-                    ..default()
-                },
-            ));
-        });
+        })
+        .id();
+    // The scroll viewport: a relative wrapper (the scrollbar's frame of
+    // reference) around the scrolling body — the same two-part shape every
+    // docked panel uses, so one scrollbar recipe serves both.
+    let wrapper = commands
+        .spawn((
+            Node {
+                flex_direction: FlexDirection::Column,
+                flex_grow: 1.0,
+                min_height: px(0.0),
+                ..default()
+            },
+            ChildOf(root),
+        ))
+        .id();
+    let body = commands
+        .spawn((
+            MaterialEditorBody,
+            bevy::ui_widgets::ScrollArea,
+            Node {
+                flex_direction: FlexDirection::Column,
+                row_gap: px(style::space::XS),
+                flex_grow: 1.0,
+                min_height: px(0.0),
+                // Right padding keeps content clear of the scrollbar overlay.
+                padding: UiRect::right(px(style::space::M)),
+                // Rows carry explicit heights and never shrink (see
+                // `row_wrapper`), so scrolling cannot collapse the widgets'
+                // percent-sized tracks.
+                overflow: bevy::ui::Overflow::scroll_y(),
+                ..default()
+            },
+            ChildOf(wrapper),
+        ))
+        .id();
+    crate::dock::spawn_scrollbar(&mut commands, wrapper, body);
 }
 
 /// Rebuild the body when the editor opens/retargets or a chip changed a
@@ -588,39 +813,103 @@ pub(crate) fn sync_editor_ui(
         .base_color_texture
         .and_then(|uuid| models.get(&uuid).map(|e| e.name.clone()))
         .unwrap_or_else(|| "none".into());
-    let alpha_label = match def.alpha_mode {
-        MaterialAlphaMode::Opaque => "opaque",
-        MaterialAlphaMode::Blend => "blend",
-        MaterialAlphaMode::Mask => "mask",
-    };
 
     // Widgets spawn via `commands` + ChildOf (bsn scenes have no child-spawner
     // entry point); plain rows use commands the same way for symmetry.
     if let Some(rig) = rig {
+        // The preview sits on its own card: a sphere floating on the panel
+        // background reads as an artifact, not a rendering.
+        let stage = commands
+            .spawn((
+                Node {
+                    height: px(96.0),
+                    flex_shrink: 0.0,
+                    align_items: AlignItems::Center,
+                    justify_content: JustifyContent::Center,
+                    border: UiRect::all(px(1.0)),
+                    border_radius: BorderRadius::all(px(style::radius::L)),
+                    margin: UiRect::bottom(px(style::space::XS)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgb(0.086, 0.084, 0.080)),
+                BorderColor::all(style::HAIRLINE),
+                ChildOf(body),
+            ))
+            .id();
         commands.spawn((
             ImageNode::new(rig.image.clone()),
             Node {
-                width: px(80.0),
-                height: px(80.0),
+                width: px(84.0),
+                height: px(84.0),
                 flex_shrink: 0.0,
-                align_self: AlignSelf::Center,
-                border_radius: BorderRadius::all(px(style::radius::S)),
                 ..default()
             },
-            ChildOf(body),
+            ChildOf(stage),
         ));
     }
-    let caption = |commands: &mut Commands, label: &str| {
+    // A section header is a label plus a rule to the panel edge — grouping the
+    // eye can follow without reading.
+    let caption = |commands: &mut Commands, label: &str, swatch: bool| {
+        let row = commands
+            .spawn((
+                Node {
+                    align_items: AlignItems::Center,
+                    column_gap: px(style::space::S),
+                    margin: UiRect::top(px(style::space::XS)),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                ChildOf(body),
+            ))
+            .id();
         commands.spawn((
             Text::new(label.to_string()),
+            style::no_wrap(),
             style::sans_medium(&fonts, 10.0),
             TextColor(style::color::TEXT_DIM),
+            ChildOf(row),
+        ));
+        commands.spawn((
             Node {
-                margin: UiRect::top(px(2.0)),
+                flex_grow: 1.0,
+                height: px(1.0),
+                ..default()
+            },
+            BackgroundColor(style::HAIRLINE),
+            ChildOf(row),
+        ));
+        if swatch {
+            commands.spawn((
+                BaseColorSwatch,
+                Node {
+                    width: px(22.0),
+                    height: px(12.0),
+                    flex_shrink: 0.0,
+                    border: UiRect::all(px(1.0)),
+                    border_radius: BorderRadius::all(px(style::radius::S)),
+                    ..default()
+                },
+                BackgroundColor(Color::WHITE),
+                BorderColor::all(style::HAIRLINE),
+                ChildOf(row),
+            ));
+        }
+    };
+    /// The label gutter every row shares — one left edge down the panel.
+    const GUTTER: f32 = 64.0;
+    const READOUT: f32 = 34.0;
+    let gutter_label = |commands: &mut Commands, fonts: &UiFonts, parent: Entity, label: &str| {
+        commands.spawn((
+            Text::new(label.to_string()),
+            style::no_wrap(),
+            style::sans(fonts, 11.0),
+            TextColor(style::color::TEXT_KEYS),
+            Node {
+                width: px(GUTTER),
                 flex_shrink: 0.0,
                 ..default()
             },
-            ChildOf(body),
+            ChildOf(parent),
         ));
     };
     // Fixed-height wrappers with flex_shrink 0: the height-capped panel would
@@ -642,8 +931,28 @@ pub(crate) fn sync_editor_ui(
             ))
             .id()
     };
-    let color_row = |commands: &mut Commands, field: Field, channel: ColorChannel, value: f32| {
-        let wrapper = row_wrapper(commands, 20.0);
+    // Color channels get the same gutter as the sliders, plus the numeric
+    // readout feathers' color slider does not draw — dragging blind was the
+    // worst of the old surface.
+    let color_row = |commands: &mut Commands,
+                     fonts: &UiFonts,
+                     label: &str,
+                     field: Field,
+                     channel: ColorChannel,
+                     value: f32,
+                     base: Color| {
+        let wrapper = row_wrapper(commands, 22.0);
+        gutter_label(commands, fonts, wrapper, label);
+        let slot = commands
+            .spawn((
+                Node {
+                    flex_grow: 1.0,
+                    align_items: AlignItems::Center,
+                    ..default()
+                },
+                ChildOf(wrapper),
+            ))
+            .id();
         let widget = commands
             .spawn_scene(bsn! {
                 @FeathersColorSlider {
@@ -651,10 +960,29 @@ pub(crate) fn sync_editor_ui(
                     @channel: {channel},
                 }
             })
-            .insert((field, ChildOf(wrapper)))
+            .insert((field, ChildOf(slot)))
             .observe(on_field_value)
             .id();
-        seeds.borrow_mut().push((widget, value, 0.0, 1.0));
+        commands.spawn((
+            FieldReadout(field),
+            Text::new(format!("{value:.2}")),
+            style::no_wrap(),
+            style::mono(fonts, 10.0),
+            TextColor(style::color::TEXT_DIM),
+            Node {
+                width: px(READOUT),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            ChildOf(wrapper),
+        ));
+        seeds.borrow_mut().push(Seed {
+            entity: widget,
+            value,
+            min: 0.0,
+            max: 1.0,
+            base: Some(base),
+        });
     };
     let slider_row = |commands: &mut Commands,
                       fonts: &UiFonts,
@@ -663,18 +991,7 @@ pub(crate) fn sync_editor_ui(
                       value: f32,
                       max: f32| {
         let wrapper = row_wrapper(commands, 24.0);
-        commands.spawn((
-            Text::new(label.to_string()),
-            style::no_wrap(),
-            style::sans(fonts, 11.0),
-            TextColor(style::color::TEXT_KEYS),
-            Node {
-                width: px(76.0),
-                flex_shrink: 0.0,
-                ..default()
-            },
-            ChildOf(wrapper),
-        ));
+        gutter_label(commands, fonts, wrapper, label);
         let slot = commands
             .spawn((
                 Node {
@@ -690,9 +1007,34 @@ pub(crate) fn sync_editor_ui(
             .insert((field, ChildOf(slot)))
             .observe(on_field_value)
             .id();
-        seeds.borrow_mut().push((widget, value, 0.0, max));
+        seeds.borrow_mut().push(Seed {
+            entity: widget,
+            value,
+            min: 0.0,
+            max,
+            base: None,
+        });
     };
-    let chip = |commands: &mut Commands, fonts: &UiFonts, field: Field, label: String| {
+    // A chip in the gutter-aligned row shape, so every control lines up.
+    let chip_in = |commands: &mut Commands,
+                   fonts: &UiFonts,
+                   parent: Entity,
+                   field: Field,
+                   label: String,
+                   selected: bool| {
+        let (background, border, text) = if selected {
+            (
+                Color::srgba(1.0, 1.0, 1.0, 0.10),
+                style::color::accent(),
+                style::color::TEXT_BRIGHT,
+            )
+        } else {
+            (
+                style::color::CHIP_REST,
+                style::HAIRLINE,
+                style::color::TEXT_KEYS,
+            )
+        };
         let chip_entity = commands
             .spawn((
                 field,
@@ -701,12 +1043,12 @@ pub(crate) fn sync_editor_ui(
                     border: UiRect::all(px(1.0)),
                     border_radius: BorderRadius::all(px(style::radius::S)),
                     flex_shrink: 0.0,
-                    align_self: AlignSelf::FlexStart,
+                    align_items: AlignItems::Center,
                     ..default()
                 },
-                BorderColor::all(style::HAIRLINE),
-                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04)),
-                ChildOf(body),
+                BorderColor::all(border),
+                BackgroundColor(background),
+                ChildOf(parent),
             ))
             .observe(on_chip_press)
             .id();
@@ -714,62 +1056,70 @@ pub(crate) fn sync_editor_ui(
             Text::new(label),
             style::no_wrap(),
             style::sans(fonts, 11.0),
-            TextColor(style::color::TEXT_KEYS),
+            TextColor(text),
             ChildOf(chip_entity),
         ));
+        chip_entity
     };
     let toggle = |commands: &mut Commands, fonts: &UiFonts, label: &str, field: Field, on: bool| {
-        let row = commands
-            .spawn((
-                Node {
-                    align_items: AlignItems::Center,
-                    column_gap: px(style::space::S),
-                    flex_shrink: 0.0,
-                    ..default()
-                },
-                ChildOf(body),
-            ))
-            .id();
+        let row = row_wrapper(commands, 24.0);
+        gutter_label(commands, fonts, row, label);
         let mut switch = commands.spawn_scene(bsn! { @FeathersToggleSwitch });
         switch.insert((field, ChildOf(row)));
         if on {
             switch.insert(Checked);
         }
         switch.observe(on_field_toggle);
-        commands.spawn((
-            Text::new(label.to_string()),
-            style::sans(fonts, 11.0),
-            TextColor(style::color::TEXT_KEYS),
-            ChildOf(row),
-        ));
     };
 
-    caption(&mut commands, "BASE COLOR");
+    // Each channel track paints THIS material's axis (the other channels held
+    // constant) — not white's.
+    let base_color = Color::srgba(
+        def.base_color[0],
+        def.base_color[1],
+        def.base_color[2],
+        def.base_color[3],
+    );
+    let emissive_color = Color::srgb(def.emissive[0], def.emissive[1], def.emissive[2]);
+
+    caption(&mut commands, "BASE COLOR", true);
     color_row(
         &mut commands,
+        &fonts,
+        "red",
         Field::BaseR,
         ColorChannel::Red,
         def.base_color[0],
+        base_color,
     );
     color_row(
         &mut commands,
+        &fonts,
+        "green",
         Field::BaseG,
         ColorChannel::Green,
         def.base_color[1],
+        base_color,
     );
     color_row(
         &mut commands,
+        &fonts,
+        "blue",
         Field::BaseB,
         ColorChannel::Blue,
         def.base_color[2],
+        base_color,
     );
     color_row(
         &mut commands,
+        &fonts,
+        "alpha",
         Field::BaseA,
         ColorChannel::Alpha,
         def.base_color[3],
+        base_color,
     );
-    caption(&mut commands, "SURFACE");
+    caption(&mut commands, "SURFACE", false);
     slider_row(
         &mut commands,
         &fonts,
@@ -786,24 +1136,33 @@ pub(crate) fn sync_editor_ui(
         def.roughness,
         1.0,
     );
-    caption(&mut commands, "EMISSIVE");
+    caption(&mut commands, "EMISSIVE", false);
     color_row(
         &mut commands,
+        &fonts,
+        "red",
         Field::EmissiveR,
         ColorChannel::Red,
         def.emissive[0],
+        emissive_color,
     );
     color_row(
         &mut commands,
+        &fonts,
+        "green",
         Field::EmissiveG,
         ColorChannel::Green,
         def.emissive[1],
+        emissive_color,
     );
     color_row(
         &mut commands,
+        &fonts,
+        "blue",
         Field::EmissiveB,
         ColorChannel::Blue,
         def.emissive[2],
+        emissive_color,
     );
     slider_row(
         &mut commands,
@@ -813,13 +1172,28 @@ pub(crate) fn sync_editor_ui(
         def.emissive_intensity,
         10.0,
     );
-    caption(&mut commands, "ALPHA");
-    chip(
-        &mut commands,
-        &fonts,
-        Field::AlphaMode,
-        format!("mode: {alpha_label}"),
-    );
+    caption(&mut commands, "ALPHA", false);
+    // Segmented control: all three modes visible, the live one marked. A
+    // one-chip cycle hid both which modes exist and where a click would land.
+    {
+        let row = row_wrapper(&mut commands, 24.0);
+        gutter_label(&mut commands, &fonts, row, "mode");
+        for (mode, label) in [
+            (MaterialAlphaMode::Opaque, "opaque"),
+            (MaterialAlphaMode::Blend, "blend"),
+            (MaterialAlphaMode::Mask, "mask"),
+        ] {
+            let chip_entity = chip_in(
+                &mut commands,
+                &fonts,
+                row,
+                Field::AlphaMode,
+                label.into(),
+                def.alpha_mode == mode,
+            );
+            commands.entity(chip_entity).insert(AlphaModeChip(mode));
+        }
+    }
     slider_row(
         &mut commands,
         &fonts,
@@ -828,21 +1202,27 @@ pub(crate) fn sync_editor_ui(
         def.alpha_cutoff,
         1.0,
     );
-    caption(&mut commands, "FLAGS");
+    caption(&mut commands, "FLAGS", false);
     toggle(&mut commands, &fonts, "unlit", Field::Unlit, def.unlit);
     toggle(
         &mut commands,
         &fonts,
-        "double-sided",
+        "2-sided",
         Field::DoubleSided,
         def.double_sided,
     );
-    caption(&mut commands, "BASE COLOR TEXTURE");
-    chip(
-        &mut commands,
-        &fonts,
-        Field::Texture,
-        format!("texture: {texture_label}"),
-    );
+    caption(&mut commands, "BASE COLOR TEXTURE", false);
+    {
+        let row = row_wrapper(&mut commands, 24.0);
+        gutter_label(&mut commands, &fonts, row, "texture");
+        chip_in(
+            &mut commands,
+            &fonts,
+            row,
+            Field::Texture,
+            texture_label.clone(),
+            def.base_color_texture.is_some(),
+        );
+    }
     pending.0.extend(seeds.into_inner());
 }

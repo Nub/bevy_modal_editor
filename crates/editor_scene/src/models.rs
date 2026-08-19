@@ -90,7 +90,7 @@ impl ModelLibrary {
 /// Mirror Bevy's `FileAssetReader` root resolution so the scan sees exactly
 /// the tree the AssetServer serves: `BEVY_ASSET_ROOT`, else the manifest dir
 /// (cargo run), else the executable's directory — joined with "assets".
-fn assets_fs_root() -> PathBuf {
+pub fn assets_fs_root() -> PathBuf {
     let base = std::env::var_os("BEVY_ASSET_ROOT")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from))

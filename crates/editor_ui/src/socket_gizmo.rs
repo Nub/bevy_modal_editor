@@ -43,7 +43,11 @@ pub(crate) fn on_socket_added(
             MeshMaterial3d(material),
             // Cone points +Y natively; the mating direction is +Z.
             Transform::from_rotation(Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)),
-            bevy::picking::Pickable::IGNORE,
+            // The cone is the socket's ONLY visible geometry, so it has to be
+            // its click target too — a socket entity carries no mesh of its
+            // own, and picking resolves a hit to the nearest `SceneId`
+            // ancestor, which is the socket. Selection is already gated on the
+            // editor being active, so this never leaks into play.
             Visibility::Hidden,
         ));
     });

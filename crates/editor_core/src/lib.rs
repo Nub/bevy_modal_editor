@@ -37,7 +37,9 @@ pub mod prelude {
         ActionCatalog, EditorState, KeyCapture, KeysUnresolved, OverlayContext, PendingKeys,
         PointerOverChrome, ResolvedKeymap, active_contexts, which_key_continuations,
     };
-    pub use crate::selection::{PendingSelect, Selected, SelectionChanged, SelectionScope};
+    pub use crate::selection::{
+        PendingSelect, Selected, SelectionChanged, SelectionScope, SelectionSealed,
+    };
     pub use crate::settings::EditorSettings;
     pub use crate::{BakerCatalog, ProcessorCatalog, ValidatorCatalog};
     pub use editor_api::prelude::*;
@@ -136,6 +138,45 @@ impl EditorFeature for CoreFeature {
                 .context("normal")
                 .bind("z f"),
         )
+        // The six canonical views (owner): 1 front, 2 left, 3 top — shift for
+        // the opposite face. Orthographic, because reading alignment is the
+        // whole point of standing square to an axis.
+        .action(
+            ActionDef::new("view.front", "View: Front")
+                .context("normal")
+                .bind("1"),
+        )
+        .action(
+            ActionDef::new("view.back", "View: Back")
+                .context("normal")
+                .bind("shift+1"),
+        )
+        .action(
+            ActionDef::new("view.left", "View: Left")
+                .context("normal")
+                .bind("2"),
+        )
+        .action(
+            ActionDef::new("view.right", "View: Right")
+                .context("normal")
+                .bind("shift+2"),
+        )
+        .action(
+            ActionDef::new("view.top", "View: Top")
+                .context("normal")
+                .bind("3"),
+        )
+        .action(
+            ActionDef::new("view.bottom", "View: Bottom")
+                .context("normal")
+                .bind("shift+3"),
+        )
+        .action(
+            ActionDef::new("view.perspective", "View: Perspective")
+                .describe("Back to the normal perspective view")
+                .context("normal")
+                .bind("4"),
+        )
         .action(
             ActionDef::new("view.toggle-grid", "Toggle Grid")
                 .describe("Show or hide the editor's ground grid")
@@ -198,6 +239,16 @@ impl EditorFeature for CoreFeature {
                 .describe("Start a move gesture on the selection")
                 .context("normal")
                 .bind("w")
+                .edit(),
+        )
+        .action(
+            ActionDef::new("transform.rotate", "Rotate Selection")
+                .describe(
+                    "Start a rotate gesture on the selection — \
+                     x/y/z constrain, typed amounts are DEGREES (yaw by default)",
+                )
+                .context("normal")
+                .bind("r")
                 .edit(),
         )
         .action(
@@ -392,6 +443,8 @@ impl Plugin for EditorCorePlugin {
                     selection::handle_selection_actions,
                     selection::select_pending,
                     camera::handle_frame_actions,
+                    camera::handle_axis_views,
+                    camera::handle_perspective_view,
                     gesture::handle_gesture_actions,
                     gesture::motion_from_cursor,
                     gesture::drive_gesture,

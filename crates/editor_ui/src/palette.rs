@@ -31,6 +31,9 @@ use crate::style::{self, UiFonts};
 pub enum PaletteFilter {
     /// `i` with a selection: add a component to the selected entities.
     AddComponent,
+    /// Remove a component the selection HAS — the way back out of the add
+    /// palette, which offers the whole registry.
+    RemoveComponent,
     /// `/` with a selection: find a component ON the selection, jump to it.
     ComponentSearch,
     #[default]
@@ -298,6 +301,22 @@ fn build_palette_items(
             }
             entries.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
             items.0.extend(entries.into_iter().map(|(_, _, e)| e));
+        }
+        PaletteFilter::RemoveComponent => {
+            // Only what the selection HAS — and never Transform, which every
+            // scene entity needs to exist anywhere.
+            for (type_path, short) in &inspector_model.present {
+                if short == "Transform" {
+                    continue;
+                }
+                items.0.push(PaletteEntry {
+                    label: short.clone(),
+                    category: Some("ON SELECTION".into()),
+                    keywords: type_path.clone(),
+                    suffix: "remove".into(),
+                    payload: PalettePayload::RemoveComponent(type_path.clone()),
+                });
+            }
         }
         PaletteFilter::ComponentSearch => {
             // Components ON the selection = the inspector's live section list.
@@ -571,6 +590,7 @@ fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<Palet
     let label = match state.filter {
         PaletteFilter::InsertKinds => "INSERT OBJECT",
         PaletteFilter::AddComponent => "ADD COMPONENT",
+        PaletteFilter::RemoveComponent => "REMOVE COMPONENT",
         PaletteFilter::ComponentSearch => "COMPONENTS ON SELECTION",
         PaletteFilter::Commands => "COMMANDS",
         PaletteFilter::FindObject => "FIND OBJECT",
@@ -610,6 +630,16 @@ fn handle_open_action(
         if invoked.action.as_str() == "material.assign" && !state.open {
             open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
             state.filter = PaletteFilter::Materials;
+            if let Ok(mut text) = editable.get_mut(*input) {
+                text.clear();
+            }
+        }
+        if invoked.action.as_str() == "component.remove" && !state.open {
+            if selection.is_empty() {
+                continue;
+            }
+            open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
+            state.filter = PaletteFilter::RemoveComponent;
             if let Ok(mut text) = editable.get_mut(*input) {
                 text.clear();
             }
@@ -753,6 +783,37 @@ fn palette_keys(
                             if selected.is_empty() {
                                 return;
                             }
+                            // A LINKED model is a reference, not content: its
+                            // geometry lives in derived gltf children, so a
+                            // component added here lands on an entity that has
+                            // no mesh — the shape it is meant to describe isn't
+                            // on it (owner: don't let me do this). Flatten
+                            // first; purpose-built verbs (Fit Collider) still
+                            // work on the reference itself.
+                            let linked: Vec<SceneId> = {
+                                let mut query = world
+                                    .query_filtered::<&SceneId, With<editor_scene::models::MeshRef>>(
+                                    );
+                                let linked: std::collections::HashSet<SceneId> =
+                                    query.iter(world).copied().collect();
+                                selected
+                                    .iter()
+                                    .copied()
+                                    .filter(|id| linked.contains(id))
+                                    .collect()
+                            };
+                            if !linked.is_empty() {
+                                world.write_message(editor_scene::SceneIoFeedback {
+                                    message: format!(
+                                        "{} linked model{} — flatten it first (model.flatten) \
+                                         before adding components",
+                                        linked.len(),
+                                        if linked.len() == 1 { " is a" } else { "s are" },
+                                    ),
+                                    success: false,
+                                });
+                                return;
+                            }
                             let registry_arc = world.resource::<AppTypeRegistry>().clone();
                             let registry = registry_arc.read();
                             let Some(registration) = registry.get(type_id) else {
@@ -785,6 +846,42 @@ fn palette_keys(
                             });
                             world.write_message(editor_scene::SceneIoFeedback {
                                 message: format!("{short} added to {count} selected"),
+                                success: true,
+                            });
+                        });
+                    }
+                    PalettePayload::RemoveComponent(type_path) => {
+                        let type_path = type_path.clone();
+                        commands.queue(move |world: &mut World| {
+                            let selected: Vec<SceneId> = {
+                                let mut query = world.query_filtered::<&SceneId, With<Selected>>();
+                                query.iter(world).copied().collect()
+                            };
+                            if selected.is_empty() {
+                                return;
+                            }
+                            let short = type_path
+                                .rsplit("::")
+                                .next()
+                                .unwrap_or(&type_path)
+                                .to_string();
+                            let count = selected.len();
+                            // ONE undoable transaction across the selection —
+                            // undo puts the component back with its values.
+                            let ops = selected
+                                .into_iter()
+                                .map(|target| Op::Remove {
+                                    target,
+                                    type_path: type_path.clone(),
+                                })
+                                .collect();
+                            world.resource_mut::<EditQueue>().0.push(Transaction {
+                                label: format!("Remove {short}"),
+                                gesture: None,
+                                ops,
+                            });
+                            world.write_message(editor_scene::SceneIoFeedback {
+                                message: format!("{short} removed from {count} selected"),
                                 success: true,
                             });
                         });
@@ -1148,10 +1245,12 @@ fn rebuild_results(
         Some(PalettePayload::Action(id)) => catalog.get(id).cloned(),
         _ => None,
     };
-    // Live 3D preview for placeable things (v1 parity): kinds + prefabs.
+    // Live 3D preview for placeable things (v1 parity): kinds + prefabs — and
+    // materials, which are unreadable as a list of names.
     use crate::palette_preview::Subject;
     let preview_subject = match &selected_payload {
         Some(PalettePayload::Prefab(id)) => Some(Subject::Prefab(*id)),
+        Some(PalettePayload::Material(id)) => Some(Subject::Material(*id)),
         Some(PalettePayload::Action(id)) => id
             .as_str()
             .strip_prefix("insert.kind.")

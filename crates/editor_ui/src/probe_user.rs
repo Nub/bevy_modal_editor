@@ -205,8 +205,9 @@ pub(crate) fn probe_user(world: &mut World) {
         // Clean slate (owner rule): probe-owned prefabs from prior runs must
         // never leak into this session's library or palettes.
         for stale in ["kit", "red"] {
-            let _ = std::fs::remove_file(format!("prefabs/{stale}.prefab.ron"));
-            let _ = std::fs::remove_file(format!("prefabs/{stale}.prefab.ron.bak"));
+            let dir = editor_prefabs::authoring::prefabs_dir();
+            let _ = std::fs::remove_file(dir.join(format!("{stale}.prefab.ron")));
+            let _ = std::fs::remove_file(dir.join(format!("{stale}.prefab.ron.bak")));
             let mut library = world.resource_mut::<PrefabLibrary>();
             let ids: Vec<_> = library
                 .prefabs

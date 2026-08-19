@@ -17,6 +17,12 @@ pub struct Selected;
 #[derive(Resource, Default)]
 pub struct SelectionScope(pub Option<std::collections::HashSet<Entity>>);
 
+/// Marks a subtree that selects AS A UNIT: a click on any descendant picks
+/// this entity instead. Prefab instances wear it until opened, so authoring
+/// inside one is a deliberate step in, never an accident of aim.
+#[derive(Component)]
+pub struct SelectionSealed;
+
 /// Broadcast whenever the selection set changes (gizmos, panels, statusbar react).
 #[derive(Message, Debug)]
 pub struct SelectionChanged;
@@ -58,6 +64,7 @@ pub(crate) fn on_pointer_press(
     // Alt+LMB is ORBIT — never selection.
     scope: Res<SelectionScope>,
     ids: Query<(), With<SceneId>>,
+    sealed: Query<(), With<SelectionSealed>>,
     ui_nodes: Query<(), With<bevy::ui::ComputedNode>>,
     parents: Query<&ChildOf>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
@@ -100,6 +107,24 @@ pub(crate) fn on_pointer_press(
             Err(_) => break None,
         }
     };
+    // A SEALED container selects as a unit: clicking any part of it picks the
+    // container, not the part. Prefab instances seal themselves until opened,
+    // so you cannot accidentally author on a member of a prefab you have not
+    // stepped into. The OUTERMOST seal wins, which handles nesting.
+    let target = target.map(|entity| {
+        let mut resolved = entity;
+        let mut current = entity;
+        loop {
+            if sealed.contains(current) {
+                resolved = current;
+            }
+            match parents.get(current) {
+                Ok(parent) => current = parent.parent(),
+                Err(_) => break,
+            }
+        }
+        resolved
+    });
     // Alt+click is ORBIT (camera), never selection.
     if keys
         .as_ref()

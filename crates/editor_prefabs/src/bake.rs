@@ -255,6 +255,13 @@ mod tests {
     fn baked_app(dir: &std::path::Path) -> App {
         let mut app = test_app();
         app.insert_resource(BakeDir(dir.to_path_buf()));
+        // Startup loaded the PROJECT's prefabs/ directory: this test counts
+        // artifacts, so it must bake its own fixture and nothing else. Any
+        // prefab an owner authors would otherwise change the count.
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .clear();
         let prefab = barrel_prefab();
         let id = prefab.id;
         app.world_mut()

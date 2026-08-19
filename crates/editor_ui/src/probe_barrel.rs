@@ -105,8 +105,9 @@ pub(crate) fn probe_barrel(world: &mut World) {
         // Clean slate (owner rule): probe-owned artifacts never leak between
         // runs — the keg prefab AND the barrel source with its identity.
         for stale in ["keg", "cask"] {
-            let _ = std::fs::remove_file(format!("prefabs/{stale}.prefab.ron"));
-            let _ = std::fs::remove_file(format!("prefabs/{stale}.prefab.ron.bak"));
+            let dir = editor_prefabs::authoring::prefabs_dir();
+            let _ = std::fs::remove_file(dir.join(format!("{stale}.prefab.ron")));
+            let _ = std::fs::remove_file(dir.join(format!("{stale}.prefab.ron.bak")));
             let mut library = world.resource_mut::<PrefabLibrary>();
             let ids: Vec<_> = library
                 .prefabs

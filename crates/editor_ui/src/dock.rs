@@ -195,6 +195,36 @@ pub(crate) struct EditorScrollbar {
     last_active: f32,
 }
 
+/// THE scrollbar recipe (one for every scrolling surface in the editor):
+/// a feathers scrollbar pinned to the right edge of `wrapper`, driving
+/// `target`'s `ScrollPosition`, with the macOS-style presence animation.
+/// `wrapper` must be the relative container spanning the scroll viewport.
+pub(crate) fn spawn_scrollbar(commands: &mut Commands, wrapper: Entity, target: Entity) -> Entity {
+    let scrollbar = commands
+        .spawn_scene(bsn! {
+            @FeathersScrollbar {
+                @target: {bevy::ecs::template::EntityTemplate::Entity(target)},
+                @orientation: {ControlOrientation::Vertical},
+            }
+            Node {
+                position_type: PositionType::Absolute,
+                right: px(style::space::XS),
+                top: px(style::space::XS),
+                bottom: px(style::space::XS),
+                width: px(3),
+            }
+        })
+        .id();
+    commands.entity(scrollbar).insert((
+        EditorScrollbar {
+            width: 3.0,
+            last_active: -10.0,
+        },
+        ChildOf(wrapper),
+    ));
+    scrollbar
+}
+
 /// Startup pass after `spawn_docks`: every panel body gets a feathers scrollbar
 /// overlay (kit-first) pinned to its card's right edge, targeting the body's
 /// `ScrollPosition`.
@@ -212,28 +242,7 @@ pub(crate) fn attach_scrollbars(
         }) else {
             continue;
         };
-        let scrollbar = commands
-            .spawn_scene(bsn! {
-                @FeathersScrollbar {
-                    @target: {bevy::ecs::template::EntityTemplate::Entity(body)},
-                    @orientation: {ControlOrientation::Vertical},
-                }
-                Node {
-                    position_type: PositionType::Absolute,
-                    right: px(style::space::XS),
-                    top: px(style::space::XS),
-                    bottom: px(style::space::XS),
-                    width: px(3),
-                }
-            })
-            .id();
-        commands.entity(scrollbar).insert((
-            EditorScrollbar {
-                width: 3.0,
-                last_active: -10.0,
-            },
-            ChildOf(wrapper),
-        ));
+        spawn_scrollbar(&mut commands, wrapper, body);
         commands.entity(card).insert(ScrollbarAttached);
     }
 }

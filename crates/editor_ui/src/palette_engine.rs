@@ -25,6 +25,8 @@ pub(crate) enum PalettePayload {
     Model(uuid::Uuid),
     /// Insert this component (default value) onto every selected entity.
     AddComponent(std::any::TypeId),
+    /// Remove this component (by type path) from every selected entity.
+    RemoveComponent(String),
     /// Jump the inspector to this component section (rapid editing).
     RevealComponent(String),
 }

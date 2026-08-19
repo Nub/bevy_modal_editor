@@ -172,6 +172,214 @@ impl MaterialLibrary {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Resolution: `MaterialRef` -> live `MeshMaterial3d` (M4-D11, spec §7).
+//
+// The reference sits on the SCENE entity, but the renderable meshes may not:
+// a placed model (`MeshRef`) carries no `Mesh3d` of its own — its geometry
+// lives in the DERIVED gltf subtree (spec §6), a hierarchy of node entities
+// whose leaves hold the primitives with the materials the artist exported.
+// Bevy materials do not inherit down a hierarchy, so assignment must REACH
+// those primitives; anything less shades nothing at all.
+//
+// Three arrivals must land the same override, because a GLB resolves
+// ASYNCHRONOUSLY: the reference changing, the library changing, and the
+// subtree's meshes appearing (first load, or a respawn after re-import).
+// ---------------------------------------------------------------------------
+
+/// GPU handles per library material — created on demand, patched IN PLACE on
+/// library edits so every entity using the material re-shades live.
+#[derive(Resource, Default)]
+pub struct MaterialHandles(pub std::collections::HashMap<Uuid, Handle<StandardMaterial>>);
+
+/// The material an overridden mesh had BEFORE the override (the artist's gltf
+/// material, or a game's own). Removing the reference — undo of a first
+/// assignment — restores exactly this, never a guess.
+#[derive(Component, Clone)]
+pub struct SourceMaterial(Option<MeshMaterial3d<StandardMaterial>>);
+
+/// Every mesh in the subtree, and what it is currently shaded with.
+type MeshState<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Option<&'static MeshMaterial3d<StandardMaterial>>,
+        Option<&'static SourceMaterial>,
+    ),
+    With<Mesh3d>,
+>;
+
+/// A descendant that is a scene entity in its own right — or carries its own
+/// reference — owns its material; an ancestor's override stops there.
+fn is_boundary(
+    entity: Entity,
+    refs: &Query<(Entity, Ref<MaterialRef>)>,
+    scene_entities: &Query<(), With<SceneId>>,
+) -> bool {
+    refs.contains(entity) || scene_entities.contains(entity)
+}
+
+/// Where an override on `root` reaches: every mesh from `root` down, stopping
+/// at boundaries. For a placed model this is the whole derived gltf subtree.
+fn override_targets(
+    root: Entity,
+    children: &Query<&Children>,
+    mesh_state: &MeshState,
+    refs: &Query<(Entity, Ref<MaterialRef>)>,
+    scene_entities: &Query<(), With<SceneId>>,
+) -> Vec<Entity> {
+    let mut targets = Vec::new();
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        // The root always applies, boundary or not — it IS the boundary.
+        if entity != root && is_boundary(entity, refs, scene_entities) {
+            continue;
+        }
+        if mesh_state.contains(entity) {
+            targets.push(entity);
+        }
+        if let Ok(kids) = children.get(entity) {
+            stack.extend(kids.iter());
+        }
+    }
+    targets
+}
+
+/// The nearest ancestor (self included) holding a `MaterialRef`, without
+/// crossing another scene entity — used when a mesh APPEARS under an already
+/// overridden root (async gltf load, re-import respawn).
+fn owning_ref(
+    entity: Entity,
+    parents: &Query<&ChildOf>,
+    refs: &Query<(Entity, Ref<MaterialRef>)>,
+    scene_entities: &Query<(), With<SceneId>>,
+) -> Option<(Entity, MaterialRef)> {
+    let mut current = entity;
+    loop {
+        if let Ok((_, material_ref)) = refs.get(current) {
+            return Some((current, *material_ref));
+        }
+        // A scene entity without a reference terminates the search: the mesh
+        // belongs to IT, not to whatever it happens to sit under.
+        if current != entity && scene_entities.contains(current) {
+            return None;
+        }
+        current = parents.get(current).ok()?.parent();
+    }
+}
+
+/// `MaterialRef` -> `MeshMaterial3d`, reaching into derived model subtrees.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn sync_material_refs(
+    library: Res<MaterialLibrary>,
+    models: Res<crate::models::ModelLibrary>,
+    asset_server: Option<Res<AssetServer>>,
+    mut handles: ResMut<MaterialHandles>,
+    materials: Option<ResMut<Assets<StandardMaterial>>>,
+    refs: Query<(Entity, Ref<MaterialRef>)>,
+    mut removed: RemovedComponents<MaterialRef>,
+    appeared: Query<Entity, Added<Mesh3d>>,
+    parents: Query<&ChildOf>,
+    children: Query<&Children>,
+    mesh_state: MeshState,
+    scene_entities: Query<(), With<SceneId>>,
+    mut commands: Commands,
+) {
+    // Headless contexts (unit tests, CLI) have no render assets — nothing to
+    // resolve to, and nothing to see.
+    let Some(mut materials) = materials else {
+        return;
+    };
+    let server = asset_server.as_deref();
+    // Library param edits patch the SHARED handles: no entity is touched, and
+    // every user of the material re-shades this frame.
+    if library.is_changed() {
+        for def in &library.materials {
+            if let Some(handle) = handles.0.get(&def.id)
+                && let Some(mut material) = materials.get_mut(handle)
+            {
+                *material = to_standard_material(def, &models, server);
+            }
+        }
+    }
+    let handle_for = |id: &Uuid,
+                      handles: &mut MaterialHandles,
+                      materials: &mut Assets<StandardMaterial>|
+     -> Option<Handle<StandardMaterial>> {
+        let def = library.get(id)?;
+        Some(
+            handles
+                .0
+                .entry(def.id)
+                .or_insert_with(|| materials.add(to_standard_material(def, &models, server)))
+                .clone(),
+        )
+    };
+    let apply = |target: Entity, handle: Handle<StandardMaterial>, commands: &mut Commands| {
+        let Ok((current, source)) = mesh_state.get(target) else {
+            return;
+        };
+        // Remember what we displaced, ONCE — a second assignment must not
+        // record the first override as the original.
+        if source.is_none() {
+            commands
+                .entity(target)
+                .insert(SourceMaterial(current.cloned()));
+        }
+        commands.entity(target).insert(MeshMaterial3d(handle));
+    };
+
+    // 1. Reference added/changed — and every reference when the library moved,
+    //    since a freshly created material has no handle yet.
+    let library_moved = library.is_changed();
+    for (root, material_ref) in &refs {
+        if !library_moved && !material_ref.is_changed() {
+            continue;
+        }
+        let Some(handle) = handle_for(&material_ref.0, &mut handles, &mut materials) else {
+            continue; // dangling reference — leave the geometry as authored
+        };
+        for target in override_targets(root, &children, &mesh_state, &refs, &scene_entities) {
+            apply(target, handle.clone(), &mut commands);
+        }
+    }
+
+    // 2. Meshes that only just appeared: a model's gltf subtree resolves
+    //    frames after the reference was assigned (and respawns wholesale on
+    //    re-import), so the override has to chase the geometry.
+    for mesh in &appeared {
+        let Some((_root, material_ref)) = owning_ref(mesh, &parents, &refs, &scene_entities) else {
+            continue;
+        };
+        if let Some(handle) = handle_for(&material_ref.0, &mut handles, &mut materials) {
+            apply(mesh, handle, &mut commands);
+        }
+    }
+
+    // 3. Reference removed (undo of a first assignment): put back exactly what
+    //    the override displaced.
+    for root in removed.read() {
+        if commands.get_entity(root).is_err() {
+            continue; // despawned along with its reference
+        }
+        for target in override_targets(root, &children, &mesh_state, &refs, &scene_entities) {
+            let Ok((_, Some(source))) = mesh_state.get(target) else {
+                continue;
+            };
+            let mut entity = commands.entity(target);
+            match &source.0 {
+                Some(material) => {
+                    entity.insert(material.clone());
+                }
+                None => {
+                    entity.remove::<MeshMaterial3d<StandardMaterial>>();
+                }
+            }
+            entity.remove::<SourceMaterial>();
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum MaterialsError {
     Io(std::io::Error),

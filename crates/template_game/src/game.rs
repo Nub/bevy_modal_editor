@@ -93,13 +93,14 @@ impl Plugin for GamePlugin {
         app.register_type::<Primitive>();
         app.register_type::<Spinner>();
         app.register_type::<PhysicsBody>();
+        app.register_type::<AutoBoxCollider>();
         // Physics is part of the GAME (avian3d). While the editor owns input
         // the simulation is paused — dynamic props hold still under editing
         // and only live during play.
         app.add_plugins(PhysicsPlugins::default());
         app.init_resource::<GameInputActive>()
             .add_systems(Startup, (init_primitive_assets, leave_boot))
-            .add_systems(Update, derive_physics)
+            .add_systems(Update, (derive_physics, derive_auto_colliders))
             .add_observer(on_primitive_added)
             .add_systems(OnEnter(AppState::MainMenu), spawn_menu)
             .add_systems(OnExit(AppState::MainMenu), despawn_menu)
@@ -198,10 +199,182 @@ pub enum PhysicsBody {
     Dynamic,
 }
 
+/// Fit a box to whatever the entity actually RENDERS, and keep it fitted.
+///
+/// `BoxCollider` is a fixed volume you author once; this is the declarative
+/// form — no numbers to type, and it re-fits when the content changes. That
+/// matters most for imported models, whose geometry lives in the derived gltf
+/// children (the entity you select has no mesh of its own) and arrives
+/// asynchronously, so a one-shot fit at placement time would measure nothing.
+///
+/// Takes precedence over `BoxCollider` on the same entity — one of them owns
+/// the derived collider, and the automatic one is the more specific intent.
+#[derive(Component, Reflect, Clone, Copy, PartialEq, Debug, Default)]
+#[reflect(Component, Default)]
+pub struct AutoBoxCollider;
+
+/// What `AutoBoxCollider` last fitted — refit only when the bounds actually
+/// move, so a settled model costs one comparison a frame, not a respawned
+/// collider.
+#[derive(Component)]
+pub struct AutoFitted {
+    pub half_extents: Vec3,
+    pub offset: Vec3,
+}
+
+/// Marks a subtree that is DECORATION, not content: it renders, but it is not
+/// part of the shape a collider should hug. Editor gizmos (socket cones and the
+/// like) get this so a piece's collider does not grow to swallow them — the
+/// game module stays editor-free, and whoever spawns the decoration says so.
+#[derive(Component, Reflect, Clone, Copy, PartialEq, Debug, Default)]
+#[reflect(Component, Default)]
+pub struct BoundsIgnored;
+
+/// The tight box around everything `root` renders, in ROOT-LOCAL space,
+/// derived-gltf children included. `None` while nothing has bounds yet — an
+/// imported model's meshes land frames after the entity does.
+pub fn visual_bounds(
+    root: Entity,
+    root_global: &GlobalTransform,
+    children: &Query<&Children>,
+    aabbs: &Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
+    ignored: &Query<(), With<BoundsIgnored>>,
+) -> Option<(Vec3, Vec3)> {
+    let to_local = root_global.affine().inverse();
+    let mut min = Vec3::MAX;
+    let mut max = Vec3::MIN;
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        // Decoration contributes nothing, and neither does anything under it.
+        if entity != root && ignored.contains(entity) {
+            continue;
+        }
+        if let Ok((aabb, global)) = aabbs.get(entity) {
+            let center = Vec3::from(aabb.center);
+            let he = Vec3::from(aabb.half_extents);
+            for corner in 0..8 {
+                let sign = Vec3::new(
+                    if corner & 1 == 0 { -1.0 } else { 1.0 },
+                    if corner & 2 == 0 { -1.0 } else { 1.0 },
+                    if corner & 4 == 0 { -1.0 } else { 1.0 },
+                );
+                let local = to_local.transform_point3(global.transform_point(center + he * sign));
+                min = min.min(local);
+                max = max.max(local);
+            }
+        }
+        if let Ok(kids) = children.get(entity) {
+            stack.extend(kids.iter());
+        }
+    }
+    (min.x <= max.x).then(|| ((max - min) * 0.5, (max + min) * 0.5))
+}
+
 /// Derived marker: the avian collider child a `BoxCollider` spawns. Never
 /// serialized — rebuilt from the data component like every derived visual.
 #[derive(Component)]
 pub struct ColliderDerived;
+
+/// Replace `entity`'s derived collider with a box of these dimensions.
+fn respawn_collider(
+    commands: &mut Commands,
+    entity: Entity,
+    half_extents: Vec3,
+    offset: Vec3,
+    body: Option<PhysicsBody>,
+    children: &Query<&Children>,
+    derived: &Query<(), With<ColliderDerived>>,
+) {
+    if let Ok(kids) = children.get(entity) {
+        for kid in kids.iter() {
+            if derived.contains(kid) {
+                commands.entity(kid).despawn();
+            }
+        }
+    }
+    let rigid = match body.unwrap_or_default() {
+        PhysicsBody::Static => RigidBody::Static,
+        PhysicsBody::Dynamic => RigidBody::Dynamic,
+    };
+    commands.entity(entity).insert(rigid);
+    commands.spawn((
+        ColliderDerived,
+        Collider::cuboid(
+            half_extents.x * 2.0,
+            half_extents.y * 2.0,
+            half_extents.z * 2.0,
+        ),
+        Transform::from_translation(offset),
+        ChildOf(entity),
+    ));
+}
+
+/// `AutoBoxCollider` → a fitted collider, kept in sync with the content.
+/// Polls rather than reacting to change detection: mesh bounds arrive with the
+/// asset load, which no component on this entity reports.
+#[allow(clippy::type_complexity)]
+fn derive_auto_colliders(
+    autos: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            Option<&PhysicsBody>,
+            Option<&AutoFitted>,
+        ),
+        With<AutoBoxCollider>,
+    >,
+    children: Query<&Children>,
+    aabbs: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
+    ignored: Query<(), With<BoundsIgnored>>,
+    derived: Query<(), With<ColliderDerived>>,
+    mut removed: RemovedComponents<AutoBoxCollider>,
+    bodies: Query<(), With<RigidBody>>,
+    mut commands: Commands,
+) {
+    for entity in removed.read() {
+        if bodies.contains(entity) {
+            commands.entity(entity).remove::<RigidBody>();
+        }
+        if let Ok(kids) = children.get(entity) {
+            for kid in kids.iter() {
+                if derived.contains(kid) {
+                    commands.entity(kid).despawn();
+                }
+            }
+        }
+        if let Ok(mut e) = commands.get_entity(entity) {
+            e.remove::<AutoFitted>();
+        }
+    }
+    for (entity, global, body, fitted) in &autos {
+        // Bounds include OUR collider child's transform-only entity, which has
+        // no Aabb — nothing to exclude, so the measurement stays stable.
+        let Some((half_extents, offset)) =
+            visual_bounds(entity, global, &children, &aabbs, &ignored)
+        else {
+            continue; // still loading — try again next frame
+        };
+        let settled = fitted.is_some_and(|f| {
+            f.half_extents.abs_diff_eq(half_extents, 1e-4) && f.offset.abs_diff_eq(offset, 1e-4)
+        });
+        if settled {
+            continue;
+        }
+        respawn_collider(
+            &mut commands,
+            entity,
+            half_extents,
+            offset,
+            body.copied(),
+            &children,
+            &derived,
+        );
+        commands.entity(entity).insert(AutoFitted {
+            half_extents,
+            offset,
+        });
+    }
+}
 
 /// Editor owns input → physics holds still; play → simulate.
 pub fn sync_physics_pause_now(game_input: Res<GameInputActive>, mut time: ResMut<Time<Physics>>) {
@@ -221,15 +394,24 @@ pub fn sync_physics_pause_now(game_input: Res<GameInputActive>, mut time: ResMut
 fn derive_physics(
     changed: Query<
         (Entity, &BoxCollider, Option<&PhysicsBody>),
-        Or<(Changed<BoxCollider>, Changed<PhysicsBody>)>,
+        (
+            Or<(Changed<BoxCollider>, Changed<PhysicsBody>)>,
+            // The automatic fit owns the collider where both are present.
+            Without<AutoBoxCollider>,
+        ),
     >,
     children: Query<&Children>,
     derived: Query<(), With<ColliderDerived>>,
     mut removed_colliders: RemovedComponents<BoxCollider>,
     bodies: Query<(), With<RigidBody>>,
+    autos: Query<(), With<AutoBoxCollider>>,
     mut commands: Commands,
 ) {
     for entity in removed_colliders.read() {
+        // An auto-fitted entity keeps its collider when the manual one goes.
+        if autos.contains(entity) {
+            continue;
+        }
         if bodies.contains(entity) {
             commands.entity(entity).remove::<RigidBody>();
         }
@@ -242,28 +424,15 @@ fn derive_physics(
         }
     }
     for (entity, collider, body) in &changed {
-        if let Ok(kids) = children.get(entity) {
-            for kid in kids.iter() {
-                if derived.contains(kid) {
-                    commands.entity(kid).despawn();
-                }
-            }
-        }
-        let rigid = match body.copied().unwrap_or_default() {
-            PhysicsBody::Static => RigidBody::Static,
-            PhysicsBody::Dynamic => RigidBody::Dynamic,
-        };
-        commands.entity(entity).insert(rigid);
-        commands.spawn((
-            ColliderDerived,
-            Collider::cuboid(
-                collider.half_extents.x * 2.0,
-                collider.half_extents.y * 2.0,
-                collider.half_extents.z * 2.0,
-            ),
-            Transform::from_translation(collider.offset),
-            ChildOf(entity),
-        ));
+        respawn_collider(
+            &mut commands,
+            entity,
+            collider.half_extents,
+            collider.offset,
+            body.copied(),
+            &children,
+            &derived,
+        );
     }
 }
 

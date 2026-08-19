@@ -536,6 +536,7 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<play::PlayState>()
             .init_resource::<play::PlayRequests>()
             .init_resource::<materials::MaterialLibrary>()
+            .init_resource::<materials::MaterialHandles>()
             .init_resource::<models::ModelLibrary>()
             .init_resource::<models::ImportRequested>()
             .init_resource::<models::FlattenRequested>()
@@ -573,6 +574,10 @@ impl Plugin for EditorScenePlugin {
                     models::perform_flatten,
                     models::resolve_mesh_refs,
                     models::resolve_mesh_nodes,
+                    // AFTER the model resolvers, always: both write
+                    // `MeshMaterial3d` on the same entities, and an assigned
+                    // material must win over the gltf-authored one.
+                    materials::sync_material_refs,
                     level_validation::run_level_validation,
                     session::perform_reload,
                 )

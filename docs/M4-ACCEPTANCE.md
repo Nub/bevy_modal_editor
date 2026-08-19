@@ -24,12 +24,30 @@ true-shape). Riding along by owner direction: the full material editor
 | D11 | Material editor v2 (owner): dedicated editor surface with visual preview, full StandardMaterial coverage (textures via the pipeline, emissive, alpha modes), feathers color-picker widgets; asset-history undo for material edits | `editor_ui` + owner |
 | D12 | THE BARREL WORKFLOW (spec §6, the milestone exit): drop `barrel.glb` → auto-import + validation → create prefab (colliders, materials, gameplay components) → place 50 instances with overrides → re-export the GLB → re-import → processing → prefab updates → all 50 instances update, overrides intact | end-to-end + owner |
 
+### D11 resolved semantics: where an assigned material LANDS (2026-08-19)
+
+A `MaterialRef` sits on the scene entity, but an imported model's geometry does
+not: a placed `MeshRef` carries no `Mesh3d` — its meshes live in the derived
+gltf subtree (spec §6), and Bevy materials do not inherit down a hierarchy.
+Resolved: **an assignment overrides every mesh from the referencing entity down,
+stopping at any descendant that is a scene entity in its own right (`SceneId`)
+or carries its own `MaterialRef`.** The displaced material is remembered per
+mesh (`SourceMaterial`) so removing the reference restores what the artist
+exported rather than a guess. Because a GLB resolves asynchronously, the
+override is applied on three arrivals — reference changed, library changed, and
+meshes appearing (first load or re-import respawn).
+
+Resolution lives in `editor_scene::materials` (it is editor behavior, not game
+behavior) and is ordered AFTER the model resolvers, which write the same
+component. Covered by MATERIAL: *"the assigned material reached EVERY mesh in
+the model subtree"*.
+
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per
 crate plus five session probes in `verify.sh full` + CI (PREFAB, USER 27,
 KIT 10, BARREL 21 — the D12 exit flow end-to-end incl. flatten-to-entities
-+ collider/gameplay config — and MATERIAL 17 — the D11 editor with
++ collider/gameplay config — and MATERIAL 19 — the D11 editor with
 asset-scoped undo). Remaining to CLOSE the milestone: the owner hands-on
 checklist below.
 

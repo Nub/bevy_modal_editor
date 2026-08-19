@@ -51,6 +51,12 @@ pub(crate) struct Row {
     pub depth: usize,
     pub has_children: bool,
     pub label: String,
+    /// A placed model still LINKED to its source: its geometry lives in the
+    /// derived gltf subtree, which carries no `SceneId` and so cannot appear
+    /// as rows. Without a badge, "linked model" and "empty entity" look
+    /// identical here — and whether a model is flattened decides what you can
+    /// select, shade, and hang colliders on.
+    pub linked_model: bool,
 }
 
 #[derive(Component)]
@@ -63,13 +69,20 @@ pub(crate) struct CursorRow;
 /// Flatten the scene into visible rows: roots and children sorted by `SceneId`
 /// (the same deterministic order the scene format uses), folds respected.
 pub(crate) fn build_rows(
-    entities: &Query<(Entity, &SceneId, Option<&ChildOf>, Option<&Name>)>,
+    entities: &Query<(
+        Entity,
+        &SceneId,
+        Option<&ChildOf>,
+        Option<&Name>,
+        Has<editor_scene::models::MeshRef>,
+    )>,
     scene_ids: &Query<&SceneId>,
     collapsed: &HashSet<SceneId>,
 ) -> Vec<Row> {
     let mut label_of: HashMap<SceneId, String> = HashMap::new();
     let mut children: HashMap<Option<SceneId>, Vec<SceneId>> = HashMap::new();
-    for (_, id, child_of, name) in entities.iter() {
+    let mut linked: HashSet<SceneId> = HashSet::new();
+    for (_, id, child_of, name, linked_model) in entities.iter() {
         let parent = child_of
             .and_then(|c| scene_ids.get(c.parent()).ok())
             .copied();
@@ -77,6 +90,9 @@ pub(crate) fn build_rows(
             .map(|n| n.as_str().to_string())
             .unwrap_or_else(|| format!("entity {}", &id.0.to_string()[..8]));
         label_of.insert(*id, label);
+        if linked_model {
+            linked.insert(*id);
+        }
         children.entry(parent).or_default().push(*id);
     }
     for list in children.values_mut() {
@@ -89,6 +105,7 @@ pub(crate) fn build_rows(
         depth: usize,
         children: &HashMap<Option<SceneId>, Vec<SceneId>>,
         label_of: &HashMap<SceneId, String>,
+        linked: &HashSet<SceneId>,
         collapsed: &HashSet<SceneId>,
         rows: &mut Vec<Row>,
     ) {
@@ -103,13 +120,22 @@ pub(crate) fn build_rows(
                 depth,
                 has_children,
                 label: label_of.get(id).cloned().unwrap_or_default(),
+                linked_model: linked.contains(id),
             });
             if has_children && !collapsed.contains(id) {
-                walk(Some(*id), depth + 1, children, label_of, collapsed, rows);
+                walk(
+                    Some(*id),
+                    depth + 1,
+                    children,
+                    label_of,
+                    linked,
+                    collapsed,
+                    rows,
+                );
             }
         }
     }
-    walk(None, 0, &children, &label_of, collapsed, &mut rows);
+    walk(None, 0, &children, &label_of, &linked, collapsed, &mut rows);
     rows
 }
 
@@ -135,7 +161,13 @@ fn world_preserving_local(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn handle_hierarchy_actions(
     mut reader: MessageReader<ActionInvoked>,
-    entities: Query<(Entity, &SceneId, Option<&ChildOf>, Option<&Name>)>,
+    entities: Query<(
+        Entity,
+        &SceneId,
+        Option<&ChildOf>,
+        Option<&Name>,
+        Has<editor_scene::models::MeshRef>,
+    )>,
     scene_ids: Query<&SceneId>,
     index: Res<SceneIndex>,
     globals: Query<&GlobalTransform>,
@@ -268,7 +300,13 @@ pub(crate) fn handle_hierarchy_actions(
 pub(crate) fn watch_hierarchy_inputs(
     mut edited: MessageReader<Edited>,
     mut selection: MessageReader<SelectionChanged>,
-    entities: Query<(Entity, &SceneId, Option<&ChildOf>, Option<&Name>)>,
+    entities: Query<(
+        Entity,
+        &SceneId,
+        Option<&ChildOf>,
+        Option<&Name>,
+        Has<editor_scene::models::MeshRef>,
+    )>,
     scene_ids: Query<&SceneId>,
     selected: Query<&SceneId, With<Selected>>,
     focus: Res<PanelFocus>,
@@ -295,7 +333,13 @@ pub(crate) fn watch_hierarchy_inputs(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn rebuild_hierarchy(
     mut state: ResMut<HierarchyState>,
-    entities: Query<(Entity, &SceneId, Option<&ChildOf>, Option<&Name>)>,
+    entities: Query<(
+        Entity,
+        &SceneId,
+        Option<&ChildOf>,
+        Option<&Name>,
+        Has<editor_scene::models::MeshRef>,
+    )>,
     scene_ids: Query<&SceneId>,
     selected: Query<&SceneId, With<Selected>>,
     instances: Query<&SceneId, With<editor_prefabs::PrefabInstance>>,
@@ -441,6 +485,25 @@ pub(crate) fn rebuild_hierarchy(
                                 style::color::TEXT_KEYS
                             }),
                         ));
+                        // A linked model reads as an empty entity otherwise —
+                        // its geometry is in the derived subtree, which has no
+                        // rows. The badge is how you tell "not flattened yet".
+                        if row.linked_model {
+                            row_node.spawn((
+                                Text::new("linked"),
+                                style::no_wrap(),
+                                style::mono(&fonts, ui.font_size_xs),
+                                TextColor(style::color::TEXT_DIM),
+                                Node {
+                                    margin: UiRect::left(px(style::space::XS)),
+                                    padding: UiRect::axes(px(style::space::XS), px(0.0)),
+                                    border: UiRect::all(px(1.0)),
+                                    border_radius: BorderRadius::all(px(style::radius::S)),
+                                    ..default()
+                                },
+                                BorderColor::all(style::HAIRLINE),
+                            ));
+                        }
                         // Identity column (owner): short SceneId right-aligned —
                         // a clean second column instead of ragged inline ids.
                         row_node.spawn(Node {
@@ -468,7 +531,13 @@ pub(crate) fn rebuild_hierarchy(
 /// Virtualization driver: when scrolling (or a resize) moves the viewport onto
 /// rows that aren't materialized, mark the panel dirty so the window re-renders.
 pub(crate) fn watch_hierarchy_window(
-    entities: Query<(Entity, &SceneId, Option<&ChildOf>, Option<&Name>)>,
+    entities: Query<(
+        Entity,
+        &SceneId,
+        Option<&ChildOf>,
+        Option<&Name>,
+        Has<editor_scene::models::MeshRef>,
+    )>,
     scene_ids: Query<&SceneId>,
     body: Query<(&ComputedNode, &ScrollPosition, &PanelBody)>,
     mut state: ResMut<HierarchyState>,

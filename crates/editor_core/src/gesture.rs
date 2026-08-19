@@ -19,10 +19,23 @@ use crate::selection::Selected;
 
 pub const GESTURE_MOVE_CONTEXT: ContextId = ContextId::new_static("gesture-move");
 
-/// World-space movement for THIS frame. Fed by the screen-space conversion system
-/// (v1's pixel-accurate math) in a real app; tests inject deltas directly.
+/// Per-frame pointer motion for the active gesture: the world delta a MOVE
+/// consumes, and the raw screen delta a ROTATE turns into an angle.
 #[derive(Resource, Default)]
-pub struct GestureMotion(pub Option<Vec3>);
+pub struct GestureMotion {
+    pub world: Option<Vec3>,
+    pub screen: Option<Vec2>,
+}
+
+/// What the active gesture does with its input. Both share the axis
+/// constraints, typed amounts, coalescing and commit/cancel grammar — only the
+/// transform they compute differs.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GestureKind {
+    #[default]
+    Move,
+    Rotate,
+}
 
 #[derive(Resource, Default)]
 pub enum MoveGesture {
@@ -30,8 +43,10 @@ pub enum MoveGesture {
     Idle,
     Active {
         id: u64,
+        kind: GestureKind,
         axis: Option<usize>,
-        /// Total world-space displacement applied so far.
+        /// Move: total world displacement. Rotate: `x` carries the angle in
+        /// DEGREES (one accumulator, so typed amounts and drags interchange).
         accumulated: Vec3,
         originals: Vec<(SceneId, Transform)>,
         /// Blender-style typed exact amount ("2", "-1.5") — spec M2 B7. Applies
@@ -54,9 +69,59 @@ impl GestureCounter {
 
 /// Typed exact amount → the gesture's displacement, live: each keystroke sets
 /// translation = original + axis * value through the same coalesced transaction.
+/// THE gesture application (typed amounts and drags both land here, so they can
+/// never disagree). `amount` is a world delta for a move, and degrees about the
+/// axis for a rotate.
+fn apply_gesture(
+    kind: GestureKind,
+    id: u64,
+    axis: Option<usize>,
+    amount: Vec3,
+    originals: &[(SceneId, Transform)],
+    edits: &mut EditScope,
+) {
+    let mut transaction = edits
+        .transaction(match kind {
+            GestureKind::Move => "Move",
+            GestureKind::Rotate => "Rotate",
+        })
+        .gesture(id);
+    match kind {
+        GestureKind::Move => {
+            for (scene_id, original) in originals {
+                let mut moved = *original;
+                moved.translation = original.translation + amount;
+                transaction = transaction.set(*scene_id, moved);
+            }
+        }
+        GestureKind::Rotate => {
+            // Unconstrained rotation is YAW — the one that needs no camera to
+            // be predictable, and the one level layout wants nine times in ten.
+            let mut direction = Vec3::ZERO;
+            direction[axis.unwrap_or(1)] = 1.0;
+            let spin = Quat::from_axis_angle(direction, amount.x.to_radians());
+            // Multiple selections turn about their shared centroid; a single
+            // one turns in place.
+            let pivot = originals
+                .iter()
+                .map(|(_, t)| t.translation)
+                .fold(Vec3::ZERO, |acc, t| acc + t)
+                / originals.len().max(1) as f32;
+            for (scene_id, original) in originals {
+                let mut turned = *original;
+                turned.rotation = spin * original.rotation;
+                turned.translation = pivot + spin * (original.translation - pivot);
+                transaction = transaction.set(*scene_id, turned);
+            }
+        }
+    }
+    transaction.commit();
+}
+
 fn apply_typed(gesture: &mut MoveGesture, edits: &mut EditScope) {
     let MoveGesture::Active {
         id,
+        kind,
         axis,
         accumulated,
         originals,
@@ -66,18 +131,18 @@ fn apply_typed(gesture: &mut MoveGesture, edits: &mut EditScope) {
         return;
     };
     let value: f32 = typed.parse().unwrap_or(0.0);
-    let mut direction = Vec3::ZERO;
-    // Unconstrained typed amounts run along X (constrain first for y/z).
-    direction[axis.unwrap_or(0)] = 1.0;
-    let desired = direction * value;
+    let desired = match kind {
+        // Unconstrained typed amounts run along X (constrain first for y/z).
+        GestureKind::Move => {
+            let mut direction = Vec3::ZERO;
+            direction[axis.unwrap_or(0)] = 1.0;
+            direction * value
+        }
+        // Degrees, whatever the axis.
+        GestureKind::Rotate => Vec3::X * value,
+    };
     *accumulated = desired;
-    let mut transaction = edits.transaction("Move").gesture(*id);
-    for (scene_id, original) in originals.iter() {
-        let mut moved = *original;
-        moved.translation = original.translation + desired;
-        transaction = transaction.set(*scene_id, moved);
-    }
-    transaction.commit();
+    apply_gesture(*kind, *id, *axis, desired, originals, edits);
 }
 
 /// Consume gesture-related actions (any source — keys, palette, macros).
@@ -93,7 +158,7 @@ pub(crate) fn handle_gesture_actions(
 ) {
     for invoked in reader.read() {
         match invoked.action.as_str() {
-            "transform.move" => {
+            action @ ("transform.move" | "transform.rotate") => {
                 if matches!(*gesture, MoveGesture::Idle) {
                     let originals: Vec<(SceneId, Transform)> =
                         selected.iter().map(|(id, t)| (*id, *t)).collect();
@@ -103,12 +168,18 @@ pub(crate) fn handle_gesture_actions(
                     counter.0 += 1;
                     *gesture = MoveGesture::Active {
                         id: counter.0,
+                        kind: if action == "transform.rotate" {
+                            GestureKind::Rotate
+                        } else {
+                            GestureKind::Move
+                        },
                         axis: None,
                         accumulated: Vec3::ZERO,
                         originals,
                         typed: String::new(),
                     };
-                    motion.0 = None;
+                    motion.world = None;
+                    motion.screen = None;
                     overlay.0 = Some(GESTURE_MOVE_CONTEXT);
                 }
             }
@@ -179,6 +250,7 @@ pub(crate) fn drive_gesture(
 ) {
     let MoveGesture::Active {
         id,
+        kind,
         axis,
         accumulated,
         originals,
@@ -187,27 +259,36 @@ pub(crate) fn drive_gesture(
     else {
         return;
     };
-    let Some(mut delta) = motion.0.take() else {
-        return;
+    let delta = match kind {
+        GestureKind::Move => {
+            let Some(mut delta) = motion.world.take() else {
+                return;
+            };
+            if let Some(axis) = axis {
+                let mut constrained = Vec3::ZERO;
+                constrained[*axis] = delta[*axis];
+                delta = constrained;
+            }
+            delta
+        }
+        // Horizontal drag turns; the vertical component would fight the axis
+        // constraint for no gain.
+        GestureKind::Rotate => {
+            let Some(screen) = motion.screen.take() else {
+                return;
+            };
+            Vec3::X * screen.x * ROTATE_DEGREES_PER_PIXEL
+        }
     };
-    if let Some(axis) = axis {
-        let mut constrained = Vec3::ZERO;
-        constrained[*axis] = delta[*axis];
-        delta = constrained;
-    }
     if delta == Vec3::ZERO {
         return;
     }
     *accumulated += delta;
-    let total = *accumulated;
-    let mut transaction = edits.transaction("Move").gesture(*id);
-    for (scene_id, original) in originals.iter() {
-        let mut moved = *original;
-        moved.translation = original.translation + total;
-        transaction = transaction.set(*scene_id, moved);
-    }
-    transaction.commit();
+    apply_gesture(*kind, *id, *axis, *accumulated, originals, &mut edits);
 }
+
+/// Drag sensitivity: a full 360° needs a deliberate sweep, not a flick.
+const ROTATE_DEGREES_PER_PIXEL: f32 = 0.5;
 
 /// v1's keep-list drag math (gizmos/transform.rs:28-65): project the pivot and a
 /// point one world unit along `axis_dir` to the viewport — the screen distance is
@@ -297,7 +378,8 @@ pub(crate) fn motion_from_cursor(
                 + up * axis_movement(camera, camera_transform, pivot, up, mouse_delta)
         }
     };
-    motion.0 = Some(world_delta);
+    motion.world = Some(world_delta);
+    motion.screen = Some(mouse_delta);
 }
 
 /// Mouse-click commit (the pick-arbitration guard: selection skips while active).
@@ -381,7 +463,7 @@ mod tests {
     }
 
     fn push_delta(app: &mut App, delta: Vec3) {
-        app.world_mut().resource_mut::<GestureMotion>().0 = Some(delta);
+        app.world_mut().resource_mut::<GestureMotion>().world = Some(delta);
         app.update();
     }
 
@@ -452,6 +534,111 @@ mod tests {
             "x-only"
         );
         invoke(&mut app, "transform.cancel");
+    }
+    // Owner ask: rotate shares the move grammar — typed amounts are DEGREES,
+    // axis constraints apply, and the whole gesture is ONE undo entry.
+    #[test]
+    fn rotate_typed_degrees_about_an_axis() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        let depth_before = app.world().resource::<History>().undo_depth();
+
+        invoke(&mut app, "transform.rotate");
+        invoke(&mut app, "transform.axis-y");
+        for action in ["transform.digit-9", "transform.digit-0"] {
+            invoke(&mut app, action);
+        }
+        invoke(&mut app, "transform.commit");
+        app.update();
+
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        let rotation = app.world().get::<Transform>(entity).unwrap().rotation;
+        // 90° of yaw takes +Z to +X.
+        assert!(
+            (rotation * Vec3::Z).abs_diff_eq(Vec3::X, 1e-4),
+            "r y 90 ⏎ yaws a quarter turn: {:?}",
+            rotation * Vec3::Z
+        );
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth_before + 1,
+            "the whole rotate is ONE history entry"
+        );
+    }
+
+    // A rotate must not displace a single selection — it turns in place.
+    #[test]
+    fn rotate_keeps_a_single_selection_in_place() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::new(3.0, 1.0, -2.0));
+        invoke(&mut app, "transform.rotate");
+        invoke(&mut app, "transform.digit-4");
+        invoke(&mut app, "transform.digit-5");
+        invoke(&mut app, "transform.commit");
+        app.update();
+        assert_eq!(
+            translation(&mut app, id),
+            Vec3::new(3.0, 1.0, -2.0),
+            "rotation turns in place"
+        );
+    }
+
+    // Owner: 1/2/3 front/left/top, shift for the opposite face — axis-aligned
+    // and orthographic, framing whatever you are looking at.
+    #[test]
+    fn axis_views_face_their_axis_orthographically() {
+        let mut app = test_app();
+        let _ = spawn_selected(&mut app, Vec3::new(2.0, 1.0, -3.0));
+        // A viewport camera: active, rendering to a window (no explicit target).
+        app.world_mut().spawn((
+            Camera3d::default(),
+            Camera::default(),
+            Projection::Perspective(PerspectiveProjection::default()),
+            Transform::default(),
+        ));
+        app.update();
+
+        for (action, expect_along) in [
+            ("view.front", Vec3::NEG_Z),
+            ("view.back", Vec3::Z),
+            ("view.left", Vec3::X),
+            ("view.right", Vec3::NEG_X),
+            ("view.top", Vec3::NEG_Y),
+            ("view.bottom", Vec3::Y),
+        ] {
+            invoke(&mut app, action);
+            app.update();
+            let world = app.world_mut();
+            let (transform, projection) = world
+                .query::<(&Transform, &Projection, &Camera)>()
+                .iter(world)
+                .map(|(t, p, _)| (*t, matches!(p, Projection::Orthographic(_))))
+                .next()
+                .expect("a viewport camera");
+            assert!(
+                transform
+                    .forward()
+                    .as_vec3()
+                    .abs_diff_eq(expect_along, 1e-4),
+                "{action} looks along {expect_along:?}, got {:?}",
+                transform.forward()
+            );
+            assert!(projection, "{action} is orthographic");
+        }
+
+        // Flying leaves the canonical view: holding RMB hands perspective back.
+        {
+            let world = app.world_mut();
+            let mut mouse = world.resource_mut::<ButtonInput<MouseButton>>();
+            mouse.press(MouseButton::Right);
+        }
+        app.update();
+        let world = app.world_mut();
+        let perspective = world
+            .query::<(&Projection, &Camera)>()
+            .iter(world)
+            .any(|(p, _)| matches!(p, Projection::Perspective(_)));
+        assert!(perspective, "flying restores perspective");
     }
 }
 

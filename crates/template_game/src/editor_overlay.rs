@@ -4,13 +4,14 @@
 //! this module contributes only what is specific to THIS game: which components
 //! serialize, what can be placed, and the input handoff to the game's player.
 
+use avian3d::prelude::PhysicsGizmos;
 use bevy::prelude::*;
 use editor_core::prelude::*;
-use editor_scene::materials::{MaterialLibrary, MaterialRef};
 use editor_scene::session::EditorSession;
-use std::collections::HashMap;
 
-use crate::game::{BoxCollider, GameInputActive, PhysicsBody, Primitive, PrimitiveKind, Spinner};
+use crate::game::{
+    AutoBoxCollider, BoxCollider, GameInputActive, PhysicsBody, Primitive, PrimitiveKind, Spinner,
+};
 
 /// The game's editor-facing registration: which components serialize, what can be
 /// placed. Lives editor-side; the game module stays editor-free.
@@ -27,6 +28,64 @@ fn cube_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>
         .into_partial_reflect(),
         Box::new(Spinner::default()).into_partial_reflect(),
         Box::new(Name::new("Cube")).into_partial_reflect(),
+    ]
+}
+
+/// Lights are CONTENT the game owns (the editor draws their gizmos). Placed
+/// with values you can actually see: a bare `PointLight::default()` has a
+/// 9-unit range and low intensity, which reads as "nothing happened".
+fn point_light_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
+    use bevy::reflect::PartialReflect;
+    vec![
+        Box::new(Transform::from_translation(position + Vec3::Y * 2.0)).into_partial_reflect(),
+        Box::new(PointLight {
+            intensity: 250_000.0,
+            range: 12.0,
+            shadow_maps_enabled: true,
+            ..default()
+        })
+        .into_partial_reflect(),
+        Box::new(Name::new("Point Light")).into_partial_reflect(),
+    ]
+}
+
+fn spot_light_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
+    use bevy::reflect::PartialReflect;
+    vec![
+        // Aimed down: a spot pointing along -Z from head height is what you
+        // want nine times out of ten, and rotating it is the fiddly part.
+        Box::new(
+            Transform::from_translation(position + Vec3::Y * 4.0).looking_at(position, Vec3::Z),
+        )
+        .into_partial_reflect(),
+        Box::new(SpotLight {
+            intensity: 400_000.0,
+            range: 15.0,
+            shadow_maps_enabled: true,
+            inner_angle: 0.3,
+            outer_angle: 0.6,
+            ..default()
+        })
+        .into_partial_reflect(),
+        Box::new(Name::new("Spot Light")).into_partial_reflect(),
+    ]
+}
+
+fn directional_light_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
+    use bevy::reflect::PartialReflect;
+    vec![
+        Box::new(
+            Transform::from_translation(position + Vec3::Y * 6.0)
+                .looking_at(position + Vec3::new(2.0, 0.0, 1.0), Vec3::Y),
+        )
+        .into_partial_reflect(),
+        Box::new(DirectionalLight {
+            illuminance: 8_000.0,
+            shadow_maps_enabled: true,
+            ..default()
+        })
+        .into_partial_reflect(),
+        Box::new(Name::new("Directional Light")).into_partial_reflect(),
     ]
 }
 
@@ -78,6 +137,16 @@ impl EditorFeature for GameFeature {
                 problems
             },
         });
+        // Physics debug view (keymap §"Space t toggles": grid, gizmos, physics
+        // debug, shading). Colliders are DERIVED from `BoxCollider` data, so
+        // seeing the wireframe is how you check that authored data against the
+        // geometry it is supposed to hug.
+        reg.action(
+            editor_api::actions::ActionDef::new("view.toggle-colliders", "Toggle Colliders")
+                .describe("Show or hide physics collider wireframes")
+                .context("normal")
+                .bind("space t p"),
+        );
         reg.action(
             editor_api::actions::ActionDef::new("game.fit-collider", "Fit Collider To Bounds")
                 .describe(
@@ -90,6 +159,7 @@ impl EditorFeature for GameFeature {
             .component::<Primitive>()
             .component::<Spinner>()
             .component::<BoxCollider>()
+            .component::<AutoBoxCollider>()
             .component::<PhysicsBody>()
             .component::<Name>()
             .entity_kind(EntityKindDef {
@@ -101,6 +171,26 @@ impl EditorFeature for GameFeature {
                 id: EntityKindId::new_static("primitive.sphere"),
                 display_name: "Sphere",
                 components: sphere_components,
+            })
+            // Registered so they SERIALIZE: without this a placed light looks
+            // right until the scene reloads and it is gone.
+            .component::<PointLight>()
+            .component::<SpotLight>()
+            .component::<DirectionalLight>()
+            .entity_kind(EntityKindDef {
+                id: EntityKindId::new_static("light.point"),
+                display_name: "Point Light",
+                components: point_light_components,
+            })
+            .entity_kind(EntityKindDef {
+                id: EntityKindId::new_static("light.spot"),
+                display_name: "Spot Light",
+                components: spot_light_components,
+            })
+            .entity_kind(EntityKindDef {
+                id: EntityKindId::new_static("light.directional"),
+                display_name: "Directional Light",
+                components: directional_light_components,
             })
             // D8 proof-of-seam: a game-registered bake step. Real games hang
             // collider/LOD derivation here; the census proves determinism and
@@ -129,8 +219,15 @@ pub struct EditorOverlayPlugin;
 impl Plugin for EditorOverlayPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(editor_ui::EditorUiPlugin);
+        // Collider debug rendering is a DEVELOPMENT view: it enters the binary
+        // with the editor feature, never a release build. Starts off — the
+        // toggle turns it on.
+
+        app.add_plugins(avian3d::debug_render::PhysicsDebugPlugin);
+        app.add_systems(Startup, silence_collider_debug);
+        app.add_observer(guard_collider_constructor);
+        app.add_observer(mark_sockets_as_decoration);
         app.add_editor_feature(GameFeature);
-        app.init_resource::<MaterialHandles>();
         app.add_systems(Startup, arm_session_restore);
         app.add_systems(
             Update,
@@ -143,9 +240,9 @@ impl Plugin for EditorOverlayPlugin {
                 // Pause must follow the input handoff in the SAME frame, or
                 // reset leaks a few live sim steps before physics stops.
                 (sync_game_input, crate::game::sync_physics_pause_now).chain(),
-                sync_material_refs,
                 drive_session_restore,
                 handle_fit_collider,
+                toggle_collider_debug,
                 probe_physics.run_if(|| std::env::var("PHYSICS_PROBE").is_ok()),
             )
                 .in_set(editor_core::EditorSet::Sync),
@@ -159,73 +256,82 @@ impl Plugin for EditorOverlayPlugin {
     }
 }
 
-/// GPU handles per library material (created on demand, patched in place on
-/// library edits so every user re-shades live).
-#[derive(Resource, Default)]
-struct MaterialHandles(HashMap<uuid::Uuid, Handle<StandardMaterial>>);
-
-/// One conversion for the whole editor (defined next to `MaterialDef`).
-fn standard_material(
-    def: &editor_scene::materials::MaterialDef,
-    models: &editor_scene::models::ModelLibrary,
-    assets: Option<&AssetServer>,
-) -> StandardMaterial {
-    editor_scene::materials::to_standard_material(def, models, assets)
+/// Authoring must never be able to CRASH the engine (spec §8: the editor is a
+/// tool, not a minefield).
+///
+/// `ColliderConstructor`'s derived `Default` is `TrimeshFromMesh`, and avian
+/// PANICS — not warns — when that lands on an entity with no `Mesh3d`. The
+/// add-component palette offers every reflectable component at its default, so
+/// adding this one to anything mesh-less took the whole app down. A placed
+/// model is exactly that case: its meshes live in the derived gltf children,
+/// never on the entity you select.
+///
+/// An observer runs at INSERT time, so it always beats avian's `Update` pass
+/// (a guard system would race it — avian adds its own unordered).
+fn guard_collider_constructor(
+    add: On<Add, avian3d::prelude::ColliderConstructor>,
+    constructors: Query<(&avian3d::prelude::ColliderConstructor, Has<Mesh3d>)>,
+    mut commands: Commands,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    let Ok((constructor, has_mesh)) = constructors.get(add.entity) else {
+        return;
+    };
+    if has_mesh || !constructor.requires_mesh() {
+        return;
+    }
+    commands
+        .entity(add.entity)
+        .remove::<avian3d::prelude::ColliderConstructor>();
+    feedback.write(editor_scene::SceneIoFeedback {
+        message: "that collider is built FROM a mesh, and this entity has none — \
+                  flatten the model first, or use Fit Collider"
+            .into(),
+        success: false,
+    });
 }
 
-/// `MaterialRef` -> `MeshMaterial3d`: assignment/undo re-shade via change
-/// detection; library param edits patch the SHARED handles in place; removal
-/// (undo of a first assignment) falls back to the default primitive material.
-#[allow(clippy::too_many_arguments)]
-fn sync_material_refs(
-    library: Res<MaterialLibrary>,
-    assets: Res<crate::game::PrimitiveAssets>,
-    models: Res<editor_scene::models::ModelLibrary>,
-    asset_server: Option<Res<AssetServer>>,
-    mut handles: ResMut<MaterialHandles>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    changed: Query<(Entity, &MaterialRef), Changed<MaterialRef>>,
-    all: Query<(Entity, &MaterialRef)>,
-    mut removed: RemovedComponents<MaterialRef>,
-    primitives: Query<(), With<Primitive>>,
+/// A socket is an authoring MARKER, not part of the piece's shape — its gizmo
+/// would otherwise inflate every fitted collider to swallow the cone. Marked
+/// here rather than in `editor_ui` (which must not know about this game's
+/// physics) or in `game.rs` (which must not know about the editor): the overlay
+/// is the one place that sees both.
+fn mark_sockets_as_decoration(
+    add: On<Add, editor_prefabs::sockets::Socket>,
     mut commands: Commands,
 ) {
-    let server = asset_server.as_deref();
-    if library.is_changed() {
-        for def in &library.materials {
-            if let Some(handle) = handles.0.get(&def.id)
-                && let Some(mut material) = materials.get_mut(handle)
-            {
-                *material = standard_material(def, &models, server);
-            }
+    commands
+        .entity(add.entity)
+        .insert(crate::game::BoundsIgnored);
+}
+
+/// Avian's gizmo group is enabled the moment its plugin lands; the debug view
+/// is opt-IN, so start it silent.
+fn silence_collider_debug(mut store: ResMut<GizmoConfigStore>) {
+    store.config_mut::<PhysicsGizmos>().0.enabled = false;
+}
+
+/// `view.toggle-colliders`: flip avian's gizmo group. The debug plugin's
+/// systems all early-out while the group is disabled, so the cost of "off" is
+/// a bool check — and the plugin is only ever added in an editor build.
+fn toggle_collider_debug(
+    mut reader: MessageReader<ActionInvoked>,
+    mut store: ResMut<GizmoConfigStore>,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    for invoked in reader.read() {
+        if invoked.action.as_str() != "view.toggle-colliders" {
+            continue;
         }
-    }
-    let mut apply = |entity: Entity, material_ref: &MaterialRef| {
-        let Some(def) = library.get(&material_ref.0) else {
-            return;
-        };
-        let handle = handles
-            .0
-            .entry(def.id)
-            .or_insert_with(|| materials.add(standard_material(def, &models, server)))
-            .clone();
-        commands.entity(entity).insert(MeshMaterial3d(handle));
-    };
-    if library.is_changed() {
-        for (entity, material_ref) in &all {
-            apply(entity, material_ref);
-        }
-    } else {
-        for (entity, material_ref) in &changed {
-            apply(entity, material_ref);
-        }
-    }
-    for entity in removed.read() {
-        if primitives.get(entity).is_ok() {
-            commands
-                .entity(entity)
-                .insert(MeshMaterial3d(assets.material.clone()));
-        }
+        let (config, _) = store.config_mut::<PhysicsGizmos>();
+        config.enabled = !config.enabled;
+        feedback.write(editor_scene::SceneIoFeedback {
+            message: format!(
+                "collider debug {}",
+                if config.enabled { "on" } else { "off" }
+            ),
+            success: true,
+        });
     }
 }
 
@@ -547,6 +653,7 @@ pub(crate) fn handle_fit_collider(
     selected: Query<(&SceneId, Entity, &GlobalTransform), With<Selected>>,
     children: Query<&Children>,
     aabbs: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
+    ignored: Query<(), With<crate::game::BoundsIgnored>>,
     mut edits: EditScope,
     mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
 ) {
@@ -556,40 +663,20 @@ pub(crate) fn handle_fit_collider(
         }
         let mut fitted = 0usize;
         for (id, root, root_global) in &selected {
-            let to_local = root_global.affine().inverse();
-            let mut min = Vec3::MAX;
-            let mut max = Vec3::MIN;
-            let mut stack = vec![root];
-            while let Some(entity) = stack.pop() {
-                if let Ok((aabb, global)) = aabbs.get(entity) {
-                    let center = Vec3::from(aabb.center);
-                    let he = Vec3::from(aabb.half_extents);
-                    for corner in 0..8 {
-                        let sign = Vec3::new(
-                            if corner & 1 == 0 { -1.0 } else { 1.0 },
-                            if corner & 2 == 0 { -1.0 } else { 1.0 },
-                            if corner & 4 == 0 { -1.0 } else { 1.0 },
-                        );
-                        let world = global.transform_point(center + he * sign);
-                        let local = to_local.transform_point3(world);
-                        min = min.min(local);
-                        max = max.max(local);
-                    }
-                }
-                if let Ok(kids) = children.get(entity) {
-                    stack.extend(kids.iter());
-                }
-            }
-            if min.x > max.x {
+            // THE bounds measurement (shared with `AutoBoxCollider`), so the
+            // one-shot verb and the live one can never disagree.
+            let Some((half_extents, offset)) =
+                crate::game::visual_bounds(root, root_global, &children, &aabbs, &ignored)
+            else {
                 continue; // no meshes under this selection (still loading?)
-            }
+            };
             edits
                 .transaction("Fit Collider")
                 .set(
                     *id,
                     BoxCollider {
-                        half_extents: (max - min) * 0.5,
-                        offset: (max + min) * 0.5,
+                        half_extents,
+                        offset,
                     },
                 )
                 .commit();
@@ -741,10 +828,116 @@ pub(crate) fn probe_physics(world: &mut World) {
                 "Fit Collider sized the box from the mesh bounds",
             );
         }
+        // The collider debug view: off until asked for, on after the toggle,
+        // off again after a second press.
+        424 => {
+            let off = !world
+                .resource::<GizmoConfigStore>()
+                .config::<PhysicsGizmos>()
+                .0
+                .enabled;
+            check(world, off, "collider debug starts off");
+            invoke(world, "view.toggle-colliders");
+        }
+        428 => {
+            let on = world
+                .resource::<GizmoConfigStore>()
+                .config::<PhysicsGizmos>()
+                .0
+                .enabled;
+            check(world, on, "view.toggle-colliders turned the wireframes on");
+        }
+        432 => invoke(world, "view.toggle-colliders"),
+        436 => {
+            let off = !world
+                .resource::<GizmoConfigStore>()
+                .config::<PhysicsGizmos>()
+                .0
+                .enabled;
+            check(world, off, "toggling again turned them back off");
+            // Leave it ON for the play stage — the debug view must survive the
+            // editor→game handoff, which is where colliders matter most.
+            invoke(world, "view.toggle-colliders");
+        }
+        // Authoring must not be able to crash the engine: the palette hands
+        // every component its reflected DEFAULT, and avian's is a mesh-only
+        // constructor that panics on anything mesh-less.
+        438 => {
+            let target = world
+                .resource::<PhysicsProbe>()
+                .prop
+                .and_then(|id| world.resource::<SceneIndex>().get(&id));
+            if let Some(entity) = target {
+                world
+                    .entity_mut(entity)
+                    .insert(avian3d::prelude::ColliderConstructor::default());
+            }
+        }
+        439 => {
+            let target = world
+                .resource::<PhysicsProbe>()
+                .prop
+                .and_then(|id| world.resource::<SceneIndex>().get(&id));
+            let refused = target.is_some_and(|entity| {
+                world
+                    .get::<avian3d::prelude::ColliderConstructor>(entity)
+                    .is_none()
+            });
+            check(
+                world,
+                refused,
+                "a mesh-only ColliderConstructor is refused, not fatal",
+            );
+        }
+        // AutoBoxCollider fits the CONTENT and keeps it fitted — the probe's
+        // prop is a 1m cube, so the fit must land on 0.5 half-extents whatever
+        // the authored BoxCollider said (it was deliberately wrong at 2.0).
+        442 => {
+            if let Some(entity) = world
+                .resource::<PhysicsProbe>()
+                .prop
+                .and_then(|id| world.resource::<SceneIndex>().get(&id))
+            {
+                world
+                    .entity_mut(entity)
+                    .insert(crate::game::AutoBoxCollider)
+                    .insert(BoxCollider {
+                        half_extents: Vec3::splat(2.0),
+                        offset: Vec3::ZERO,
+                    });
+            }
+        }
+        448 => {
+            let fitted = world
+                .resource::<PhysicsProbe>()
+                .prop
+                .and_then(|id| world.resource::<SceneIndex>().get(&id))
+                .and_then(|entity| world.get::<crate::game::AutoFitted>(entity))
+                .map(|f| (f.half_extents, f.offset));
+            check(
+                world,
+                fitted.is_some_and(|(he, _)| he.abs_diff_eq(Vec3::splat(0.5), 0.01)),
+                &format!("AutoBoxCollider fit the box to the content ({fitted:?})"),
+            );
+            // It OWNS the collider: the stale manual 2.0 must not win.
+            let overridden = world
+                .resource::<PhysicsProbe>()
+                .prop
+                .and_then(|id| world.resource::<SceneIndex>().get(&id))
+                .and_then(|entity| world.get::<Children>(entity).map(|c| c.len()))
+                .is_some_and(|kids| kids > 0);
+            check(world, overridden, "the auto fit owns the derived collider");
+        }
         440 => invoke(world, "editor.play"),
         620 => {
             let fell = prop_y(world).is_some_and(|y| y < 4.0);
             check(world, fell, "the dynamic prop falls under avian in play");
+            let still_on = world
+                .resource::<GizmoConfigStore>()
+                .config::<PhysicsGizmos>()
+                .0
+                .enabled;
+            check(world, still_on, "the debug view survives into play");
         }
         640 => invoke(world, "editor.reset"),
         760 => {

@@ -366,6 +366,7 @@ impl Plugin for EditorPrefabsPlugin {
         app.init_resource::<overrides::OverrideCursor>();
         app.init_resource::<authoring::PrefabRequests>();
         app.init_resource::<authoring::GroupPrompt>();
+        app.init_resource::<authoring::ChainEntry>();
         app.init_resource::<authoring::GroupCommit>();
         app.init_resource::<authoring::PendingGroupSelect>();
         app.init_resource::<open_mode::OpenInstance>();
@@ -404,6 +405,8 @@ impl Plugin for EditorPrefabsPlugin {
                 stamp_new_instances,
                 authoring::select_grouped,
                 overrides::sync_overrides,
+                open_mode::seal_closed_instances,
+                authoring::snap_during_drag,
             )
                 .chain()
                 .in_set(editor_core::EditorSet::Sync),
@@ -463,6 +466,12 @@ impl EditorFeature for PrefabsFeature {
                     .bind("o"),
             )
             .action(
+                ActionDef::new("prefab.fill", "Fill Run")
+                    .describe("Chain N pieces at once — `o` repeated, in one undoable step")
+                    .context("normal")
+                    .bind("shift+o"),
+            )
+            .action(
                 ActionDef::new("prefab.paint", "Paint With Piece")
                     .describe("Click a polyline; the selected piece chains along it, corners resolve from the kit")
                     .context("normal"),
@@ -477,6 +486,59 @@ impl EditorFeature for PrefabsFeature {
                 ActionDef::new("prefab.set-kit", "Set Prefab Kit")
                     .describe("Tag the selected piece's prefab as part of a named kit")
                     .context("normal"),
+            )
+            // Socket placement helpers: mating needs the socket exactly ON the
+            // surface and aimed out of it. Drag it roughly into place, then
+            // snap — the feature is chosen by where you already put it.
+            .action(
+                ActionDef::new("socket.snap-face", "Snap Socket To Face")
+                    .describe("Centre the selected socket on the nearest face, aiming outward")
+                    .context("normal")
+                    .bind("space s f"),
+            )
+            .action(
+                ActionDef::new("socket.snap-edge", "Snap Socket To Edge")
+                    .describe("Put the selected socket on the nearest edge, bisecting both faces")
+                    .context("normal")
+                    .bind("space s e"),
+            )
+            .action(
+                ActionDef::new("socket.snap-corner", "Snap Socket To Corner")
+                    .describe("Put the selected socket on the nearest corner, bisecting all three")
+                    .context("normal")
+                    .bind("space s c"),
+            )
+            // Generate a whole mating set at once. Named for the LAYOUT each
+            // produces — a run, a grid, a stack — because that is the choice
+            // being made, not "how many faces".
+            .action(
+                ActionDef::new("socket.generate-ends", "Sockets: Ends (run)")
+                    .describe("A socket on each ±X face — a piece that chains end to end")
+                    .context("normal")
+                    .bind("space s 2"),
+            )
+            .action(
+                ActionDef::new("socket.generate-sides", "Sockets: Sides (grid)")
+                    .describe("Sockets on ±X and ±Z — a piece that tiles in the plane")
+                    .context("normal")
+                    .bind("space s 4"),
+            )
+            .action(
+                ActionDef::new("socket.generate-all", "Sockets: All Faces")
+                    .describe("A socket on all six faces, ±Y included")
+                    .context("normal")
+                    .bind("space s 6"),
+            )
+            // Direction control: the OUT socket is whichever you select when
+            // you chain; this pins the IN end, so an asymmetric piece arrives
+            // the way round you meant.
+            .action(
+                ActionDef::new("chain.set-in", "Chain: Enter By This Socket")
+                    .describe(
+                        "Pin the selected socket as the end the NEXT chained piece mates by",
+                    )
+                    .context("normal")
+                    .bind("space c i"),
             )
             .action(
                 ActionDef::new("prefab.bake", "Bake Now")
@@ -563,7 +625,7 @@ pub(crate) mod tests {
     #[test]
     fn instances_never_expand() {
         let mut app = test_app();
-        let prefab = barrel_prefab();
+        let prefab = crate::tests::barrel_prefab();
         let prefab_id = prefab.id;
 
         // Envelope round-trip through disk.
@@ -640,7 +702,7 @@ pub(crate) mod tests {
                 commands.entity(add.entity).insert(Derived);
             },
         );
-        let prefab = barrel_prefab();
+        let prefab = crate::tests::barrel_prefab();
         let prefab_id = prefab.id;
         app.world_mut()
             .resource_mut::<PrefabLibrary>()
@@ -1162,9 +1224,10 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn cleanup_prefab_file(name: &str) {
-        let _ = std::fs::remove_file(format!("prefabs/{name}.prefab.ron"));
-        let _ = std::fs::remove_file(format!("prefabs/{name}.prefab.ron.bak"));
-        let _ = std::fs::remove_dir("prefabs");
+        let dir = crate::authoring::prefabs_dir();
+        let _ = std::fs::remove_file(dir.join(format!("{name}.prefab.ron")));
+        let _ = std::fs::remove_file(dir.join(format!("{name}.prefab.ron.bak")));
+        let _ = std::fs::remove_dir(dir);
     }
 
     // Redesign #1: `g` replaces the selection with an instance IN PLACE, as ONE
@@ -1246,11 +1309,11 @@ pub(crate) mod tests {
     #[test]
     fn open_edit_close_propagates() {
         let mut app = test_app();
-        let prefab = barrel_prefab();
+        let prefab = crate::tests::barrel_prefab();
         let prefab_id = prefab.id;
         prefab
             .save(
-                &std::path::PathBuf::from("prefabs/openclosetest.prefab.ron"),
+                &crate::authoring::prefabs_dir().join("openclosetest.prefab.ron"),
                 &app.world().resource::<AppTypeRegistry>().clone().read(),
             )
             .ok();
@@ -1349,7 +1412,7 @@ pub(crate) mod tests {
         let records = capture_scene(world).records().count();
         assert_eq!(records, 3, "two roots + bystander, never expanded trees");
         cleanup_prefab_file("openclosetest");
-        cleanup_prefab_file("barrel"); // close() re-saves under the def name
+        crate::tests::cleanup_prefab_file("barrel"); // close() re-saves under the def name
     }
 }
 // Escape layering (owner grammar): a live selection absorbs one Escape; only
@@ -1363,7 +1426,7 @@ mod escape_layering {
     #[test]
     fn escape_clears_selection_while_instance_open() {
         let mut app = test_app();
-        let prefab = barrel_prefab();
+        let prefab = crate::tests::barrel_prefab();
         let prefab_id = prefab.id;
         app.world_mut()
             .resource_mut::<PrefabLibrary>()
@@ -1418,7 +1481,7 @@ mod escape_layering {
             world.resource::<open_mode::OpenInstance>().0.is_none(),
             "second escape closes the open instance"
         );
-        cleanup_prefab_file("barrel");
+        crate::tests::cleanup_prefab_file("barrel");
     }
 }
 
@@ -1426,7 +1489,86 @@ mod escape_layering {
 mod repeat_tests {
     use super::tests::{Payload, invoke, test_app};
     use super::*;
+    use crate::authoring::{GroupCommit, GroupPrompt, PromptPurpose};
     use crate::sockets::Socket;
+
+    // Owner ask: socket placement helpers. A socket dragged roughly toward a
+    // face lands exactly ON it, aiming out — the two things mating needs and
+    // neither of which can be eyeballed.
+    #[test]
+    fn snap_socket_lands_on_the_pieces_face() {
+        let mut app = test_app();
+        let socket_id = SceneId::random();
+        let root_id = SceneId::random();
+        // A 2×2×2 piece at the origin, with a socket floating near its +X side.
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "piece".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: root_id,
+                        components: vec![Box::new(Transform::default()).into_partial_reflect()],
+                    },
+                    Op::Spawn {
+                        id: socket_id,
+                        components: vec![
+                            Box::new(Socket {
+                                name: "east".into(),
+                                socket_type: "wall".into(),
+                            })
+                            .into_partial_reflect(),
+                            Box::new(Transform::from_xyz(0.8, 0.3, 0.1)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Reparent {
+                        target: socket_id,
+                        parent: Some(root_id),
+                    },
+                ],
+            });
+        app.update();
+        // Give the piece real bounds (an Aabb is what the snap measures).
+        {
+            let world = app.world_mut();
+            let root = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            world
+                .entity_mut(root)
+                .insert(bevy::camera::primitives::Aabb {
+                    center: Vec3::ZERO.into(),
+                    half_extents: Vec3::ONE.into(),
+                });
+            let socket = world.resource::<SceneIndex>().get(&socket_id).unwrap();
+            world.entity_mut(socket).insert(Selected);
+        }
+        app.update();
+
+        invoke(&mut app, "socket.snap-face");
+        app.update();
+        app.update();
+
+        let socket = app
+            .world()
+            .resource::<SceneIndex>()
+            .get(&socket_id)
+            .unwrap();
+        let placed = *app.world().get::<Transform>(socket).unwrap();
+        assert!(
+            (placed.translation.x - 1.0).abs() < 1e-4,
+            "sits on the +X face: {:?}",
+            placed.translation
+        );
+        assert!(
+            (placed.rotation * Vec3::Z).abs_diff_eq(Vec3::X, 1e-4),
+            "+Z aims out of the face: {:?}",
+            placed.rotation * Vec3::Z
+        );
+        // Sliding position along the face is preserved — the snap fixes the
+        // one axis it must, not the whole placement.
+        assert!((placed.translation.y - 0.3).abs() < 1e-4);
+    }
 
     // D10 `o`: each repeat chains a new instance mated at the free end —
     // three walls in a straight run, exactly 2m apart.
@@ -1514,5 +1656,490 @@ mod repeat_tests {
             (xs[1] - xs[0] - 2.0).abs() < 1e-3 && (xs[2] - xs[1] - 2.0).abs() < 1e-3,
             "each wall exactly one length further: {xs:?}"
         );
+    }
+
+    // Owner ask: "let me pick the sockets to control the chain direction".
+    // Selecting a SOCKET chains out of THAT one — the same wall grows west
+    // instead of east purely by which socket is selected.
+    #[test]
+    fn a_selected_socket_steers_the_chain() {
+        let mut app = test_app();
+        let wall_id = Uuid::new_v4();
+        let socket = |name: &str, x: f32, dir: Vec3| {
+            (
+                SceneId::random(),
+                None,
+                vec![
+                    Box::new(Socket {
+                        name: name.into(),
+                        socket_type: "wall".into(),
+                    })
+                    .into_partial_reflect(),
+                    Box::new(
+                        Transform::from_xyz(x, 0.5, 0.0)
+                            .with_rotation(Quat::from_rotation_arc(Vec3::Z, dir)),
+                    )
+                    .into_partial_reflect(),
+                ],
+            )
+        };
+        let def = PrefabDef {
+            kit: None,
+            id: wall_id,
+            name: "Wall".into(),
+            template: editor_scene::snapshot_from_parts(vec![
+                (
+                    SceneId::random(),
+                    None,
+                    vec![
+                        Box::new(Payload(1.0)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                ),
+                socket("west", -1.0, -Vec3::X),
+                socket("east", 1.0, Vec3::X),
+            ]),
+        };
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(wall_id, def);
+        let root_id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(wall_id)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+
+        // Select the WEST socket specifically — the heuristic alone would have
+        // taken the first free one.
+        {
+            let world = app.world_mut();
+            let west = world
+                .query::<(Entity, &Socket)>()
+                .iter(world)
+                .find(|(_, s)| s.name == "west")
+                .map(|(e, _)| e)
+                .expect("west socket stamped");
+            world.entity_mut(west).insert(Selected);
+        }
+        invoke(&mut app, "prefab.repeat");
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut xs: Vec<f32> = world
+            .query_filtered::<&Transform, (With<PrefabInstance>, Without<PrefabStamped>)>()
+            .iter(world)
+            .map(|t| t.translation.x)
+            .collect();
+        xs.sort_by(f32::total_cmp);
+        assert_eq!(xs.len(), 2, "one wall chained");
+        assert!(
+            xs[0] < -1.9,
+            "picking the WEST socket grew the run westward, not east: {xs:?}"
+        );
+    }
+
+    // Owner ask: mate WHILE dragging, so a wall rotated 90° snaps into a corner
+    // in front of you instead of after you let go.
+    #[test]
+    fn dragging_snaps_sockets_live() {
+        let mut app = test_app();
+        let wall_id = Uuid::new_v4();
+        let socket = |name: &str, x: f32, dir: Vec3| {
+            (
+                SceneId::random(),
+                None,
+                vec![
+                    Box::new(Socket {
+                        name: name.into(),
+                        socket_type: "wall".into(),
+                    })
+                    .into_partial_reflect(),
+                    Box::new(
+                        Transform::from_xyz(x, 0.0, 0.0)
+                            .with_rotation(Quat::from_rotation_arc(Vec3::Z, dir)),
+                    )
+                    .into_partial_reflect(),
+                ],
+            )
+        };
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(
+                wall_id,
+                PrefabDef {
+                    kit: None,
+                    id: wall_id,
+                    name: "Wall".into(),
+                    template: editor_scene::snapshot_from_parts(vec![
+                        (
+                            SceneId::random(),
+                            None,
+                            vec![
+                                Box::new(Payload(1.0)).into_partial_reflect(),
+                                Box::new(Transform::default()).into_partial_reflect(),
+                            ],
+                        ),
+                        socket("west", -1.0, -Vec3::X),
+                        socket("east", 1.0, Vec3::X),
+                    ]),
+                },
+            );
+        let place = |app: &mut App, at: Transform| {
+            let id = SceneId::random();
+            app.world_mut()
+                .resource_mut::<EditQueue>()
+                .0
+                .push(Transaction {
+                    label: "place".into(),
+                    gesture: None,
+                    ops: vec![Op::Spawn {
+                        id,
+                        components: vec![
+                            Box::new(PrefabInstance(wall_id)).into_partial_reflect(),
+                            Box::new(at).into_partial_reflect(),
+                        ],
+                    }],
+                });
+            app.update();
+            app.update();
+            id
+        };
+        // An anchor wall, and a second one turned 90° — the corner case.
+        let _anchor = place(&mut app, Transform::default());
+        let turned = place(
+            &mut app,
+            Transform::from_xyz(4.0, 0.0, 0.0)
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)),
+        );
+
+        // Drag it toward the anchor's east socket and STOP short — no commit.
+        {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&turned).unwrap();
+            world.entity_mut(entity).insert(Selected);
+        }
+        invoke(&mut app, "transform.move");
+        app.world_mut().resource_mut::<GestureMotion>().world = Some(Vec3::new(-2.2, 0.0, 0.0));
+        app.update();
+        app.update();
+
+        // Mid-drag, with the gesture still ACTIVE, it must already be mated.
+        assert!(
+            matches!(
+                *app.world().resource::<MoveGesture>(),
+                MoveGesture::Active { .. }
+            ),
+            "still dragging"
+        );
+        let entity = app.world().resource::<SceneIndex>().get(&turned).unwrap();
+        let at = app.world().get::<Transform>(entity).unwrap().translation;
+        assert!(
+            (at.x - 2.0).abs() < 1e-3,
+            "snapped onto the anchor's east socket mid-drag: {at:?}"
+        );
+    }
+
+    // Owner rule: a prefab selects as a UNIT until opened. Its members carry
+    // SceneIds and would otherwise be clicked directly, authoring an override
+    // on a piece you never meant to step into.
+    #[test]
+    fn instances_seal_until_opened() {
+        let mut app = test_app();
+        let prefab = crate::tests::barrel_prefab();
+        let prefab_id = prefab.id;
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
+        let root_id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+
+        let root = app.world().resource::<SceneIndex>().get(&root_id).unwrap();
+        assert!(
+            app.world().get::<SelectionSealed>(root).is_some(),
+            "a closed instance is sealed"
+        );
+
+        // Opening lifts the seal for THAT instance — that is what edit mode is.
+        app.world_mut().entity_mut(root).insert(Selected);
+        invoke(&mut app, "prefab.open");
+        app.update();
+        app.update();
+        assert!(
+            app.world().get::<SelectionSealed>(root).is_none(),
+            "the OPEN instance is selectable inside"
+        );
+
+        // Closing seals it again.
+        invoke(&mut app, "prefab.open");
+        app.update();
+        app.update();
+        let root = app.world().resource::<SceneIndex>().get(&root_id).unwrap();
+        assert!(
+            app.world().get::<SelectionSealed>(root).is_some(),
+            "closing re-seals it"
+        );
+        crate::tests::cleanup_prefab_file("barrel");
+    }
+
+    // Owner ask: lay a whole run at once instead of pressing `o` thirty times.
+    // Five pieces, evenly spaced, in ONE undo entry.
+    #[test]
+    fn fill_lays_an_even_run_in_one_entry() {
+        let mut app = test_app();
+        let wall_id = Uuid::new_v4();
+        let socket = |name: &str, x: f32, dir: Vec3| {
+            (
+                SceneId::random(),
+                None,
+                vec![
+                    Box::new(Socket {
+                        name: name.into(),
+                        socket_type: "wall".into(),
+                    })
+                    .into_partial_reflect(),
+                    Box::new(
+                        Transform::from_xyz(x, 0.5, 0.0)
+                            .with_rotation(Quat::from_rotation_arc(Vec3::Z, dir)),
+                    )
+                    .into_partial_reflect(),
+                ],
+            )
+        };
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(
+                wall_id,
+                PrefabDef {
+                    kit: None,
+                    id: wall_id,
+                    name: "Wall".into(),
+                    template: editor_scene::snapshot_from_parts(vec![
+                        (
+                            SceneId::random(),
+                            None,
+                            vec![
+                                Box::new(Payload(1.0)).into_partial_reflect(),
+                                Box::new(Transform::default()).into_partial_reflect(),
+                            ],
+                        ),
+                        socket("west", -1.0, -Vec3::X),
+                        socket("east", 1.0, Vec3::X),
+                    ]),
+                },
+            );
+        let root_id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(wall_id)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+        {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            world.entity_mut(entity).insert(Selected);
+        }
+        let depth_before = app.world().resource::<History>().undo_depth();
+
+        // The prompt's commit path, exactly as Enter drives it.
+        app.world_mut().resource_mut::<GroupPrompt>().purpose = PromptPurpose::Fill;
+        app.world_mut().resource_mut::<GroupCommit>().0 = Some("5".into());
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut xs: Vec<f32> = world
+            .query_filtered::<&Transform, (With<PrefabInstance>, Without<PrefabStamped>)>()
+            .iter(world)
+            .map(|t| t.translation.x)
+            .collect();
+        xs.sort_by(f32::total_cmp);
+        assert_eq!(xs.len(), 6, "the original plus five filled: {xs:?}");
+        for pair in xs.windows(2) {
+            assert!(
+                (pair[1] - pair[0] - 2.0).abs() < 1e-3,
+                "evenly spaced one length apart: {xs:?}"
+            );
+        }
+        // The chained first piece and the filled remainder are ONE gesture as
+        // far as the user is concerned — at most two entries, never five.
+        let entries = app.world().resource::<History>().undo_depth() - depth_before;
+        assert!(
+            entries <= 2,
+            "fill is not five separate undo entries: {entries}"
+        );
+    }
+
+    // Owner report: "sockets don't move when the transform is edited". Editing a
+    // socket IS editing an ordinary member — the same `Set` the inspector emits
+    // must land on the entity and move it.
+    #[test]
+    fn editing_a_socket_transform_moves_it() {
+        let mut app = test_app();
+        let socket_id = SceneId::random();
+        let def = PrefabDef {
+            kit: None,
+            id: Uuid::new_v4(),
+            name: "Socketed".into(),
+            template: editor_scene::snapshot_from_parts(vec![
+                (
+                    SceneId::random(),
+                    None,
+                    vec![
+                        Box::new(Payload(1.0)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                ),
+                (
+                    socket_id,
+                    None,
+                    vec![
+                        Box::new(Socket {
+                            name: "east".into(),
+                            socket_type: "wall".into(),
+                        })
+                        .into_partial_reflect(),
+                        Box::new(Transform::from_xyz(1.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                ),
+            ]),
+        };
+        let prefab = def.id;
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab, def);
+        let root_id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+
+        // The stamped socket, addressed by its own SceneId — what the inspector
+        // edits when you select the socket row.
+        let (socket_entity, socket_scene_id) = {
+            let world = app.world_mut();
+            let mut query = world.query_filtered::<(Entity, &SceneId), With<Socket>>();
+            let found: Vec<(Entity, SceneId)> = query.iter(world).map(|(e, id)| (e, *id)).collect();
+            assert_eq!(found.len(), 1, "the instance stamped its socket");
+            found[0]
+        };
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Move Socket".into(),
+                gesture: None,
+                ops: vec![Op::Set {
+                    target: socket_scene_id,
+                    value: Box::new(Transform::from_xyz(1.0, 3.0, 0.0)).into_partial_reflect(),
+                }],
+            });
+        app.update();
+        app.update();
+
+        let moved = app
+            .world()
+            .get::<Transform>(socket_entity)
+            .map(|t| t.translation);
+        assert_eq!(
+            moved,
+            Some(Vec3::new(1.0, 3.0, 0.0)),
+            "editing a socket's Transform moves the socket"
+        );
+
+        // ...and the AUTHORING path: inside an open instance, where the edit is
+        // meant to reach the template rather than be re-stamped away.
+        {
+            let world = app.world_mut();
+            let root = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            world.entity_mut(root).insert(Selected);
+        }
+        invoke(&mut app, "prefab.open");
+        app.update();
+        app.update();
+        let (open_socket, open_socket_id) = {
+            let world = app.world_mut();
+            let mut query = world.query_filtered::<(Entity, &SceneId), With<Socket>>();
+            let found: Vec<(Entity, SceneId)> = query.iter(world).map(|(e, id)| (e, *id)).collect();
+            assert_eq!(found.len(), 1, "one socket while open");
+            found[0]
+        };
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "Move Socket".into(),
+                gesture: None,
+                ops: vec![Op::Set {
+                    target: open_socket_id,
+                    value: Box::new(Transform::from_xyz(1.0, 7.0, 0.0)).into_partial_reflect(),
+                }],
+            });
+        app.update();
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<Transform>(open_socket)
+                .map(|t| t.translation),
+            Some(Vec3::new(1.0, 7.0, 0.0)),
+            "editing a socket inside an OPEN instance moves it"
+        );
+        // Opening can persist the prefab — never leave one behind.
+        crate::tests::cleanup_prefab_file("socketed");
     }
 }

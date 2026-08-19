@@ -32,6 +32,10 @@ pub(crate) struct PreviewSubject(pub Option<Subject>);
 pub(crate) enum Subject {
     Kind(EntityKindId),
     Prefab(Uuid),
+    /// A library material, shown on a sphere — the same read the material
+    /// editor's own preview gives, so "which one is the rusty metal" is a
+    /// look, not a guess at a name.
+    Material(Uuid),
 }
 
 #[derive(Resource)]
@@ -128,6 +132,34 @@ pub(crate) fn sync_preview_content(world: &mut World) {
     let mut radius: f32 = 1.0;
     match subject {
         None => {}
+        Some(Subject::Material(material)) => {
+            let Some(def) = world
+                .resource::<editor_scene::materials::MaterialLibrary>()
+                .get(&material)
+                .cloned()
+            else {
+                return;
+            };
+            // THE conversion (textures resolve through the identity pipeline),
+            // so the chip shows exactly what the scene will.
+            let standard =
+                world.resource_scope(|world, models: Mut<editor_scene::models::ModelLibrary>| {
+                    let assets = world.get_resource::<AssetServer>().cloned();
+                    editor_scene::materials::to_standard_material(&def, &models, assets.as_ref())
+                });
+            let material_handle = world
+                .resource_mut::<Assets<StandardMaterial>>()
+                .add(standard);
+            let mesh = world.resource_mut::<Assets<Mesh>>().add(Sphere::new(1.0));
+            world.spawn((
+                PreviewContent,
+                Mesh3d(mesh),
+                MeshMaterial3d(material_handle),
+                Transform::from_translation(PREVIEW_HOME),
+                RenderLayers::layer(PREVIEW_LAYER),
+                ChildOf(root),
+            ));
+        }
         Some(Subject::Kind(kind)) => {
             let Some(components) = world
                 .resource::<KindCatalog>()

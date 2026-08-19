@@ -4,9 +4,12 @@
 /bake/
 .DS_Store
 *.prefab.ron.bak
+# Test-run prefab artifacts (prefabs now resolve under the asset root)
 crates/editor_prefabs/prefabs/
-prefabs/kit.prefab.ron
-prefabs/red.prefab.ron
+crates/editor_prefabs/assets/
 crates/template_game/assets/models/
-prefabs/keg.prefab.ron
-prefabs/cask.prefab.ron
+# Probe-owned prefabs — never repo content, wherever the asset root lands
+**/prefabs/kit.prefab.ron
+**/prefabs/red.prefab.ron
+**/prefabs/keg.prefab.ron
+**/prefabs/cask.prefab.ron

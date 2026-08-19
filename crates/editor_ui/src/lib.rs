@@ -15,6 +15,7 @@ mod ghost;
 mod grid;
 mod hierarchy;
 mod inspector;
+mod light_gizmo;
 mod material_editor;
 mod open_indicator;
 mod outline;
@@ -26,11 +27,13 @@ mod probe_handson;
 mod probe_kit;
 mod probe_material;
 mod probe_prefab;
+mod probe_socket;
 mod probe_user;
 mod problems;
 mod prompt;
 mod socket_gizmo;
 mod statusbar;
+mod view_gizmo;
 mod which_key;
 
 pub use palette::{PaletteFilter, PaletteState};
@@ -85,6 +88,15 @@ impl EditorFeature for EditorUiFeature {
                     .hidden(),
             );
         }
+        // The way back OUT of the add-component palette, which offers every
+        // reflectable component in the registry: without this you could add
+        // anything and remove nothing.
+        reg.action(
+            ActionDef::new("component.remove", "Remove Component")
+                .describe("Remove a component from the selection")
+                .context("normal")
+                .bind("shift+i"),
+        );
         reg.panel(PanelDecl {
             id: PanelId::new_static("inspector"),
             title: "Inspector",
@@ -181,6 +193,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<probe_kit::KitProbe>();
         app.init_resource::<probe_barrel::BarrelProbe>();
         app.init_resource::<probe_material::MaterialProbe>();
+        app.init_resource::<probe_socket::SocketProbe>();
         app.init_resource::<probe_handson::HandsonProbe>();
         app.init_resource::<grid::GridVisible>();
         app.init_resource::<socket_gizmo::SocketGizmoAssets>();
@@ -190,6 +203,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<material_editor::MaterialEditorState>();
         app.init_resource::<material_editor::MaterialHistory>();
         app.init_resource::<material_editor::PendingSeeds>();
+        app.init_resource::<material_editor::RenameTarget>();
         app.init_resource::<problems::ProblemsState>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
@@ -260,10 +274,13 @@ impl Plugin for EditorUiPlugin {
             Update,
             (
                 material_editor::collect_editor_actions,
+                material_editor::collect_rename,
+                material_editor::apply_rename,
                 material_editor::apply_material_history,
                 material_editor::sync_editor_ui,
                 material_editor::seed_slider_values,
                 material_editor::sync_preview,
+                material_editor::sync_readouts,
                 problems::collect_problem_actions,
                 problems::sync_problems_ui,
             )
@@ -286,8 +303,24 @@ impl Plugin for EditorUiPlugin {
                 dock::spawn_docks,
                 open_indicator::spawn_open_pill,
                 dock::attach_scrollbars,
+                view_gizmo::spawn_view_gizmo,
             )
                 .chain(),
+        );
+        // Its own registration: the Sync tuple above is at the ECS arity limit.
+        app.add_systems(
+            Update,
+            light_gizmo::draw_light_gizmos.in_set(editor_core::EditorSet::Sync),
+        );
+        app.add_systems(
+            Update,
+            view_gizmo::sync_view_gizmo.in_set(editor_core::EditorSet::Sync),
+        );
+        app.add_systems(
+            Update,
+            probe_socket::probe_socket
+                .run_if(|| std::env::var("SOCKET_PROBE").is_ok())
+                .in_set(editor_core::EditorSet::Sync),
         );
     }
 }

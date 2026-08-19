@@ -128,6 +128,8 @@ pub(crate) fn sync_prompt(
                 PromptPurpose::Group => "GROUP INTO PREFAB — name it".into(),
                 PromptPurpose::Variant => "MAKE VARIANT — name it".into(),
                 PromptPurpose::Kit => "KIT — name it (empty clears)".into(),
+                PromptPurpose::Fill => "FILL RUN — how many pieces?".into(),
+                PromptPurpose::RenameMaterial => "RENAME MATERIAL".into(),
             };
         }
         if let Ok(entity) = input.single() {

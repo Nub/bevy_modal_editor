@@ -420,3 +420,24 @@ pub(crate) fn flatten_open(world: &mut World) {
         success: true,
     });
 }
+
+/// A prefab instance selects as a UNIT until you open it (owner rule): clicking
+/// a wall's brick picks the wall, not the brick. Opening lifts the seal for
+/// exactly that instance, which is what "edit mode" means here — everything
+/// else in the scene stays sealed while you work inside.
+pub(crate) fn seal_closed_instances(
+    open: Res<OpenInstance>,
+    index: Res<SceneIndex>,
+    instances: Query<(Entity, Has<SelectionSealed>), With<crate::PrefabInstance>>,
+    mut commands: Commands,
+) {
+    let opened = open.0.as_ref().and_then(|state| index.get(&state.root));
+    for (entity, sealed) in &instances {
+        let should_seal = Some(entity) != opened;
+        if should_seal && !sealed {
+            commands.entity(entity).insert(SelectionSealed);
+        } else if !should_seal && sealed {
+            commands.entity(entity).remove::<SelectionSealed>();
+        }
+    }
+}

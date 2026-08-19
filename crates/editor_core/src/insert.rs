@@ -68,18 +68,37 @@ pub(crate) fn cursor_ground(
     window: Query<&Window, With<PrimaryWindow>>,
     pointers: Query<&bevy::picking::pointer::PointerInteraction>,
     locations: Query<&bevy::picking::pointer::PointerLocation>,
+    previews: Query<(), With<InsertPreview>>,
+    parents: Query<&ChildOf>,
     mut cursor: ResMut<CursorGround>,
 ) {
     if !state.active || over_chrome.0 {
         cursor.0 = None;
         return;
     }
+    // The GHOST must never steer the cursor that positions it: a preview with
+    // pickable geometry hits its own surface, which walks the placement point
+    // toward the camera a little further every frame until it falls off and
+    // resets. Any preview descendant is excluded, whatever the kind spawns.
+    let is_preview = |entity: Entity| {
+        let mut current = entity;
+        loop {
+            if previews.contains(current) {
+                return true;
+            }
+            match parents.get(current) {
+                Ok(parent) => current = parent.parent(),
+                Err(_) => return false,
+            }
+        }
+    };
     // Surface-aware (v1 parity): the picking backend already raycasts every
     // mesh under the cursor — clicking the top of a box must place ON the box,
     // never tunnel through to the ground plane behind it.
     if let Some(hit) = pointers
         .iter()
         .flat_map(|p| p.iter())
+        .filter(|(entity, _)| !is_preview(*entity))
         .find_map(|(_, hit)| hit.position)
     {
         cursor.0 = Some(hit);

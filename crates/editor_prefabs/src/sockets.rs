@@ -26,7 +26,7 @@ impl Default for Socket {
     }
 }
 
-fn reflect_socket(value: &dyn bevy::reflect::PartialReflect) -> Option<Socket> {
+pub(crate) fn reflect_socket(value: &dyn bevy::reflect::PartialReflect) -> Option<Socket> {
     let matches = value
         .get_represented_type_info()
         .is_some_and(|i| i.type_path() == <Socket as bevy::reflect::TypePath>::type_path());
@@ -248,4 +248,179 @@ mod coherence_tests {
         );
         assert_eq!(warnings.len(), 2, "wall type is coherent: {warnings:?}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Placement helpers (owner ask): a socket only mates if it sits exactly on the
+// surface AND aims out of it. Both are fiddly to type by hand and impossible to
+// eyeball, so snap to the geometry the piece actually has: put the socket where
+// you roughly want it, then snap it to the nearest face, edge, or corner.
+// ---------------------------------------------------------------------------
+
+/// Which feature of the bounding box a socket snaps to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SnapFeature {
+    /// Centre of the nearest face; +Z points straight out of it.
+    Face,
+    /// Midpoint of the nearest edge; +Z bisects the two faces meeting there.
+    Edge,
+    /// Nearest corner; +Z bisects the three faces meeting there.
+    Corner,
+}
+
+/// Snap `point` (in the piece's local space) onto `bounds`, returning the
+/// placed transform: position on the feature, +Z along its outward normal.
+///
+/// `min`/`max` are the piece's local bounds. Each feature is chosen by
+/// quantizing the point's offset from the centre — the axis it is furthest
+/// along picks a face, the two furthest pick an edge, all three a corner. That
+/// makes the choice continuous with where the user already dragged the socket.
+pub fn snap_to_bounds(point: Vec3, min: Vec3, max: Vec3, feature: SnapFeature) -> Transform {
+    let centre = (min + max) * 0.5;
+    let half = ((max - min) * 0.5).max(Vec3::splat(1e-4));
+    // Normalized offset per axis: ±1 at the faces, 0 at the centre.
+    let normalized = (point - centre) / half;
+    let ranked = {
+        // Axes ordered by how far out the point sits — the feature picks the
+        // top 1 (face), 2 (edge) or 3 (corner).
+        let mut axes = [0usize, 1, 2];
+        axes.sort_by(|a, b| {
+            normalized[*b]
+                .abs()
+                .partial_cmp(&normalized[*a].abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        axes
+    };
+    let used = match feature {
+        SnapFeature::Face => 1,
+        SnapFeature::Edge => 2,
+        SnapFeature::Corner => 3,
+    };
+    let mut position = point.clamp(min, max);
+    let mut normal = Vec3::ZERO;
+    for &axis in ranked.iter().take(used) {
+        // A point exactly on the centre plane has no side; pick the positive
+        // one so the result is deterministic rather than NaN-signed.
+        let side = if normalized[axis] < 0.0 { -1.0 } else { 1.0 };
+        position[axis] = centre[axis] + side * half[axis];
+        normal[axis] = side;
+    }
+    let normal = normal.normalize_or(Vec3::Z);
+    Transform::from_translation(position).with_rotation(Quat::from_rotation_arc(Vec3::Z, normal))
+}
+
+#[cfg(test)]
+mod snap_tests {
+    use super::*;
+
+    // A 2×2×2 box centred on the origin: the features are at ±1.
+    const MIN: Vec3 = Vec3::splat(-1.0);
+    const MAX: Vec3 = Vec3::splat(1.0);
+
+    fn mating_direction(t: &Transform) -> Vec3 {
+        t.rotation * Vec3::Z
+    }
+
+    #[test]
+    fn face_snaps_to_the_nearest_side_and_aims_out() {
+        // Nearest to +X, so the socket lands mid-face aiming +X.
+        let placed = snap_to_bounds(Vec3::new(0.9, 0.2, -0.1), MIN, MAX, SnapFeature::Face);
+        assert_eq!(placed.translation.x, 1.0, "sits ON the face");
+        assert!(
+            mating_direction(&placed).abs_diff_eq(Vec3::X, 1e-5),
+            "aims out of it: {:?}",
+            mating_direction(&placed)
+        );
+        // The other axes keep the authored position — sliding along the face.
+        assert!((placed.translation.y - 0.2).abs() < 1e-5);
+    }
+
+    #[test]
+    fn edge_uses_two_axes_and_bisects_them() {
+        let placed = snap_to_bounds(Vec3::new(0.9, -0.8, 0.1), MIN, MAX, SnapFeature::Edge);
+        assert_eq!((placed.translation.x, placed.translation.y), (1.0, -1.0));
+        assert!(
+            mating_direction(&placed).abs_diff_eq(Vec3::new(1.0, -1.0, 0.0).normalize(), 1e-5),
+            "bisects the two faces: {:?}",
+            mating_direction(&placed)
+        );
+    }
+
+    #[test]
+    fn corner_pins_all_three_axes() {
+        let placed = snap_to_bounds(Vec3::new(-0.7, 0.6, 0.5), MIN, MAX, SnapFeature::Corner);
+        assert_eq!(placed.translation, Vec3::new(-1.0, 1.0, 1.0));
+        assert!(
+            mating_direction(&placed).abs_diff_eq(Vec3::new(-1.0, 1.0, 1.0).normalize(), 1e-5),
+            "bisects all three"
+        );
+    }
+
+    // Off-centre, non-cubic bounds: the snap must use the ACTUAL box, not an
+    // origin-centred guess (imported models rarely sit on their origin).
+    #[test]
+    fn respects_offset_and_non_uniform_bounds() {
+        let min = Vec3::new(0.0, 0.0, -0.5);
+        let max = Vec3::new(4.0, 1.0, 0.5);
+        let placed = snap_to_bounds(Vec3::new(3.9, 0.5, 0.0), min, max, SnapFeature::Face);
+        assert_eq!(placed.translation.x, 4.0, "lands on the far face");
+        assert!(mating_direction(&placed).abs_diff_eq(Vec3::X, 1e-5));
+    }
+
+    // A degenerate (flat) box must not produce NaNs.
+    #[test]
+    fn flat_bounds_stay_finite() {
+        let placed = snap_to_bounds(Vec3::ZERO, Vec3::ZERO, Vec3::ZERO, SnapFeature::Corner);
+        assert!(placed.translation.is_finite());
+        assert!(mating_direction(&placed).is_finite());
+    }
+}
+
+/// Which faces `socket.generate-*` puts a socket on. Named for the LAYOUT they
+/// produce, because that is what you are actually choosing: a run of walls, a
+/// grid of tiles, or a stack.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SocketSides {
+    /// ±X only — a piece that chains end to end (a wall run).
+    Ends,
+    /// ±X and ±Z — a piece that tiles in the plane (a floor grid).
+    Sides,
+    /// All six faces, ±Y included (shafts, stacked blocks).
+    All,
+}
+
+impl SocketSides {
+    /// Outward face normals, with the name each socket gets.
+    pub fn faces(self) -> &'static [(&'static str, Vec3)] {
+        const ENDS: &[(&str, Vec3)] = &[("+X", Vec3::X), ("-X", Vec3::NEG_X)];
+        const SIDES: &[(&str, Vec3)] = &[
+            ("+X", Vec3::X),
+            ("-X", Vec3::NEG_X),
+            ("+Z", Vec3::Z),
+            ("-Z", Vec3::NEG_Z),
+        ];
+        const ALL: &[(&str, Vec3)] = &[
+            ("+X", Vec3::X),
+            ("-X", Vec3::NEG_X),
+            ("+Z", Vec3::Z),
+            ("-Z", Vec3::NEG_Z),
+            ("+Y", Vec3::Y),
+            ("-Y", Vec3::NEG_Y),
+        ];
+        match self {
+            Self::Ends => ENDS,
+            Self::Sides => SIDES,
+            Self::All => ALL,
+        }
+    }
+}
+
+/// The socket frame centred on the face of `min..max` whose outward normal is
+/// `normal`: on the surface, +Z pointing out.
+pub fn face_socket(min: Vec3, max: Vec3, normal: Vec3) -> Transform {
+    let centre = (min + max) * 0.5;
+    let half = (max - min) * 0.5;
+    let position = centre + normal * half;
+    Transform::from_translation(position).with_rotation(Quat::from_rotation_arc(Vec3::Z, normal))
 }
