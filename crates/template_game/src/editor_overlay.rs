@@ -155,11 +155,20 @@ impl EditorFeature for GameFeature {
                 )
                 .context("normal"),
         );
+        // A spawn point has no geometry: the editor draws it from THIS, and the
+        // pick radius makes it clickable like anything with a mesh.
+        reg.gizmo::<crate::game::PlayerSpawn>(
+            editor_api::ids::GizmoId::new_static("game.player-spawn"),
+            Some(0.5),
+            draw_player_spawn,
+        );
         reg.component::<Transform>()
             .component::<Primitive>()
             .component::<Spinner>()
             .component::<BoxCollider>()
             .component::<AutoBoxCollider>()
+            .component::<crate::game::Ground>()
+            .component::<crate::game::PlayerSpawn>()
             .component::<PhysicsBody>()
             .component::<Name>()
             .entity_kind(EntityKindDef {
@@ -971,4 +980,29 @@ pub(crate) fn probe_physics(world: &mut World) {
         }
         _ => {}
     }
+}
+
+/// The player spawn widget: a figure standing at the point, facing the way the
+/// player will look. Reads `eye_height` off the component, so the gizmo shows
+/// the DATA rather than a fixed glyph — edit the field and the drawing follows.
+fn draw_player_spawn(cx: &mut editor_api::gizmos::GizmoCx) {
+    let accent = if cx.selected {
+        Color::srgb(0.98, 0.78, 0.35)
+    } else {
+        Color::srgba(0.98, 0.78, 0.35, 0.5)
+    };
+    let base = cx.at();
+    let eye_height = cx
+        .read::<crate::game::PlayerSpawn>()
+        .map(|spawn| spawn.eye_height)
+        .unwrap_or(1.7)
+        .max(0.1);
+    let eye = base + Vec3::Y * eye_height;
+    // A stick figure reads as "a person stands here" at any distance.
+    cx.painter.circle(base, Vec3::Y, 0.35, accent);
+    cx.painter.line(base, eye, accent);
+    cx.painter.sphere(eye, 0.16, accent);
+    // Facing: which way you are looking when the level starts.
+    let forward = cx.dir(Vec3::NEG_Z);
+    cx.painter.arrow(eye, eye + forward * 1.2, accent);
 }

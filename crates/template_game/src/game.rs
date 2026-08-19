@@ -39,12 +39,17 @@ pub enum PrimitiveKind {
 #[derive(Resource)]
 pub struct PrimitiveAssets {
     pub material: Handle<StandardMaterial>,
+    pub ground: Handle<StandardMaterial>,
 }
 
 fn init_primitive_assets(mut commands: Commands, mut materials: ResMut<Assets<StandardMaterial>>) {
     commands.insert_resource(PrimitiveAssets {
         material: materials.add(StandardMaterial {
             base_color: Color::srgb(0.55, 0.45, 0.35),
+            ..default()
+        }),
+        ground: materials.add(StandardMaterial {
+            base_color: Color::srgb(0.35, 0.38, 0.35),
             ..default()
         }),
     });
@@ -94,6 +99,8 @@ impl Plugin for GamePlugin {
         app.register_type::<Spinner>();
         app.register_type::<PhysicsBody>();
         app.register_type::<AutoBoxCollider>();
+        app.register_type::<Ground>();
+        app.register_type::<PlayerSpawn>();
         // Physics is part of the GAME (avian3d). While the editor owns input
         // the simulation is paused — dynamic props hold still under editing
         // and only live during play.
@@ -102,6 +109,7 @@ impl Plugin for GamePlugin {
             .add_systems(Startup, (init_primitive_assets, leave_boot))
             .add_systems(Update, (derive_physics, derive_auto_colliders))
             .add_observer(on_primitive_added)
+            .add_observer(on_ground_added)
             .add_systems(OnEnter(AppState::MainMenu), spawn_menu)
             .add_systems(OnExit(AppState::MainMenu), despawn_menu)
             .add_systems(Update, menu_start.run_if(in_state(AppState::MainMenu)))
@@ -220,6 +228,57 @@ pub struct AutoBoxCollider;
 pub struct AutoFitted {
     pub half_extents: Vec3,
     pub offset: Vec3,
+}
+
+/// Where the player starts, as an ordinary scene entity — selectable,
+/// movable, and saved with the level. It has no geometry, so the editor draws
+/// it from the gizmo the game registers (see `GameFeature::register`).
+#[derive(Component, Reflect, Clone, Copy, PartialEq, Debug, Default)]
+#[reflect(Component, Default)]
+pub struct PlayerSpawn {
+    /// Eye height above the spawn transform.
+    pub eye_height: f32,
+}
+
+/// The ground plane as DATA (spec §5 marker/regenerate), so it is an ordinary
+/// scene entity: visible in the hierarchy, selectable, resizable from the
+/// inspector, and it survives a save/load round trip. Hardcoding it in
+/// `spawn_level` made it invisible to the editor — you could stand on it but
+/// never click it.
+#[derive(Component, Reflect, Clone, Copy, PartialEq, Debug)]
+#[reflect(Component, Default)]
+pub struct Ground {
+    /// Side length of the square floor, in metres.
+    pub size: f32,
+}
+
+impl Default for Ground {
+    fn default() -> Self {
+        Self { size: 80.0 }
+    }
+}
+
+/// Regenerate: mesh, material and collider derive from `Ground` — in editor, in
+/// game, on load, on undo, identically.
+fn on_ground_added(
+    add: On<bevy::ecs::lifecycle::Add, Ground>,
+    grounds: Query<&Ground>,
+    assets: Res<PrimitiveAssets>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut commands: Commands,
+) {
+    let entity = add.entity;
+    let Ok(ground) = grounds.get(entity) else {
+        return;
+    };
+    let size = if ground.size > 0.0 { ground.size } else { 80.0 };
+    commands.entity(entity).insert((
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(size, size))),
+        MeshMaterial3d(assets.ground.clone()),
+        // The floor every dynamic prop lands on.
+        RigidBody::Static,
+        Collider::cuboid(size, 0.1, size),
+    ));
 }
 
 /// Marks a subtree that is DECORATION, not content: it renders, but it is not
@@ -455,24 +514,15 @@ fn spin(
 
 /// M1 graybox: ground, some boxes, a light, the player camera. Loading is synchronous
 /// here; the real async level service arrives in later milestones.
-fn spawn_level(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut next: ResMut<NextState<AppState>>,
-) {
-    let ground = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.35, 0.38, 0.35),
-        ..default()
-    });
-
+fn spawn_level(mut commands: Commands, mut next: ResMut<NextState<AppState>>) {
+    // Scene entities like everything else (owner: the floor and the sun must be
+    // selectable) — mesh, material and collider derive from the data.
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(80.0, 80.0))),
-        MeshMaterial3d(ground),
+        #[cfg(feature = "editor")]
+        editor_api::prelude::SceneId::random(),
+        Ground::default(),
+        Name::new("Ground"),
         Transform::IDENTITY,
-        // The floor every dynamic prop lands on.
-        RigidBody::Static,
-        Collider::cuboid(80.0, 0.1, 80.0),
     ));
     // Graybox content: SEMANTIC scene entities — meshes derive via the observer, and
     // (with the editor feature) these are selectable, movable, savable.
@@ -495,11 +545,25 @@ fn spawn_level(
         ));
     }
     commands.spawn((
+        #[cfg(feature = "editor")]
+        editor_api::prelude::SceneId::random(),
         DirectionalLight {
             illuminance: 8_000.0,
             ..default()
         },
+        Name::new("Sun"),
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.9, 0.4, 0.0)),
+    ));
+    // The spawn POINT is authored data; the player camera derives from it, so
+    // moving the widget moves where you start.
+    let spawn = Transform::from_xyz(0.0, 0.0, 6.0);
+    let eye_height = 1.7;
+    commands.spawn((
+        #[cfg(feature = "editor")]
+        editor_api::prelude::SceneId::random(),
+        PlayerSpawn { eye_height },
+        Name::new("Player Spawn"),
+        spawn,
     ));
     commands.spawn((
         Player {
@@ -507,7 +571,8 @@ fn spawn_level(
             pitch: 0.0,
         },
         Camera3d::default(),
-        Transform::from_xyz(0.0, 1.7, 6.0),
+        Transform::from_translation(spawn.translation + Vec3::Y * eye_height)
+            .with_rotation(spawn.rotation),
     ));
 
     next.set(AppState::InGame);

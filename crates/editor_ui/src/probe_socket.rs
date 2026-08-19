@@ -301,6 +301,55 @@ pub(crate) fn probe_socket(world: &mut World) {
                 &format!("sockets survive a library restamp ({survived} left)"),
             );
         }
+        // ── The level's floor and sun are SCENE entities (owner): in the
+        //    hierarchy, selectable, with their data on the inspector ────────
+        1150 => {
+            // Registered gizmos: the game says how ITS component looks, and the
+            // editor gives it a click target (spec §7 designer surface).
+            let gizmos = world.resource::<GizmoCatalog>().gizmos.len();
+            check(world, gizmos >= 1, "the game registered a custom gizmo");
+            let named: Vec<String> = world
+                .query_filtered::<&Name, With<SceneId>>()
+                .iter(world)
+                .map(|n| n.as_str().to_string())
+                .collect();
+            check(
+                world,
+                named.iter().any(|n| n == "Ground"),
+                &format!("the floor is a scene entity ({named:?})"),
+            );
+            check(
+                world,
+                named.iter().any(|n| n == "Sun"),
+                "the light is a scene entity",
+            );
+            // And they carry their DATA, so they survive a save/load round trip
+            // rather than coming back as empty husks.
+            // Its mesh is DERIVED (the editor cannot name the game's Ground
+            // type, but a regenerated mesh is the observable proof).
+            let ground_meshed = world
+                .query_filtered::<(&Name, Has<Mesh3d>), With<SceneId>>()
+                .iter(world)
+                .any(|(name, meshed)| name.as_str() == "Ground" && meshed);
+            check(world, ground_meshed, "the floor derives its mesh from data");
+            let sun_is_data = world
+                .query_filtered::<(), (With<SceneId>, With<DirectionalLight>)>()
+                .iter(world)
+                .count();
+            check(world, sun_is_data >= 1, "the light carries its own data");
+            let spawn_named = world
+                .query_filtered::<&Name, With<SceneId>>()
+                .iter(world)
+                .any(|n| n.as_str() == "Player Spawn");
+            check(world, spawn_named, "the player spawn is a scene entity");
+            // Gizmo-only widgets get an invisible pick sphere, or they could be
+            // seen and never clicked.
+            let pickable = world
+                .query_filtered::<(), With<crate::feature_gizmos::GizmoPickProxy>>()
+                .iter(world)
+                .count();
+            check(world, pickable >= 1, "the spawn widget is clickable");
+        }
         // ── Orientation widget: it tracks the camera, and clicking an axis
         //    ball takes you to that view (owner ask) ─────────────────────────
         1200 => {

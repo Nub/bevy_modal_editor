@@ -11,6 +11,7 @@ pub mod actions;
 pub mod bake;
 pub mod edits;
 pub mod feature;
+pub mod gizmos;
 pub mod ids;
 pub mod keymap;
 pub mod kinds;

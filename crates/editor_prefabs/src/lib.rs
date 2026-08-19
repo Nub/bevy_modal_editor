@@ -407,6 +407,7 @@ impl Plugin for EditorPrefabsPlugin {
                 overrides::sync_overrides,
                 open_mode::seal_closed_instances,
                 authoring::snap_during_drag,
+                authoring::pin_pivot_to_selected_socket,
             )
                 .chain()
                 .in_set(editor_core::EditorSet::Sync),
@@ -1750,6 +1751,120 @@ mod repeat_tests {
             xs[0] < -1.9,
             "picking the WEST socket grew the run westward, not east: {xs:?}"
         );
+    }
+
+    // Owner ask: rotate a wall about a socket so the joint stays mated and the
+    // far end swings — the move that builds corners and curves.
+    #[test]
+    fn rotating_pivots_on_the_selected_socket() {
+        let mut app = test_app();
+        let wall_id = Uuid::new_v4();
+        let socket = |name: &str, x: f32, dir: Vec3| {
+            (
+                SceneId::random(),
+                None,
+                vec![
+                    Box::new(Socket {
+                        name: name.into(),
+                        socket_type: "wall".into(),
+                    })
+                    .into_partial_reflect(),
+                    Box::new(
+                        Transform::from_xyz(x, 0.0, 0.0)
+                            .with_rotation(Quat::from_rotation_arc(Vec3::Z, dir)),
+                    )
+                    .into_partial_reflect(),
+                ],
+            )
+        };
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(
+                wall_id,
+                PrefabDef {
+                    kit: None,
+                    id: wall_id,
+                    name: "Wall".into(),
+                    template: editor_scene::snapshot_from_parts(vec![
+                        (
+                            SceneId::random(),
+                            None,
+                            vec![
+                                Box::new(Payload(1.0)).into_partial_reflect(),
+                                Box::new(Transform::default()).into_partial_reflect(),
+                            ],
+                        ),
+                        socket("west", -1.0, -Vec3::X),
+                        socket("east", 1.0, Vec3::X),
+                    ]),
+                },
+            );
+        let root_id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root_id,
+                    components: vec![
+                        Box::new(PrefabInstance(wall_id)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+
+        // Select the WEST socket: that is the joint to keep pinned.
+        let (west, pinned_at) = {
+            let world = app.world_mut();
+            let found = world
+                .query::<(Entity, &Socket, &GlobalTransform)>()
+                .iter(world)
+                .find(|(_, s, _)| s.name == "west")
+                .map(|(e, _, g)| (e, g.translation()))
+                .expect("west socket stamped");
+            world.entity_mut(found.0).insert(Selected);
+            found
+        };
+        app.update();
+
+        // r y 90 ⏎ — a quarter turn about that socket.
+        invoke(&mut app, "transform.rotate");
+        invoke(&mut app, "transform.axis-y");
+        for digit in ["transform.digit-9", "transform.digit-0"] {
+            invoke(&mut app, digit);
+        }
+        invoke(&mut app, "transform.commit");
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let now = world
+            .query::<(&Socket, &GlobalTransform)>()
+            .iter(world)
+            .find(|(s, _)| s.name == "west")
+            .map(|(_, g)| g.translation())
+            .expect("west socket still there");
+        assert!(
+            now.abs_diff_eq(pinned_at, 1e-3),
+            "the pinned socket did not move: {pinned_at:?} -> {now:?}"
+        );
+        // ...and the piece actually turned: the far end swung off the X axis.
+        let east = world
+            .query::<(&Socket, &GlobalTransform)>()
+            .iter(world)
+            .find(|(s, _)| s.name == "east")
+            .map(|(_, g)| g.translation())
+            .expect("east socket");
+        assert!(
+            east.z.abs() > 1.5,
+            "the far end swung round the pivot: {east:?}"
+        );
+        let _ = west;
     }
 
     // Owner ask: mate WHILE dragging, so a wall rotated 90° snaps into a corner

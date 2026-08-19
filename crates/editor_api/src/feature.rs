@@ -92,6 +92,7 @@ pub struct FeatureRegistry {
     pub level_validators: Vec<(FeatureId, LevelValidatorDef)>,
     pub processors: Vec<(FeatureId, ProcessorDef)>,
     pub bakers: Vec<(FeatureId, BakerDef)>,
+    pub gizmos: Vec<(FeatureId, crate::gizmos::GizmoDef)>,
     current_feature: Option<FeatureId>,
 }
 
@@ -136,6 +137,31 @@ impl FeatureRegistry {
     pub fn baker(&mut self, def: BakerDef) -> &mut Self {
         let feature = self.current().clone();
         self.bakers.push((feature, def));
+        self
+    }
+
+    /// Draw a custom gizmo for `T` (spec §7): the editor renders it for every
+    /// entity carrying the component, and `pick_radius` gives a gizmo-only
+    /// widget a click target so it selects like anything with a mesh.
+    pub fn gizmo<T>(
+        &mut self,
+        id: crate::ids::GizmoId,
+        pick_radius: Option<f32>,
+        draw: crate::gizmos::GizmoDrawFn,
+    ) -> &mut Self
+    where
+        T: bevy::prelude::Component + bevy::reflect::Reflect,
+    {
+        let feature = self.current().clone();
+        self.gizmos.push((
+            feature,
+            crate::gizmos::GizmoDef {
+                id,
+                component: std::any::TypeId::of::<T>(),
+                draw,
+                pick_radius,
+            },
+        ));
         self
     }
     /// Register an import-time validator (RFC, M4-D2).
@@ -292,6 +318,7 @@ pub struct ValidatedFeatures {
     pub level_validators: Vec<(FeatureId, LevelValidatorDef)>,
     pub processors: Vec<(FeatureId, ProcessorDef)>,
     pub bakers: Vec<(FeatureId, BakerDef)>,
+    pub gizmos: Vec<(FeatureId, crate::gizmos::GizmoDef)>,
 }
 
 impl FeatureRegistry {
@@ -456,6 +483,7 @@ impl FeatureRegistry {
                 level_validators: self.level_validators,
                 processors: self.processors,
                 bakers: self.bakers,
+                gizmos: self.gizmos,
             })
         } else {
             Err(errors)

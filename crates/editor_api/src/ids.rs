@@ -78,6 +78,10 @@ string_id!(
     /// A registered bake step ("colliders.convex").
     BakerId
 );
+string_id!(
+    /// A registered viewport gizmo ("game.player-spawn").
+    GizmoId
+);
 
 /// The always-active keymap context.
 pub const GLOBAL_CONTEXT: ContextId = ContextId::new_static("global");

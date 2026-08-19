@@ -1497,3 +1497,48 @@ pub(crate) fn snap_during_drag(world: &mut World) {
     }
     snap_instance_to_socket(world, root_id, Some(gesture));
 }
+
+/// PIVOT ON SOCKET (owner ask): while a socket is selected, a rotate turns the
+/// piece that owns it ABOUT that socket — the joint stays mated and the far end
+/// swings, which is how you build a corner or walk a curve round.
+///
+/// Kept up to date every frame rather than at action time: the gesture reads it
+/// the instant `r` arrives, and a stale pin would rotate the wrong thing about
+/// the wrong point.
+pub(crate) fn pin_pivot_to_selected_socket(
+    sockets: Query<(Entity, &GlobalTransform), (With<crate::sockets::Socket>, With<Selected>)>,
+    parents: Query<&ChildOf>,
+    instances: Query<&SceneId, With<PrefabInstance>>,
+    stamped: Query<&StampedFrom>,
+    mut pin: ResMut<editor_core::gesture::GesturePivot>,
+) {
+    let mut found = None;
+    if let Some((socket, global)) = sockets.iter().next() {
+        // The owning instance: adopted sockets hang off the root, stamped ones
+        // name it directly.
+        let mut current = socket;
+        let owner = loop {
+            if let Ok(id) = instances.get(current) {
+                break Some(*id);
+            }
+            if let Ok(from) = stamped.get(current) {
+                break Some(from.instance_root);
+            }
+            match parents.get(current) {
+                Ok(parent) => current = parent.parent(),
+                Err(_) => break None,
+            }
+        };
+        if let Some(owner) = owner {
+            found = Some((owner, global.translation()));
+        }
+    }
+    let (subject, pivot) = match found {
+        Some((owner, at)) => (Some(owner), Some(at)),
+        None => (None, None),
+    };
+    if pin.subject != subject || pin.pivot != pivot {
+        pin.subject = subject;
+        pin.pivot = pivot;
+    }
+}

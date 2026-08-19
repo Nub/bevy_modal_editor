@@ -11,6 +11,7 @@ pub mod style;
 
 mod appear;
 mod dock;
+mod feature_gizmos;
 mod ghost;
 mod grid;
 mod hierarchy;
@@ -315,6 +316,15 @@ impl Plugin for EditorUiPlugin {
         app.add_systems(
             Update,
             view_gizmo::sync_view_gizmo.in_set(editor_core::EditorSet::Sync),
+        );
+        app.init_resource::<feature_gizmos::PickProxyMesh>();
+        app.add_systems(
+            Update,
+            (
+                feature_gizmos::draw_feature_gizmos,
+                feature_gizmos::attach_gizmo_pick_targets,
+            )
+                .in_set(editor_core::EditorSet::Sync),
         );
         app.add_systems(
             Update,

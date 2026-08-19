@@ -48,11 +48,23 @@ pub enum MoveGesture {
         /// Move: total world displacement. Rotate: `x` carries the angle in
         /// DEGREES (one accumulator, so typed amounts and drags interchange).
         accumulated: Vec3,
+        /// Rotate about THIS point when set; the selection's centroid otherwise.
+        pivot: Option<Vec3>,
         originals: Vec<(SceneId, Transform)>,
         /// Blender-style typed exact amount ("2", "-1.5") — spec M2 B7. Applies
         /// along the constrained axis; mouse motion resumes from it.
         typed: String,
     },
+}
+
+/// An explicit pivot for the next ROTATE, and what it should turn. Set by
+/// whoever owns the concept (editor_prefabs pins it to a selected socket), so
+/// the kernel stays ignorant of sockets while still supporting "rotate this
+/// piece about that point".
+#[derive(Resource, Default)]
+pub struct GesturePivot {
+    pub subject: Option<SceneId>,
+    pub pivot: Option<Vec3>,
 }
 
 #[derive(Resource, Default)]
@@ -77,6 +89,7 @@ fn apply_gesture(
     id: u64,
     axis: Option<usize>,
     amount: Vec3,
+    explicit_pivot: Option<Vec3>,
     originals: &[(SceneId, Transform)],
     edits: &mut EditScope,
 ) {
@@ -100,13 +113,16 @@ fn apply_gesture(
             let mut direction = Vec3::ZERO;
             direction[axis.unwrap_or(1)] = 1.0;
             let spin = Quat::from_axis_angle(direction, amount.x.to_radians());
-            // Multiple selections turn about their shared centroid; a single
-            // one turns in place.
-            let pivot = originals
-                .iter()
-                .map(|(_, t)| t.translation)
-                .fold(Vec3::ZERO, |acc, t| acc + t)
-                / originals.len().max(1) as f32;
+            // An explicit pivot (a pinned socket) wins; otherwise multiple
+            // selections turn about their shared centroid and a single one
+            // turns in place.
+            let pivot = explicit_pivot.unwrap_or_else(|| {
+                originals
+                    .iter()
+                    .map(|(_, t)| t.translation)
+                    .fold(Vec3::ZERO, |acc, t| acc + t)
+                    / originals.len().max(1) as f32
+            });
             for (scene_id, original) in originals {
                 let mut turned = *original;
                 turned.rotation = spin * original.rotation;
@@ -124,6 +140,7 @@ fn apply_typed(gesture: &mut MoveGesture, edits: &mut EditScope) {
         kind,
         axis,
         accumulated,
+        pivot,
         originals,
         typed,
     } = gesture
@@ -142,7 +159,7 @@ fn apply_typed(gesture: &mut MoveGesture, edits: &mut EditScope) {
         GestureKind::Rotate => Vec3::X * value,
     };
     *accumulated = desired;
-    apply_gesture(*kind, *id, *axis, desired, originals, edits);
+    apply_gesture(*kind, *id, *axis, desired, *pivot, originals, edits);
 }
 
 /// Consume gesture-related actions (any source — keys, palette, macros).
@@ -155,13 +172,37 @@ pub(crate) fn handle_gesture_actions(
     mut requests: ResMut<HistoryRequests>,
     mut edits: EditScope,
     selected: Query<(&SceneId, &Transform), With<Selected>>,
+    scene: Query<(&SceneId, &Transform)>,
+    pin: Res<GesturePivot>,
 ) {
     for invoked in reader.read() {
         match invoked.action.as_str() {
             action @ ("transform.move" | "transform.rotate") => {
                 if matches!(*gesture, MoveGesture::Idle) {
-                    let originals: Vec<(SceneId, Transform)> =
-                        selected.iter().map(|(id, t)| (*id, *t)).collect();
+                    let rotating = action == "transform.rotate";
+                    // PIVOT ON SOCKET: with a socket pinned, a rotate turns the
+                    // piece that owns it about that point, so the mated joint
+                    // stays put and the far end swings — corners and curves.
+                    let pinned = rotating
+                        .then(|| {
+                            let pin = &*pin;
+                            pin.subject.zip(pin.pivot)
+                        })
+                        .flatten()
+                        .and_then(|(subject, at)| {
+                            let transform = scene
+                                .iter()
+                                .find(|(id, _)| **id == subject)
+                                .map(|(_, t)| *t)?;
+                            Some((vec![(subject, transform)], at))
+                        });
+                    let (originals, pivot) = match pinned {
+                        Some((originals, at)) => (originals, Some(at)),
+                        None => (
+                            selected.iter().map(|(id, t)| (*id, *t)).collect::<Vec<_>>(),
+                            None,
+                        ),
+                    };
                     if originals.is_empty() {
                         continue;
                     }
@@ -175,6 +216,7 @@ pub(crate) fn handle_gesture_actions(
                         },
                         axis: None,
                         accumulated: Vec3::ZERO,
+                        pivot,
                         originals,
                         typed: String::new(),
                     };
@@ -253,6 +295,7 @@ pub(crate) fn drive_gesture(
         kind,
         axis,
         accumulated,
+        pivot,
         originals,
         ..
     } = &mut *gesture
@@ -284,7 +327,15 @@ pub(crate) fn drive_gesture(
         return;
     }
     *accumulated += delta;
-    apply_gesture(*kind, *id, *axis, *accumulated, originals, &mut edits);
+    apply_gesture(
+        *kind,
+        *id,
+        *axis,
+        *accumulated,
+        *pivot,
+        originals,
+        &mut edits,
+    );
 }
 
 /// Drag sensitivity: a full 360° needs a deliberate sweep, not a flick.

@@ -26,7 +26,9 @@ pub mod prelude {
     pub use crate::camera::{FlyingCamera, is_viewport_camera};
     pub use crate::clipboard::EditorClipboard;
     pub use crate::edits::{EditorComponents, History, HistoryRequests, HistoryScope};
-    pub use crate::gesture::{GESTURE_MOVE_CONTEXT, GestureCounter, GestureMotion, MoveGesture};
+    pub use crate::gesture::{
+        GESTURE_MOVE_CONTEXT, GestureCounter, GestureKind, GestureMotion, GesturePivot, MoveGesture,
+    };
     pub use crate::insert::{
         CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
     };
@@ -41,7 +43,7 @@ pub mod prelude {
         PendingSelect, Selected, SelectionChanged, SelectionScope, SelectionSealed,
     };
     pub use crate::settings::EditorSettings;
-    pub use crate::{BakerCatalog, ProcessorCatalog, ValidatorCatalog};
+    pub use crate::{BakerCatalog, GizmoCatalog, ProcessorCatalog, ValidatorCatalog};
     pub use editor_api::prelude::*;
 }
 
@@ -389,6 +391,7 @@ impl Plugin for EditorCorePlugin {
             .insert_resource(settings::EditorSettings::load_user())
             .init_resource::<gesture::MoveGesture>()
             .init_resource::<gesture::GestureMotion>()
+            .init_resource::<gesture::GesturePivot>()
             .init_resource::<gesture::GestureCounter>()
             .init_resource::<insert::InsertState>()
             .init_resource::<insert::GridSnap>()
@@ -586,6 +589,9 @@ fn host_features(world: &mut World) {
     world.insert_resource(BakerCatalog {
         bakers: validated.bakers.iter().map(|(_, b)| b.clone()).collect(),
     });
+    world.insert_resource(GizmoCatalog {
+        gizmos: validated.gizmos.iter().map(|(_, g)| g.clone()).collect(),
+    });
     world.insert_resource(panels::PanelCatalog {
         panels: validated.panels.iter().map(|(_, p)| p.clone()).collect(),
     });
@@ -628,4 +634,12 @@ pub struct ProcessorCatalog {
 #[derive(Resource, Default)]
 pub struct BakerCatalog {
     pub bakers: Vec<editor_api::bake::BakerDef>,
+}
+
+/// Every registered viewport gizmo (spec §7): games declare how their own
+/// components LOOK, and the editor draws and picks them without knowing the
+/// types.
+#[derive(Resource, Default)]
+pub struct GizmoCatalog {
+    pub gizmos: Vec<editor_api::gizmos::GizmoDef>,
 }
