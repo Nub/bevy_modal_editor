@@ -531,8 +531,8 @@ impl EditorFeature for PrefabsFeature {
                     .bind("o"),
             )
             .action(
-                ActionDef::new("socket.insert", "Socket: Place Piece Here")
-                    .describe("Open the palette and mate what you pick to the armed socket")
+                ActionDef::new("socket.insert", "Socket: Place Next Piece")
+                    .describe("Place another piece on the armed socket and move along to its free end")
                     .context("socket")
                     .bind("i"),
             )

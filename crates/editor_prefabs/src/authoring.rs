@@ -1018,26 +1018,42 @@ fn leave_socket_mode(world: &mut World) {
     });
 }
 
-/// `i` inside socket mode: the ordinary insert palette, which already mates
-/// what you pick to the armed socket.
+/// `i` inside socket mode: PLACE THE NEXT PIECE, immediately.
+///
+/// Owner: "I want `i` in socket mode to insert the next object, not bring up an
+/// insert menu or another `o` press." So it places — no palette, no second key.
+/// The piece is the one the armed socket belongs to, which is what "the next
+/// one" means while you are running a wall out: Tab to pick the end, `i`, `i`,
+/// `i`.
+///
+/// Placing leaves the NEW piece's free socket armed, so the next `i` builds on
+/// from there rather than stacking everything on the socket you started at.
+/// Picking a DIFFERENT piece is what leaving the mode is for.
 fn insert_at_armed_socket(world: &mut World) {
-    // Leaving the overlay first is what lets the palette's own keys (typing,
-    // Enter, Escape) work — the layer exists to rebind `i`, not to sit on top
-    // of the surface `i` opens.
-    world
-        .resource_mut::<editor_core::prelude::OverlayContext>()
-        .clear();
-    let changed = {
-        let mut mode = world.resource_mut::<editor_core::prelude::CurrentMode>();
-        (mode.0 != editor_core::prelude::MODE_INSERT)
-            .then(|| std::mem::replace(&mut mode.0, editor_core::prelude::MODE_INSERT))
+    let Some(placed) = repeat_piece(world) else {
+        return; // repeat_piece already said why
     };
-    if let Some(from) = changed {
-        world.write_message(editor_core::prelude::ModeChanged {
-            from,
-            to: editor_core::prelude::MODE_INSERT,
-        });
+    apply_pending(world);
+    // Walk the chain forward: arm the new piece's free end.
+    let Some(entity) = world.resource::<SceneIndex>().get(&placed) else {
+        return;
+    };
+    let sockets = sockets_of_piece(world, entity);
+    let Some(next) = sockets.into_iter().next() else {
+        return;
+    };
+    let selected: Vec<Entity> = world
+        .query_filtered::<Entity, With<Selected>>()
+        .iter(world)
+        .collect();
+    for previous in selected {
+        world.entity_mut(previous).remove::<Selected>();
     }
+    world.entity_mut(next).insert(Selected);
+    world.write_message(editor_core::selection::SelectionChanged);
+    world
+        .resource_mut::<bevy::input_focus::InputFocus>()
+        .clear();
 }
 
 /// `socket.next` — ARM the socket the next piece will use.
@@ -1148,7 +1164,30 @@ fn sockets_of_piece(world: &mut World, piece: Entity) -> Vec<Entity> {
             .then(a.1.z.total_cmp(&b.1.z))
             .then(a.1.y.total_cmp(&b.1.y))
     });
-    found.into_iter().map(|(entity, _)| entity).collect()
+    let ordered: Vec<Entity> = found.into_iter().map(|(entity, _)| entity).collect();
+    // FREE SOCKETS FIRST. An end with nothing on it is what you build from, and
+    // having to Tab past the joints you already made to reach one is exactly the
+    // friction this verb exists to remove. Occupied sockets stay in the ring, at
+    // the back, so a deliberate re-mate is still reachable.
+    let (free, taken): (Vec<Entity>, Vec<Entity>) = ordered
+        .into_iter()
+        .partition(|socket| !is_joined(world, *socket));
+    free.into_iter().chain(taken).collect()
+}
+
+/// Is this socket already mated to another piece's socket?
+fn is_joined(world: &mut World, socket: Entity) -> bool {
+    let Some(global) = world.get::<GlobalTransform>(socket).copied() else {
+        return false;
+    };
+    let others: Vec<(Entity, GlobalTransform)> = world
+        .query::<(Entity, &GlobalTransform, &crate::sockets::Socket)>()
+        .iter(world)
+        .map(|(entity, other, _)| (entity, *other))
+        .collect();
+    others.into_iter().any(|(entity, other)| {
+        entity != socket && crate::sockets::sockets_are_joined(&global, &other)
+    })
 }
 
 /// The piece a socket hangs off — an instance root, a stamped member's root, or

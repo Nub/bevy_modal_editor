@@ -967,6 +967,19 @@ rebinds the keys that mean something else in it. What a mode must never be is
 INVISIBLE, so the status bar now names the active keyboard layer the way it
 names a gesture or an open prefab.
 
+
+**Socket mode, refined by use (2026-08-20).** Two changes from watching it
+being driven:
+
+- **The first FREE socket is armed automatically**, and Tab toggles from there.
+  An end with nothing on it is what you build from; Tabbing past the joints you
+  already made to reach one is the friction the verb exists to remove. Occupied
+  sockets stay in the ring, at the back, so a deliberate re-mate is reachable.
+- **`i` places immediately** — no palette, no second key. It repeats the piece
+  the armed socket belongs to, which is what "the next one" means while running
+  a wall out, and then arms the NEW piece's free end so the chain walks forward
+  on its own: Tab to pick the end, then `i`, `i`, `i`. Choosing a different
+  piece is what leaving the mode is for.
 **Focus follows what you are looking at (2026-08-20).** The inspector restores
 field focus across its own rebuilds, so keyboard navigation survives a rebuild —
 correct, and it kept doing so across a SELECTION CHANGE. A dead text field

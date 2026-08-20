@@ -570,29 +570,21 @@ pub(crate) fn probe_kit(world: &mut World) {
                 .and_then(|entity| world.get::<GlobalTransform>(entity))
                 .map(|global| global.translation());
         }
-        // And `i` in that mode means PLACE HERE — the owner's whole grammar.
-        1438 => tap(world, KeyCode::KeyI, "i"),
-        1460 => {
-            for (code, ch) in [
-                (KeyCode::KeyW, "w"),
-                (KeyCode::KeyA, "a"),
-                (KeyCode::KeyL, "l"),
-                (KeyCode::KeyL, "l"),
-            ] {
-                tap(world, code, ch);
-            }
+        // `i` PLACES — no palette, no second key. Owner: "i in socket mode
+        // inserts the next object, not an insert menu or another o press."
+        1438 => {
             world.resource_mut::<KitProbe>().walls_before_paint =
                 instance_roots_named(world, "Wall").len();
+            tap(world, KeyCode::KeyI, "i");
         }
-        1480 => tap_named(world, KeyCode::Enter, Key::Enter),
-        1494 => {
+        1470 => {
             let before = world.resource::<KitProbe>().walls_before_paint;
             let walls = instance_roots_named(world, "Wall");
             check(
                 world,
                 walls.len() == before + 1,
                 &format!(
-                    "i placed a piece from socket mode ({} -> {})",
+                    "i placed a piece straight away ({} -> {})",
                     before,
                     walls.len()
                 ),
@@ -606,6 +598,18 @@ pub(crate) fn probe_kit(world: &mut World) {
                 world,
                 nearest < 4.0,
                 &format!("onto the socket TAB armed ({nearest:.2}m away)"),
+            );
+            world.resource_mut::<KitProbe>().walls_before_paint = walls.len();
+        }
+        // And again, with no other key: the chain walks forward on its own.
+        1480 => tap(world, KeyCode::KeyI, "i"),
+        1510 => {
+            let before = world.resource::<KitProbe>().walls_before_paint;
+            let walls = instance_roots_named(world, "Wall").len();
+            check(
+                world,
+                walls == before + 1,
+                &format!("a second i chained another ({before} -> {walls})"),
             );
             shot(world, "k7-socket-mode");
         }
