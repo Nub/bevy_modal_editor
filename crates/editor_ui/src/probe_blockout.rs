@@ -15,6 +15,7 @@ pub(crate) struct BlockoutProbe {
     frame: u32,
     failures: Vec<String>,
     piece: Option<SceneId>,
+    named_before: usize,
 }
 
 fn check(world: &mut World, ok: bool, what: &str) {
@@ -175,7 +176,109 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 &format!("a second undo takes back the uniform scale: {scale:?}"),
             );
         }
-        860 => {
+        // ── Duplicate: the verb a blockout uses more than any other ────────
+        840 => {
+            let before = world
+                .query_filtered::<(), (With<SceneId>, With<Name>)>()
+                .iter(world)
+                .count();
+            world.resource_mut::<BlockoutProbe>().named_before = before;
+            invoke(world, "select.duplicate");
+        }
+        880 => {
+            let before = world.resource::<BlockoutProbe>().named_before;
+            let after = world
+                .query_filtered::<(), (With<SceneId>, With<Name>)>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                after == before + 1,
+                &format!("shift+d duplicated the selection ({before} then {after})"),
+            );
+            // The copy is what is selected, and it is handed straight to a move
+            // gesture — a duplicate that lands invisibly on its original and
+            // waits is not a throughput verb.
+            let grabbing = !matches!(
+                *world.resource::<editor_core::gesture::MoveGesture>(),
+                editor_core::gesture::MoveGesture::Idle
+            );
+            check(world, grabbing, "the duplicate is grabbed, ready to place");
+            invoke(world, "transform.axis-x");
+            invoke(world, "transform.digit-3");
+        }
+        920 => {
+            invoke(world, "transform.commit");
+        }
+        960 => {
+            let spread: Vec<f32> = world
+                .query_filtered::<&Transform, (With<SceneId>, With<Name>)>()
+                .iter(world)
+                .map(|transform| transform.translation.x)
+                .collect();
+            let moved_apart = spread.iter().any(|x| (x - 5.0).abs() < 0.01);
+            check(
+                world,
+                moved_apart,
+                &format!("the duplicate placed 3 along x, leaving the original ({spread:?})"),
+            );
+            shot(world, "42-blockout-duplicate");
+        }
+        // ── Angle snap: 15° without typing a number ───────────────────────
+        // Back to the original block — the duplicate is what the grab left
+        // selected, and the checks below read the original by id.
+        1000 => {
+            let id = world.resource::<BlockoutProbe>().piece.unwrap();
+            let previous: Vec<Entity> = world
+                .query_filtered::<Entity, With<Selected>>()
+                .iter(world)
+                .collect();
+            for entity in previous {
+                world.entity_mut(entity).remove::<Selected>();
+            }
+            if let Some(entity) = world.resource::<editor_api::edits::SceneIndex>().get(&id) {
+                world.entity_mut(entity).insert(Selected);
+            }
+            invoke(world, "core.toggle-angle-snap");
+        }
+        1040 => invoke(world, "transform.rotate"),
+        1080 => {
+            let reads = mode_readout(world, "ROTATE");
+            check(world, reads, "the statusbar reads ROTATE");
+            invoke(world, "transform.digit-2");
+            invoke(world, "transform.digit-0");
+        }
+        1120 => {
+            // A TYPED angle stays exact even with the toggle on.
+            let yaw =
+                piece_transform(world).map(|t| t.rotation.to_euler(EulerRot::XYZ).1.to_degrees());
+            check(
+                world,
+                yaw.is_some_and(|y| (y - 20.0).abs() < 0.05),
+                &format!("a typed angle is exact, snap or no snap ({yaw:?})"),
+            );
+            invoke(world, "transform.cancel");
+        }
+        // And the drag itself lands on the step — the point of the toggle.
+        1130 => invoke(world, "transform.rotate"),
+        1134 => {
+            // 40px of horizontal drag is 20°, which has to land on 15°.
+            world
+                .resource_mut::<editor_core::gesture::GestureMotion>()
+                .screen = Some(Vec2::new(40.0, 0.0));
+        }
+        1140 => {
+            let yaw =
+                piece_transform(world).map(|t| t.rotation.to_euler(EulerRot::XYZ).1.to_degrees());
+            check(
+                world,
+                yaw.is_some_and(|y| (y - 15.0).abs() < 0.05),
+                &format!("a dragged rotate lands on the 15\u{b0} step ({yaw:?})"),
+            );
+            shot(world, "43-blockout-angle-snap");
+            invoke(world, "transform.cancel");
+        }
+        1160 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

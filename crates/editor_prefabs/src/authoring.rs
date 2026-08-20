@@ -971,17 +971,11 @@ fn repeat_piece(world: &mut World) -> Option<SceneId> {
         });
         return None;
     };
-    let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
-        return None;
-    };
-    let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
-        return None;
-    };
+    let root = world.resource::<SceneIndex>().get(&root_id)?;
+    let instance = world.get::<PrefabInstance>(root).copied()?;
     let (name, def_sockets) = {
         let library = world.resource::<PrefabLibrary>();
-        let Some(def) = library.prefabs.get(&instance.0) else {
-            return None;
-        };
+        let def = library.prefabs.get(&instance.0)?;
         (def.name.clone(), crate::sockets::template_sockets(def))
     };
     let members: Vec<Entity> = crate::open_mode::members_of(world, root);

@@ -36,6 +36,15 @@ pub struct GridSnap {
     pub enabled: bool,
 }
 
+/// Angle snap (spec §9 grid/angle toggles): quantizes a ROTATE gesture to the
+/// settings' angle step. Separate from `GridSnap` because they are wanted
+/// separately — laying a run on the grid while dialling a free angle, and
+/// vice versa.
+#[derive(Resource, Default)]
+pub struct AngleSnap {
+    pub enabled: bool,
+}
+
 /// Cursor projected onto the ground plane (y = 0), editor-active frames only.
 /// Tests inject this directly; the camera system fills it in a real app.
 #[derive(Resource, Default)]
@@ -148,6 +157,7 @@ pub(crate) fn handle_insert_actions(
     mut reader: MessageReader<ActionInvoked>,
     mut insert: ResMut<InsertState>,
     mut grid: ResMut<GridSnap>,
+    mut angle: ResMut<AngleSnap>,
     mut mode: ResMut<CurrentMode>,
     mut just_picked: ResMut<KindJustPicked>,
     mut mode_changed: MessageWriter<ModeChanged>,
@@ -160,6 +170,9 @@ pub(crate) fn handle_insert_actions(
         }
         if invoked.action.as_str() == "core.toggle-grid-snap" {
             grid.enabled = !grid.enabled;
+        }
+        if invoked.action.as_str() == "core.toggle-angle-snap" {
+            angle.enabled = !angle.enabled;
         }
     }
 }

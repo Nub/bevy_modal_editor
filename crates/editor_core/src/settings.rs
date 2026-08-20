@@ -78,6 +78,9 @@ pub struct ViewportSettings {
     pub ghost_color: [f32; 4],
     /// Grid snap quantum, world units.
     pub grid_step: f32,
+    /// Angle snap quantum, DEGREES. 15° divides the turns a level is built
+    /// from — 30, 45, 90 — so a wall meets a wall without anyone typing.
+    pub angle_step: f32,
 }
 
 impl Default for ViewportSettings {
@@ -87,6 +90,7 @@ impl Default for ViewportSettings {
             outline_width: 4.0,
             ghost_color: [0.35, 0.62, 1.0, 0.45],
             grid_step: 1.0,
+            angle_step: 15.0,
         }
     }
 }

@@ -77,6 +77,7 @@ jump-back, and `'x/'y/'z` reads as "go to the X view."
 | `i` | **Insert mode**: place new entities (palette picks what) | insert |
 | `a` | Insert as *child of selection* ("append into") | vim `a` appends after |
 | `d` / `x` | Delete selection (to register) | same |
+| `Shift+D` | **Duplicate** selection and grab it (implemented 2026-08-19) | Blender; `d` is taken by delete, and duplicate-then-place is one motion in every DCC |
 | `y` / `p` / `P` | Yank / paste at cursor raycast / paste in place | same |
 | `o` | New sibling after selection (empty group / repeat last kind) | open line |
 | `cw` | Rename selection | change word |
@@ -93,6 +94,24 @@ immediate modal gesture on the selection: mouse moves it; `x`/`y`/`z` constrain 
 (double-tap = plane, i.e. exclude axis — Blender `Shift+X`); typed digits set an exact
 amount (`w x 2.5 Enter` = move +2.5 on X); `Enter`/click commits, `Esc` cancels and restores.
 One undo entry per gesture. Counts compose: `3.` repeats a nudge three times.
+
+**Duplicate (implemented 2026-08-19):** `Shift+D` copies every registered
+component of the selection — the v1 post-mortem records ITS duplicate as lossy
+(kind, position and rotation only), so this one goes through the same reflection
+capture as yank and delete — spawns the copies as ONE transaction, selects them,
+and hands them straight to a move gesture. The copies land exactly on their
+originals, so without that grab a duplicate looks like nothing happened; `Esc`
+cancels the move and leaves them in place, since the duplicate is its own
+transaction. It deliberately does NOT touch the yank register: a designer yanks
+a piece, lays a run of duplicates, and still expects `p` to paste the yank.
+
+**Angle snap (implemented 2026-08-19, spec §9 grid/angle toggles):** `Space a`
+toggles quantization of a rotate DRAG to `viewport.angle_step` (15° by default —
+it divides 30, 45 and 90, the turns a level is actually built from). It is a
+separate toggle from grid snap because the two are wanted separately: laying a
+run on the grid while dialling a free angle, and the reverse. Typed angles are
+exempt for the same reason typed distances are — `e 37 ⏎` means 37. Both toggles
+show in the status line while they are on.
 
 **Scale specifics (implemented 2026-08-19):** a typed amount is the **factor itself**, not a
 delta — `r 2 Enter` is exactly twice as big — so the gesture's accumulator starts at 1×

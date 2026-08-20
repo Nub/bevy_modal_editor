@@ -30,7 +30,7 @@ pub mod prelude {
         GESTURE_MOVE_CONTEXT, GestureCounter, GestureKind, GestureMotion, GesturePivot, MoveGesture,
     };
     pub use crate::insert::{
-        CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
+        AngleSnap, CursorGround, GridSnap, InsertState, KindCatalog, KindJustPicked, MODE_INSERT,
     };
     pub use crate::keymap_data::KeymapPaths;
     pub use crate::modes::{CurrentMode, MODE_NORMAL, ModeChanged, Modes};
@@ -85,6 +85,13 @@ impl EditorFeature for CoreFeature {
                 .context("normal")
                 .context("insert")
                 .bind("space g"),
+        )
+        .action(
+            ActionDef::new("core.toggle-angle-snap", "Toggle Angle Snap")
+                .describe("Quantize rotation to the angle step (15° by default)")
+                .context("normal")
+                .context("insert")
+                .bind("space a"),
         )
         .action(
             ActionDef::new("core.toggle-editor", "Toggle Editor")
@@ -214,6 +221,16 @@ impl EditorFeature for CoreFeature {
                 .describe("Copy the selected entities to the clipboard")
                 .context("normal")
                 .bind("y"),
+        )
+        .action(
+            ActionDef::new("select.duplicate", "Duplicate Selection")
+                .describe(
+                    "Copy the selection in place and grab it — \
+                     the register is left alone, so a yank survives a run of duplicates",
+                )
+                .context("normal")
+                .bind("shift+d")
+                .edit(),
         )
         .action(
             ActionDef::new("select.paste", "Paste")
@@ -405,6 +422,8 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<gesture::GestureCounter>()
             .init_resource::<insert::InsertState>()
             .init_resource::<insert::GridSnap>()
+            .init_resource::<insert::AngleSnap>()
+            .init_resource::<clipboard::PendingDuplicateGrab>()
             .init_resource::<insert::CursorGround>()
             .init_resource::<insert::KindCatalog>()
             .init_resource::<insert::KindJustPicked>()
@@ -474,7 +493,9 @@ impl Plugin for EditorCorePlugin {
                     .in_set(EditorSet::Tools),
                 edits::apply_edits.in_set(EditorSet::Mutate),
                 edits::ensure_entity_names.in_set(EditorSet::Sync),
-                clipboard::select_pasted.in_set(EditorSet::Sync),
+                (clipboard::select_pasted, clipboard::grab_duplicate)
+                    .chain()
+                    .in_set(EditorSet::Sync),
             ),
         );
     }

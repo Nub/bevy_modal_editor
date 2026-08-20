@@ -105,9 +105,10 @@ fn apply_gesture(
     amount: Vec3,
     explicit_pivot: Option<Vec3>,
     originals: &[(SceneId, Transform)],
-    // The grid step a DRAG lands on, when snapping is enabled. Typed amounts
-    // pass `None`: "w x 2.5" is an exact instruction, and quantizing its
-    // result would contradict what the user just spelled out.
+    // What a DRAG lands on when snapping is enabled: a grid step for a move, an
+    // angle step for a rotate. Typed amounts pass `None` — "w x 2.5" is an
+    // exact instruction, and quantizing its result would contradict what the
+    // user just spelled out.
     snap_step: Option<f32>,
     edits: &mut EditScope,
 ) {
@@ -128,7 +129,13 @@ fn apply_gesture(
             // be predictable, and the one level layout wants nine times in ten.
             let mut direction = Vec3::ZERO;
             direction[axis.unwrap_or(1)] = 1.0;
-            let spin = Quat::from_axis_angle(direction, amount.x.to_radians());
+            // Snapping the ANGLE, not the resulting orientation: quantizing the
+            // final quaternion would fight any rotation the piece already had.
+            let degrees = match snap_step {
+                Some(step) if step > 0.0 => (amount.x / step).round() * step,
+                _ => amount.x,
+            };
+            let spin = Quat::from_axis_angle(direction, degrees.to_radians());
             let pivot = pivot_of(explicit_pivot, originals);
             for (scene_id, original) in originals {
                 let mut turned = *original;
@@ -366,6 +373,7 @@ pub(crate) fn drive_gesture(
     mut gesture: ResMut<MoveGesture>,
     mut motion: ResMut<GestureMotion>,
     grid: Res<crate::insert::GridSnap>,
+    angle: Res<crate::insert::AngleSnap>,
     settings: Res<crate::settings::EditorSettings>,
     mut edits: EditScope,
 ) {
@@ -425,10 +433,13 @@ pub(crate) fn drive_gesture(
     // B9's quantization was reachable from placement only: the toggle says it
     // snaps "placement and movement", and nothing in the gesture path had ever
     // read it, so a drag landed wherever the mouse stopped.
-    let snap_step = grid
-        .enabled
-        .then_some(settings.viewport.grid_step)
-        .filter(|step| *step > 0.0);
+    let snap_step = match kind {
+        GestureKind::Move => grid.enabled.then_some(settings.viewport.grid_step),
+        GestureKind::Rotate => angle.enabled.then_some(settings.viewport.angle_step),
+        // Scale has no natural quantum — a ratio is not a distance.
+        GestureKind::Scale => None,
+    }
+    .filter(|step| *step > 0.0);
     apply_gesture(
         *kind,
         *id,
@@ -1045,6 +1056,85 @@ mod tests {
         );
     }
 
+    // Spec §9 lists grid AND angle toggles. A drag lands on the angle step, so
+    // a wall meets a wall without anyone typing an exact number.
+    #[test]
+    fn a_dragged_rotate_lands_on_the_angle_step() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        app.world_mut()
+            .resource_mut::<crate::insert::AngleSnap>()
+            .enabled = true;
+        invoke(&mut app, "transform.rotate");
+        // 40px of drag is 20°, which quantizes to 15°.
+        push_screen(&mut app, 40.0);
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        let rotation = app.world().get::<Transform>(entity).unwrap().rotation;
+        let (_, yaw, _) = rotation.to_euler(EulerRot::XYZ);
+        assert!(
+            (yaw.to_degrees() - 15.0).abs() < 0.01,
+            "20° of drag snaps to 15°: {}",
+            yaw.to_degrees()
+        );
+        invoke(&mut app, "transform.cancel");
+    }
+
+    // Off by default, and off means exactly what the mouse did.
+    #[test]
+    fn angle_snap_off_leaves_a_rotate_untouched() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        invoke(&mut app, "transform.rotate");
+        push_screen(&mut app, 40.0);
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        let rotation = app.world().get::<Transform>(entity).unwrap().rotation;
+        let (_, yaw, _) = rotation.to_euler(EulerRot::XYZ);
+        assert!(
+            (yaw.to_degrees() - 20.0).abs() < 0.01,
+            "no snapping without the toggle: {}",
+            yaw.to_degrees()
+        );
+        invoke(&mut app, "transform.cancel");
+    }
+
+    // A typed angle is exact: "e 37 ⏎" means 37, snap or no snap.
+    #[test]
+    fn a_typed_rotate_ignores_the_angle_step() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        app.world_mut()
+            .resource_mut::<crate::insert::AngleSnap>()
+            .enabled = true;
+        invoke(&mut app, "transform.rotate");
+        for action in ["transform.digit-3", "transform.digit-7"] {
+            invoke(&mut app, action);
+        }
+        invoke(&mut app, "transform.commit");
+        app.update();
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        let rotation = app.world().get::<Transform>(entity).unwrap().rotation;
+        let (_, yaw, _) = rotation.to_euler(EulerRot::XYZ);
+        assert!(
+            (yaw.to_degrees() - 37.0).abs() < 0.01,
+            "typed angles are exact: {}",
+            yaw.to_degrees()
+        );
+    }
+
+    // The toggle is an ACTION like everything else, and it is its own toggle —
+    // laying a run on the grid while dialling a free angle has to be possible.
+    #[test]
+    fn the_angle_toggle_is_independent_of_the_grid_toggle() {
+        let mut app = test_app();
+        invoke(&mut app, "core.toggle-angle-snap");
+        assert!(app.world().resource::<crate::insert::AngleSnap>().enabled);
+        assert!(
+            !app.world().resource::<crate::insert::GridSnap>().enabled,
+            "the grid toggle is untouched"
+        );
+        invoke(&mut app, "core.toggle-angle-snap");
+        assert!(!app.world().resource::<crate::insert::AngleSnap>().enabled);
+    }
     // Scale is a RATIO, so the drag has to compose multiplicatively: equal
     // travel each way must cancel exactly. Accumulating pixels into the factor
     // instead gave shrink 200px of range and then wound up below the floor,

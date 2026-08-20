@@ -165,6 +165,7 @@ pub(crate) struct StatusData<'w> {
     open_instance: Res<'w, editor_prefabs::open_mode::OpenInstance>,
     validation: Res<'w, editor_scene::level_validation::LevelValidation>,
     grid_snap: Res<'w, GridSnap>,
+    angle_snap: Res<'w, AngleSnap>,
     settings: Res<'w, EditorSettings>,
 }
 
@@ -295,6 +296,9 @@ pub(crate) fn update_statusbar(
         }
         if data.grid_snap.enabled {
             parts.push(format!("snap {}m", data.settings.viewport.grid_step));
+        }
+        if data.angle_snap.enabled {
+            parts.push(format!("snap {}\u{b0}", data.settings.viewport.angle_step));
         }
         // Level validation counts are STATE (the level is/isn't valid) — shown
         // whenever any registered rule fails, silent when the level is clean.
