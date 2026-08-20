@@ -125,6 +125,26 @@ a piece, lays a run of duplicates, and still expects `p` to paste the yank.
 
 
 
+
+**Tab is bevy's key too (2026-08-20, owner testing).** `Tab` arms the next
+socket, and `TabNavigationPlugin` independently moves UI focus to the first
+focusable widget it can find — a text field in a panel. `KeyCapture` follows
+focus, so cycling a socket silently handed the keyboard to an inspector box and
+the NEXT key went there: the owner's report was "`i` inside socket mode doesn't
+work". Arming a socket now takes the keyboard back. Working in the viewport
+means the viewport has the keys.
+
+Two related rules came out of the same hunt:
+
+- **A hidden field cannot capture the keyboard.** Capture is derived from focus
+  landing on an editable text widget; a closed palette hides its root but keeps
+  its input entity, so focus parked there made the resolver stand down forever.
+  The rule now requires the field to be VISIBLE.
+- **Overlay contexts can LAYER instead of grabbing.** A gesture overlay is
+  exclusive on purpose — a stray `u` mid-drag must not undo. A working layer
+  like socket mode is not: it wins the keys it declares (`tab`, `i`, `o`, `esc`)
+  and lets everything else fall through to the mode, so arming a socket does not
+  also take away move, undo and the palette.
 **Push and pull, and drop to surface (implemented 2026-08-20, owner testing).**
 A free move drag moves in the CAMERA PLANE — right and up relative to the view —
 which is two of the three dimensions and no way to say "further away". The WHEEL

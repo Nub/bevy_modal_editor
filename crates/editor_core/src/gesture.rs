@@ -306,7 +306,7 @@ pub(crate) fn handle_gesture_actions(
                     };
                     motion.world = None;
                     motion.screen = None;
-                    overlay.0 = Some(GESTURE_MOVE_CONTEXT);
+                    overlay.set_exclusive(GESTURE_MOVE_CONTEXT);
                 }
             }
             "transform.axis-x" => set_axis(&mut gesture, 0),
@@ -341,14 +341,14 @@ pub(crate) fn handle_gesture_actions(
             "transform.commit" => {
                 if !matches!(*gesture, MoveGesture::Idle) {
                     *gesture = MoveGesture::Idle;
-                    overlay.0 = None;
+                    overlay.clear();
                 }
             }
             "transform.cancel" => {
                 if let MoveGesture::Active { id, .. } = *gesture {
                     requests.cancel_gesture = Some(id);
                     *gesture = MoveGesture::Idle;
-                    overlay.0 = None;
+                    overlay.clear();
                 }
             }
             _ => {}
@@ -615,7 +615,7 @@ pub(crate) fn commit_on_click(
     let Some(mouse) = mouse else { return };
     if mouse.just_pressed(MouseButton::Left) {
         *gesture = MoveGesture::Idle;
-        overlay.0 = None;
+        overlay.clear();
     }
 }
 
@@ -738,7 +738,7 @@ mod tests {
             *app.world().resource::<MoveGesture>(),
             MoveGesture::Idle
         ));
-        assert!(app.world().resource::<OverlayContext>().0.is_none());
+        assert!(app.world().resource::<OverlayContext>().context.is_none());
     }
 
     // B7: axis constraint projects the delta.

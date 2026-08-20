@@ -141,7 +141,7 @@ pub(crate) fn perform_paint_actions(world: &mut World) {
     }
     if requests.exit && world.resource::<PaintState>().0.is_some() {
         world.resource_mut::<PaintState>().0 = None;
-        world.resource_mut::<OverlayContext>().0 = None;
+        world.resource_mut::<OverlayContext>().clear();
         world.write_message(editor_scene::SceneIoFeedback {
             message: "paint done".into(),
             success: true,
@@ -207,7 +207,9 @@ fn enter_paint(world: &mut World) {
         cursor_exit: None,
         previous_direction: None,
     });
-    world.resource_mut::<OverlayContext>().0 = Some(PAINT_CONTEXT);
+    world
+        .resource_mut::<OverlayContext>()
+        .set_exclusive(PAINT_CONTEXT);
     world.write_message(editor_scene::SceneIoFeedback {
         message: format!("painting {name} — click to anchor, click to lay, ⎋ done"),
         success: true,

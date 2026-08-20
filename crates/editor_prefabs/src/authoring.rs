@@ -344,6 +344,20 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
     }
     if requests.next_socket {
         cycle_socket(world);
+        // Tab alone is the whole entry: arm a socket AND raise its layer, so
+        // reaching the socket you want is Tab, Tab, Tab rather than a verb to
+        // get in followed by a verb to move. `o` still enters for the same
+        // reason it always did — it is the key a person reaches for to repeat.
+        let armed = {
+            let mut query =
+                world.query_filtered::<Entity, (With<crate::sockets::Socket>, With<Selected>)>();
+            query.iter(world).next().is_some()
+        };
+        if armed {
+            world
+                .resource_mut::<editor_core::prelude::OverlayContext>()
+                .set_layer(crate::sockets::SOCKET_CONTEXT);
+        }
     }
     if requests.exit_socket {
         leave_socket_mode(world);
@@ -987,7 +1001,7 @@ fn enter_socket_mode(world: &mut World) {
     }
     world
         .resource_mut::<editor_core::prelude::OverlayContext>()
-        .0 = Some(crate::sockets::SOCKET_CONTEXT);
+        .set_layer(crate::sockets::SOCKET_CONTEXT);
     world.write_message(editor_scene::SceneIoFeedback {
         message: "socket mode \u{b7} tab next \u{b7} i place \u{b7} o chain \u{b7} esc done".into(),
         success: true,
@@ -997,7 +1011,7 @@ fn enter_socket_mode(world: &mut World) {
 fn leave_socket_mode(world: &mut World) {
     world
         .resource_mut::<editor_core::prelude::OverlayContext>()
-        .0 = None;
+        .clear();
     world.write_message(editor_scene::SceneIoFeedback {
         message: "socket mode off".into(),
         success: true,
@@ -1012,7 +1026,7 @@ fn insert_at_armed_socket(world: &mut World) {
     // of the surface `i` opens.
     world
         .resource_mut::<editor_core::prelude::OverlayContext>()
-        .0 = None;
+        .clear();
     let changed = {
         let mut mode = world.resource_mut::<editor_core::prelude::CurrentMode>();
         (mode.0 != editor_core::prelude::MODE_INSERT)
@@ -1087,6 +1101,14 @@ fn cycle_socket(world: &mut World) {
     }
     world.entity_mut(next).insert(Selected);
     world.write_message(editor_core::selection::SelectionChanged);
+    // Take the keyboard BACK. Tab is also bevy's tab-navigation key, which moves
+    // UI focus to the first focusable widget it finds — a text field in a panel —
+    // and `KeyCapture` follows focus, so cycling a socket would silently hand the
+    // keyboard to an inspector box and the next `i` would go there instead of to
+    // the editor. Working in the viewport means the viewport has the keys.
+    world
+        .resource_mut::<bevy::input_focus::InputFocus>()
+        .clear();
     let name = world
         .get::<crate::sockets::Socket>(next)
         .map(|socket| socket.name.clone())

@@ -40,7 +40,30 @@ pub struct PointerOverChrome(pub bool);
 
 /// An active overlay keymap layer (gesture, focused panel) — highest priority when set.
 #[derive(Resource, Default)]
-pub struct OverlayContext(pub Option<ContextId>);
+pub struct OverlayContext {
+    pub context: Option<ContextId>,
+    /// Exclusive layers GRAB the keyboard: a gesture rebinds everything while it
+    /// runs, and a stray `u` mid-drag must not undo. A LAYERED one wins the keys
+    /// it declares and lets the rest fall through to the mode — which is what a
+    /// working layer like socket mode wants, so that arming a socket does not
+    /// also take away move, undo and the palette.
+    pub exclusive: bool,
+}
+
+impl OverlayContext {
+    pub fn set_exclusive(&mut self, context: ContextId) {
+        self.context = Some(context);
+        self.exclusive = true;
+    }
+    pub fn set_layer(&mut self, context: ContextId) {
+        self.context = Some(context);
+        self.exclusive = false;
+    }
+    pub fn clear(&mut self) {
+        self.context = None;
+        self.exclusive = false;
+    }
+}
 
 /// Set for the frame when Escape pierced a text-field capture: backout peels ONE
 /// layer per press — the capturing surface closes, but mode/selection stay.
@@ -104,9 +127,14 @@ pub fn active_contexts(
     panel_catalog: &crate::panels::PanelCatalog,
 ) -> Vec<ContextId> {
     if state.active {
-        // Gesture overlays are exclusive: they grab the keyboard entirely.
-        if let Some(overlay) = &overlay.0 {
-            return vec![overlay.clone()];
+        // An EXCLUSIVE overlay grabs the keyboard entirely (gestures). A LAYERED
+        // one wins its own keys and lets everything else fall through.
+        if let Some(context) = &overlay.context {
+            return if overlay.exclusive {
+                vec![context.clone()]
+            } else {
+                vec![context.clone(), mode.context(), GLOBAL_CONTEXT]
+            };
         }
         // A focused panel LAYERS its context over the mode (owner: the hierarchy is
         // just another way to navigate the scene — select a row, press w, move it).

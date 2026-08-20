@@ -121,14 +121,24 @@ impl EditorFeature for EditorUiFeature {
 }
 
 /// ONE writer for `KeyCapture` (flow-audit: competing writers): the resolver stands
-/// down exactly while an editable text field owns keyboard focus — the palette
-/// input, inspector number fields, future rename boxes.
+/// down exactly while a VISIBLE editable text field owns keyboard focus — the
+/// palette input, inspector number fields, future rename boxes.
+///
+/// Visible is the load-bearing word. A closed palette hides its root but the
+/// input entity lives on, and focus was staying on it: the resolver then stood
+/// down forever, so keys went to a text box nobody could see. Every symptom of
+/// that reads as "the editor stopped responding" — `i` did nothing in socket
+/// mode for exactly this reason. Whoever forgets to release focus, a hidden
+/// widget cannot hold the keyboard.
 fn sync_key_capture(
     focus: Res<bevy::input_focus::InputFocus>,
-    editable: Query<(), With<bevy::text::EditableText>>,
+    editable: Query<&InheritedVisibility, With<bevy::text::EditableText>>,
     mut capture: ResMut<KeyCapture>,
 ) {
-    let captured = focus.get().is_some_and(|entity| editable.contains(entity));
+    let captured = focus
+        .get()
+        .and_then(|entity| editable.get(entity).ok())
+        .is_some_and(|visibility| visibility.get());
     if capture.0 != captured {
         capture.0 = captured;
     }

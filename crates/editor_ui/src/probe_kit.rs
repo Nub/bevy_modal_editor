@@ -546,7 +546,7 @@ pub(crate) fn probe_kit(world: &mut World) {
             check(world, armed.is_some(), "o armed a socket");
             let in_mode = world
                 .resource::<editor_core::prelude::OverlayContext>()
-                .0
+                .context
                 .as_ref()
                 .map(|context| context.as_str() == "socket")
                 .unwrap_or(false);
@@ -570,13 +570,45 @@ pub(crate) fn probe_kit(world: &mut World) {
                 .and_then(|entity| world.get::<GlobalTransform>(entity))
                 .map(|global| global.translation());
         }
-        // NOT PROVEN HERE: `i` inside socket mode. The key never reaches the
-        // resolver in this probe because something upstream still holds
-        // keyboard capture (an editable field stays focused after its surface
-        // closes). The verb is implemented and the binding resolves in the
-        // socket context; what is unverified is the whole path end to end, and
-        // a check that cannot run is worse than an absent one pretending to.
-        1500 => tap_named(world, KeyCode::Escape, Key::Escape),
+        // And `i` in that mode means PLACE HERE — the owner's whole grammar.
+        1438 => tap(world, KeyCode::KeyI, "i"),
+        1460 => {
+            for (code, ch) in [
+                (KeyCode::KeyW, "w"),
+                (KeyCode::KeyA, "a"),
+                (KeyCode::KeyL, "l"),
+                (KeyCode::KeyL, "l"),
+            ] {
+                tap(world, code, ch);
+            }
+            world.resource_mut::<KitProbe>().walls_before_paint =
+                instance_roots_named(world, "Wall").len();
+        }
+        1480 => tap_named(world, KeyCode::Enter, Key::Enter),
+        1494 => {
+            let before = world.resource::<KitProbe>().walls_before_paint;
+            let walls = instance_roots_named(world, "Wall");
+            check(
+                world,
+                walls.len() == before + 1,
+                &format!(
+                    "i placed a piece from socket mode ({} -> {})",
+                    before,
+                    walls.len()
+                ),
+            );
+            let armed_at = world.resource::<KitProbe>().armed_at.unwrap_or(Vec3::ZERO);
+            let nearest = walls
+                .iter()
+                .map(|(_, at)| at.distance(armed_at))
+                .fold(f32::MAX, f32::min);
+            check(
+                world,
+                nearest < 4.0,
+                &format!("onto the socket TAB armed ({nearest:.2}m away)"),
+            );
+            shot(world, "k7-socket-mode");
+        }
         1560 => {
             let failures = world.resource::<KitProbe>().failures.clone();
             if failures.is_empty() {

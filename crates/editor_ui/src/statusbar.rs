@@ -237,7 +237,7 @@ pub(crate) fn update_statusbar(
     // signal that the editor has left NORMAL (design bar).
     let overlay = data
         .overlay
-        .0
+        .context
         .as_ref()
         .map(|context| context.as_str().to_uppercase());
     let at_rest = !gesture_active
