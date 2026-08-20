@@ -936,8 +936,15 @@ fn palette_keys(
                                             .into_partial_reflect(),
                                         Box::new(editor_prefabs::PrefabOverrides::default())
                                             .into_partial_reflect(),
-                                        Box::new(Transform::from_translation(at))
-                                            .into_partial_reflect(),
+                                        // The mate WINS. Computing it and then
+                                        // spawning at the raw cursor point made
+                                        // the toast below announce a snap that
+                                        // never happened.
+                                        Box::new(match &snap {
+                                            Some((mate, _)) => *mate,
+                                            None => Transform::from_translation(at),
+                                        })
+                                        .into_partial_reflect(),
                                         Box::new(Name::new(name.clone())).into_partial_reflect(),
                                     ],
                                 }],

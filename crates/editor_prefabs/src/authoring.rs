@@ -821,13 +821,17 @@ fn fill_run(world: &mut World, count: usize) {
     let before = query_instance_ids(world);
     // The first piece goes through the ordinary chain path, so fill and `o`
     // can never disagree about direction, mating or orientation.
-    repeat_piece(world);
+    let chained_from = repeat_piece(world);
     apply_pending(world);
     let after = query_instance_ids(world);
     let Some(first) = after.iter().find(|id| !before.contains(id)).copied() else {
         return; // repeat_piece already explained why it could not chain
     };
-    let Some(source) = before.last().copied() else {
+    // The step is measured from the piece we ACTUALLY chained off. Taking the
+    // last id an unordered query happened to return was right only in a scene
+    // holding exactly one instance — which is precisely what the fixture held,
+    // so the test passed while real scenes scattered.
+    let Some(source) = chained_from else {
         return;
     };
     let index = world.resource::<SceneIndex>();
@@ -950,7 +954,10 @@ fn selected_chain_socket(world: &mut World) -> Option<(Entity, SceneId)> {
     }
 }
 
-fn repeat_piece(world: &mut World) {
+/// Chains one more piece off the selection, returning the instance it chained
+/// FROM — `fill_run` needs exactly that to measure its step, and deriving it
+/// again from a world query cannot tell which instance was the source.
+fn repeat_piece(world: &mut World) -> Option<SceneId> {
     // Picking a socket picks the direction; otherwise the selected instance
     // chains from whichever free socket leads away from the run.
     let chosen = selected_chain_socket(world);
@@ -962,18 +969,18 @@ fn repeat_piece(world: &mut World) {
             message: "select a prefab instance (or one of its sockets) to repeat".into(),
             success: false,
         });
-        return;
+        return None;
     };
     let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
-        return;
+        return None;
     };
     let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
-        return;
+        return None;
     };
     let (name, def_sockets) = {
         let library = world.resource::<PrefabLibrary>();
         let Some(def) = library.prefabs.get(&instance.0) else {
-            return;
+            return None;
         };
         (def.name.clone(), crate::sockets::template_sockets(def))
     };
@@ -1041,7 +1048,7 @@ fn repeat_piece(world: &mut World) {
             message: format!("{name}: every socket already mated"),
             success: false,
         });
-        return;
+        return None;
     };
     // Entry comes from the sockets the piece ACTUALLY has, template or not:
     // sockets generated onto a placed instance live in the scene, and requiring
@@ -1059,7 +1066,7 @@ fn repeat_piece(world: &mut World) {
             message: format!("{name} has no sockets to chain from"),
             success: false,
         });
-        return;
+        return None;
     }
     // A pinned IN socket wins for this prefab; otherwise entry = a socket that
     // is NOT the exit's frame when possible (walls: exit east, enter west — the
@@ -1098,6 +1105,7 @@ fn repeat_piece(world: &mut World) {
         message: format!("chained {name} — o again to continue"),
         success: true,
     });
+    Some(root_id)
 }
 
 /// D10: after a move-gesture commit on an instance, mate it with the nearest

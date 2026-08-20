@@ -28,6 +28,7 @@ mod probe_blockout;
 mod probe_handson;
 mod probe_kit;
 mod probe_material;
+mod probe_place;
 mod probe_prefab;
 mod probe_socket;
 mod probe_user;
@@ -195,6 +196,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<probe_kit::KitProbe>();
         app.init_resource::<probe_barrel::BarrelProbe>();
         app.init_resource::<probe_blockout::BlockoutProbe>();
+        app.init_resource::<probe_place::PlaceProbe>();
         app.init_resource::<probe_material::MaterialProbe>();
         app.init_resource::<probe_socket::SocketProbe>();
         app.init_resource::<probe_handson::HandsonProbe>();
@@ -332,6 +334,12 @@ impl Plugin for EditorUiPlugin {
             Update,
             probe_socket::probe_socket
                 .run_if(|| std::env::var("SOCKET_PROBE").is_ok())
+                .in_set(editor_core::EditorSet::Sync),
+        );
+        app.add_systems(
+            Update,
+            probe_place::probe_place
+                .run_if(|| std::env::var("PLACE_PROBE").is_ok())
                 .in_set(editor_core::EditorSet::Sync),
         );
         app.add_systems(

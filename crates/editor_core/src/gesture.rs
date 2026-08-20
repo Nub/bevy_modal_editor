@@ -105,6 +105,10 @@ fn apply_gesture(
     amount: Vec3,
     explicit_pivot: Option<Vec3>,
     originals: &[(SceneId, Transform)],
+    // The grid step a DRAG lands on, when snapping is enabled. Typed amounts
+    // pass `None`: "w x 2.5" is an exact instruction, and quantizing its
+    // result would contradict what the user just spelled out.
+    snap_step: Option<f32>,
     edits: &mut EditScope,
 ) {
     let mut transaction = edits.transaction(kind.label()).gesture(id);
@@ -113,6 +117,9 @@ fn apply_gesture(
             for (scene_id, original) in originals {
                 let mut moved = *original;
                 moved.translation = original.translation + amount;
+                if let Some(step) = snap_step {
+                    moved.translation = quantize(moved.translation, axis, step);
+                }
                 transaction = transaction.set(*scene_id, moved);
             }
         }
@@ -166,6 +173,26 @@ fn pivot_of(explicit: Option<Vec3>, originals: &[(SceneId, Transform)]) -> Vec3 
     })
 }
 
+/// Land a dragged position on the grid, quantizing only the axes the move
+/// actually touches: a constrained move lands on the grid along its own axis,
+/// and an unconstrained one lands on the GROUND grid while keeping its height —
+/// dragging a piece across a half-metre platform must not drop it to the floor.
+fn quantize(translation: Vec3, axis: Option<usize>, step: f32) -> Vec3 {
+    if step <= 0.0 {
+        return translation;
+    }
+    let mut out = translation;
+    let mut snap = |index: usize| out[index] = (translation[index] / step).round() * step;
+    match axis {
+        Some(axis) => snap(axis),
+        None => {
+            snap(0);
+            snap(2);
+        }
+    }
+    out
+}
+
 /// Scale never reaches zero and never flips negative: a zero scale makes
 /// degenerate colliders and NaN normals, and a mirror is not something a drag
 /// should be able to produce by accident.
@@ -203,7 +230,7 @@ fn apply_typed(gesture: &mut MoveGesture, edits: &mut EditScope) {
         GestureKind::Scale => Vec3::X * parsed.filter(|value| *value > 0.0).unwrap_or(1.0),
     };
     *accumulated = desired;
-    apply_gesture(*kind, *id, *axis, desired, *pivot, originals, edits);
+    apply_gesture(*kind, *id, *axis, desired, *pivot, originals, None, edits);
 }
 
 /// Consume gesture-related actions (any source — keys, palette, macros).
@@ -338,6 +365,8 @@ fn set_axis(gesture: &mut MoveGesture, which: usize) {
 pub(crate) fn drive_gesture(
     mut gesture: ResMut<MoveGesture>,
     mut motion: ResMut<GestureMotion>,
+    grid: Res<crate::insert::GridSnap>,
+    settings: Res<crate::settings::EditorSettings>,
     mut edits: EditScope,
 ) {
     let MoveGesture::Active {
@@ -393,6 +422,13 @@ pub(crate) fn drive_gesture(
         GestureKind::Scale => accumulated.x = (accumulated.x * delta.x.exp()).max(MIN_SCALE),
         _ => *accumulated += delta,
     }
+    // B9's quantization was reachable from placement only: the toggle says it
+    // snaps "placement and movement", and nothing in the gesture path had ever
+    // read it, so a drag landed wherever the mouse stopped.
+    let snap_step = grid
+        .enabled
+        .then_some(settings.viewport.grid_step)
+        .filter(|step| *step > 0.0);
     apply_gesture(
         *kind,
         *id,
@@ -400,6 +436,7 @@ pub(crate) fn drive_gesture(
         *accumulated,
         *pivot,
         originals,
+        snap_step,
         &mut edits,
     );
 }
@@ -891,6 +928,121 @@ mod tests {
     fn push_screen(app: &mut App, dx: f32) {
         app.world_mut().resource_mut::<GestureMotion>().screen = Some(Vec2::new(dx, 0.0));
         app.update();
+    }
+
+    // B9's toggle promises to quantize "placement and movement"; nothing in the
+    // gesture path had ever read it, so a drag landed wherever the mouse
+    // stopped. A DRAG lands on the grid...
+    #[test]
+    fn a_dragged_move_lands_on_the_grid() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        app.world_mut()
+            .resource_mut::<crate::insert::GridSnap>()
+            .enabled = true;
+        app.world_mut()
+            .resource_mut::<crate::settings::EditorSettings>()
+            .viewport
+            .grid_step = 0.5;
+        invoke(&mut app, "transform.move");
+        push_delta(&mut app, Vec3::new(0.31, 0.0, 0.79));
+        let landed = translation(&mut app, id);
+        assert_eq!(
+            landed,
+            Vec3::new(0.5, 0.0, 1.0),
+            "a drag quantizes to the grid: {landed:?}"
+        );
+        invoke(&mut app, "transform.cancel");
+    }
+
+    // ...and with the toggle off it lands exactly where the mouse left it.
+    #[test]
+    fn grid_snap_off_leaves_a_drag_untouched() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        invoke(&mut app, "transform.move");
+        push_delta(&mut app, Vec3::new(0.31, 0.0, 0.79));
+        assert_eq!(
+            translation(&mut app, id),
+            Vec3::new(0.31, 0.0, 0.79),
+            "no snapping without the toggle"
+        );
+        invoke(&mut app, "transform.cancel");
+    }
+
+    // Height survives an unconstrained drag: a piece standing on a half-metre
+    // platform must not drop to the floor because the grid is whole metres.
+    #[test]
+    fn grid_snap_keeps_height_on_an_unconstrained_drag() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::new(0.0, 0.5, 0.0));
+        app.world_mut()
+            .resource_mut::<crate::insert::GridSnap>()
+            .enabled = true;
+        app.world_mut()
+            .resource_mut::<crate::settings::EditorSettings>()
+            .viewport
+            .grid_step = 1.0;
+        invoke(&mut app, "transform.move");
+        push_delta(&mut app, Vec3::new(0.4, 0.0, 0.4));
+        let landed = translation(&mut app, id);
+        assert_eq!(landed.y, 0.5, "the platform height survives: {landed:?}");
+        invoke(&mut app, "transform.cancel");
+    }
+
+    // Constraining an axis quantizes THAT axis — including Y, when that is
+    // what the user asked for.
+    #[test]
+    fn grid_snap_quantizes_the_constrained_axis() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::new(0.2, 0.0, 0.2));
+        app.world_mut()
+            .resource_mut::<crate::insert::GridSnap>()
+            .enabled = true;
+        app.world_mut()
+            .resource_mut::<crate::settings::EditorSettings>()
+            .viewport
+            .grid_step = 1.0;
+        invoke(&mut app, "transform.move");
+        invoke(&mut app, "transform.axis-y");
+        push_delta(&mut app, Vec3::new(0.0, 2.4, 0.0));
+        let landed = translation(&mut app, id);
+        assert_eq!(
+            landed,
+            Vec3::new(0.2, 2.0, 0.2),
+            "y quantizes, x and z are left exactly where they were: {landed:?}"
+        );
+        invoke(&mut app, "transform.cancel");
+    }
+
+    // A typed amount is an exact instruction and must NOT be quantized.
+    #[test]
+    fn a_typed_move_ignores_the_grid() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        app.world_mut()
+            .resource_mut::<crate::insert::GridSnap>()
+            .enabled = true;
+        app.world_mut()
+            .resource_mut::<crate::settings::EditorSettings>()
+            .viewport
+            .grid_step = 1.0;
+        invoke(&mut app, "transform.move");
+        invoke(&mut app, "transform.axis-x");
+        for action in [
+            "transform.digit-2",
+            "transform.digit-dot",
+            "transform.digit-5",
+        ] {
+            invoke(&mut app, action);
+        }
+        invoke(&mut app, "transform.commit");
+        app.update();
+        assert_eq!(
+            translation(&mut app, id),
+            Vec3::new(2.5, 0.0, 0.0),
+            "w x 2.5 means 2.5, grid or no grid"
+        );
     }
 
     // Scale is a RATIO, so the drag has to compose multiplicatively: equal

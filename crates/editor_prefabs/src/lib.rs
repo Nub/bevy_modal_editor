@@ -2127,6 +2127,130 @@ mod repeat_tests {
         );
     }
 
+    // The step must come from the piece the fill actually CHAINED off, not from
+    // whichever instance an unordered query returned last. The original fixture
+    // held exactly one instance, so the bug could not show; a real scene holds
+    // many, and the run scattered. Three unrelated instances, deliberately at
+    // awkward poses, make the difference observable.
+    #[test]
+    fn fill_measures_its_step_from_the_chained_piece() {
+        let mut app = test_app();
+        let wall_id = Uuid::new_v4();
+        let socket = |name: &str, x: f32, dir: Vec3| {
+            (
+                SceneId::random(),
+                None,
+                vec![
+                    Box::new(Socket {
+                        name: name.into(),
+                        socket_type: "wall".into(),
+                    })
+                    .into_partial_reflect(),
+                    Box::new(
+                        Transform::from_xyz(x, 0.5, 0.0)
+                            .with_rotation(Quat::from_rotation_arc(Vec3::Z, dir)),
+                    )
+                    .into_partial_reflect(),
+                ],
+            )
+        };
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(
+                wall_id,
+                PrefabDef {
+                    kit: None,
+                    id: wall_id,
+                    name: "Wall".into(),
+                    template: editor_scene::snapshot_from_parts(vec![
+                        (
+                            SceneId::random(),
+                            None,
+                            vec![
+                                Box::new(Payload(1.0)).into_partial_reflect(),
+                                Box::new(Transform::default()).into_partial_reflect(),
+                            ],
+                        ),
+                        socket("west", -1.0, -Vec3::X),
+                        socket("east", 1.0, Vec3::X),
+                    ]),
+                },
+            );
+        // Three unrelated instances of the same prefab, scattered and turned —
+        // exactly what a half-built level looks like.
+        let decoys: Vec<SceneId> = (0..3).map(|_| SceneId::random()).collect();
+        let scattered = [
+            Transform::from_xyz(37.0, 5.0, -12.0).with_rotation(Quat::from_rotation_y(0.7)),
+            Transform::from_xyz(-8.0, 0.0, 21.0).with_rotation(Quat::from_rotation_y(2.1)),
+            Transform::from_xyz(3.0, -4.0, 9.0),
+        ];
+        // The run's piece is spawned FIRST, so the scattered ones come after it
+        // in every query order. That is the arrangement the old code got wrong:
+        // it took the last id the query happened to return, which is a decoy.
+        let root_id = SceneId::random();
+        let mut ops: Vec<Op> = vec![Op::Spawn {
+            id: root_id,
+            components: vec![
+                Box::new(PrefabInstance(wall_id)).into_partial_reflect(),
+                Box::new(Transform::default()).into_partial_reflect(),
+            ],
+        }];
+        ops.extend(decoys.iter().zip(scattered).map(|(id, at)| Op::Spawn {
+            id: *id,
+            components: vec![
+                Box::new(PrefabInstance(wall_id)).into_partial_reflect(),
+                Box::new(at).into_partial_reflect(),
+            ],
+        }));
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops,
+            });
+        app.update();
+        app.update();
+        // Chain from the piece's SOCKET, which is how a direction gets chosen.
+        // The root then stays in the same archetype as the scattered instances,
+        // so it is emphatically not the last id a query returns — which is the
+        // whole point: the source has to be known, not guessed at.
+        {
+            let world = app.world_mut();
+            let root = world.resource::<SceneIndex>().get(&root_id).unwrap();
+            let socket = world
+                .query::<(Entity, &Socket, &ChildOf)>()
+                .iter(world)
+                .find(|(_, socket, parent)| parent.parent() == root && socket.name == "east")
+                .map(|(entity, _, _)| entity)
+                .expect("the stamped instance carries its east socket");
+            world.entity_mut(socket).insert(Selected);
+        }
+
+        app.world_mut().resource_mut::<GroupPrompt>().purpose = PromptPurpose::Fill;
+        app.world_mut().resource_mut::<GroupCommit>().0 = Some("4".into());
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut run: Vec<Vec3> = world
+            .query_filtered::<(&SceneId, &Transform), (With<PrefabInstance>, Without<PrefabStamped>)>()
+            .iter(world)
+            .filter(|(id, _)| !decoys.contains(id))
+            .map(|(_, t)| t.translation)
+            .collect();
+        run.sort_by(|a, b| a.x.total_cmp(&b.x));
+        assert_eq!(run.len(), 5, "the original plus four filled: {run:?}");
+        for pair in run.windows(2) {
+            let step = pair[1] - pair[0];
+            assert!(
+                (step.x - 2.0).abs() < 1e-3 && step.y.abs() < 1e-3 && step.z.abs() < 1e-3,
+                "one wall length apart along x, and nowhere else: {run:?}"
+            );
+        }
+    }
     // Owner report: "sockets don't move when the transform is edited". Editing a
     // socket IS editing an ordinary member — the same `Set` the inspector emits
     // must land on the entity and move it.
