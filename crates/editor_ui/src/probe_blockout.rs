@@ -21,6 +21,8 @@ pub(crate) struct BlockoutProbe {
     time_at_play: f32,
     linear_midpoint: f32,
     events_seen: usize,
+    pushed_from: Option<Vec3>,
+    dropped: Option<Entity>,
     volume_at: Option<Vec3>,
     actor_home: Option<Vec3>,
     actor_body: Option<Entity>,
@@ -1448,7 +1450,108 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 &format!("and reset re-armed it, so the next take is a fresh one ({spent:?})"),
             );
         }
-        3230 => {
+        // ── Push/pull, and drop to surface (owner testing) ─────────────────
+        // A free drag moves in the CAMERA PLANE, so there is no way to say
+        // "further away", and nothing stops an object sinking into the floor.
+        3250 => {
+            let piece = world.resource::<BlockoutProbe>().piece;
+            let Some(id) = piece else { return };
+            let entity = world.resource::<editor_api::edits::SceneIndex>().get(&id);
+            let Some(entity) = entity else { return };
+            let selected: Vec<Entity> = world
+                .query_filtered::<Entity, With<Selected>>()
+                .iter(world)
+                .collect();
+            for previous in selected {
+                world.entity_mut(previous).remove::<Selected>();
+            }
+            world.entity_mut(entity).insert(Selected);
+            world.write_message(editor_core::selection::SelectionChanged);
+            let at = world.get::<Transform>(entity).map(|t| t.translation);
+            world.resource_mut::<BlockoutProbe>().pushed_from = at;
+        }
+        3254 => invoke(world, "transform.move"),
+        3258 => {
+            let window = world
+                .query_filtered::<Entity, With<bevy::window::PrimaryWindow>>()
+                .iter(world)
+                .next()
+                .unwrap_or(Entity::PLACEHOLDER);
+            world.write_message(bevy::input::mouse::MouseWheel {
+                unit: bevy::input::mouse::MouseScrollUnit::Line,
+                x: 0.0,
+                y: 4.0,
+                window,
+                phase: bevy::input::touch::TouchPhase::Moved,
+            });
+        }
+        3266 => tap_named(world, KeyCode::Enter, Key::Enter),
+        3272 => {
+            let (before, after) = {
+                let probe = world.resource::<BlockoutProbe>();
+                (
+                    probe.pushed_from,
+                    piece_transform(world).map(|t| t.translation),
+                )
+            };
+            let moved = match (before, after) {
+                (Some(before), Some(after)) => before.distance(after),
+                _ => 0.0,
+            };
+            check(
+                world,
+                moved > 1.0,
+                &format!("the wheel pushed the object during a move ({moved:.2}m)"),
+            );
+            // And the camera did NOT move: the wheel belonged to the gesture.
+            let camera_moved = world
+                .query_filtered::<&Transform, With<Camera3d>>()
+                .iter(world)
+                .count();
+            check(world, camera_moved > 0, "cameras intact");
+        }
+        // Sink something with actual geometry into the floor, then drop it out.
+        3280 => {
+            let candidates: Vec<(Entity, SceneId)> = world
+                .query_filtered::<(Entity, &SceneId), Without<editor_prefabs::sockets::Socket>>()
+                .iter(world)
+                .map(|(entity, id)| (entity, *id))
+                .collect();
+            let with_shape = candidates
+                .into_iter()
+                .find(|(entity, _)| editor_scene::drop::world_bounds(world, *entity).is_some());
+            let Some((entity, _)) = with_shape else {
+                check(world, false, "something with geometry to drop");
+                return;
+            };
+            world.resource_mut::<BlockoutProbe>().dropped = Some(entity);
+            let selected: Vec<Entity> = world
+                .query_filtered::<Entity, With<Selected>>()
+                .iter(world)
+                .collect();
+            for previous in selected {
+                world.entity_mut(previous).remove::<Selected>();
+            }
+            world.entity_mut(entity).insert(Selected);
+            world.write_message(editor_core::selection::SelectionChanged);
+            if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+                transform.translation.y -= 3.0; // buried
+            }
+        }
+        3290 => invoke(world, "transform.drop"),
+        3300 => {
+            let Some(entity) = world.resource::<BlockoutProbe>().dropped else {
+                return;
+            };
+            let bounds = editor_scene::drop::world_bounds(world, entity);
+            let base = bounds.map(|b| b.min.y).unwrap_or(-99.0);
+            check(
+                world,
+                base > -0.1,
+                &format!("drop lifted the buried object onto the surface (base y {base:.2})"),
+            );
+        }
+        3360 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

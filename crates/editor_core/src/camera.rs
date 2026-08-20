@@ -48,6 +48,7 @@ pub(crate) fn editor_zoom_camera(
     settings: Res<crate::settings::EditorSettings>,
     capture: Res<KeyCapture>,
     over_chrome: Res<crate::resolver::PointerOverChrome>,
+    gesture: Res<crate::gesture::MoveGesture>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
     mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
     mut camera: Query<(
@@ -57,9 +58,20 @@ pub(crate) fn editor_zoom_camera(
         Option<&bevy::camera::RenderTarget>,
     )>,
 ) {
-    // Over a panel the wheel belongs to that panel's scrollbar, and while a
-    // text field has the keyboard the viewport is not what is being driven.
-    if !state.active || capture.0 || over_chrome.0 {
+    // Over a panel the wheel belongs to that panel's scrollbar; while a text
+    // field has the keyboard the viewport is not what is being driven; and
+    // during a MOVE the wheel pushes the OBJECT, not the camera (gesture.rs).
+    if !state.active
+        || capture.0
+        || over_chrome.0
+        || matches!(
+            *gesture,
+            crate::gesture::MoveGesture::Active {
+                kind: crate::gesture::GestureKind::Move,
+                ..
+            }
+        )
+    {
         wheel.clear();
         return;
     }
@@ -427,6 +439,7 @@ mod zoom_tests {
     fn zoom_app() -> App {
         let mut app = App::new();
         app.init_resource::<EditorState>()
+            .init_resource::<crate::gesture::MoveGesture>()
             .init_resource::<KeyCapture>()
             .init_resource::<crate::resolver::PointerOverChrome>()
             .init_resource::<crate::settings::EditorSettings>()

@@ -350,6 +350,15 @@ impl EditorFeature for ScenesFeature {
                 .bind("ctrl+s"),
         )
         .action(
+            ActionDef::new("transform.drop", "Drop To Surface")
+                .describe(
+                    "Rest the selection on whatever is beneath it — the floor, a table, \
+                     the piece below — instead of leaving it clipping through",
+                )
+                .context("normal")
+                .bind("space d"),
+        )
+        .action(
             ActionDef::new("scene.open", "Open Scene")
                 .describe("Reload the scene from disk")
                 .context("normal"),
@@ -465,6 +474,7 @@ fn perform_scene_io(world: &mut World) {
 }
 
 pub mod anim;
+pub mod drop;
 pub mod level_validation;
 pub mod materials;
 pub mod models;
@@ -564,6 +574,7 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<SceneDirty>()
             .init_resource::<SceneIoRequests>()
             .init_resource::<anim::Timeline>()
+            .init_resource::<drop::DropRequested>()
             .init_resource::<anim::Playhead>()
             .init_resource::<play::PlayState>()
             .init_resource::<play::PlayRequests>()
@@ -600,10 +611,12 @@ impl Plugin for EditorScenePlugin {
                     level_validation::collect_validation_requests,
                     session::collect_reload_action,
                     anim::handle_anim_actions,
+                    drop::collect_drop_action,
                 )
                     .in_set(editor_core::EditorSet::Tools),
                 (
                     perform_scene_io,
+                    drop::perform_drop,
                     play::perform_play,
                     materials::save_library_on_change,
                     models::perform_import,

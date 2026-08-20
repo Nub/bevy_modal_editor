@@ -367,6 +367,58 @@ fn set_axis(gesture: &mut MoveGesture, which: usize) {
     }
 }
 
+/// PUSH AND PULL: the wheel moves the dragged object along the view axis.
+///
+/// A free drag moves in the CAMERA PLANE — right and up relative to the view —
+/// which gives two of the three dimensions and no way to say "further away" or
+/// "closer to me". That is what makes moving feel wrong: you can slide a crate
+/// across the screen all day and never get it onto the far side of the room
+/// without flying the camera there first.
+///
+/// The push feeds the SAME motion channel the cursor does, so it inherits grid
+/// snapping, the axis constraints, the coalesced transaction and the undo entry
+/// — pushing and dragging are one gesture, not two.
+pub(crate) fn push_pull_gesture(
+    gesture: Res<MoveGesture>,
+    settings: Res<crate::settings::EditorSettings>,
+    camera: Query<(
+        &Camera,
+        &GlobalTransform,
+        Option<&bevy::camera::RenderTarget>,
+    )>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut motion: ResMut<GestureMotion>,
+) {
+    if !matches!(
+        *gesture,
+        MoveGesture::Active {
+            kind: GestureKind::Move,
+            ..
+        }
+    ) {
+        // Not ours: the camera's zoom will take it.
+        return;
+    }
+    let notches: f32 = wheel
+        .read()
+        .map(|event| match event.unit {
+            bevy::input::mouse::MouseScrollUnit::Line => event.y,
+            bevy::input::mouse::MouseScrollUnit::Pixel => event.y / 50.0,
+        })
+        .sum();
+    if notches == 0.0 {
+        return;
+    }
+    let Some((_, camera_transform, _)) = camera
+        .iter()
+        .find(|(camera, _, target)| crate::camera::is_viewport_camera(camera, *target))
+    else {
+        return;
+    };
+    let forward = camera_transform.forward();
+    *motion.world.get_or_insert(Vec3::ZERO) += forward * notches * settings.camera.zoom_step;
+}
+
 /// Consume this frame's world-space motion (already pixel-accurate from the
 /// conversion system) into a gesture-tagged transaction.
 pub(crate) fn drive_gesture(

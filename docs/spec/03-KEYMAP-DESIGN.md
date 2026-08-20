@@ -124,6 +124,24 @@ a piece, lays a run of duplicates, and still expects `p` to paste the yank.
 
 
 
+
+**Push and pull, and drop to surface (implemented 2026-08-20, owner testing).**
+A free move drag moves in the CAMERA PLANE — right and up relative to the view —
+which is two of the three dimensions and no way to say "further away". The WHEEL
+supplies the third during a move: it pushes the object along the view axis, and
+the camera stands down for the duration, so the same gesture that slides a crate
+across the screen can also send it to the far wall. It feeds the same motion
+channel the cursor does, so grid snap, axis constraints, the coalesced
+transaction and the single undo entry all apply unchanged.
+
+`Space d` **drops the selection onto whatever is beneath it** — the floor, a
+table, the piece below — instead of leaving it clipping through. Resting is
+computed from bounds rather than triangles: for blockout that is the same answer
+nearly always, it is instant and deterministic, and true surface/vertex/edge
+snapping is the freeform paradigm's own slice rather than something to fake
+here. A support ABOVE the object's base still counts, up to half a metre,
+because the common case is a prop that has sunk INTO a floor and needs lifting
+out; anything higher is a wall you are standing beside, not a floor you are on.
 **The wheel zooms (implemented 2026-08-20, owner testing).** Nothing handled the
 scroll wheel at all: getting closer to a piece meant holding the right button and
 flying there. A perspective view DOLLIES along its forward axis rather than

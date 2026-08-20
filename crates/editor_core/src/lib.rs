@@ -485,10 +485,16 @@ impl Plugin for EditorCorePlugin {
                     camera::handle_frame_actions,
                     camera::handle_axis_views,
                     camera::handle_perspective_view,
-                    gesture::handle_gesture_actions,
-                    gesture::motion_from_cursor,
-                    gesture::drive_gesture,
-                    gesture::commit_on_click,
+                    // Nested: the gesture pipeline is one ordered unit, and the
+                    // outer tuple is at bevy's system-tuple limit.
+                    (
+                        gesture::handle_gesture_actions,
+                        gesture::motion_from_cursor,
+                        gesture::push_pull_gesture,
+                        gesture::drive_gesture,
+                        gesture::commit_on_click,
+                    )
+                        .chain(),
                     insert::handle_insert_actions,
                     insert::cursor_ground,
                     insert::sync_preview,
