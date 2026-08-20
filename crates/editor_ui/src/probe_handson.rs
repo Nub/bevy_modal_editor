@@ -324,9 +324,10 @@ pub(crate) fn probe_handson(world: &mut World) {
             shot(world, "22-textured-material");
         }
         400 => invoke(world, "core.undo"),
-        // And the material chip, the other mis-parented arm.
-        392 => invoke(world, "material.assign"),
-        420 => {
+        // And the material chip, the other mis-parented arm. AFTER the undo
+        // settles: opening the palette across an undo step disturbs it.
+        452 => invoke(world, "material.assign"),
+        462 => {
             let meshes = crate::palette_preview::preview_mesh_count(world);
             check(
                 world,
@@ -334,7 +335,7 @@ pub(crate) fn probe_handson(world: &mut World) {
                 &format!("the material palette actually shows the material ({meshes} meshes)"),
             );
         }
-        424 => tap_named(world, KeyCode::Escape, Key::Escape),
+        466 => tap_named(world, KeyCode::Escape, Key::Escape),
         440 => {
             let cleared = world
                 .resource::<HandsonProbe>()

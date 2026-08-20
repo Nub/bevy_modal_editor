@@ -12,6 +12,11 @@ use uuid::Uuid;
 
 pub const PAINT_CONTEXT: ContextId = ContextId::new_static("paint");
 
+/// Most pieces one painted segment may lay. A 100m corridor of 2m walls is 50
+/// pieces, so this is well clear of real work while still stopping a stray
+/// click at the horizon from filling the level.
+pub const MAX_PIECES_PER_SEGMENT: usize = 128;
+
 #[derive(Resource, Default)]
 pub struct PaintState(pub Option<PaintData>);
 
@@ -90,7 +95,13 @@ pub fn plan_segment(
                 .with_rotation(Quat::from_rotation_arc(Vec3::Z, direction)),
         )
     });
-    let count = ((length / piece_length).round() as usize).max(1);
+    // A click near the horizon projects HUNDREDS of metres onto the ground, and
+    // one stroke would lay a piece every two of them: 411 walls in a single
+    // transaction, from one click, with the editor stalled while it happens.
+    // Capped — and the cap SAYS so, because a stroke that quietly lays half of
+    // what you asked for is worse than one that explains itself.
+    let wanted = ((length / piece_length).round() as usize).max(1);
+    let count = wanted.min(MAX_PIECES_PER_SEGMENT);
     let mut placements = Vec::with_capacity(count);
     for _ in 0..count {
         let root = mate_transform(&anchor, &entry);
@@ -319,18 +330,38 @@ pub(crate) fn paint_click(world: &mut World) {
         data.cursor_exit = Some(exit_frame);
         data.previous_direction = Some(direction);
     }
+    let capped = laid >= MAX_PIECES_PER_SEGMENT;
     world.write_message(editor_scene::SceneIoFeedback {
-        message: match corner_name {
-            Some(corner) => format!("laid {laid} × {} + {corner} — ⎋ done", def.name),
-            None => format!("laid {laid} × {} — click on, ⎋ done", def.name),
+        message: if capped {
+            format!("laid {laid} × {} — segment CAPPED, click nearer", def.name)
+        } else {
+            match corner_name {
+                Some(corner) => format!("laid {laid} × {} + {corner} — ⎋ done", def.name),
+                None => format!("laid {laid} × {} — click on, ⎋ done", def.name),
+            }
         },
-        success: true,
+        success: !capped,
     });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One click near the horizon projects hundreds of metres onto the ground.
+    /// Uncapped that is a single transaction laying hundreds of pieces — and
+    /// the probe that "passed" only asserted there were MORE walls than before,
+    /// so it never noticed 411 of them.
+    #[test]
+    fn a_runaway_stroke_is_capped() {
+        let def = wall_def();
+        let (placements, _) =
+            plan_segment(&def, None, Vec3::ZERO, Vec3::new(4000.0, 0.0, 0.0)).unwrap();
+        assert_eq!(placements.len(), MAX_PIECES_PER_SEGMENT);
+        // And an ordinary stroke is untouched by the cap.
+        let (short, _) = plan_segment(&def, None, Vec3::ZERO, Vec3::new(6.0, 0.0, 0.0)).unwrap();
+        assert_eq!(short.len(), 3);
+    }
     use crate::sockets::Socket;
 
     fn wall_def() -> PrefabDef {

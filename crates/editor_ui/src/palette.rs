@@ -561,6 +561,23 @@ fn open_on_insert_mode(
     mut modes: MessageReader<ModeChanged>,
     mut just_picked: ResMut<editor_core::prelude::KindJustPicked>,
     selection: Query<(), With<Selected>>,
+    // A SOCKET HANDLE is not a thing you add components to — it is where the
+    // next piece goes. Holding one and pressing `i` has to offer PIECES.
+    //
+    // A handle is a socket entity hanging off a piece. A PIECE that happens to
+    // carry a `Socket` component — which is a perfectly ordinary thing to author
+    // through the inspector — is still a piece, and `i` on it still means add a
+    // component. Getting that distinction wrong makes add-component unreachable
+    // for anything socketed.
+    socket_selection: Query<
+        (),
+        (
+            With<Selected>,
+            With<editor_prefabs::sockets::Socket>,
+            With<ChildOf>,
+            Without<editor_prefabs::PrefabInstance>,
+        ),
+    >,
     mut commands: Commands,
     mut state: ResMut<PaletteState>,
     mut capture: ResMut<KeyCapture>,
@@ -577,7 +594,13 @@ fn open_on_insert_mode(
         if change.to == editor_core::prelude::MODE_INSERT && !state.open && !picked {
             // `i` while HOLDING a selection means "insert INTO what I hold":
             // add-component palette, and insert mode never engages (owner).
-            if !selection.is_empty() {
+            //
+            // UNLESS what you hold is a SOCKET. Then `i` means what a level
+            // designer means by it — put the next piece here — and the
+            // placement paths mate it to that socket. Without this exception
+            // the owner ask "select socket and spawn next object" is blocked
+            // by the grammar itself: every attempt opens add-component.
+            if !selection.is_empty() && socket_selection.is_empty() {
                 // Deferred: this system READS ModeChanged, so the reset must not
                 // also write it inline (B0002).
                 commands.queue(|world: &mut World| {
@@ -954,13 +977,17 @@ fn palette_keys(
                                 )
                             };
                             // D9: a compatible socket near the cursor wins over
-                            // the raw ground point — pieces MATE.
-                            let snap = editor_prefabs::sockets::snap_for_placement(
+                            // the raw ground point — pieces MATE. And a
+                            // SELECTED socket wins over both: naming the end of
+                            // the run is the fastest way to extend it.
+                            let reach = world.resource::<EditorSettings>().viewport.socket_reach;
+                            let (pose, snapped) = editor_prefabs::sockets::placement_for(
                                 world,
                                 &def_sockets,
                                 at,
-                                3.0,
+                                reach.max(3.0),
                             );
+                            let snap = snapped.map(|label| (pose, label));
                             let id = SceneId::random();
                             world.resource_mut::<EditQueue>().0.push(Transaction {
                                 label: "Place Prefab".into(),
@@ -1026,6 +1053,11 @@ fn palette_keys(
                                 .get(&model)
                                 .map(|entry| entry.name.clone())
                                 .unwrap_or_else(|| "model".into());
+                            // A model carries no sockets of its own, but a
+                            // SELECTED socket still says where this goes —
+                            // putting it where you pointed beats ignoring you.
+                            let (pose, _) =
+                                editor_prefabs::sockets::placement_for(world, &[], at, 0.0);
                             let id = SceneId::random();
                             world.resource_mut::<EditQueue>().0.push(Transaction {
                                 label: "Place Model".into(),
@@ -1035,8 +1067,7 @@ fn palette_keys(
                                     components: vec![
                                         Box::new(editor_scene::models::MeshRef(model))
                                             .into_partial_reflect(),
-                                        Box::new(Transform::from_translation(at))
-                                            .into_partial_reflect(),
+                                        Box::new(pose).into_partial_reflect(),
                                         Box::new(Name::new(name.clone())).into_partial_reflect(),
                                     ],
                                 }],

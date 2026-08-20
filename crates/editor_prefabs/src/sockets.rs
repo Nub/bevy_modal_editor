@@ -104,6 +104,26 @@ pub fn mate_transform(target: &GlobalTransform, local: &Transform) -> Transform 
     Transform::from_matrix(combined)
 }
 
+/// Two sockets are CONNECTED when they are in the same place, facing each
+/// other, and of the same type.
+///
+/// Nothing records a mate: mating computes a transform and sets it, and the
+/// pieces are then simply adjacent. So connection is read back off the
+/// geometry, which has the useful property that it stays true when a designer
+/// achieves the same joint by hand.
+///
+/// The tolerance is deliberately tight — this answers "are these two joined",
+/// not "are these two nearby", and the mate math places sockets exactly.
+pub const JOINT_TOLERANCE: f32 = 0.02;
+
+pub fn sockets_are_joined(a: &GlobalTransform, b: &GlobalTransform) -> bool {
+    if a.translation().distance(b.translation()) > JOINT_TOLERANCE {
+        return false;
+    }
+    // Mated sockets oppose: +Z into +Z. Anything else is two sockets that
+    // happen to share a spot, which is not a joint.
+    (a.forward().dot(*b.forward()) + 1.0).abs() < 0.05
+}
 /// One way the moved piece could mate: where its root must go, and which pair
 /// of sockets would meet.
 #[derive(Clone, Debug)]
@@ -194,9 +214,113 @@ pub fn snap_for_placement(
     best_mate(&candidates, def_sockets, &root_now, radius).map(|found| (found.root, found.label))
 }
 
+/// The socket the designer has SELECTED, if any.
+pub fn selected_socket(world: &mut World) -> Option<(Entity, GlobalTransform, Socket)> {
+    world
+        .query_filtered::<(Entity, &GlobalTransform, &Socket), With<editor_core::selection::Selected>>()
+        .iter(world)
+        .next()
+        .map(|(entity, global, socket)| (entity, *global, socket.clone()))
+}
+
+/// Where a piece should land — THE placement decision, in one place so every
+/// path agrees.
+///
+/// A SELECTED SOCKET wins over the cursor. That is the "select a socket and
+/// spawn the next object there" loop: pick the end of the run, pick the piece,
+/// and it arrives mated, without hunting for a hover position that is within
+/// reach of the right socket. Falls back to the best mate near the cursor, and
+/// then to the cursor itself.
+///
+/// A piece with no sockets still honours a selected socket by landing AT it —
+/// putting a barrel where you pointed is more useful than ignoring what you
+/// said because the barrel has no mating points.
+pub fn placement_for(
+    world: &mut World,
+    def_sockets: &[(Transform, Socket)],
+    at: Vec3,
+    radius: f32,
+) -> (Transform, Option<String>) {
+    if let Some((entity, target, target_socket)) = selected_socket(world) {
+        let mating: Vec<(Transform, Socket)> = def_sockets
+            .iter()
+            .filter(|(_, socket)| socket.socket_type == target_socket.socket_type)
+            .cloned()
+            .collect();
+        if !mating.is_empty() {
+            let candidates = vec![(entity, target, target_socket.clone())];
+            // Reach is irrelevant here: the designer NAMED the socket, so the
+            // piece comes to it however far away the cursor happens to be.
+            if let Some(found) = best_mate(
+                &candidates,
+                &mating,
+                &GlobalTransform::from(Transform::from_translation(target.translation())),
+                f32::MAX,
+            ) {
+                return (found.root, Some(found.label));
+            }
+        }
+        return (
+            Transform::from_translation(target.translation()),
+            Some(format!("placed at {}", target_socket.name)),
+        );
+    }
+    match snap_for_placement(world, def_sockets, at, radius) {
+        Some((transform, label)) => (transform, Some(label)),
+        None => (Transform::from_translation(at), None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A joint is two sockets in the same place FACING each other. Two sockets
+    /// that merely share a spot — a piece crossing another — are not joined,
+    /// and rotating about them would swing the wrong thing.
+    #[test]
+    fn a_joint_is_coincident_and_opposed() {
+        let a = GlobalTransform::from(Transform::from_xyz(2.0, 0.0, 0.0));
+        // Facing back at it: +Z opposed.
+        let b = GlobalTransform::from(
+            Transform::from_xyz(2.0, 0.0, 0.0)
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+        );
+        assert!(sockets_are_joined(&a, &b), "mated");
+
+        // Same spot, same direction — crossing, not joined.
+        let parallel = GlobalTransform::from(Transform::from_xyz(2.0, 0.0, 0.0));
+        assert!(!sockets_are_joined(&a, &parallel));
+
+        // Opposed but apart.
+        let apart = GlobalTransform::from(
+            Transform::from_xyz(2.5, 0.0, 0.0)
+                .with_rotation(Quat::from_rotation_y(std::f32::consts::PI)),
+        );
+        assert!(!sockets_are_joined(&a, &apart));
+    }
+
+    /// What `mate_transform` produces must READ BACK as a joint, or "pivot on
+    /// the connected socket" can never find the joint the editor just made.
+    #[test]
+    fn a_mate_produces_a_joint() {
+        let target = GlobalTransform::from(
+            Transform::from_xyz(3.0, 1.0, -2.0).with_rotation(Quat::from_euler(
+                EulerRot::XYZ,
+                0.2,
+                0.9,
+                -0.3,
+            )),
+        );
+        let local = Transform::from_xyz(1.5, 0.0, 0.0);
+        let root = mate_transform(&target, &local);
+        // Where the moved piece's socket ends up.
+        let source = GlobalTransform::from(root).mul_transform(local);
+        assert!(
+            sockets_are_joined(&source, &target),
+            "the editor's own mate reads back as a joint"
+        );
+    }
 
     /// THE bug behind "I cannot seem to snap objects to sockets": reach was
     /// measured from the moved piece's ORIGIN to the target socket. A six-metre

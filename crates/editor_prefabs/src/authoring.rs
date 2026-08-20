@@ -1551,41 +1551,101 @@ pub(crate) fn snap_during_drag(world: &mut World) {
     snap_instance_to_socket(world, root_id, Some(gesture));
 }
 
-/// PIVOT ON SOCKET (owner ask): while a socket is selected, a rotate turns the
-/// piece that owns it ABOUT that socket — the joint stays mated and the far end
-/// swings, which is how you build a corner or walk a curve round.
+/// PIVOT ON THE JOINT (owner: "pivot on socket needs to pivot on connected
+/// sockets").
+///
+/// Rotating a piece that is attached to something should swing it about the
+/// place it is ATTACHED — the joint stays put and the far end sweeps, which is
+/// how a corner gets made and how a curve gets walked round. Pivoting about the
+/// piece's own centre tears the joint apart on the first degree.
+///
+/// Two ways to say which point:
+/// - select a SOCKET, and that is the pivot — the explicit answer, for a piece
+///   with several joints or none;
+/// - select the PIECE, and its connected socket is found for you. That is the
+///   common case and it needed no words.
+///
+/// Connection is derived from geometry rather than stored, so it is equally
+/// true for a joint a designer made by hand. Ties break on the socket nearest
+/// the piece's origin, so a repeated rotate keeps using the same joint instead
+/// of alternating between two.
 ///
 /// Kept up to date every frame rather than at action time: the gesture reads it
 /// the instant `r` arrives, and a stale pin would rotate the wrong thing about
 /// the wrong point.
 pub(crate) fn pin_pivot_to_selected_socket(
-    sockets: Query<(Entity, &GlobalTransform), (With<crate::sockets::Socket>, With<Selected>)>,
+    selected_sockets: Query<
+        (Entity, &GlobalTransform),
+        (With<crate::sockets::Socket>, With<Selected>),
+    >,
+    all_sockets: Query<(Entity, &GlobalTransform, &crate::sockets::Socket)>,
+    selected_roots: Query<(Entity, &SceneId, &GlobalTransform), With<Selected>>,
     parents: Query<&ChildOf>,
+    children: Query<&Children>,
     instances: Query<&SceneId, With<PrefabInstance>>,
     stamped: Query<&StampedFrom>,
     mut pin: ResMut<editor_core::gesture::GesturePivot>,
 ) {
-    let mut found = None;
-    if let Some((socket, global)) = sockets.iter().next() {
-        // The owning instance: adopted sockets hang off the root, stamped ones
-        // name it directly.
+    let owner_of = |socket: Entity| -> Option<SceneId> {
         let mut current = socket;
-        let owner = loop {
+        loop {
             if let Ok(id) = instances.get(current) {
-                break Some(*id);
+                return Some(*id);
             }
             if let Ok(from) = stamped.get(current) {
-                break Some(from.instance_root);
+                return Some(from.instance_root);
             }
-            match parents.get(current) {
-                Ok(parent) => current = parent.parent(),
-                Err(_) => break None,
+            current = parents.get(current).ok()?.parent();
+        }
+    };
+
+    // An explicitly selected socket wins: the designer named the point.
+    let mut found = selected_sockets
+        .iter()
+        .next()
+        .and_then(|(socket, global)| Some((owner_of(socket)?, global.translation())));
+
+    // Otherwise: the selected PIECE's joint, if it has one.
+    if found.is_none()
+        && let Some((root, root_id, root_global)) = selected_roots.iter().next()
+    {
+        let mut mine: Vec<(Entity, GlobalTransform, crate::sockets::Socket)> = Vec::new();
+        let mut stack = vec![root];
+        while let Some(entity) = stack.pop() {
+            if let Ok((_, global, socket)) = all_sockets.get(entity) {
+                mine.push((entity, *global, socket.clone()));
             }
-        };
-        if let Some(owner) = owner {
-            found = Some((owner, global.translation()));
+            if let Ok(kids) = children.get(entity) {
+                stack.extend(kids.iter());
+            }
+        }
+        let mut best: Option<(f32, Vec3)> = None;
+        for (entity, global, socket) in &mine {
+            for (other, other_global, other_socket) in all_sockets.iter() {
+                if other == *entity || socket.socket_type != other_socket.socket_type {
+                    continue;
+                }
+                // A socket of MY OWN piece is not something I am joined to.
+                if mine.iter().any(|(mine_entity, _, _)| *mine_entity == other) {
+                    continue;
+                }
+                if !crate::sockets::sockets_are_joined(global, other_global) {
+                    continue;
+                }
+                let reach = global.translation().distance(root_global.translation());
+                if best
+                    .as_ref()
+                    .is_none_or(|(best_reach, _)| reach < *best_reach)
+                {
+                    best = Some((reach, global.translation()));
+                }
+            }
+        }
+        if let Some((_, at)) = best {
+            found = Some((*root_id, at));
         }
     }
+
     let (subject, pivot) = match found {
         Some((owner, at)) => (Some(owner), Some(at)),
         None => (None, None),

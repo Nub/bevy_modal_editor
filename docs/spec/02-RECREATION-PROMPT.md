@@ -858,6 +858,37 @@ And the refusals speak: "no compatible socket within 1.5m" instead of nothing.
 The mate math is now one pure function (`sockets::best_mate`) that placement and
 drag-commit both call, so the preview cannot promise a snap the commit declines
 to make — the regression D9 exists for.
+
+**The socket as a handle (2026-08-20, owner testing).** Three verbs, one idea:
+the socket you are holding is the thing the editor should act on.
+
+- **Pivot on the JOINT.** Rotating a piece that is attached should swing it
+  about where it is attached — the joint stays put and the far end sweeps, which
+  is how a corner is made and a curve walked round. Selecting a SOCKET names the
+  point explicitly; selecting the PIECE finds its joint for you, which is the
+  common case and needed no words. Connection is derived from geometry
+  (coincident, opposed, same type) rather than recorded, because mating writes a
+  transform and nothing else — so a joint a designer made by hand counts too,
+  and `mate_transform`'s own output is tested to read back as a joint.
+- **Spawn the next piece AT the selected socket.** Placement asks one shared
+  question (`sockets::placement_for`): a selected socket wins over the cursor,
+  then the best mate near the cursor, then the cursor itself. Pick the end of a
+  run, pick a piece, and it arrives mated — no hunting for a hover position that
+  happens to be within reach of the socket you meant. A piece with no sockets
+  still lands AT the socket, because putting it where you pointed beats ignoring
+  what you said.
+- **`i` while holding a socket HANDLE offers pieces, not components.** The
+  add-component grammar was blocking the ask outright: every attempt to place
+  from a socket opened the component palette. A handle is a socket entity hanging
+  off a piece; a PIECE that merely carries a `Socket` component is still a piece,
+  and `i` on it still adds a component.
+
+**Painted segments are capped (2026-08-20).** A click near the horizon projects
+hundreds of metres onto the ground, and a stroke laid a piece every two of them:
+411 walls from one click, in one transaction, with the editor stalled while it
+happened. Capped at 128 per segment, and the cap SAYS so — a stroke that quietly
+lays half of what was asked is worse than one that explains itself. The probe
+had only ever asserted "more walls than before", which 411 satisfies.
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly
