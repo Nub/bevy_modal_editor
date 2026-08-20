@@ -238,6 +238,7 @@ impl Plugin for EditorOverlayPlugin {
         app.add_observer(mark_sockets_as_decoration);
         app.add_editor_feature(GameFeature);
         app.add_systems(Startup, arm_session_restore);
+        app.add_systems(Update, answer_timeline_events);
         app.add_systems(
             Update,
             demo_kit_generator.run_if(|| std::env::var("EDITOR_DEMO_KIT").is_ok()),
@@ -1005,4 +1006,37 @@ fn draw_player_spawn(cx: &mut editor_api::gizmos::GizmoCx) {
     // Facing: which way you are looking when the level starts.
     let forward = cx.dir(Vec3::NEG_Z);
     cx.painter.arrow(eye, eye + forward * 1.2, accent);
+}
+
+/// The reference game answering a timeline event (spec §9: a sequencer fires
+/// events, and the GAME decides what they mean).
+///
+/// This is the half of the contract that proves the other half is worth having:
+/// the timeline says `"spin"` happened at 1.4s and knows nothing more, and the
+/// game turns that into behaviour it already owns. Matching on the NAME is the
+/// whole interface — no editor type crosses into gameplay logic.
+///
+/// It lives in the overlay because the timeline currently ships with the editor
+/// and not with the game (see the note in spec §9): a released build has no
+/// sequencer to listen to yet. When the runtime moves, this moves with it and
+/// stops being editor-gated.
+fn answer_timeline_events(
+    mut events: MessageReader<editor_scene::anim::TimelineEvent>,
+    mut spinners: Query<&mut crate::game::Spinner>,
+) {
+    for event in events.read() {
+        match event.name.as_str() {
+            "spin" => {
+                for mut spinner in &mut spinners {
+                    spinner.enabled = true;
+                }
+            }
+            "stop" => {
+                for mut spinner in &mut spinners {
+                    spinner.enabled = false;
+                }
+            }
+            _ => {}
+        }
+    }
 }

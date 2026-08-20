@@ -861,6 +861,26 @@ not play forty footsteps, and dragging backwards should not play them in
 reverse. While paused, the fired-through mark follows the playhead so resuming
 does not replay everything that was skipped.
 
+**Events are visible, and the game answers them (2026-08-20).** Markers get
+their own row above the tracks — a bar rather than a diamond, so an event is
+never mistaken for a key — labelled in place, because an event nobody can
+identify is a tick mark. The reference game reacts by matching on the NAME and
+nothing else: the timeline says `"spin"` happened and knows no more; the game
+turns that into behaviour it already owns. No editor type crosses into gameplay
+logic, and the probe checks the reaction the same way — by reflection, knowing
+only a component name — because the editor must not depend on the game.
+
+**OWED: the timeline ships with the editor, not with the game.** `editor_scene`
+is an optional dependency of the reference game, so a release build has no
+sequencer, no tracks and no events — an authored animation cannot play in the
+shipped artifact. §9 requires the opposite ("playable from gameplay rules"). The
+runtime half (sampling, evaluation, crossing, the data) belongs in
+`game_framework`; the authoring half (keying, the panel, the prompt) stays here.
+This is NOT unique to animation: scene loading is editor-side too, so the split
+is one piece of work for the whole runtime rather than something to do for the
+timeline alone, and it is recorded here so it is not mistaken for done. It is
+also why the reference game's reaction currently lives in the editor overlay.
+
 **Any reflected property (2026-08-20).** Every numeric inspector row carries a
 key diamond, so what can be keyed is whatever the inspector can show: a light's
 intensity, a fog density, a scalar on a component a game defines. A position or

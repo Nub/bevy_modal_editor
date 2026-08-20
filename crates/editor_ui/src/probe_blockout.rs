@@ -41,6 +41,37 @@ fn invoke(world: &mut World, action: &'static str) {
     });
 }
 
+/// Read a bool field off a GAME component, by name, through the type registry.
+///
+/// The editor must not depend on the game — that would invert the whole point —
+/// so the probe checks the game reacted the same way the editor does anything
+/// to a game type: by reflection, knowing only a name.
+fn game_flag(world: &mut World, type_suffix: &str, field: &str) -> Option<bool> {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let registration = registry
+        .iter()
+        .find(|registration| registration.type_info().type_path().ends_with(type_suffix))?;
+    let reflect_component = registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
+    let entities: Vec<Entity> = world.iter_entities().map(|entity| entity.id()).collect();
+    let parsed = bevy::reflect::ParsedPath::parse(field).ok()?;
+    for entity in entities {
+        let Ok(entity_ref) = world.get_entity(entity) else {
+            continue;
+        };
+        let Some(component) = reflect_component.reflect(entity_ref) else {
+            continue;
+        };
+        if let Ok(element) = parsed.reflect_element(component.as_partial_reflect())
+            && let Some(value) = element.try_downcast_ref::<bool>()
+            && *value
+        {
+            return Some(true);
+        }
+    }
+    Some(false)
+}
+
 fn window_size(world: &mut World) -> Vec2 {
     world
         .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>()
@@ -797,7 +828,54 @@ pub(crate) fn probe_blockout(world: &mut World) {
             );
             invoke(world, "anim.rewind");
         }
-        2240 => {
+        // The event shows in the track view, named, at its own moment.
+        2210 => {
+            let marks: Vec<(f32, f32, String)> = world
+                .query::<&crate::timeline_panel::EventMark>()
+                .iter(world)
+                .map(|mark| (mark.time, mark.fraction, mark.name.clone()))
+                .collect();
+            check(
+                world,
+                marks.len() == 1 && marks[0].2 == "dust",
+                &format!("the event shows in the track view, named ({marks:?})"),
+            );
+            let duration = world.resource::<editor_scene::anim::Timeline>().duration();
+            check(
+                world,
+                marks
+                    .first()
+                    .is_some_and(|(time, fraction, _)| (time / duration - fraction).abs() < 1e-3),
+                "and sits at the moment it fires",
+            );
+            shot(world, "47-blockout-events");
+        }
+        // ── The other half of the contract: the GAME answers it ───────────
+        2220 => {
+            // A second event the reference game knows the meaning of.
+            world
+                .resource_mut::<editor_scene::anim::Timeline>()
+                .events
+                .push(editor_scene::anim::EventMarker {
+                    // Early in the run: the check must not race the playhead.
+                    time: 0.15,
+                    name: "spin".into(),
+                });
+            let spinning = game_flag(world, "Spinner", "enabled").unwrap_or(false);
+            check(world, !spinning, "nothing is spinning to begin with");
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.0;
+        }
+        2230 => invoke(world, "anim.play"),
+        2280 => {
+            let spinning = game_flag(world, "Spinner", "enabled").unwrap_or(false);
+            check(
+                world,
+                spinning,
+                "playing past the event made the GAME act on it",
+            );
+            invoke(world, "anim.rewind");
+        }
+        2320 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

@@ -37,6 +37,14 @@ pub(crate) struct KeyMark {
 /// The clickable strip of one track: pressing it scrubs.
 #[derive(Component)]
 pub(crate) struct TrackStrip;
+/// One event mark, carrying its moment and name so a test can check that where
+/// it sits matches when it fires.
+#[derive(Component, Clone)]
+pub(crate) struct EventMark {
+    pub time: f32,
+    pub fraction: f32,
+    pub name: String,
+}
 
 #[derive(Resource, Default)]
 pub(crate) struct TimelinePanelState {
@@ -283,6 +291,90 @@ pub(crate) fn sync_timeline_rows(
                 BackgroundColor(style::color::accent()),
                 bevy::picking::Pickable::IGNORE,
                 ChildOf(strip),
+            ));
+        }
+    }
+    // Events get their own row, above the tracks they punctuate: they belong to
+    // the timeline rather than to any one property, and a designer reads them
+    // as "what happens when", not "what moves".
+    if !timeline.events.is_empty() {
+        let row = commands
+            .spawn((
+                Node {
+                    height: px(18.0),
+                    align_items: AlignItems::Center,
+                    column_gap: px(style::space::S),
+                    flex_shrink: 0.0,
+                    ..default()
+                },
+                ChildOf(body),
+            ))
+            .id();
+        commands.spawn((
+            Text::new("events".to_string()),
+            style::no_wrap(),
+            style::sans(&fonts, 10.0),
+            TextColor(style::color::TEXT_DIM),
+            Node {
+                width: px(150.0),
+                flex_shrink: 0.0,
+                ..default()
+            },
+            ChildOf(row),
+        ));
+        let strip = commands
+            .spawn((
+                TrackStrip,
+                Node {
+                    flex_grow: 1.0,
+                    height: percent(100.0),
+                    position_type: PositionType::Relative,
+                    border_radius: BorderRadius::all(px(2.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.04)),
+                ChildOf(row),
+            ))
+            .observe(on_strip_press)
+            .id();
+        for event in &timeline.events {
+            let fraction = (event.time / duration).clamp(0.0, 1.0);
+            let mark = commands
+                .spawn((
+                    EventMark {
+                        time: event.time,
+                        fraction,
+                        name: event.name.clone(),
+                    },
+                    Node {
+                        position_type: PositionType::Absolute,
+                        left: percent(fraction * 100.0),
+                        top: px(2.0),
+                        bottom: px(2.0),
+                        // A bar, not a diamond: an event is a moment something
+                        // HAPPENS at, and it must not be mistaken for a key.
+                        width: px(2.0),
+                        ..default()
+                    },
+                    BackgroundColor(style::color::TEXT_BRIGHT),
+                    bevy::picking::Pickable::IGNORE,
+                    ChildOf(strip),
+                ))
+                .id();
+            // Named in place: an event nobody can identify is a tick mark.
+            commands.spawn((
+                Text::new(event.name.clone()),
+                style::no_wrap(),
+                style::sans(&fonts, 9.0),
+                TextColor(style::color::TEXT_KEYS),
+                Node {
+                    position_type: PositionType::Absolute,
+                    left: px(4.0),
+                    top: px(1.0),
+                    ..default()
+                },
+                bevy::picking::Pickable::IGNORE,
+                ChildOf(mark),
             ));
         }
     }
