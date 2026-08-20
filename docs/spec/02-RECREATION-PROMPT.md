@@ -879,9 +879,21 @@ The status line shows where time is, because scrubbing had no on-screen presence
 whatsoever: a playhead parked mid-animation was indistinguishable from a scene
 somebody had moved by hand.
 
-**Owed:** there is no track VIEW. What is keyed, and when, is legible only by
-reading the file — the same gap material inheritance had before its rows were
-marked, and the same fix applies.
+**The track view** (`Space T T`) shows a row per track — named after the entity
+and the field, not the uuid — with a diamond at each key and a cursor at the
+playhead. Pressing a strip scrubs there, because a timeline is a control and not
+a readout. Rows rebuild when the tracks change; the cursor moves every frame and
+is a position update rather than a rebuild, since rebuilding a panel sixty times
+a second to move one line is how a UI starts dropping frames.
+
+Its appearance is UNVERIFIED — a window screenshot of chrome is a black frame
+whenever the terminal is in front. What IS verified is the part most likely to
+be silently wrong: each mark's fraction equals its time over the duration, the
+cursor's percentage matches the playhead, and the panel is laid out with a real
+size, inside the window, clear of the status bar. That geometry check
+immediately earned itself by catching a units bug — `ComputedNode` reports
+physical pixels while the window reports logical, which on a retina display
+differ by two.
 
 **Layer 2 — Animation graph (per-rig).** Built on `bevy_animation`'s runtime
 (`AnimationGraph` blend/mask nodes) — we build the authoring layer, not a pose engine.

@@ -495,7 +495,110 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 ),
             }
         }
-        1820 => {
+        // ── The track view: keys you can SEE ──────────────────────────────
+        1830 => invoke(world, "timeline.toggle"),
+        1870 => {
+            let open = world
+                .resource::<crate::timeline_panel::TimelinePanelState>()
+                .open;
+            check(world, open, "the timeline panel opens");
+            let rows = world
+                .query::<&crate::timeline_panel::TrackStrip>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                rows == 3,
+                &format!("one strip per keyed track ({rows})"),
+            );
+        }
+        1890 => {
+            // WHERE a key sits is the part that can silently be wrong: a mark
+            // at the wrong fraction still looks like a timeline.
+            let marks: Vec<(f32, f32)> = world
+                .query::<&crate::timeline_panel::KeyMark>()
+                .iter(world)
+                .map(|mark| (mark.time, mark.fraction))
+                .collect();
+            check(
+                world,
+                marks.len() == 6,
+                &format!("two keys on each of three tracks ({})", marks.len()),
+            );
+            // Duration is 2s, so a key at 0s sits at the left edge and one at
+            // 2s sits at the right.
+            let placed_right = marks
+                .iter()
+                .all(|(time, fraction)| (time / 2.0 - fraction).abs() < 1e-3);
+            check(
+                world,
+                placed_right,
+                &format!("each mark sits at its own moment ({marks:?})"),
+            );
+            shot(world, "46-blockout-track-view");
+            // A window screenshot of chrome is a black frame whenever the
+            // terminal is in front, so the geometry gets checked instead: a
+            // panel of zero height, or one sitting under the status bar or off
+            // the screen, is what a layout bug actually looks like.
+            // ComputedNode reports PHYSICAL pixels; the window reports logical.
+            // On a retina display those differ by 2, which is enough to make a
+            // correctly placed panel look like it is off the screen.
+            let scale = world
+                .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>()
+                .iter(world)
+                .next()
+                .map(|window| window.scale_factor())
+                .unwrap_or(1.0);
+            let size = window_size(world) * scale;
+            let placed = world
+                .query_filtered::<(&ComputedNode, &bevy::ui::UiGlobalTransform), With<crate::timeline_panel::TimelinePanel>>()
+                .iter(world)
+                .next()
+                .map(|(node, transform)| {
+                    let extent = node.size();
+                    let centre = transform.translation;
+                    (extent, centre)
+                });
+            match placed {
+                Some((extent, centre)) => {
+                    check(
+                        world,
+                        extent.x > 200.0 && extent.y > 20.0,
+                        &format!("the panel has a real size ({extent:?})"),
+                    );
+                    let bottom = centre.y + extent.y * 0.5;
+                    check(
+                        world,
+                        bottom < size.y - 20.0 * scale,
+                        &format!("and sits clear of the status bar ({bottom} of {})", size.y),
+                    );
+                    let (left, right) = (centre.x - extent.x * 0.5, centre.x + extent.x * 0.5);
+                    check(
+                        world,
+                        left > 0.0 && right < size.x,
+                        &format!("and inside the window ({left}..{right} of {})", size.x),
+                    );
+                }
+                None => check(world, false, "the panel is laid out at all"),
+            }
+        }
+        1910 => {
+            // The cursor tracks time rather than being redrawn from scratch.
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 1.5;
+        }
+        1930 => {
+            let left = world
+                .query_filtered::<&Node, With<crate::timeline_panel::TimelineCursor>>()
+                .iter(world)
+                .next()
+                .map(|node| node.left);
+            check(
+                world,
+                matches!(left, Some(bevy::ui::Val::Percent(p)) if (p - 75.0).abs() < 0.5),
+                &format!("the cursor sits where time is ({left:?})"),
+            );
+        }
+        1970 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

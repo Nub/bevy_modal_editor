@@ -38,6 +38,7 @@ mod problems;
 mod prompt;
 mod socket_gizmo;
 mod statusbar;
+mod timeline_panel;
 mod view_gizmo;
 mod which_key;
 
@@ -190,6 +191,7 @@ impl Plugin for EditorUiPlugin {
         ));
         app.add_editor_feature(EditorUiFeature);
         app.add_editor_feature(material_editor::MaterialEditorFeature);
+        app.add_editor_feature(timeline_panel::TimelinePanelFeature);
         app.add_editor_feature(problems::ProblemsFeature);
         app.add_observer(socket_gizmo::on_socket_added);
 
@@ -217,6 +219,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<material_editor::PendingSeeds>();
         app.init_resource::<material_editor::RenameTarget>();
         app.init_resource::<material_editor::PendingTextureSlot>();
+        app.init_resource::<timeline_panel::TimelinePanelState>();
         app.init_resource::<problems::ProblemsState>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
@@ -286,11 +289,14 @@ impl Plugin for EditorUiPlugin {
         app.add_systems(
             Update,
             (
+                timeline_panel::handle_timeline_actions,
                 material_editor::collect_editor_actions,
                 material_editor::collect_rename,
                 material_editor::handle_material_library_verbs,
                 material_editor::apply_rename,
                 material_editor::apply_material_history,
+                timeline_panel::sync_timeline_rows,
+                timeline_panel::sync_timeline_cursor,
                 material_editor::sync_editor_ui,
                 material_editor::seed_slider_values,
                 material_editor::sync_preview,
@@ -319,6 +325,7 @@ impl Plugin for EditorUiPlugin {
                 open_indicator::spawn_open_pill,
                 dock::attach_scrollbars,
                 view_gizmo::spawn_view_gizmo,
+                timeline_panel::spawn_timeline_panel,
             )
                 .chain(),
         );
