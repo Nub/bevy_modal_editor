@@ -7,7 +7,7 @@
 //! like.
 
 use bevy::prelude::*;
-use editor_api::gizmos::{GizmoCx, GizmoPainter};
+use editor_api::gizmos::{GizmoCx, GizmoPainter, PickProxy};
 use editor_core::prelude::*;
 
 /// `GizmoPainter` over bevy's immediate-mode gizmos — the one place that knows
@@ -36,16 +36,48 @@ impl GizmoPainter for Painter<'_, '_, '_> {
     }
 }
 
+/// Keep drawing feature gizmos after the editor hands the world to the game.
+///
+/// Normally gizmos are editor furniture and vanish when you press play, which
+/// is right: you asked to see the GAME. But a widget with no geometry — a
+/// trigger volume above all — is invisible exactly when you are testing
+/// whether you can walk into it, and "nothing happened" then has three
+/// explanations you cannot tell apart. This toggle keeps them on screen
+/// through a play session, the same way collider wireframes work.
+#[derive(Resource, Default)]
+pub(crate) struct GizmosWhilePlaying(pub bool);
+
+pub(crate) fn toggle_gizmos_while_playing(
+    mut reader: MessageReader<ActionInvoked>,
+    mut pinned: ResMut<GizmosWhilePlaying>,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    for invoked in reader.read() {
+        if invoked.action.as_str() == "view.toggle-play-gizmos" {
+            pinned.0 = !pinned.0;
+            feedback.write(editor_scene::SceneIoFeedback {
+                message: if pinned.0 {
+                    "Gizmos stay visible while playing".into()
+                } else {
+                    "Gizmos hide while playing".into()
+                },
+                success: true,
+            });
+        }
+    }
+}
+
 pub(crate) fn draw_feature_gizmos(
     catalog: Res<GizmoCatalog>,
     registry: Res<AppTypeRegistry>,
     state: Res<EditorState>,
+    pinned: Res<GizmosWhilePlaying>,
     // `EntityRef` already reads everything, so it cannot share a query with
     // other terms — pull the transform and selection off it instead.
     entities: Query<EntityRef>,
     mut gizmos: Gizmos,
 ) {
-    if !state.active || catalog.gizmos.is_empty() {
+    if (!state.active && !pinned.0) || catalog.gizmos.is_empty() {
         return;
     }
     let registry = registry.read();
@@ -80,7 +112,7 @@ pub(crate) fn draw_feature_gizmos(
     }
 }
 
-/// Marks the invisible pick sphere a gizmo widget gets, so the click target is
+/// Marks the invisible pick body a gizmo widget gets, so the click target is
 /// rebuilt with the entity rather than leaking.
 #[derive(Component)]
 pub(crate) struct GizmoPickProxy;
@@ -92,11 +124,15 @@ pub(crate) struct GizmoPickProxy;
 pub(crate) struct GizmoPickAttached;
 
 #[derive(Resource, Default)]
-pub(crate) struct PickProxyMesh(Option<Handle<Mesh>>);
+pub(crate) struct PickProxyMesh {
+    sphere: Option<Handle<Mesh>>,
+    cube: Option<Handle<Mesh>>,
+}
 
-/// A gizmo-only widget (a spawn point, a light) has NO mesh, so viewport
-/// picking has nothing to hit — you could see it and never click it. This gives
-/// it an invisible sphere to catch the ray, sized by the registration.
+/// A gizmo-only widget (a spawn point, a trigger volume) has NO mesh, so
+/// viewport picking has nothing to hit — you could see it and never click it.
+/// This gives it an invisible body to catch the ray, shaped by the
+/// registration.
 pub(crate) fn attach_gizmo_pick_targets(world: &mut World) {
     if world.resource::<GizmoCatalog>().gizmos.is_empty() {
         return;
@@ -111,48 +147,76 @@ pub(crate) fn attach_gizmo_pick_targets(world: &mut World) {
             world.query_filtered::<Entity, (With<SceneId>, Without<GizmoPickAttached>)>();
         query.iter(world).collect()
     };
-    let mut wanted: Vec<(Entity, f32)> = Vec::new();
+    let mut wanted: Vec<(Entity, PickProxy)> = Vec::new();
     {
         let registry = registry.read();
         for entity in candidates {
             let Ok(entity_ref) = world.get_entity(entity) else {
                 continue;
             };
-            let radius = defs.iter().find_map(|def| {
+            let pick = defs.iter().find_map(|def| {
                 let registration = registry.get(def.component)?;
                 let reflect_component =
                     registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
                 reflect_component.reflect(entity_ref)?;
-                def.pick_radius
+                def.pick
             });
-            if let Some(radius) = radius {
-                wanted.push((entity, radius));
+            if let Some(pick) = pick {
+                wanted.push((entity, pick));
             }
         }
     }
-    if wanted.is_empty() {
-        return;
-    }
-    let mesh = {
-        let cached = world.resource::<PickProxyMesh>().0.clone();
-        match cached {
-            Some(mesh) => mesh,
-            None => {
-                let mesh = world.resource_mut::<Assets<Mesh>>().add(Sphere::new(1.0));
-                world.resource_mut::<PickProxyMesh>().0 = Some(mesh.clone());
-                mesh
-            }
-        }
-    };
-    for (entity, radius) in wanted {
+    for (entity, pick) in wanted {
+        let (mesh, transform) = match pick {
+            PickProxy::Sphere { radius } => (
+                proxy_mesh(world, false),
+                Transform::from_scale(Vec3::splat(radius)),
+            ),
+            // A unit cube parented to the widget inherits its transform, so the
+            // click target IS the box being drawn — at every size, forever,
+            // with nothing to keep in sync as the designer scales it.
+            PickProxy::UnitBox => (proxy_mesh(world, true), Transform::IDENTITY),
+        };
         world.spawn((
             GizmoPickProxy,
-            Mesh3d(mesh.clone()),
-            // No material: invisible to the eye, solid to the raycast.
-            Transform::from_scale(Vec3::splat(radius)),
-            Visibility::Hidden,
+            Mesh3d(mesh),
+            // No material and no `Visibility::Hidden`. A mesh with no material
+            // is drawn by nothing, so it is already invisible — while HIDING it
+            // would take it out of picking entirely, because the mesh backend
+            // ray-casts `VisibleInView` by default. Hidden proxies are how this
+            // mechanism came to exist and never once caught a click.
+            transform,
             ChildOf(entity),
         ));
         world.entity_mut(entity).insert(GizmoPickAttached);
     }
+}
+
+/// The two proxy meshes, made once and shared by every widget that wants one.
+fn proxy_mesh(world: &mut World, cube: bool) -> Handle<Mesh> {
+    let cached = {
+        let meshes = world.resource::<PickProxyMesh>();
+        if cube {
+            meshes.cube.clone()
+        } else {
+            meshes.sphere.clone()
+        }
+    };
+    if let Some(mesh) = cached {
+        return mesh;
+    }
+    let mesh = if cube {
+        world
+            .resource_mut::<Assets<Mesh>>()
+            .add(Cuboid::from_length(1.0))
+    } else {
+        world.resource_mut::<Assets<Mesh>>().add(Sphere::new(1.0))
+    };
+    let mut meshes = world.resource_mut::<PickProxyMesh>();
+    if cube {
+        meshes.cube = Some(mesh.clone());
+    } else {
+        meshes.sphere = Some(mesh.clone());
+    }
+    mesh
 }

@@ -122,6 +122,13 @@ cancels the move and leaves them in place, since the duplicate is its own
 transaction. It deliberately does NOT touch the yank register: a designer yanks
 a piece, lays a run of duplicates, and still expects `p` to paste the yank.
 
+
+**Gizmos while playing (implemented 2026-08-20, spec §7):** `Space t v` keeps
+feature gizmos on screen after the editor hands the world to the game. Gizmos
+are furniture and normally vanish on play — but a widget with no geometry IS
+the object, and a trigger volume you cannot see while walking into it makes
+"nothing happened" impossible to diagnose. Same shape as `Space t p` for
+collider wireframes: a development view, not a mode.
 **Angle snap (implemented 2026-08-19, spec §9 grid/angle toggles):** `Space a`
 toggles quantization of a rotate DRAG to `viewport.angle_step` (15° by default —
 it divides 30, 45 and 90, the turns a level is actually built from). It is a

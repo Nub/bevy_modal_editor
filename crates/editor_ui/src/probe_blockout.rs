@@ -8,6 +8,7 @@ use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use editor_core::prelude::*;
 
+use crate::probe_handson::{screen_position_of, type_word};
 use crate::probe_user::{click, move_cursor, shot, tap, tap_named};
 
 #[derive(Resource, Default)]
@@ -20,6 +21,9 @@ pub(crate) struct BlockoutProbe {
     time_at_play: f32,
     linear_midpoint: f32,
     events_seen: usize,
+    volume_at: Option<Vec3>,
+    actor_home: Option<Vec3>,
+    actor_body: Option<Entity>,
 }
 
 fn check(world: &mut World, ok: bool, what: &str) {
@@ -73,6 +77,54 @@ fn game_flag(world: &mut World, type_suffix: &str, field: &str) -> Option<bool> 
     Some(false)
 }
 
+/// Read a String field off a GAME component, by name. Same reflection-only
+/// contract as `game_flag`.
+fn game_string(world: &mut World, type_suffix: &str, field: &str) -> Option<String> {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let registration = registry
+        .iter()
+        .find(|registration| registration.type_info().type_path().ends_with(type_suffix))?;
+    let reflect_component = registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
+    let parsed = bevy::reflect::ParsedPath::parse(field).ok()?;
+    let entities: Vec<Entity> = world.iter_entities().map(|entity| entity.id()).collect();
+    for entity in entities {
+        let Ok(entity_ref) = world.get_entity(entity) else {
+            continue;
+        };
+        let Some(value) = reflect_component.reflect(entity_ref) else {
+            continue;
+        };
+        if let Ok(element) = parsed.element::<String>(value.as_partial_reflect()) {
+            return Some(element.clone());
+        }
+    }
+    None
+}
+
+/// Walk the actor into the volume, or home again. x/z only: the walk system
+/// pins y to standing height on every live frame, so a posed y is silently
+/// reverted — and the check that depended on it would then fail for a reason
+/// that is not the feature.
+fn pose_actor(world: &mut World, inside: bool) {
+    let (body, to) = {
+        let probe = world.resource::<BlockoutProbe>();
+        (
+            probe.actor_body,
+            if inside {
+                probe.volume_at
+            } else {
+                probe.actor_home
+            },
+        )
+    };
+    if let Some((body, to)) = body.zip(to)
+        && let Some(mut transform) = world.get_mut::<Transform>(body)
+    {
+        transform.translation.x = to.x;
+        transform.translation.z = to.z;
+    }
+}
 /// The type path of a registered component, found by the tail of its name.
 /// The editor knows game types only as strings — that is the whole contract.
 fn game_type_path(world: &mut World, suffix: &str) -> Option<String> {
@@ -111,6 +163,51 @@ fn game_number(world: &mut World, type_suffix: &str, field: &str) -> Option<f32>
         }
     }
     best
+}
+
+/// The entity carrying a GAME component, found by type-path suffix — plus its
+/// `SceneId`, which is how an edit addresses it.
+fn game_entity(world: &mut World, type_suffix: &str) -> Option<(Entity, SceneId)> {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let registration = registry
+        .iter()
+        .find(|registration| registration.type_info().type_path().ends_with(type_suffix))?;
+    let reflect_component = registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
+    let entities: Vec<Entity> = world.iter_entities().map(|entity| entity.id()).collect();
+    for entity in entities {
+        let Ok(entity_ref) = world.get_entity(entity) else {
+            continue;
+        };
+        // A `SceneId` is the difference between AUTHORED content and the insert
+        // ghost, which carries the same components and would otherwise be the
+        // first thing found.
+        if reflect_component.reflect(entity_ref).is_some()
+            && let Some(id) = entity_ref.get::<SceneId>().copied()
+        {
+            return Some((entity, id));
+        }
+    }
+    None
+}
+
+/// Just the entity — for a marker the GAME spawns, which has no `SceneId`
+/// because it is not authored content.
+fn game_marker(world: &mut World, type_suffix: &str) -> Option<Entity> {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let registration = registry
+        .iter()
+        .find(|registration| registration.type_info().type_path().ends_with(type_suffix))?;
+    let reflect_component = registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
+    let entities: Vec<Entity> = world.iter_entities().map(|entity| entity.id()).collect();
+    entities.into_iter().find(|entity| {
+        world
+            .get_entity(*entity)
+            .ok()
+            .and_then(|entity_ref| reflect_component.reflect(entity_ref))
+            .is_some()
+    })
 }
 
 /// Count particles the way the editor knows anything about a game: by name.
@@ -1091,7 +1188,267 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 &format!("and every particle expired ({count})"),
             );
         }
-        2540 => {
+        // ── A trigger volume: the level makes something HAPPEN ─────────────
+        // Spec §9 (data-driven gameplay authoring). Everything above proves the
+        // editor can author how a level LOOKS and how it MOVES. This proves a
+        // designer can place a box that NOTICES — and, just as importantly,
+        // that it stays quiet while they are still editing.
+        2600 => {
+            let count = particle_count(world);
+            check(world, count == 0, &format!("nothing in flight ({count})"));
+            let stopped = !world.resource::<editor_scene::anim::Playhead>().playing;
+            check(
+                world,
+                stopped,
+                "and the playhead is parked, so nothing else can fire",
+            );
+            // The check that makes every later negative mean something: without
+            // it, "no trigger fired" and "the type was never registered" are
+            // the same observation.
+            let registered = game_type_path(world, "::TriggerVolume").is_some();
+            check(
+                world,
+                registered,
+                "the game registered a trigger volume type",
+            );
+        }
+        // Find the actor the way the editor finds anything game-side: by a name
+        // in the type registry. `Player` is not reflected, and "find whatever
+        // the game marked" is both the contract and the assertion.
+        2605 => {
+            let Some(actor) = game_marker(world, "::TriggerActor") else {
+                check(
+                    world,
+                    false,
+                    "the shipped game marks something as a trigger actor",
+                );
+                return;
+            };
+            check(
+                world,
+                true,
+                "the shipped game marks something as a trigger actor",
+            );
+            let feet = world
+                .get::<GlobalTransform>(actor)
+                .map(|global| global.translation());
+            // The marker rides a child at the feet; what MOVES is its parent.
+            let body = world.get::<ChildOf>(actor).map(|parent| parent.parent());
+            let mut probe = world.resource_mut::<BlockoutProbe>();
+            probe.actor_home = feet;
+            probe.actor_body = body;
+        }
+        // Close the track view this probe opened at 1830: placement aims at the
+        // clear strip low in the frame, which is exactly where the panel sits.
+        2602 => invoke(world, "timeline.toggle"),
+        // Nothing selected: `i` WITH a selection is add-component, not place.
+        2606 => invoke(world, "select.clear"),
+        2610 => tap(world, KeyCode::KeyI, "i"),
+        2620 => type_word(world, "trigg"),
+        2630 => tap_named(world, KeyCode::Enter, Key::Enter),
+        // Picking a kind arms insert mode; the CLICK is what places. Park the
+        // cursor on the clear strip first, the way every other placement in
+        // these probes does.
+        2640 => {
+            let center = crate::probe_user::viewport_center(world);
+            move_cursor(world, center);
+        }
+        2650 => click(world, true),
+        2654 => click(world, false),
+        2700 => {
+            let placed = game_entity(world, "::TriggerVolume").is_some();
+            check(world, placed, "a trigger volume placed from the palette");
+        }
+        // Author it the way a designer would: move it somewhere clear, size it
+        // (its size IS its scale), give it a cue of its own, make it one-shot.
+        // Every one of these is a patch addressed by FIELD NAME on a game type
+        // the editor has never heard of.
+        2710 => {
+            let Some((entity, id)) = game_entity(world, "::TriggerVolume") else {
+                return;
+            };
+            let Some(volume_path) = game_type_path(world, "::TriggerVolume") else {
+                return;
+            };
+            let Some(burst_path) = game_type_path(world, "::Burst") else {
+                return;
+            };
+            // Where the palette put it — on the clear strip the cursor was
+            // parked on, which is also the one place we know is on screen for
+            // the click test below. Moving it somewhere "tidy" is how a probe
+            // ends up clicking at a negative screen coordinate.
+            let Some(placed) = world.get::<Transform>(entity).copied() else {
+                return;
+            };
+            world.resource_mut::<BlockoutProbe>().volume_at = Some(placed.translation);
+            let transform = placed.with_scale(Vec3::splat(3.5));
+            use bevy::reflect::PartialReflect;
+            world.resource_mut::<EditQueue>().0.push(Transaction {
+                label: "probe: author the volume".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Set {
+                        target: id,
+                        value: Box::new(transform).into_partial_reflect(),
+                    },
+                    Op::Patch {
+                        target: id,
+                        type_path: volume_path.clone(),
+                        path: "name".into(),
+                        value: Box::new("gate".to_string()),
+                    },
+                    Op::Patch {
+                        target: id,
+                        type_path: volume_path,
+                        path: "once".into(),
+                        value: Box::new(true),
+                    },
+                    Op::Patch {
+                        target: id,
+                        type_path: burst_path,
+                        path: "event".into(),
+                        value: Box::new("gate".to_string()),
+                    },
+                ],
+            });
+        }
+        2740 => {
+            let named = game_string(world, "::TriggerVolume", "name");
+            check(
+                world,
+                named.as_deref() == Some("gate"),
+                &format!("a game field patched by NAME reached the component ({named:?})"),
+            );
+            let once = game_flag(world, "::TriggerVolume", "once");
+            check(world, once == Some(true), "and so did the one-shot flag");
+        }
+        // A volume has no mesh. The only reason it can be clicked at all is the
+        // pick proxy its gizmo registration asks for — and for a thing whose
+        // size is authored, that proxy has to BE the box.
+        2760 => {
+            let Some((entity, _)) = game_entity(world, "::TriggerVolume") else {
+                return;
+            };
+            let proxy = world
+                .get::<Children>(entity)
+                .map(|children| {
+                    children
+                        .iter()
+                        .filter(|child| {
+                            world
+                                .get::<crate::feature_gizmos::GizmoPickProxy>(*child)
+                                .is_some()
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            check(
+                world,
+                proxy == 1,
+                &format!("an invisible click target ({proxy})"),
+            );
+        }
+        // Placement leaves the new object selected, so clicking it would prove
+        // nothing. Drop the selection first and let the click earn it.
+        2765 => invoke(world, "select.clear"),
+        2770 => {
+            let Some(at) = world.resource::<BlockoutProbe>().volume_at else {
+                return;
+            };
+            if let Some(screen) = screen_position_of(world, at) {
+                move_cursor(world, screen);
+            }
+        }
+        2775 => click(world, true),
+        2779 => click(world, false),
+        2800 => {
+            let Some((entity, _)) = game_entity(world, "::TriggerVolume") else {
+                return;
+            };
+            let selected = world.get::<Selected>(entity).is_some();
+            check(
+                world,
+                selected,
+                "a thing with no geometry is still clickable",
+            );
+            shot(world, "50-blockout-trigger");
+        }
+        // Editing is not play. Dragging the player through a checkpoint while
+        // authoring must not trip it.
+        2810 => pose_actor(world, true),
+        2850 => {
+            let count = particle_count(world);
+            check(
+                world,
+                count == 0,
+                &format!("standing in a volume while EDITING fires nothing ({count})"),
+            );
+        }
+        2860 => pose_actor(world, false),
+        2880 => invoke(world, "editor.play"),
+        2920 => {
+            let playing = !world.resource::<EditorState>().active;
+            check(world, playing, "the world goes to the game");
+            let count = particle_count(world);
+            check(
+                world,
+                count == 0,
+                &format!("and going live with the actor OUTSIDE is quiet ({count})"),
+            );
+        }
+        2930 => pose_actor(world, true),
+        // THE assertion. It is the only line that crosses the whole chain: the
+        // game marked an actor, the overlay handed the world over, the trigger
+        // system ran after propagation, the box contained the feet, the cue
+        // went out by name, and the level answered it with an effect.
+        2970 => {
+            let count = particle_count(world);
+            check(
+                world,
+                count > 0,
+                &format!("walking into it throws the effect it names ({count})"),
+            );
+            shot(world, "51-blockout-trigger-fired");
+        }
+        2990 => pose_actor(world, false),
+        3080 => {
+            let count = particle_count(world);
+            check(world, count == 0, &format!("the effect expires ({count})"));
+            let spent = game_flag(world, "::TriggerState", "spent");
+            check(
+                world,
+                spent == Some(true),
+                &format!("and a one-shot that was entered and left is spent ({spent:?})"),
+            );
+        }
+        3090 => pose_actor(world, true),
+        3130 => {
+            let count = particle_count(world);
+            check(
+                world,
+                count == 0,
+                &format!("walking back in does nothing: once means once ({count})"),
+            );
+        }
+        3140 => invoke(world, "editor.reset"),
+        3200 => {
+            let back = world.resource::<EditorState>().active;
+            check(world, back, "reset returns the world to the editor");
+            let named = game_string(world, "::TriggerVolume", "name");
+            let once = game_flag(world, "::TriggerVolume", "once");
+            check(
+                world,
+                named.as_deref() == Some("gate") && once == Some(true),
+                &format!("the authored volume survived the round trip ({named:?}, {once:?})"),
+            );
+            let spent = game_flag(world, "::TriggerState", "spent");
+            check(
+                world,
+                spent == Some(false),
+                &format!("and reset re-armed it, so the next take is a fresh one ({spent:?})"),
+            );
+        }
+        3230 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

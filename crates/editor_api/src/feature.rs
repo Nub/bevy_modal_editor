@@ -141,12 +141,12 @@ impl FeatureRegistry {
     }
 
     /// Draw a custom gizmo for `T` (spec §7): the editor renders it for every
-    /// entity carrying the component, and `pick_radius` gives a gizmo-only
-    /// widget a click target so it selects like anything with a mesh.
+    /// entity carrying the component, and `pick` gives a gizmo-only widget a
+    /// click target so it selects like anything with a mesh.
     pub fn gizmo<T>(
         &mut self,
         id: crate::ids::GizmoId,
-        pick_radius: Option<f32>,
+        pick: Option<crate::gizmos::PickProxy>,
         draw: crate::gizmos::GizmoDrawFn,
     ) -> &mut Self
     where
@@ -159,7 +159,7 @@ impl FeatureRegistry {
                 id,
                 component: std::any::TypeId::of::<T>(),
                 draw,
-                pick_radius,
+                pick,
             },
         ));
         self

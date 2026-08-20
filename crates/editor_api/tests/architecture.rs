@@ -73,9 +73,7 @@ fn no_editor_crate_binds_a_key_outside_the_resolver() {
                 continue;
             };
             for (number, line) in text.lines().enumerate() {
-                if line.contains("just_pressed(KeyCode")
-                    && !line.trim_start().starts_with("//")
-                {
+                if line.contains("just_pressed(KeyCode") && !line.trim_start().starts_with("//") {
                     offenders.push(format!("{}:{}", file.display(), number + 1));
                 }
             }

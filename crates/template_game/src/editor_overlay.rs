@@ -9,9 +9,9 @@ use bevy::prelude::*;
 use editor_core::prelude::*;
 use editor_scene::session::EditorSession;
 
-use crate::game::{
-    AutoBoxCollider, BoxCollider, GameInputActive, PhysicsBody, Primitive, PrimitiveKind, Spinner,
-};
+use game_framework::GameplayActive;
+
+use crate::game::{AutoBoxCollider, BoxCollider, PhysicsBody, Primitive, PrimitiveKind, Spinner};
 
 /// The game's editor-facing registration: which components serialize, what can be
 /// placed. Lives editor-side; the game module stays editor-free.
@@ -137,6 +137,55 @@ impl EditorFeature for GameFeature {
                 problems
             },
         });
+        // A volume that cannot fire is worse than a missing one: it is on
+        // screen, it looks armed, and it is not. Both cases are geometry the
+        // designer can see but not reason about.
+        reg.level_validator(editor_api::validate::LevelValidatorDef {
+            id: editor_api::prelude::ValidatorId::new_static("game.trigger-volume"),
+            name: "Trigger volume geometry",
+            validate: |world| {
+                let mut problems = Vec::new();
+                let mut query = world.query::<(
+                    &editor_core::prelude::SceneId,
+                    &game_framework::TriggerVolume,
+                    &Transform,
+                    Option<&Name>,
+                )>();
+                for (id, volume, transform, name) in query.iter(world) {
+                    let label = name.map(|n| n.as_str()).unwrap_or("Trigger");
+                    let size = transform.scale.abs();
+                    let thinnest = size.x.min(size.y).min(size.z);
+                    let (severity, message) = if thinnest < f32::EPSILON {
+                        (
+                            editor_api::validate::Severity::Error,
+                            format!(
+                                "{label}: flattened to nothing, so '{}' can never fire",
+                                volume.name
+                            ),
+                        )
+                    } else if thinnest < 0.5 {
+                        (
+                            editor_api::validate::Severity::Warning,
+                            format!(
+                                "{label}: only {thinnest:.2}m thick — occupancy is sampled once a \
+                                 frame, so something moving fast can pass straight through"
+                            ),
+                        )
+                    } else {
+                        continue;
+                    };
+                    problems.push(editor_api::validate::LevelProblem {
+                        validator: editor_api::prelude::ValidatorId::new_static(
+                            "game.trigger-volume",
+                        ),
+                        severity,
+                        message,
+                        entity: Some(*id),
+                    });
+                }
+                problems
+            },
+        });
         // Physics debug view (keymap §"Space t toggles": grid, gizmos, physics
         // debug, shading). Colliders are DERIVED from `BoxCollider` data, so
         // seeing the wireframe is how you check that authored data against the
@@ -156,11 +205,21 @@ impl EditorFeature for GameFeature {
                 .context("normal"),
         );
         // A spawn point has no geometry: the editor draws it from THIS, and the
-        // pick radius makes it clickable like anything with a mesh.
+        // pick proxy makes it clickable like anything with a mesh. A person is
+        // person-sized wherever you put one, so a fixed sphere is right here.
         reg.gizmo::<crate::game::PlayerSpawn>(
             editor_api::ids::GizmoId::new_static("game.player-spawn"),
-            Some(0.5),
+            Some(editor_api::gizmos::PickProxy::Sphere { radius: 0.5 }),
             draw_player_spawn,
+        );
+        // A volume is invisible: the gizmo IS the object, and the pick proxy is
+        // the only reason it can be clicked at all. Its size is authored, so the
+        // proxy is a unit box that inherits the transform — a room-sized volume
+        // with a half-metre click target would be worse than none.
+        reg.gizmo::<game_framework::TriggerVolume>(
+            editor_api::ids::GizmoId::new_static("game.trigger-volume"),
+            Some(editor_api::gizmos::PickProxy::UnitBox),
+            draw_trigger_volume,
         );
         reg.component::<Transform>()
             .component::<Primitive>()
@@ -171,6 +230,8 @@ impl EditorFeature for GameFeature {
             .component::<crate::game::PlayerSpawn>()
             .component::<game_framework::PostProcess>()
             .component::<game_framework::Burst>()
+            .component::<game_framework::TriggerVolume>()
+            .component::<game_framework::TriggerActor>()
             .component::<PhysicsBody>()
             .component::<Name>()
             .entity_kind(EntityKindDef {
@@ -188,6 +249,11 @@ impl EditorFeature for GameFeature {
             .component::<PointLight>()
             .component::<SpotLight>()
             .component::<DirectionalLight>()
+            .entity_kind(EntityKindDef {
+                id: EntityKindId::new_static("trigger.volume"),
+                display_name: "Trigger Volume",
+                components: trigger_volume_components,
+            })
             .entity_kind(EntityKindDef {
                 id: EntityKindId::new_static("light.point"),
                 display_name: "Point Light",
@@ -240,7 +306,7 @@ impl Plugin for EditorOverlayPlugin {
         app.add_observer(mark_sockets_as_decoration);
         app.add_editor_feature(GameFeature);
         app.add_systems(Startup, arm_session_restore);
-        app.add_systems(Update, answer_timeline_events);
+        app.add_systems(Update, (answer_timeline_events, announce_triggers));
         app.add_systems(
             Update,
             demo_kit_generator.run_if(|| std::env::var("EDITOR_DEMO_KIT").is_ok()),
@@ -348,10 +414,10 @@ fn toggle_collider_debug(
 }
 
 /// The editor owns input while active; the game module knows nothing about the
-/// editor — it just honors `GameInputActive`.
+/// editor — it just honors `GameplayActive`.
 fn sync_game_input(
     state: Res<EditorState>,
-    mut game_input: ResMut<GameInputActive>,
+    mut game_input: ResMut<GameplayActive>,
     mut player: Query<(&mut crate::game::Player, &Transform)>,
 ) {
     let game_owns = !state.active;
@@ -467,7 +533,7 @@ pub(crate) fn probe_spin(
     mut frames: Local<u32>,
     mut writer: MessageWriter<ActionInvoked>,
     mut spinners: Query<(Entity, &mut Spinner, &Transform)>,
-    game_input: Res<GameInputActive>,
+    game_input: Res<GameplayActive>,
     editor_state: Res<EditorState>,
     app_state: Res<State<game_framework::AppState>>,
     time: Res<Time>,
@@ -982,6 +1048,118 @@ pub(crate) fn probe_physics(world: &mut World) {
             }
         }
         _ => {}
+    }
+}
+
+/// A trigger volume has no geometry, so the editor draws it from its data —
+/// the box it actually watches, at the size it actually is.
+///
+/// Gizmos cannot draw text, and a level with six identical wire boxes is a
+/// level where nobody knows which one is the checkpoint. The colour comes from
+/// the CUE NAME, so two volumes that fire different things look different and
+/// two that fire the same thing match — which is exactly the fact a designer
+/// needs at a glance, and it is true rather than decorative.
+fn draw_trigger_volume(cx: &mut editor_api::gizmos::GizmoCx) {
+    let volume = cx
+        .read::<game_framework::TriggerVolume>()
+        .unwrap_or_default();
+    let hue = hue_for(&volume.name);
+    let shape = Transform::from(cx.transform);
+    let degenerate = shape.scale.x.abs() < f32::EPSILON
+        || shape.scale.y.abs() < f32::EPSILON
+        || shape.scale.z.abs() < f32::EPSILON;
+    let color = match (cx.selected, degenerate) {
+        // A volume flattened on an axis catches nothing. Drawing it in the
+        // problem colour is the difference between "I see my kill plane" and
+        // "I see a box that cannot fire" — the picture must not promise
+        // behaviour the rules will not deliver.
+        (_, true) => Color::srgb(0.95, 0.35, 0.35),
+        (true, false) => Color::hsl(hue, 0.85, 0.65),
+        (false, false) => Color::hsla(hue, 0.7, 0.55, 0.55),
+    };
+    // The box IS the transform: a unit cube scaled by what the designer scaled.
+    cx.painter.cuboid(shape, color);
+    // Where it MEETS THE FLOOR. A box seen edge-on is a line, and the ring is
+    // how you find the thing you are looking straight through.
+    let floor = cx.at() + cx.dir(Vec3::NEG_Y) * (shape.scale.y * 0.5);
+    cx.painter.circle(floor, Vec3::Y, 0.35, color);
+    if volume.once {
+        // One-shot: an inner box, because "fires every time" and "fires once
+        // and is over" are different objects and should not look identical.
+        let mut inner = shape;
+        inner.scale *= 0.55;
+        cx.painter.cuboid(inner, color);
+    }
+}
+
+/// A stable hue in 0..360 for a cue name.
+///
+/// Deliberately not `DefaultHasher`: that is seeded per process, so the
+/// checkpoint would be a different colour every launch and colour could carry
+/// no meaning at all. FNV-1a is fixed forever.
+fn hue_for(name: &str) -> f32 {
+    let mut hash: u32 = 2_166_136_261;
+    for byte in name.as_bytes() {
+        hash ^= *byte as u32;
+        hash = hash.wrapping_mul(16_777_619);
+    }
+    // Golden-angle spacing so two names that hash close together still land on
+    // visibly different colours.
+    ((hash % 360) as f32 * 137.508) % 360.0
+}
+
+/// The placed volume is a WORKING EXAMPLE, not a bare component.
+///
+/// A designer who places a trigger and walks through it should see something
+/// happen on the first try. A lone `TriggerVolume` fires a cue that nothing in
+/// the level answers, so the preset brings its own emitter, already listening
+/// for the cue the volume already sends. Place one thing, walk in, particles —
+/// then rename both to mean whatever the level needs.
+fn trigger_volume_components(position: Vec3) -> Vec<Box<dyn bevy::reflect::PartialReflect>> {
+    use bevy::reflect::PartialReflect;
+    const SIZE: f32 = 3.0;
+    let cue = "burst";
+    vec![
+        // Sitting ON the floor rather than half-buried in it: you walk into a
+        // volume, and burying half of it is the classic first annoyance.
+        Box::new(
+            Transform::from_translation(position + Vec3::Y * (SIZE * 0.5))
+                .with_scale(Vec3::splat(SIZE)),
+        )
+        .into_partial_reflect(),
+        Box::new(game_framework::TriggerVolume {
+            name: cue.into(),
+            once: false,
+        })
+        .into_partial_reflect(),
+        Box::new(game_framework::Burst {
+            event: cue.into(),
+            ..default()
+        })
+        .into_partial_reflect(),
+        // The entity label and the cue agree at birth. They are different
+        // strings on purpose — the cue is what the game matches on, the label
+        // is what the hierarchy shows — but they should not start out lying
+        // about each other.
+        Box::new(Name::new("Trigger: burst")).into_partial_reflect(),
+    ]
+}
+
+/// Say so, in the editor, when a trigger fires during an in-editor play session.
+///
+/// A volume you walked through either fired or did not, and at 60fps a colour
+/// flash is not an answer. The toast is: `trigger 'burst' entered`. It lives
+/// here rather than in `game_framework` because it is a DIAGNOSTIC for the
+/// person authoring the level, not behaviour the shipped game has.
+fn announce_triggers(
+    mut entered: MessageReader<game_framework::TriggerEntered>,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    for trigger in entered.read() {
+        feedback.write(editor_scene::SceneIoFeedback {
+            message: format!("trigger '{}' entered", trigger.name),
+            success: true,
+        });
     }
 }
 

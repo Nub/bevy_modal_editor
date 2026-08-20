@@ -59,5 +59,6 @@ matrix nightly (spec §8).
 overrides/nesting/variants/baking + layout metadata authoring, assisted-layout
 core (snap kits, architectural painting, true-shape). Exit: the barrel workflow
 (spec §6) end-to-end + wall-kit painting. Also riding M4: the full material
-editor (owner direction). M0–M3 complete (`docs/M3-ACCEPTANCE.md` PASSED
-2026-08-02).
+editor (owner direction), and the rapid-prototyping primitives the owner asked
+for by standing direction — trigger volumes landed 2026-08-20 (spec §9).
+M0–M3 complete (`docs/M3-ACCEPTANCE.md` PASSED 2026-08-02).

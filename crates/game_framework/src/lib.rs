@@ -9,6 +9,11 @@
 
 use bevy::prelude::*;
 
+pub mod trigger;
+pub use trigger::{
+    GameplayActive, TriggerActor, TriggerEntered, TriggerExited, TriggerState, TriggerVolume,
+};
+
 /// Top-level application lifecycle (spec §3). Sub-states (`Session`, connection state)
 /// arrive in M1.
 #[derive(States, Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -31,6 +36,7 @@ impl Plugin for GameFrameworkPlugin {
         app.register_type::<Particle>();
         app.add_message::<FireEffect>();
         app.add_systems(Update, (fire_bursts, age_particles));
+        trigger::plugin(app);
     }
 }
 

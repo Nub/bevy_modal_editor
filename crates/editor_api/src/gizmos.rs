@@ -55,6 +55,23 @@ impl GizmoCx<'_> {
 
 pub type GizmoDrawFn = fn(&mut GizmoCx);
 
+/// How a gizmo-only widget catches a click.
+///
+/// A fixed radius is right for a widget that is always the same size — a spawn
+/// point is a person-sized thing wherever you put it. It is wrong for anything
+/// whose size is authored: a room-sized trigger volume would get a half-metre
+/// sphere at its centre, so you would see a large box, click its edge, and
+/// select the wall behind it.
+#[derive(Clone, Copy, Debug)]
+pub enum PickProxy {
+    /// A sphere of this radius at the entity origin.
+    Sphere { radius: f32 },
+    /// A unit cube, parented to the entity. It INHERITS the transform, so a
+    /// widget whose size is its scale has a click target that is exactly the
+    /// box being drawn, at every size, forever, with nothing to keep in sync.
+    UnitBox,
+}
+
 /// One registered gizmo: which component it draws for, how to draw it, and how
 /// big a click target the entity needs.
 #[derive(Clone)]
@@ -62,8 +79,8 @@ pub struct GizmoDef {
     pub id: crate::ids::GizmoId,
     pub component: std::any::TypeId,
     pub draw: GizmoDrawFn,
-    /// Radius of an invisible pick sphere placed on the entity, so a gizmo-only
-    /// widget can be CLICKED in the viewport like anything with a mesh. `None`
-    /// leaves it selectable from the hierarchy only.
-    pub pick_radius: Option<f32>,
+    /// An invisible click target, so a gizmo-only widget can be selected in the
+    /// viewport like anything with a mesh. `None` leaves it selectable from the
+    /// hierarchy only.
+    pub pick: Option<PickProxy>,
 }

@@ -1,23 +1,12 @@
 //! The game itself: menu → load level → first-person walk. Editor-free by
 //! construction — this module must compile identically with and without the
-//! `editor` feature; the overlay only reads/writes `GameInputActive`.
+//! `editor` feature; the overlay only reads/writes `GameplayActive`.
 
 use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use game_framework::{AppState, primitive_mesh};
-
-/// Whether the game consumes player input this frame. The editor overlay (when
-/// compiled in and active) sets this false; without the editor it is always true.
-#[derive(Resource)]
-pub struct GameInputActive(pub bool);
-
-impl Default for GameInputActive {
-    fn default() -> Self {
-        Self(true)
-    }
-}
+use game_framework::{AppState, GameplayActive, primitive_mesh};
 
 /// Semantic scene primitive: the SERIALIZED truth. Meshes/materials derive from it
 /// via the regenerate observer (spec §5 marker/regenerate pattern) — in editor, in
@@ -105,8 +94,7 @@ impl Plugin for GamePlugin {
         // the simulation is paused — dynamic props hold still under editing
         // and only live during play.
         app.add_plugins(PhysicsPlugins::default());
-        app.init_resource::<GameInputActive>()
-            .add_systems(Startup, (init_primitive_assets, leave_boot))
+        app.add_systems(Startup, (init_primitive_assets, leave_boot))
             .add_systems(Update, (derive_physics, derive_auto_colliders))
             .add_observer(on_primitive_added)
             .add_observer(on_ground_added)
@@ -116,7 +104,13 @@ impl Plugin for GamePlugin {
             .add_systems(OnEnter(AppState::LoadingLevel), spawn_level)
             .add_systems(
                 Update,
-                (player_look, player_walk, sync_cursor_grab, spin)
+                (
+                    player_look,
+                    player_walk,
+                    sync_cursor_grab,
+                    spin,
+                    triggers_fire_effects,
+                )
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -436,7 +430,7 @@ fn derive_auto_colliders(
 }
 
 /// Editor owns input → physics holds still; play → simulate.
-pub fn sync_physics_pause_now(game_input: Res<GameInputActive>, mut time: ResMut<Time<Physics>>) {
+pub fn sync_physics_pause_now(game_input: Res<GameplayActive>, mut time: ResMut<Time<Physics>>) {
     if game_input.0 {
         if time.is_paused() {
             time.unpause();
@@ -498,7 +492,7 @@ fn derive_physics(
 /// Gameplay behavior for `Spinner` — runs only while the game owns input, so
 /// editing values in the editor never fights a live rotation.
 fn spin(
-    game_input: Res<GameInputActive>,
+    game_input: Res<GameplayActive>,
     time: Res<Time>,
     mut spinners: Query<(&Spinner, &mut Transform)>,
 ) {
@@ -592,16 +586,48 @@ fn spawn_level(mut commands: Commands, mut next: ResMut<NextState<AppState>>) {
         Camera3d::default(),
         Transform::from_translation(spawn.translation + Vec3::Y * eye_height)
             .with_rotation(spawn.rotation),
+        // What trips a volume is a POINT, and the player entity IS the camera —
+        // its origin is the EYE. A trigger sitting on the floor would watch the
+        // room at head height and never notice anyone walking through it, for
+        // reasons nothing on screen could explain. So the marker rides a child
+        // at the feet, where "walked into it" actually happens.
+        children![(
+            game_framework::TriggerActor,
+            Transform::from_xyz(0.0, -eye_height, 0.0),
+            Name::new("Feet"),
+        )],
     ));
 
     next.set(AppState::InGame);
 }
 
+/// The reference game answering a trigger (spec §9: a volume says WHAT and
+/// WHEN, and the game decides what it means).
+///
+/// Walking into a volume named `sparks` throws the burst authored under that
+/// name — a designer wired an effect to a place by typing a word in two
+/// inspectors, and wrote no code at all. That is the whole claim of
+/// data-driven gameplay authoring, in four lines.
+///
+/// Note where this lives: in the GAME, not the editor overlay, so it works in
+/// a release build. The timeline's equivalent reaction still sits in the
+/// overlay because the timeline itself ships with the editor (§9's OWED note);
+/// a trigger needed no such compromise.
+fn triggers_fire_effects(
+    mut entered: MessageReader<game_framework::TriggerEntered>,
+    mut effects: MessageWriter<game_framework::FireEffect>,
+) {
+    for trigger in entered.read() {
+        effects.write(game_framework::FireEffect {
+            name: trigger.name.clone(),
+        });
+    }
+}
 const LOOK_SENSITIVITY: f32 = 0.0025;
 const WALK_SPEED: f32 = 6.0;
 
 fn player_look(
-    input_active: Res<GameInputActive>,
+    input_active: Res<GameplayActive>,
     motion: Res<AccumulatedMouseMotion>,
     mut player: Query<(&mut Player, &mut Transform)>,
 ) {
@@ -617,7 +643,7 @@ fn player_look(
 }
 
 fn player_walk(
-    input_active: Res<GameInputActive>,
+    input_active: Res<GameplayActive>,
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut player: Query<&mut Transform, With<Player>>,
@@ -652,7 +678,7 @@ fn player_walk(
 /// Cursor lock follows game-input ownership: locked while the game owns input,
 /// released when the editor overlay takes over (or in menus).
 fn sync_cursor_grab(
-    input_active: Res<GameInputActive>,
+    input_active: Res<GameplayActive>,
     cursor: Single<&mut CursorOptions, With<PrimaryWindow>>,
 ) {
     // The game only asserts cursor policy while it OWNS input; when the editor is
@@ -677,7 +703,7 @@ mod tests {
     #[test]
     fn spinner_rotates_only_when_game_active() {
         let mut app = App::new();
-        app.init_resource::<GameInputActive>();
+        app.init_resource::<GameplayActive>();
         app.insert_resource(Time::<()>::default());
         app.add_systems(Update, spin);
         let entity = app
@@ -692,7 +718,7 @@ mod tests {
             .id();
 
         // Editor owns input: no rotation.
-        app.world_mut().resource_mut::<GameInputActive>().0 = false;
+        app.world_mut().resource_mut::<GameplayActive>().0 = false;
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(Duration::from_secs(1));
@@ -703,7 +729,7 @@ mod tests {
         );
 
         // Game owns input: ~90° after one second.
-        app.world_mut().resource_mut::<GameInputActive>().0 = true;
+        app.world_mut().resource_mut::<GameplayActive>().0 = true;
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(Duration::from_secs(1));

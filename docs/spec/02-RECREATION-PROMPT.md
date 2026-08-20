@@ -665,6 +665,66 @@ Settled with the project owner 2026-08-01; treat as requirements at the stated d
   path; code hot reload is the programmer path. Dev-build only — never in publish
   artifacts (also keeps the console constraint clean).
 
+
+**Trigger volumes (2026-08-20).** The event leaf of "event-condition-action":
+a named box that notices when a marked actor is inside it, and says so. The E
+is data; the C and the A stay Rust — rule assets remain owed, and this clause
+is not done because triggers exist.
+
+It lives in `game_framework`, not the editor, so it fires in a release build.
+That is the point as much as the feature is: it is a **partial payment on the
+OWED runtime split below**, and the template for the rest — runtime half
+game-side, authoring half (registration, gizmo, palette preset, toast) editor-
+side, and the editor knowing the type only through reflection.
+
+Decisions worth keeping:
+- **Its size is its `Transform.scale`.** The volume is a unit cube. A separate
+  `half_extents` field would be a second dial for one quantity, and the two
+  disagree the first time anyone uses the scale gesture — which is this
+  editor's primary blockout verb. This deliberately diverges from
+  `BoxCollider`, whose extents are pre-scale because it hugs imported geometry
+  it does not own; a volume owns its own shape.
+- **An actor is a point at its entity origin**, so the reference game puts the
+  marker on a child at the player's FEET rather than on the camera at the eye.
+  Coverage is spelled with several child markers, not a second size.
+- **`once` means one entry, the exit that closes it, then silence** — so every
+  `TriggerEntered` has exactly one `TriggerExited` and a reader can keep
+  occupancy without knowing what `once` means.
+- **Occupancy is evaluated after transform propagation.** An entity spawned
+  this frame reads as standing at the world ORIGIN until it propagates, so an
+  `Update`-scheduled trigger fires a phantom entry on the frame the level
+  loads. Running in `PostUpdate` also orders it unambiguously against the
+  editor's play/pause handoff.
+- **Nothing fires unless gameplay is stepping**: the game owns the world,
+  virtual time is not paused, and we are in a level. `GameplayActive` is the
+  narrow half of that (who owns the world) and moved into `game_framework`
+  with this slice, because the crate that owns the lifecycle should own the
+  play/pause seam. It is the interim stand-in for §3's `Session` sub-states,
+  not a parallel fiction.
+- **A name is a cue, not an identity.** Duplicates all fire it, `once` is per
+  volume rather than per name, and the viewport colours a volume by hashing its
+  cue so two volumes that fire different things look different.
+
+Deliberate limits, documented rather than fixed: point-not-bounds occupancy;
+once-a-frame sampling, so a volume thinner than one frame of motion can be
+missed (the level validator warns below 0.5 m, and errors on a volume flattened
+to nothing, which contains nothing rather than trusting a singular matrix);
+`TriggerExited` has unit coverage but no game-side consumer yet.
+
+**Gizmos while playing (2026-08-20, §7).** Feature gizmos vanished when the
+editor handed the world to the game, which is right for furniture and wrong for
+a widget that IS the object: a trigger volume was invisible exactly while you
+were testing whether you could walk into it. `space t v` keeps them on screen
+through a play session, the way collider wireframes already work.
+
+**Pick proxies were never pickable (2026-08-20, §7).** The invisible click
+target that makes a gizmo-only widget selectable was spawned
+`Visibility::Hidden`, and bevy's mesh picking ray-casts `VisibleInView` by
+default — so it had never once caught a click. A mesh with no material is drawn
+by nothing, so the proxy is simply visible now. `PickProxy` also replaced the
+bare `pick_radius`: a fixed sphere is right for a spawn point, and wrong for
+anything whose size is authored, where the proxy is a unit box parented to the
+widget so the click target IS the box at every size.
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly
@@ -886,7 +946,10 @@ turns that into behaviour it already owns. No editor type crosses into gameplay
 logic, and the probe checks the reaction the same way — by reflection, knowing
 only a component name — because the editor must not depend on the game.
 
-**OWED: the timeline ships with the editor, not with the game.** `editor_scene`
+**OWED: the timeline ships with the editor, not with the game.** (Partially
+paid 2026-08-20: trigger volumes landed runtime-side in `game_framework` as the
+template for this split — see the trigger clause above. The timeline itself has
+not moved.) `editor_scene`
 is an optional dependency of the reference game, so a release build has no
 sequencer, no tracks and no events — an authored animation cannot play in the
 shipped artifact. §9 requires the opposite ("playable from gameplay rules"). The

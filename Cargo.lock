@@ -2604,7 +2604,6 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "editor_api",
- "game_framework",
  "ron 0.8.1",
  "serde",
  "tempfile",

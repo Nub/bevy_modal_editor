@@ -349,6 +349,41 @@ machine can, as TESTS rather than CI-only greps, so they run on every
 
 Each rule was checked against a deliberate violation to confirm it fails; a
 fitness test that cannot fail is decoration.
+
+### Trigger volumes: the level makes something happen (2026-08-20, spec §9)
+
+The editor could author how a level looks and how it moves. Nothing a designer
+PLACED could cause anything. A trigger volume is the smallest thing that closes
+that gap and the one every prototype reaches for first.
+
+Covered by `BLOCKOUT_PROBE` frames 2600–3200, in the real binary:
+
+- placed from the palette (`i`, "trigg", ⏎, click) as a working example — the
+  preset carries its own burst emitter listening for the cue it already sends,
+  so placing one thing and walking into it does something on the first try;
+- authored by patching `name`, `once` and the emitter's `event` BY FIELD NAME
+  on game types the editor has never heard of;
+- clickable: a thing with no geometry, selected by clicking the box, through a
+  pick proxy that is a unit cube parented to the widget;
+- silent while the editor owns the world — standing inside one during authoring
+  fires nothing;
+- and then, on `editor.play`, walking in throws the effect it names. That single
+  assertion crosses the entire chain, which is why it is the one to keep;
+- `once` closes its entry and is spent; walking back in does nothing;
+- `editor.reset` round-trips the authored volume and re-arms it.
+
+Unit coverage in `game_framework::trigger`: rotated and scaled containment, a
+volume flattened to nothing (contains nothing rather than trusting a singular
+matrix), edge detection, the phantom trip an unpropagated `GlobalTransform`
+would cause, two actors crossing a one-shot on the same frame, overlapping
+volumes firing independently, and both gates (editor owns the world, time
+paused).
+
+**Two pre-existing defects fell out of this slice.** Pick proxies were spawned
+`Visibility::Hidden` while bevy's mesh picking ray-casts `VisibleInView`, so no
+gizmo-only widget had ever been clickable — the mechanism existed and had never
+worked. And feature gizmos vanished on play, which is right for furniture and
+wrong for a widget that IS the object; `Space t v` now keeps them.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per

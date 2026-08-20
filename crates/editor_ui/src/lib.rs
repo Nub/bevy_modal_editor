@@ -58,6 +58,12 @@ impl EditorFeature for EditorUiFeature {
         FeatureManifest::new("editor-ui", "Editor UI")
     }
     fn register(&self, reg: &mut FeatureRegistry) {
+        reg.action(
+            editor_api::actions::ActionDef::new("view.toggle-play-gizmos", "Gizmos While Playing")
+                .describe("Keep feature gizmos on screen after handing the world to the game")
+                .context("normal")
+                .bind("space t v"),
+        );
         reg.panel(PanelDecl {
             id: PanelId::new_static("hierarchy"),
             title: "Hierarchy",
@@ -342,9 +348,11 @@ impl Plugin for EditorUiPlugin {
             view_gizmo::sync_view_gizmo.in_set(editor_core::EditorSet::Sync),
         );
         app.init_resource::<feature_gizmos::PickProxyMesh>();
+        app.init_resource::<feature_gizmos::GizmosWhilePlaying>();
         app.add_systems(
             Update,
             (
+                feature_gizmos::toggle_gizmos_while_playing,
                 feature_gizmos::draw_feature_gizmos,
                 feature_gizmos::attach_gizmo_pick_targets,
             )

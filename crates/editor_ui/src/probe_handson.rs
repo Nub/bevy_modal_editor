@@ -53,7 +53,7 @@ fn invoke(world: &mut World, action: &'static str) {
     });
 }
 
-fn type_word(world: &mut World, word: &str) {
+pub(crate) fn type_word(world: &mut World, word: &str) {
     for ch in word.chars() {
         let code = match ch {
             'a' => KeyCode::KeyA,
@@ -148,7 +148,7 @@ fn hierarchy_row_center(
 /// window only worked while the drums happened to project over that spot: it
 /// missed by a few pixels the moment frame timing shifted the placement, which
 /// made an unrelated change look like a selection bug.
-fn screen_position_of(world: &mut World, target: Vec3) -> Option<Vec2> {
+pub(crate) fn screen_position_of(world: &mut World, target: Vec3) -> Option<Vec2> {
     let (camera, camera_transform) = world
         .query_filtered::<(&Camera, &GlobalTransform), With<Camera3d>>()
         .iter(world)

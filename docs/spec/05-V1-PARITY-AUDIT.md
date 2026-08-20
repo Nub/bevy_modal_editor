@@ -73,6 +73,11 @@ surface each one contains. Confirm (or amend) each:
 3. **Effect sequencer** (7 trigger types × 15 action types, rule cards, timeline
    strip, presets). Spec: "cut until VFX is stable" — **no return milestone
    named.** Propose: M5 rider after the VFX port, reusing its card UI.
+   **Updated 2026-08-20:** the timeline strip landed early on M4 (spec §9
+   animation) and the first TRIGGER TYPE — a named volume — landed with it as
+   an M4 rider. The rule cards and the action catalogue are still M5; what
+   exists is one trigger and one action shape (fire a named effect), which is
+   the seam the rest hangs off rather than the feature itself.
 4. **11 modes → 3 + contexts.** Camera/Particle/AI/Effect/Material/Inspect/
    Hierarchy modes become panels/contexts. Already validated by M1–M3.
 5. **Road/intersection authoring** stays inside the spline crate (M5).
