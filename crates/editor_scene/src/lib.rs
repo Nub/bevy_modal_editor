@@ -355,6 +355,25 @@ impl EditorFeature for ScenesFeature {
                 .context("normal"),
         )
         .action(
+            ActionDef::new("anim.key", "Key Selection")
+                .describe("Record where the selection is, at the playhead")
+                .context("normal")
+                .bind("space k")
+                .edit(),
+        );
+        reg.action(
+            ActionDef::new("anim.play", "Play / Pause Timeline")
+                .describe("Run the playhead; press again to pause where it is")
+                .context("normal")
+                .bind("space space"),
+        );
+        reg.action(
+            ActionDef::new("anim.rewind", "Rewind Timeline")
+                .describe("Put the playhead back to the start")
+                .context("normal")
+                .bind("space 0"),
+        );
+        reg.action(
             ActionDef::new("level.validate", "Validate Level")
                 .describe("Run every registered level rule; problems go to the statusbar and log")
                 .context("normal"),
@@ -435,6 +454,7 @@ fn perform_scene_io(world: &mut World) {
     }
 }
 
+pub mod anim;
 pub mod level_validation;
 pub mod materials;
 pub mod models;
@@ -533,6 +553,8 @@ impl Plugin for EditorScenePlugin {
         app.init_resource::<SceneFile>()
             .init_resource::<SceneDirty>()
             .init_resource::<SceneIoRequests>()
+            .init_resource::<anim::Timeline>()
+            .init_resource::<anim::Playhead>()
             .init_resource::<play::PlayState>()
             .init_resource::<play::PlayRequests>()
             .init_resource::<materials::MaterialLibrary>()
@@ -564,6 +586,7 @@ impl Plugin for EditorScenePlugin {
                     models::collect_model_actions,
                     level_validation::collect_validation_requests,
                     session::collect_reload_action,
+                    anim::handle_anim_actions,
                 )
                     .in_set(editor_core::EditorSet::Tools),
                 (
@@ -580,6 +603,12 @@ impl Plugin for EditorScenePlugin {
                     materials::sync_material_refs,
                     level_validation::run_level_validation,
                     session::perform_reload,
+                    // Time moves, then what it implies is written. Both sit in
+                    // Sync rather than the edit path on purpose: evaluation is
+                    // not history (see `anim`), so it must never queue a
+                    // transaction.
+                    anim::advance_playhead,
+                    anim::evaluate_timeline,
                 )
                     .chain()
                     .in_set(editor_core::EditorSet::Sync),

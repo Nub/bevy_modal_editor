@@ -16,6 +16,8 @@ pub(crate) struct BlockoutProbe {
     failures: Vec<String>,
     piece: Option<SceneId>,
     named_before: usize,
+    undo_before_scrub: usize,
+    time_at_play: f32,
 }
 
 fn check(world: &mut World, ok: bool, what: &str) {
@@ -358,7 +360,107 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 &format!("a click still selects exactly one ({selected})"),
             );
         }
-        1460 => {
+        // ── The first track: key a pose, key another, scrub between them ──
+        1500 => {
+            let id = world.resource::<BlockoutProbe>().piece.unwrap();
+            let previous: Vec<Entity> = world
+                .query_filtered::<Entity, With<Selected>>()
+                .iter(world)
+                .collect();
+            for entity in previous {
+                world.entity_mut(entity).remove::<Selected>();
+            }
+            if let Some(entity) = world.resource::<editor_api::edits::SceneIndex>().get(&id) {
+                world.entity_mut(entity).insert(Selected);
+                // A known pose to key FROM.
+                if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+                    transform.translation = Vec3::new(0.0, 1.0, 0.0);
+                }
+            }
+        }
+        1520 => invoke(world, "anim.key"),
+        // Move time FIRST and let evaluation settle, then pose: a pose set in
+        // the same frame the playhead moves is overwritten by the evaluation
+        // that move triggers, which is correct and would make this test lie.
+        1540 => world.resource_mut::<editor_scene::anim::Playhead>().time = 2.0,
+        1550 => {
+            let id = world.resource::<BlockoutProbe>().piece.unwrap();
+            if let Some(entity) = world.resource::<editor_api::edits::SceneIndex>().get(&id)
+                && let Some(mut transform) = world.get_mut::<Transform>(entity)
+            {
+                transform.translation = Vec3::new(0.0, 5.0, 0.0);
+            }
+        }
+        1560 => invoke(world, "anim.key"),
+        1580 => {
+            let duration = world.resource::<editor_scene::anim::Timeline>().duration();
+            check(
+                world,
+                (duration - 2.0).abs() < 1e-3,
+                &format!("the timeline runs as long as its last key ({duration})"),
+            );
+            // Scrub to the middle: the thing has to be halfway between poses.
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 1.0;
+        }
+        1600 => {
+            let height = piece_transform(world).map(|transform| transform.translation.y);
+            check(
+                world,
+                height.is_some_and(|y| (y - 3.0).abs() < 0.05),
+                &format!("scrubbing to the middle puts it between the poses ({height:?})"),
+            );
+            shot(world, "45-blockout-timeline");
+        }
+        // Evaluation is NOT history: a scrub must not have queued a single
+        // undoable edit, or one drag of the playhead would bury the real work.
+        1620 => {
+            let depth = world.resource::<editor_core::edits::History>().undo_depth();
+            world.resource_mut::<BlockoutProbe>().undo_before_scrub = depth;
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.4;
+        }
+        1640 => {
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 1.6;
+        }
+        1660 => {
+            let before = world.resource::<BlockoutProbe>().undo_before_scrub;
+            let now = world.resource::<editor_core::edits::History>().undo_depth();
+            check(
+                world,
+                now == before,
+                &format!("scrubbing left history alone ({before} then {now})"),
+            );
+        }
+        // And it PLAYS: time moves on its own.
+        // Rewind before playing: the timeline LOOPS, so starting mid-run and
+        // asking "did time increase" is a question that wraps to no.
+        1670 => invoke(world, "anim.rewind"),
+        1680 => invoke(world, "anim.play"),
+        1700 => {
+            let playing = world.resource::<editor_scene::anim::Playhead>().playing;
+            check(world, playing, "play starts the playhead");
+            world.resource_mut::<BlockoutProbe>().time_at_play =
+                world.resource::<editor_scene::anim::Playhead>().time;
+        }
+        1740 => {
+            let started = world.resource::<BlockoutProbe>().time_at_play;
+            let now = world.resource::<editor_scene::anim::Playhead>().time;
+            check(
+                world,
+                now > started,
+                &format!("time actually moves while playing ({started} then {now})"),
+            );
+            invoke(world, "anim.rewind");
+        }
+        1780 => {
+            let playhead = world.resource::<editor_scene::anim::Playhead>();
+            let (time, playing) = (playhead.time, playhead.playing);
+            check(
+                world,
+                time == 0.0 && !playing,
+                "rewind stops it and puts it back to the start",
+            );
+        }
+        1820 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

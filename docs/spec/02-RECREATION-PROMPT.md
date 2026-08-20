@@ -847,6 +847,30 @@ at timestamps (VFX, audio, gameplay triggers), and **command rigs to play clips*
 the cinematic slot. Hot-reloadable, scrubbing-friendly, playable from gameplay rules and
 the effects layer. Full cinematic camera-cut suites remain a non-goal.
 
+**Layer 1, first track (implemented 2026-08-20).** A `Timeline` of `Track`s, each
+addressing ONE scalar field the way a patch does — a type path plus a reflect
+path — with keys sorted by time, linear between them and HELD outside them (a
+platform with two keys waits at each end; extrapolating would send it into
+space). `Space K` records where the selection is at the playhead, `Space Space`
+plays and pauses, `Space 0` rewinds. Position only so far: it is what a
+prototype animates nine times in ten, and it needs no rotation decomposition to
+be honest about.
+
+**Resolved: evaluation is not history.** Authoring a key is an edit and undoes
+like one. Moving the playhead is NOT, and writes straight to the component
+rather than through `EditScope`. A scrub that pushed a transaction per frame
+would bury every real edit under thousands of entries and quietly redefine undo
+as "rewind time", which is a different verb. The keys are the source of truth;
+what the playhead leaves on screen is a view of them, and the probe asserts that
+scrubbing changes the undo depth by zero.
+
+Evaluation also yields while a gesture is running, which the probe found the
+hard way: a track that already drives a field would otherwise snap an object
+back in the same frame the user moved it, so a second pose could never be keyed.
+
+**Not yet persisted.** The level envelope is hand-written serde and giving it a
+timeline wants its own format bump; the timeline lives in memory until then.
+
 **Layer 2 — Animation graph (per-rig).** Built on `bevy_animation`'s runtime
 (`AnimationGraph` blend/mask nodes) — we build the authoring layer, not a pose engine.
 - **Authoring**: the graph is a hot-reloadable data asset (states, transitions, blend
