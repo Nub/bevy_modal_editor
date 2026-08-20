@@ -123,6 +123,14 @@ transaction. It deliberately does NOT touch the yank register: a designer yanks
 a piece, lays a run of duplicates, and still expects `p` to paste the yank.
 
 
+
+**The wheel zooms (implemented 2026-08-20, owner testing).** Nothing handled the
+scroll wheel at all: getting closer to a piece meant holding the right button and
+flying there. A perspective view DOLLIES along its forward axis rather than
+narrowing the field of view, because fov-zoom warps the perspective and makes the
+wall you are lining up look like a different shape; an orthographic view scales
+instead, since it has no distance to give. Over a panel the wheel belongs to that
+panel's scrollbar. Kernel-owned locomotion like fly-nav, not a bindable action.
 **Gizmos while playing (implemented 2026-08-20, spec §7):** `Space t v` keeps
 feature gizmos on screen after the editor hands the world to the game. Gizmos
 are furniture and normally vanish on play — but a widget with no geometry IS

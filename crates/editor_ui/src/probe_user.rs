@@ -1,5 +1,5 @@
 //! End-user session probe (USER_PROBE=1): plays a full editing session in the
-//! REAL binary with REAL input — keystrokes, cursor movement, clicks — and
+//! REAL binary with REAL input — keystrokes, cursor ovement, clicks — and
 //! screenshots every checkpoint to `target/user-probe/` for visual review.
 //! Every stage asserts the outcome a user would expect to SEE; exits nonzero
 //! on the first broken expectation.
@@ -29,6 +29,8 @@ pub(crate) struct UserProbe {
     move_start_x: Option<f32>,
     /// Library generation before the open→close edit.
     generation_before_close: u64,
+    /// Viewport camera distance before the wheel test.
+    camera_before: Option<Vec3>,
 }
 
 pub(crate) fn key(
@@ -235,6 +237,15 @@ fn instance_roots(world: &mut World) -> Vec<Entity> {
         .collect()
 }
 
+/// Where the VIEWPORT camera is — the one drawing to the window, never the
+/// preview rigs that render to textures.
+fn viewport_camera_position(world: &mut World) -> Option<Vec3> {
+    world
+        .query::<(&Camera, &Transform, Option<&bevy::camera::RenderTarget>)>()
+        .iter(world)
+        .find(|(camera, _, target)| editor_core::camera::is_viewport_camera(camera, *target))
+        .map(|(_, transform, _)| transform.translation)
+}
 pub(crate) fn probe_user(world: &mut World) {
     world.resource_mut::<UserProbe>().frame += 1;
     let frame = world.resource::<UserProbe>().frame;
@@ -692,7 +703,46 @@ pub(crate) fn probe_user(world: &mut World) {
         2090 => key(world, KeyCode::Space, Key::Space, Some(" "), false),
         2095 => tap_named(world, KeyCode::Escape, Key::Escape),
         // ── Verdict ────────────────────────────────────────────────────────
-        2100 => {
+        // ── The wheel zooms (owner, testing live: "scrolling should zoom") ──
+        // Nothing handled the wheel at all — getting closer to a piece meant
+        // holding the right button and flying there.
+        // Pointer over the VIEWPORT: the wheel belongs to whatever it is over,
+        // and the previous frames left it on a panel.
+        2112 => {
+            let center = viewport_center(world);
+            move_cursor(world, center);
+        }
+        2116 => {
+            let at = viewport_camera_position(world);
+            world.resource_mut::<UserProbe>().camera_before = at;
+            check(world, at.is_some(), "the viewport camera is findable");
+            let window = world
+                .query_filtered::<Entity, With<bevy::window::PrimaryWindow>>()
+                .iter(world)
+                .next()
+                .unwrap_or(Entity::PLACEHOLDER);
+            world.write_message(bevy::input::mouse::MouseWheel {
+                unit: bevy::input::mouse::MouseScrollUnit::Line,
+                x: 0.0,
+                y: 3.0,
+                window,
+                phase: bevy::input::touch::TouchPhase::Moved,
+            });
+        }
+        2118 => {
+            let before = world.resource::<UserProbe>().camera_before;
+            let after = viewport_camera_position(world);
+            let moved = match (before, after) {
+                (Some(before), Some(after)) => before.distance(after),
+                _ => 0.0,
+            };
+            check(
+                world,
+                moved > 1.0,
+                &format!("scrolling moved the viewport camera ({moved:.2}m)"),
+            );
+        }
+        2140 => {
             let failures = world.resource::<UserProbe>().failures.clone();
             if failures.is_empty() {
                 info!("USER-PROBE PASS: full session ({SHOT_DIR}/*.png for visual review)");

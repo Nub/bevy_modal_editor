@@ -49,19 +49,48 @@ fn record_transform(components: &[Box<dyn bevy::reflect::PartialReflect>]) -> Op
     })
 }
 
-/// Root-relative socket frames declared by a template (top-level records only —
-/// nested-instance sockets belong to their own prefab).
+/// Root-relative socket frames declared by a template, wherever they sit in it.
+///
+/// It used to take TOP-LEVEL records only. Sockets authored the editor's own
+/// way — `space s 2` on a piece, then group — are CHILDREN of that piece, so a
+/// prefab built entirely inside this editor reported zero sockets and could
+/// never be mated to. Walking the tree and composing each ancestor's transform
+/// is also what makes the frames genuinely root-relative rather than
+/// accidentally right for flat templates.
 pub fn template_sockets(def: &PrefabDef) -> Vec<(Transform, Socket)> {
-    def.template
-        .records()
-        .filter(|(_, parent, _)| parent.is_none())
-        .filter_map(|(_, _, components)| {
-            let socket = components
-                .iter()
-                .find_map(|c| reflect_socket(c.as_partial_reflect()))?;
-            Some((record_transform(components).unwrap_or_default(), socket))
-        })
-        .collect()
+    let records: Vec<_> = def.template.records().collect();
+    let mut sockets = Vec::new();
+    for (id, _, components) in &records {
+        let Some(socket) = components
+            .iter()
+            .find_map(|c| reflect_socket(c.as_partial_reflect()))
+        else {
+            continue;
+        };
+        // Compose up to the root: a socket three levels down is still declared
+        // relative to the thing you place.
+        let mut transform = record_transform(components).unwrap_or_default();
+        let mut current = *id;
+        let mut guard = 0;
+        while let Some((_, Some(parent), _)) =
+            records.iter().find(|(other, _, _)| *other == current)
+        {
+            let Some((_, _, parent_components)) =
+                records.iter().find(|(other, _, _)| other == parent)
+            else {
+                break;
+            };
+            let parent_transform = record_transform(parent_components).unwrap_or_default();
+            transform = parent_transform.mul_transform(transform);
+            current = *parent;
+            guard += 1;
+            if guard > 64 {
+                break; // a malformed template must not hang an import
+            }
+        }
+        sockets.push((transform, socket));
+    }
+    sockets
 }
 
 /// The root transform that mates `local` (a socket frame relative to the root)
@@ -75,9 +104,82 @@ pub fn mate_transform(target: &GlobalTransform, local: &Transform) -> Transform 
     Transform::from_matrix(combined)
 }
 
-/// Best snap for placing `def` near `at`: nearest world socket within `radius`
-/// whose type matches one of the template's sockets. Returns the mated root
-/// transform and a description for feedback.
+/// One way the moved piece could mate: where its root must go, and which pair
+/// of sockets would meet.
+#[derive(Clone, Debug)]
+pub struct MateCandidate {
+    /// Where the moved root has to be for the two sockets to coincide.
+    pub root: Transform,
+    /// The socket on the world side.
+    pub target: Entity,
+    /// Gap between the two sockets before the move, in metres.
+    pub distance: f32,
+    pub label: String,
+}
+
+/// The best mate available, or nothing.
+///
+/// **Measures SOCKET TO SOCKET.** It used to measure from the moved piece's
+/// ORIGIN to the target socket, which quietly made mating impossible for
+/// anything big: a six-metre wall carries its sockets three metres from its
+/// own origin, so bringing the origin within reach of a socket means burying
+/// the wall inside its neighbour. Everything about the workflow looked correct
+/// and nothing ever snapped.
+///
+/// Pure, so the preview and the commit cannot disagree about what will happen —
+/// they call this with the same arguments and get the same answer.
+pub fn best_mate(
+    candidates: &[(Entity, GlobalTransform, Socket)],
+    mating: &[(Transform, Socket)],
+    root_now: &GlobalTransform,
+    radius: f32,
+) -> Option<MateCandidate> {
+    let mut best: Option<MateCandidate> = None;
+    for (target_entity, target_global, target_socket) in candidates {
+        for (local, socket) in mating {
+            // Types are the kit's compatibility rule: a pipe does not mate to
+            // a wall however close it is.
+            if socket.socket_type != target_socket.socket_type {
+                continue;
+            }
+            // Where THIS socket is right now, in the world.
+            let source_world = root_now.mul_transform(*local).translation();
+            let distance = source_world.distance(target_global.translation());
+            if distance > radius {
+                continue;
+            }
+            if best.as_ref().is_none_or(|found| distance < found.distance) {
+                best = Some(MateCandidate {
+                    root: mate_transform(target_global, local),
+                    target: *target_entity,
+                    distance,
+                    label: format!("snapped {} \u{2194} {}", socket.name, target_socket.name),
+                });
+            }
+        }
+    }
+    best
+}
+
+/// Every socket in the world that could be mated TO, minus the ones belonging
+/// to the piece being moved (a piece must never snap to itself).
+pub fn mate_candidates(
+    world: &mut World,
+    exclude: &[Entity],
+) -> Vec<(Entity, GlobalTransform, Socket)> {
+    world
+        .query::<(Entity, &GlobalTransform, &Socket)>()
+        .iter(world)
+        .filter(|(entity, _, _)| !exclude.contains(entity))
+        .map(|(entity, global, socket)| (entity, *global, socket.clone()))
+        .collect()
+}
+
+/// Best snap for PLACING a piece whose root would land at `at`.
+///
+/// A thin wrapper over [`best_mate`] so placement and drag-commit cannot
+/// disagree about what mates with what — the preview promising a snap the
+/// commit then declines to make is the exact regression D9 was written for.
 pub fn snap_for_placement(
     world: &mut World,
     def_sockets: &[(Transform, Socket)],
@@ -87,35 +189,129 @@ pub fn snap_for_placement(
     if def_sockets.is_empty() {
         return None;
     }
-    let candidates: Vec<(GlobalTransform, Socket)> = {
-        let mut query = world.query::<(&GlobalTransform, &Socket)>();
-        query.iter(world).map(|(g, s)| (*g, s.clone())).collect()
-    };
-    let mut best: Option<(f32, Transform, String)> = None;
-    for (target_global, target_socket) in &candidates {
-        let distance = target_global.translation().distance(at);
-        if distance > radius {
-            continue;
-        }
-        for (local, socket) in def_sockets {
-            if socket.socket_type != target_socket.socket_type {
-                continue;
-            }
-            if best.as_ref().is_none_or(|(d, _, _)| distance < *d) {
-                best = Some((
-                    distance,
-                    mate_transform(target_global, local),
-                    format!("snapped {} \u{2194} {}", socket.name, target_socket.name),
-                ));
-            }
-        }
-    }
-    best.map(|(_, transform, label)| (transform, label))
+    let candidates = mate_candidates(world, &[]);
+    let root_now = GlobalTransform::from(Transform::from_translation(at));
+    best_mate(&candidates, def_sockets, &root_now, radius).map(|found| (found.root, found.label))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// THE bug behind "I cannot seem to snap objects to sockets": reach was
+    /// measured from the moved piece's ORIGIN to the target socket. A six-metre
+    /// wall carries its sockets three metres out, so its origin only comes
+    /// within reach once the wall is buried in its neighbour — mating was
+    /// arithmetically impossible for exactly the pieces kits are made of.
+    #[test]
+    fn a_big_piece_mates_by_its_socket_not_its_origin() {
+        let target = GlobalTransform::from(Transform::from_xyz(0.0, 0.0, 0.0));
+        let candidates = vec![(Entity::from_raw_u32(1).unwrap(), target, Socket::default())];
+        // A 6m wall: origin in the middle, sockets 3m out either side.
+        let mating = vec![
+            (Transform::from_xyz(-3.0, 0.0, 0.0), Socket::default()),
+            (Transform::from_xyz(3.0, 0.0, 0.0), Socket::default()),
+        ];
+        // Dragged so its LEFT socket is 20cm from the target — visually touching.
+        let root_now = GlobalTransform::from(Transform::from_xyz(3.2, 0.0, 0.0));
+        let found = best_mate(&candidates, &mating, &root_now, 1.0)
+            .expect("a socket 0.2m away is in reach");
+        assert!((found.distance - 0.2).abs() < 1e-5, "{}", found.distance);
+        // And the origin is 3.2m away, which no sane reach would admit — the
+        // measure has to be the socket's.
+        assert!(root_now.translation().distance(target.translation()) > 3.0);
+    }
+
+    /// Reach is reach: a socket further away than the radius does not mate,
+    /// however big the piece is.
+    #[test]
+    fn out_of_reach_is_out_of_reach() {
+        let target = GlobalTransform::from(Transform::from_xyz(0.0, 0.0, 0.0));
+        let candidates = vec![(Entity::from_raw_u32(1).unwrap(), target, Socket::default())];
+        let mating = vec![(Transform::from_xyz(-3.0, 0.0, 0.0), Socket::default())];
+        let root_now = GlobalTransform::from(Transform::from_xyz(6.0, 0.0, 0.0));
+        assert!(best_mate(&candidates, &mating, &root_now, 1.0).is_none());
+    }
+
+    /// Types are the kit's compatibility rule: a pipe does not mate to a wall
+    /// however close it is.
+    #[test]
+    fn types_must_match() {
+        let target = GlobalTransform::from(Transform::default());
+        let candidates = vec![(
+            Entity::from_raw_u32(1).unwrap(),
+            target,
+            Socket {
+                name: "a".into(),
+                socket_type: "wall".into(),
+            },
+        )];
+        let mating = vec![(
+            Transform::default(),
+            Socket {
+                name: "b".into(),
+                socket_type: "pipe".into(),
+            },
+        )];
+        assert!(best_mate(&candidates, &mating, &GlobalTransform::default(), 5.0).is_none());
+    }
+
+    /// The nearest pair wins, not the first one found.
+    #[test]
+    fn the_nearest_pair_wins() {
+        let near = Entity::from_raw_u32(1).unwrap();
+        let far = Entity::from_raw_u32(2).unwrap();
+        let candidates = vec![
+            (
+                far,
+                GlobalTransform::from(Transform::from_xyz(0.9, 0.0, 0.0)),
+                Socket::default(),
+            ),
+            (
+                near,
+                GlobalTransform::from(Transform::from_xyz(0.1, 0.0, 0.0)),
+                Socket::default(),
+            ),
+        ];
+        let mating = vec![(Transform::default(), Socket::default())];
+        let found = best_mate(&candidates, &mating, &GlobalTransform::default(), 2.0).unwrap();
+        assert_eq!(found.target, near);
+    }
+
+    /// A socket authored the editor's own way — generated onto a piece, then
+    /// grouped — is a CHILD record. Reading only root-level records reported
+    /// zero sockets, so a prefab built entirely in this editor could not be
+    /// mated to at all.
+    #[test]
+    fn nested_sockets_are_found_and_root_relative() {
+        let piece = editor_api::prelude::SceneId::random();
+        let socket_id = editor_api::prelude::SceneId::random();
+        let template = editor_scene::snapshot_from_parts(vec![
+            (
+                piece,
+                None,
+                vec![Box::new(Transform::from_xyz(0.0, 1.0, 0.0)).into_partial_reflect()],
+            ),
+            (
+                socket_id,
+                Some(piece),
+                vec![
+                    Box::new(Transform::from_xyz(2.0, 0.0, 0.0)).into_partial_reflect(),
+                    Box::new(Socket::default()).into_partial_reflect(),
+                ],
+            ),
+        ]);
+        let def = PrefabDef {
+            kit: None,
+            id: uuid::Uuid::new_v4(),
+            name: "Wall".into(),
+            template,
+        };
+        let sockets = template_sockets(&def);
+        assert_eq!(sockets.len(), 1, "the nested socket is found");
+        // Composed through its parent: 2 along x from a piece lifted 1 in y.
+        assert_eq!(sockets[0].0.translation, Vec3::new(2.0, 1.0, 0.0));
+    }
 
     // D9 math pin: the mated root places its socket EXACTLY on the target,
     // +Z axes opposed.

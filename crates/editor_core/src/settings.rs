@@ -55,6 +55,8 @@ pub struct CameraSettings {
     pub fly_boost: f32,
     /// Mouse-look radians per pixel.
     pub look_sensitivity: f32,
+    /// World units the viewport dollies per wheel notch.
+    pub zoom_step: f32,
 }
 
 impl Default for CameraSettings {
@@ -63,6 +65,7 @@ impl Default for CameraSettings {
             fly_speed: 10.0,
             fly_boost: 3.0,
             look_sensitivity: 0.0025,
+            zoom_step: 0.9,
         }
     }
 }
@@ -81,6 +84,11 @@ pub struct ViewportSettings {
     /// Angle snap quantum, DEGREES. 15° divides the turns a level is built
     /// from — 30, 45, 90 — so a wall meets a wall without anyone typing.
     pub angle_step: f32,
+    /// How close two sockets must be to mate, metres. Measured SOCKET TO
+    /// SOCKET, so it means what it says regardless of how big the piece is —
+    /// the old origin-to-socket reach of 2m was unreachable for a piece bigger
+    /// than itself, and meaningless for a small one.
+    pub socket_reach: f32,
 }
 
 impl Default for ViewportSettings {
@@ -91,6 +99,7 @@ impl Default for ViewportSettings {
             ghost_color: [0.35, 0.62, 1.0, 0.45],
             grid_step: 1.0,
             angle_step: 15.0,
+            socket_reach: 1.5,
         }
     }
 }

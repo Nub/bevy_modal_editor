@@ -1417,61 +1417,66 @@ fn snap_instance_to_socket(world: &mut World, root_id: SceneId, gesture: Option<
     let Some(root) = world.resource::<SceneIndex>().get(&root_id) else {
         return;
     };
-    let Some(instance) = world.get::<PrefabInstance>(root).copied() else {
-        return;
-    };
-    let at = world
-        .get::<Transform>(root)
-        .map(|t| t.translation)
-        .unwrap_or_default();
-    let def_sockets = {
-        let library = world.resource::<PrefabLibrary>();
-        let Some(def) = library.prefabs.get(&instance.0) else {
-            return;
-        };
-        crate::sockets::template_sockets(def)
-    };
-    // Exclude the moved instance's own stamped sockets from candidates by
-    // masking them out for the query pass.
-    let own: Vec<Entity> = crate::open_mode::members_of(world, root);
-    let masked: Vec<Entity> = own
+    // ANYTHING that owns sockets can mate. This used to require a
+    // `PrefabInstance` and return in silence otherwise, so a socketed imported
+    // model — the normal M4 asset — could never snap to anything, and nothing
+    // said why. Socket generation never had that requirement, so the editor
+    // happily let you author sockets onto a piece that could not use them.
+    let own: Vec<Entity> = crate::open_mode::members_of(world, root)
         .into_iter()
-        .filter(|e| world.get::<crate::sockets::Socket>(*e).is_some())
+        .filter(|entity| world.get::<crate::sockets::Socket>(*entity).is_some())
         .collect();
-    // Mate using the sockets this instance ACTUALLY has — generated ones live
-    // on the instance, not in the template, and a piece you socketed by hand
-    // must still snap. Template is the fallback.
-    let own_pairs: Vec<(Transform, crate::sockets::Socket)> = masked
+    // The sockets this piece ACTUALLY has, in root-relative frames. A template
+    // is only the fallback for an instance whose sockets are not stamped yet.
+    // Socket frames come from the propagated globals, where the lag cancels
+    // out: the piece moves rigidly, so socket-relative-to-root is the same
+    // whichever frame both were measured in.
+    let propagated = world
+        .get::<GlobalTransform>(root)
+        .copied()
+        .unwrap_or_default();
+    let to_root = propagated.affine().inverse();
+    // WHERE IT IS NOW comes from the Transform. `GlobalTransform` propagates in
+    // `PostUpdate`, so mid-drag it still describes last frame's pose — measuring
+    // the reach from that means measuring from where the piece USED to be.
+    let root_global = world
+        .get::<Transform>(root)
+        .map(|transform| GlobalTransform::from(*transform))
+        .unwrap_or(propagated);
+    let mut mating: Vec<(Transform, crate::sockets::Socket)> = own
         .iter()
-        .filter_map(|e| {
-            Some((
-                world.get::<Transform>(*e).copied()?,
-                world.get::<crate::sockets::Socket>(*e).cloned()?,
-            ))
+        .filter_map(|entity| {
+            let global = world.get::<GlobalTransform>(*entity).copied()?;
+            let socket = world.get::<crate::sockets::Socket>(*entity).cloned()?;
+            let local = Transform::from_matrix((to_root * global.affine()).into());
+            Some((local, socket))
         })
         .collect();
-    let mating = if own_pairs.is_empty() {
-        def_sockets
-    } else {
-        own_pairs
-    };
-    let saved: Vec<(Entity, crate::sockets::Socket)> = masked
-        .iter()
-        .filter_map(|e| {
-            world
-                .get::<crate::sockets::Socket>(*e)
-                .cloned()
-                .map(|s| (*e, s))
-        })
-        .collect();
-    for (entity, _) in &saved {
-        world.entity_mut(*entity).remove::<crate::sockets::Socket>();
+    if mating.is_empty()
+        && let Some(instance) = world.get::<PrefabInstance>(root).copied()
+        && let Some(def) = world.resource::<PrefabLibrary>().prefabs.get(&instance.0)
+    {
+        mating = crate::sockets::template_sockets(def);
     }
-    let snap = crate::sockets::snap_for_placement(world, &mating, at, 2.0);
-    for (entity, socket) in saved {
-        world.entity_mut(entity).insert(socket);
+    if mating.is_empty() {
+        return; // nothing to mate WITH; not a failure, just not a socketed piece
     }
-    let Some((transform, label)) = snap else {
+    // Own sockets are excluded by FILTERING, not by tearing the component off
+    // every socket and putting it back: that fired the add-observer again on
+    // every pass, and the gizmo it spawns is a child — a drag left a heap of
+    // stacked cones behind, which is most of what "I can hardly use the
+    // sockets" looks like on screen.
+    let radius = world.resource::<EditorSettings>().viewport.socket_reach;
+    let candidates = crate::sockets::mate_candidates(world, &own);
+    let Some(found) = crate::sockets::best_mate(&candidates, &mating, &root_global, radius) else {
+        // Say so. A silent refusal is indistinguishable from a broken editor,
+        // and this one was silent for every reason it could have.
+        if gesture.is_none() {
+            world.write_message(editor_scene::SceneIoFeedback {
+                message: format!("no compatible socket within {radius:.1}m"),
+                success: false,
+            });
+        }
         return;
     };
     world.resource_mut::<EditQueue>().0.push(Transaction {
@@ -1479,13 +1484,13 @@ fn snap_instance_to_socket(world: &mut World, root_id: SceneId, gesture: Option<
         gesture,
         ops: vec![Op::Set {
             target: root_id,
-            value: Box::new(transform).into_partial_reflect(),
+            value: Box::new(found.root).into_partial_reflect(),
         }],
     });
     // A live drag would repeat this every frame — say it once, on commit.
     if gesture.is_none() {
         world.write_message(editor_scene::SceneIoFeedback {
-            message: label,
+            message: found.label,
             success: true,
         });
     }

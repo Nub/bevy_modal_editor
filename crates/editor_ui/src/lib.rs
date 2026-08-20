@@ -200,6 +200,7 @@ impl Plugin for EditorUiPlugin {
         app.add_editor_feature(timeline_panel::TimelinePanelFeature);
         app.add_editor_feature(problems::ProblemsFeature);
         app.add_observer(socket_gizmo::on_socket_added);
+        app.add_observer(socket_gizmo::on_socket_removed);
 
         app.init_resource::<which_key::WhichKey>();
         app.init_resource::<probe_user::UserProbe>();

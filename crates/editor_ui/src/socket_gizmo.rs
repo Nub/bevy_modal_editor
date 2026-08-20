@@ -12,13 +12,23 @@ pub(crate) struct SocketGizmo;
 #[derive(Resource, Default)]
 pub(crate) struct SocketGizmoAssets(Option<(Handle<Mesh>, Handle<StandardMaterial>)>);
 
+/// Idempotent on purpose: a socket that gets its component re-added must not
+/// grow a second cone. Nothing should be doing that — but something was, and
+/// the visible result was a heap of stacked cones nobody could click through.
 pub(crate) fn on_socket_added(
     add: On<bevy::ecs::lifecycle::Add, Socket>,
     mut assets: ResMut<SocketGizmoAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    existing: Query<&Children>,
+    gizmos: Query<(), With<SocketGizmo>>,
     mut commands: Commands,
 ) {
+    if let Ok(children) = existing.get(add.entity)
+        && children.iter().any(|child| gizmos.contains(child))
+    {
+        return;
+    }
     let (mesh, material) = assets
         .0
         .get_or_insert_with(|| {
@@ -66,6 +76,23 @@ pub(crate) fn sync_socket_gizmos(
         };
         if *visibility != target {
             *visibility = target;
+        }
+    }
+}
+
+/// A socket that stops being one takes its cone with it.
+pub(crate) fn on_socket_removed(
+    remove: On<bevy::ecs::lifecycle::Remove, Socket>,
+    children: Query<&Children>,
+    gizmos: Query<(), With<SocketGizmo>>,
+    mut commands: Commands,
+) {
+    let Ok(kids) = children.get(remove.entity) else {
+        return;
+    };
+    for child in kids.iter() {
+        if gizmos.contains(child) {
+            commands.entity(child).despawn();
         }
     }
 }

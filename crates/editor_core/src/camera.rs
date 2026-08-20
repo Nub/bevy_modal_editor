@@ -28,6 +28,80 @@ pub fn is_viewport_camera(camera: &Camera, target: Option<&bevy::camera::RenderT
     camera.is_active && matches!(target, None | Some(bevy::camera::RenderTarget::Window(_)))
 }
 
+/// Wheel = zoom, the way it works in every 3D tool a designer has ever used.
+///
+/// Nothing handled the wheel at all: scrolling in the viewport did nothing, and
+/// getting closer to a piece meant holding the right button and flying there.
+///
+/// A perspective view DOLLIES — moves along its own forward axis — rather than
+/// changing the field of view, because narrowing the fov to "zoom" warps the
+/// perspective and makes a wall you are trying to mate look like a different
+/// shape. An orthographic view has no distance to give, so its scale changes
+/// instead, which is the same gesture meaning the same thing in a projection
+/// that cannot dolly.
+///
+/// Kernel-owned continuous navigation, exempt from the resolver-only rule for
+/// the same reason fly-nav and pointer gestures are: this is locomotion, not a
+/// bindable action. Shift boosts it, matching the fly camera.
+pub(crate) fn editor_zoom_camera(
+    state: Res<EditorState>,
+    settings: Res<crate::settings::EditorSettings>,
+    capture: Res<KeyCapture>,
+    over_chrome: Res<crate::resolver::PointerOverChrome>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mut wheel: MessageReader<bevy::input::mouse::MouseWheel>,
+    mut camera: Query<(
+        &Camera,
+        &mut Transform,
+        &mut Projection,
+        Option<&bevy::camera::RenderTarget>,
+    )>,
+) {
+    // Over a panel the wheel belongs to that panel's scrollbar, and while a
+    // text field has the keyboard the viewport is not what is being driven.
+    if !state.active || capture.0 || over_chrome.0 {
+        wheel.clear();
+        return;
+    }
+    let notches: f32 = wheel
+        .read()
+        .map(|event| match event.unit {
+            bevy::input::mouse::MouseScrollUnit::Line => event.y,
+            // Trackpads report pixels — a swipe is many small events, so scale
+            // them into the same units a mouse notch speaks.
+            bevy::input::mouse::MouseScrollUnit::Pixel => event.y / 50.0,
+        })
+        .sum();
+    if notches == 0.0 {
+        return;
+    }
+    let boosted = keys
+        .map(|keys| keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight))
+        .unwrap_or(false);
+    let step = settings.camera.zoom_step
+        * if boosted {
+            settings.camera.fly_boost
+        } else {
+            1.0
+        };
+    for (camera, mut transform, mut projection, target) in &mut camera {
+        if !is_viewport_camera(camera, target) {
+            continue;
+        }
+        match &mut *projection {
+            Projection::Orthographic(ortho) => {
+                // Multiplicative, so every notch changes the view by the same
+                // PROPORTION — additive zoom crawls when far out and slams into
+                // zero when close in.
+                ortho.scale = (ortho.scale * (-notches * 0.1).exp()).clamp(0.01, 1000.0);
+            }
+            _ => {
+                let forward = transform.forward();
+                transform.translation += forward * notches * step;
+            }
+        }
+    }
+}
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn editor_fly_camera(
     state: Res<EditorState>,
@@ -342,5 +416,142 @@ pub(crate) fn handle_axis_views(
             },
             ..OrthographicProjection::default_3d()
         });
+    }
+}
+
+#[cfg(test)]
+mod zoom_tests {
+    use super::*;
+    use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
+
+    fn zoom_app() -> App {
+        let mut app = App::new();
+        app.init_resource::<EditorState>()
+            .init_resource::<KeyCapture>()
+            .init_resource::<crate::resolver::PointerOverChrome>()
+            .init_resource::<crate::settings::EditorSettings>()
+            .add_message::<MouseWheel>()
+            .add_systems(Update, editor_zoom_camera);
+        app.world_mut().resource_mut::<EditorState>().active = true;
+        app
+    }
+
+    fn viewport_camera(app: &mut App) -> Entity {
+        app.world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_xyz(0.0, 0.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
+                Projection::Perspective(PerspectiveProjection::default()),
+            ))
+            .id()
+    }
+
+    fn scroll(app: &mut App, y: f32, unit: MouseScrollUnit) {
+        app.world_mut().write_message(MouseWheel {
+            unit,
+            x: 0.0,
+            y,
+            window: Entity::PLACEHOLDER,
+            phase: bevy::input::touch::TouchPhase::Moved,
+        });
+    }
+
+    /// A perspective view DOLLIES: scrolling up moves the camera along its own
+    /// forward axis, toward what it is looking at.
+    #[test]
+    fn the_wheel_dollies_a_perspective_view() {
+        let mut app = zoom_app();
+        let camera = viewport_camera(&mut app);
+        scroll(&mut app, 1.0, MouseScrollUnit::Line);
+        app.update();
+        let after = app.world().get::<Transform>(camera).unwrap().translation;
+        assert!(after.z < 10.0, "scrolling up moved it closer: {after:?}");
+        assert!(
+            after.x.abs() < 1e-5 && after.y.abs() < 1e-5,
+            "along forward only"
+        );
+
+        let before = after;
+        scroll(&mut app, -1.0, MouseScrollUnit::Line);
+        app.update();
+        let back = app.world().get::<Transform>(camera).unwrap().translation;
+        assert!(back.z > before.z, "and scrolling down pulled it out");
+    }
+
+    /// The fov must NOT be what changes: narrowing it warps the perspective, so
+    /// a wall you are lining up looks like a different shape as you approach.
+    #[test]
+    fn zooming_never_touches_the_field_of_view() {
+        let mut app = zoom_app();
+        let camera = viewport_camera(&mut app);
+        let fov = match app.world().get::<Projection>(camera).unwrap() {
+            Projection::Perspective(p) => p.fov,
+            _ => unreachable!(),
+        };
+        scroll(&mut app, 3.0, MouseScrollUnit::Line);
+        app.update();
+        match app.world().get::<Projection>(camera).unwrap() {
+            Projection::Perspective(p) => assert_eq!(p.fov, fov),
+            _ => panic!("still perspective"),
+        }
+    }
+
+    /// An orthographic view has no distance to give, so the same gesture scales
+    /// it — multiplicatively, so each notch is the same proportion.
+    #[test]
+    fn an_orthographic_view_scales_instead() {
+        let mut app = zoom_app();
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_xyz(0.0, 50.0, 0.0).looking_at(Vec3::ZERO, Vec3::Z),
+                Projection::Orthographic(OrthographicProjection::default_3d()),
+            ))
+            .id();
+        let before = match app.world().get::<Projection>(camera).unwrap() {
+            Projection::Orthographic(o) => o.scale,
+            _ => unreachable!(),
+        };
+        scroll(&mut app, 2.0, MouseScrollUnit::Line);
+        app.update();
+        let after = match app.world().get::<Projection>(camera).unwrap() {
+            Projection::Orthographic(o) => o.scale,
+            _ => unreachable!(),
+        };
+        assert!(after < before, "{before} -> {after}");
+        let moved = app.world().get::<Transform>(camera).unwrap().translation;
+        assert_eq!(moved, Vec3::new(0.0, 50.0, 0.0), "and does not dolly");
+    }
+
+    /// Over a panel the wheel belongs to that panel's scrollbar. Stealing it
+    /// for the camera is how a list becomes impossible to scroll.
+    #[test]
+    fn the_wheel_over_chrome_is_not_the_cameras() {
+        let mut app = zoom_app();
+        let camera = viewport_camera(&mut app);
+        app.world_mut()
+            .resource_mut::<crate::resolver::PointerOverChrome>()
+            .0 = true;
+        scroll(&mut app, 1.0, MouseScrollUnit::Line);
+        app.update();
+        let after = app.world().get::<Transform>(camera).unwrap().translation;
+        assert_eq!(after.z, 10.0, "the viewport did not move");
+    }
+
+    /// A trackpad reports pixels, a mouse reports lines. One swipe must not
+    /// teleport the camera a hundred metres.
+    #[test]
+    fn a_trackpad_swipe_is_not_a_hundred_notches() {
+        let mut app = zoom_app();
+        let camera = viewport_camera(&mut app);
+        scroll(&mut app, 50.0, MouseScrollUnit::Pixel);
+        app.update();
+        let after = app.world().get::<Transform>(camera).unwrap().translation;
+        let travelled = 10.0 - after.z;
+        assert!(
+            (travelled - 0.9).abs() < 1e-4,
+            "50 pixels is one notch, not fifty: travelled {travelled}"
+        );
     }
 }

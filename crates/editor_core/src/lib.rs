@@ -412,6 +412,10 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<resolver::OverlayContext>()
             .init_resource::<resolver::EscapeFromCapture>()
             .init_resource::<resolver::PointerOverChrome>()
+            // Headless worlds have no `InputPlugin`, so the wheel message would
+            // not exist and every system reading it would fail validation. The
+            // kernel tolerates a missing AssetServer the same way.
+            .add_message::<bevy::input::mouse::MouseWheel>()
             .init_resource::<selection::SelectionScope>()
             .init_resource::<selection::PendingSelect>()
             .init_resource::<selection::Marquee>()
@@ -463,6 +467,7 @@ impl Plugin for EditorCorePlugin {
             (
                 (
                     camera::editor_fly_camera,
+                    camera::editor_zoom_camera,
                     camera::orbit_camera,
                     resolver::resolve_input,
                 )

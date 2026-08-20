@@ -826,6 +826,38 @@ by nothing, so the proxy is simply visible now. `PickProxy` also replaced the
 bare `pick_radius`: a fixed sphere is right for a spawn point, and wrong for
 anything whose size is authored, where the proxy is a unit box parented to the
 widget so the click target IS the box at every size.
+
+**Why sockets did not work (2026-08-20, owner testing).** The owner reported
+"I cannot seem to snap objects to sockets" and "we can hardly use the sockets".
+Four separate defects, each sufficient on its own:
+
+- **Reach was measured from the moved piece's ORIGIN to the target socket.** A
+  six-metre wall carries its sockets three metres out, so its origin only comes
+  within a two-metre reach once the wall is buried in its neighbour — mating was
+  arithmetically impossible for exactly the pieces kits are made of, and looked
+  like a broken editor rather than a wrong number. Reach is now measured SOCKET
+  TO SOCKET, which means the same thing at every scale, and is a setting
+  (`viewport.socket_reach`, 1.5 m).
+- **`template_sockets` read top-level records only.** Sockets authored the
+  editor's own way — generate on a piece, then group it — are CHILD records, so
+  a prefab built entirely inside this editor reported zero sockets and could
+  never be mated to. It now walks the whole template, composing ancestor
+  transforms, which is also what makes the frames genuinely root-relative.
+- **Mating required a `PrefabInstance`** and returned in silence otherwise, so a
+  socketed imported model — the normal M4 asset — could never snap. Socket
+  GENERATION never had that requirement, so the editor cheerfully let you author
+  sockets onto a piece that could not use them. Anything owning sockets mates now.
+- **The exclusion of a piece's own sockets was implemented by REMOVING the
+  `Socket` component from each of them and putting it back.** That re-fired the
+  add-observer, and the observer spawns a child cone, so the viewport
+  accumulated stacked gizmos. Own sockets are filtered in the query instead, the
+  observer is idempotent, and a removed socket takes its cone with it.
+
+And the refusals speak: "no compatible socket within 1.5m" instead of nothing.
+
+The mate math is now one pure function (`sockets::best_mate`) that placement and
+drag-commit both call, so the preview cannot promise a snap the commit declines
+to make — the regression D9 exists for.
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly
