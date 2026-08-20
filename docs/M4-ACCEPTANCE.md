@@ -322,6 +322,33 @@ avoided shipping a binary blob for the preview environment — would not decode,
 and hand-authoring an OGG is not viable. Sound wants either a feature flag on
 the pinned Bevy dependency or a licensed asset, and both are decisions to take
 deliberately rather than in passing.
+
+### Architectural fitness as tests (2026-08-20, spec §8 guardrail 4)
+
+The §8 guardrails were enforced by hand, which means they were enforced whenever
+somebody remembered. `crates/editor_api/tests/architecture.rs` checks the ones a
+machine can, as TESTS rather than CI-only greps, so they run on every
+`cargo test` and fail where the work is happening.
+
+- **Keys are bound through `ActionDef`.** No `just_pressed(KeyCode…)` in an
+  editor crate outside the resolver: a key read straight from `ButtonInput` is a
+  binding nobody can remap, which-key cannot show and a macro cannot replay.
+  Modifier reads — shift-click, the held-key fly camera — are a different thing
+  and stay allowed, which is why the rule names `just_pressed` and not
+  `ButtonInput`.
+- **`game_framework` owes the editor nothing.** A game that needs the editor to
+  run is not a game with an editor; it is an editor.
+- **No editor crate depends on a game.** This one caught a real violation on its
+  first run: `editor_core` declared `game_framework` and never used it. Removed.
+- **The reference game keeps every editor dependency optional**, which is what
+  makes "zero editor code in the artifact" true rather than aspirational.
+- **No probe has two arms for the same frame.** Two arms with the same number is
+  not a compile error — the second is simply unreachable — so a check can stop
+  running while the suite stays green. That happened here: a rename check went
+  unnoticed for several commits behind a duplicated arm.
+
+Each rule was checked against a deliberate violation to confirm it fails; a
+fitness test that cannot fail is decoration.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per

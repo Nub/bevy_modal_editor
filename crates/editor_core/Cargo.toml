@@ -9,7 +9,6 @@ repository.workspace = true
 [dependencies]
 bevy.workspace = true
 editor_api.workspace = true
-game_framework.workspace = true
 serde.workspace = true
 ron.workspace = true
 
