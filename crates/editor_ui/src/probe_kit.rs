@@ -433,7 +433,43 @@ pub(crate) fn probe_kit(world: &mut World) {
             );
             shot(world, "k5-pivot-on-joint");
         }
-        1300 => {
+        // ── A socket on a sealed instance is CLICKABLE (owner testing) ─────
+        // A prefab selects as a unit, so a click on a socket's cone used to
+        // resolve to the instance root — which made every socket verb
+        // mouse-unreachable on exactly the pieces that could use them.
+        1250 => {
+            let selected: Vec<Entity> = world
+                .query_filtered::<Entity, With<editor_core::selection::Selected>>()
+                .iter(world)
+                .collect();
+            for previous in selected {
+                world
+                    .entity_mut(previous)
+                    .remove::<editor_core::selection::Selected>();
+            }
+            let target = free_socket(world);
+            world.resource_mut::<KitProbe>().socket_at = target.map(|(_, at)| at);
+            if let Some((_, at)) = target
+                && let Some(screen) = crate::probe_handson::screen_position_of(world, at)
+            {
+                move_cursor(world, screen);
+            }
+        }
+        1256 => click(world, true),
+        1260 => click(world, false),
+        1275 => {
+            let on_socket = world
+                .query_filtered::<(), (With<Socket>, With<editor_core::selection::Selected>)>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                on_socket == 1,
+                &format!("clicking a socket on a sealed instance selects the SOCKET ({on_socket})"),
+            );
+            shot(world, "k6-socket-clicked");
+        }
+        1340 => {
             let failures = world.resource::<KitProbe>().failures.clone();
             if failures.is_empty() {
                 info!("KIT-PROBE PASS: sockets, chaining, snap, painting");

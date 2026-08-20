@@ -1178,6 +1178,41 @@ fn imported_bounds(world: &mut World, root: Entity) -> Option<(Vec3, Vec3)> {
     None
 }
 
+/// The socket type this piece should use: one it already has, else one used by
+/// a piece of the same kit, else nothing.
+///
+/// Type is the kit's compatibility rule and it is invisible in the viewport —
+/// two sockets of different types are two identical cones that will never mate
+/// and never say so. Inheriting it is what makes "generate sockets and chain"
+/// work at all on a piece added to an existing kit.
+fn existing_type(world: &mut World, piece: Entity) -> Option<String> {
+    // On the piece itself (or anywhere under it).
+    let mut stack = vec![piece];
+    while let Some(entity) = stack.pop() {
+        if let Some(socket) = world.get::<crate::sockets::Socket>(entity) {
+            return Some(socket.socket_type.clone());
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    // Otherwise: whatever this piece's KIT already mates with.
+    let kit = world
+        .get::<PrefabInstance>(piece)
+        .and_then(|instance| world.resource::<PrefabLibrary>().prefabs.get(&instance.0))
+        .and_then(|def| def.kit.clone())?;
+    let sibling_types: Vec<String> = {
+        let library = world.resource::<PrefabLibrary>();
+        library
+            .prefabs
+            .values()
+            .filter(|def| def.kit.as_ref() == Some(&kit))
+            .flat_map(crate::sockets::template_sockets)
+            .map(|(_, socket)| socket.socket_type)
+            .collect()
+    };
+    sibling_types.into_iter().next()
+}
 /// `socket.generate-*`: put a socket on each chosen face of the selection's
 /// bounds, centred and aimed outward — the fast path to a piece that actually
 /// chains. A wall wants ends, a floor tile wants sides, and typing eight
@@ -1202,10 +1237,21 @@ fn generate_sockets(world: &mut World, sides: crate::sockets::SocketSides) {
     }
     let mut ops = Vec::new();
     let mut made = 0usize;
+    // Named in the toast: the type is the compatibility rule and it is invisible
+    // in the viewport, so the one moment it is knowable should say it.
+    let mut last_type = String::from("default");
     for (piece, piece_id) in pieces {
         let Some((min, max)) = piece_bounds(world, piece) else {
             continue;
         };
+        // INHERIT the type. Stamping "default" unconditionally is a silent,
+        // permanent refusal to mate: kit pieces carry "wall", the two cones
+        // look identical, and nothing anywhere says why the piece you just
+        // socketed will not join the run. Take the type from a socket the piece
+        // already has, else from a socket on any piece in the same kit, else
+        // "default" — which is at least self-consistent for a fresh piece.
+        let socket_type = existing_type(world, piece).unwrap_or_else(|| "default".into());
+        last_type = socket_type.clone();
         // What is already there, so a re-run tops up rather than duplicates.
         let existing: Vec<Vec3> = world
             .get::<Children>(piece)
@@ -1231,9 +1277,9 @@ fn generate_sockets(world: &mut World, sides: crate::sockets::SocketSides) {
                 components: vec![
                     Box::new(crate::sockets::Socket {
                         name: (*name).to_string(),
-                        // ONE type across generated sockets, so any two of them
-                        // mate — which is the whole point of generating a set.
-                        socket_type: "default".into(),
+                        // INHERITED, not "default": see `existing_type`. One
+                        // type across a generated set, so any two of them mate.
+                        socket_type: socket_type.clone(),
                     })
                     .into_partial_reflect(),
                     Box::new(placed).into_partial_reflect(),
@@ -1263,7 +1309,7 @@ fn generate_sockets(world: &mut World, sides: crate::sockets::SocketSides) {
     });
     world.write_message(editor_scene::SceneIoFeedback {
         message: format!(
-            "generated {made} socket{}",
+            "generated {made} socket{} \u{b7} type {last_type}",
             if made == 1 { "" } else { "s" }
         ),
         success: true,

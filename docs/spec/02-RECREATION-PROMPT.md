@@ -889,6 +889,27 @@ hundreds of metres onto the ground, and a stroke laid a piece every two of them:
 happened. Capped at 128 per segment, and the cap SAYS so — a stroke that quietly
 lays half of what was asked is worse than one that explains itself. The probe
 had only ever asserted "more walls than before", which 411 satisfies.
+
+**The two things that made the socket verbs unreachable (2026-08-20).**
+
+- **A socket on a prefab instance could not be clicked.** A prefab selects as a
+  unit — that is the point of the seal, so you cannot author on a member of
+  something you have not stepped into — and a click on a socket's cone resolved
+  to the instance root. So the objects whose sockets you COULD click were models
+  and primitives, which (until this session) could not mate; and the objects
+  that could mate hid their sockets behind an Open step. Sockets now carry
+  `SelectionHandle`: a handle is clicked as itself, seal or no seal, because a
+  socket is not part of the shape — it is the authoring handle ON the shape.
+  The rule is one function with one test, called by both the picking observer
+  and the world-side helper, since two copies of a selection rule is how a click
+  starts meaning different things in different places.
+- **Generated sockets stamped `"default"` while kits use their own type.** Type
+  is the compatibility rule and it is invisible in the viewport: two sockets of
+  different types are two identical cones that will never mate and never say so.
+  Generation now inherits — a type the piece already has, else one from a piece
+  in the same kit, else `"default"` — and the toast names it (`generated 2
+  sockets · type wall`), because the moment of creation is the one moment the
+  type is knowable without opening the inspector.
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

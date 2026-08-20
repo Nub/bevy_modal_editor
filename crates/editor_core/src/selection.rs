@@ -23,6 +23,21 @@ pub struct SelectionScope(pub Option<std::collections::HashSet<Entity>>);
 #[derive(Component)]
 pub struct SelectionSealed;
 
+/// An entity inside a sealed container that is nonetheless meant to be CLICKED.
+///
+/// A seal exists so a prefab selects as a unit and you cannot author on a member
+/// of something you have not stepped into. A socket is the exception that proves
+/// it: a socket is not part of the shape, it is the authoring HANDLE on the
+/// shape. Without this, every verb built on "select a socket" — pivot on the
+/// joint, spawn the next piece there, snap a socket to a face — was unreachable
+/// with the mouse on the very pieces that could use them, because the click
+/// resolved to the instance root.
+///
+/// Owned by whoever declares the handle (`editor_prefabs` marks sockets), so the
+/// kernel stays ignorant of what a socket is.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct SelectionHandle;
+
 /// Broadcast whenever the selection set changes (gizmos, panels, statusbar react).
 #[derive(Message, Debug)]
 pub struct SelectionChanged;
@@ -125,6 +140,7 @@ pub(crate) fn on_pointer_press(
     scope: Res<SelectionScope>,
     ids: Query<(), With<SceneId>>,
     sealed: Query<(), With<SelectionSealed>>,
+    handles: Query<(), With<SelectionHandle>>,
     ui_nodes: Query<(), With<bevy::ui::ComputedNode>>,
     parents: Query<&ChildOf>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
@@ -172,18 +188,12 @@ pub(crate) fn on_pointer_press(
     // so you cannot accidentally author on a member of a prefab you have not
     // stepped into. The OUTERMOST seal wins, which handles nesting.
     let target = target.map(|entity| {
-        let mut resolved = entity;
-        let mut current = entity;
-        loop {
-            if sealed.contains(current) {
-                resolved = current;
-            }
-            match parents.get(current) {
-                Ok(parent) => current = parent.parent(),
-                Err(_) => break,
-            }
-        }
-        resolved
+        click_target(
+            entity,
+            |e| handles.contains(e),
+            |e| sealed.contains(e),
+            |e| parents.get(e).ok().map(|parent| parent.parent()),
+        )
     });
     // Alt+click is ORBIT (camera), never selection.
     if keys
@@ -340,20 +350,44 @@ pub(crate) fn select_projected(
     world.write_message(SelectionChanged);
 }
 
-/// The outermost sealed ancestor of `entity`, or the entity itself.
-fn outermost_seal(world: &World, entity: Entity) -> Entity {
+/// What a click on `entity` actually selects: the entity itself if it is a
+/// HANDLE, otherwise its outermost sealed ancestor, otherwise itself.
+///
+/// THE rule, as a function, because it has two callers — the picking observer
+/// (which has queries) and the world-side helpers — and two copies of a
+/// selection rule is how a click starts meaning different things in different
+/// places.
+pub(crate) fn click_target(
+    entity: Entity,
+    is_handle: impl Fn(Entity) -> bool,
+    is_sealed: impl Fn(Entity) -> bool,
+    parent_of: impl Fn(Entity) -> Option<Entity>,
+) -> Entity {
+    if is_handle(entity) {
+        return entity;
+    }
     let mut resolved = entity;
     let mut current = entity;
     loop {
-        if world.get::<SelectionSealed>(current).is_some() {
+        if is_sealed(current) {
             resolved = current;
         }
-        match world.get::<ChildOf>(current) {
-            Some(parent) => current = parent.parent(),
+        match parent_of(current) {
+            Some(parent) => current = parent,
             None => break,
         }
     }
     resolved
+}
+
+/// The outermost sealed ancestor of `entity`, or the entity itself.
+fn outermost_seal(world: &World, entity: Entity) -> Entity {
+    click_target(
+        entity,
+        |e| world.get::<SelectionHandle>(e).is_some(),
+        |e| world.get::<SelectionSealed>(e).is_some(),
+        |e| world.get::<ChildOf>(e).map(|parent| parent.parent()),
+    )
 }
 
 /// Select this entity once its spawn transaction has applied (placement,
@@ -414,6 +448,53 @@ pub(crate) fn handle_selection_actions(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A prefab selects as a UNIT — except for its handles. Sockets sit inside
+    /// that seal, so every verb built on "select a socket" (pivot on the joint,
+    /// spawn the next piece there, snap a socket to a face) was unreachable
+    /// with the mouse on exactly the pieces that could use them: the click
+    /// resolved to the instance root, every time.
+    #[test]
+    fn a_handle_is_clicked_as_itself_inside_a_seal() {
+        let root = Entity::from_raw_u32(1).unwrap();
+        let member = Entity::from_raw_u32(2).unwrap();
+        let handle = Entity::from_raw_u32(3).unwrap();
+        let parent_of = |entity: Entity| (entity != root).then_some(root);
+        let sealed = |entity: Entity| entity == root;
+
+        assert_eq!(
+            click_target(member, |_| false, sealed, parent_of),
+            root,
+            "an ordinary member still selects the whole prefab"
+        );
+        assert_eq!(
+            click_target(handle, |e| e == handle, sealed, parent_of),
+            handle,
+            "a handle selects as itself"
+        );
+        assert_eq!(
+            click_target(root, |_| false, sealed, parent_of),
+            root,
+            "and the container still selects itself"
+        );
+    }
+
+    /// Nesting still resolves outward for ordinary members.
+    #[test]
+    fn the_outermost_seal_wins() {
+        let outer = Entity::from_raw_u32(10).unwrap();
+        let inner = Entity::from_raw_u32(11).unwrap();
+        let leaf = Entity::from_raw_u32(12).unwrap();
+        let parent_of = |entity: Entity| match entity {
+            e if e == leaf => Some(inner),
+            e if e == inner => Some(outer),
+            _ => None,
+        };
+        assert_eq!(
+            click_target(leaf, |_| false, |e| e == inner || e == outer, parent_of),
+            outer
+        );
+    }
     use crate::EditorCorePlugin;
 
     fn test_app() -> App {

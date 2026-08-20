@@ -362,6 +362,17 @@ pub struct EditorPrefabsPlugin;
 
 impl Plugin for EditorPrefabsPlugin {
     fn build(&self, app: &mut App) {
+        // A socket is an authoring HANDLE, not a member of the shape: it stays
+        // clickable through the seal that makes a prefab select as a unit.
+        // Everything built on "select a socket" is unreachable by mouse
+        // otherwise, on exactly the pieces that can use it.
+        app.add_observer(
+            |add: On<bevy::ecs::lifecycle::Add, sockets::Socket>, mut commands: Commands| {
+                commands
+                    .entity(add.entity)
+                    .insert(editor_core::selection::SelectionHandle);
+            },
+        );
         app.init_resource::<PrefabLibrary>();
         app.init_resource::<overrides::OverrideCursor>();
         app.init_resource::<authoring::PrefabRequests>();
