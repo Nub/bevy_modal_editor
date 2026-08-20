@@ -14,7 +14,10 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
-pub const MATERIALS_FORMAT_VERSION: u32 = 1;
+/// 2: textures moved from a single `base_color_texture` field to a slot table
+/// carrying colour space, plus uv tiling/offset. Format-1 files load and
+/// migrate on read (`MaterialDef::migrate`).
+pub const MATERIALS_FORMAT_VERSION: u32 = 2;
 
 /// Scene-side reference: which library material shades this entity. Serialized
 /// with the scene BY ID — never by value.
@@ -33,6 +36,64 @@ pub enum MaterialAlphaMode {
     Mask,
 }
 
+/// Build a primitive mesh WITH tangents. Bevy compiles the whole normal-mapping
+/// branch out unless the vertex layout carries `ATTRIBUTE_TANGENT` (the shader
+/// gates it behind `#ifdef VERTEX_TANGENTS`), and no primitive builder emits
+/// one — so a normal map assigned to a cube or a sphere is silently discarded,
+/// with no warning and no error. glTF meshes arrive with tangents from the
+/// importer; everything the editor generates has to ask for them.
+pub fn primitive_mesh(shape: impl Into<Mesh>) -> Mesh {
+    let mut mesh = shape.into();
+    if let Err(error) = mesh.generate_tangents() {
+        // Not fatal: the surface still shades, it just cannot show a normal map.
+        warn!("no tangents for a primitive mesh; normal maps will not show: {error}");
+    }
+    mesh
+}
+
+/// Which map a texture fills. The slot is DECLARED rather than implied by a
+/// field name, because the one thing a texture pipeline must not get wrong is
+/// colour space, and the slot is what determines it: a normal map or a
+/// metallic-roughness map holds vectors and scalars, and gamma-correcting them
+/// on load corrupts every value. Sampling every texture as sRGB — which is
+/// what the single-slot version did — is silently wrong for three of these five.
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum TextureSlot {
+    BaseColor,
+    Normal,
+    /// glTF/ORM convention: green carries roughness, blue carries metallic.
+    MetallicRoughness,
+    Occlusion,
+    Emissive,
+}
+
+impl TextureSlot {
+    /// Every slot, in the order the panel shows them.
+    pub const ALL: [TextureSlot; 5] = [
+        TextureSlot::BaseColor,
+        TextureSlot::Normal,
+        TextureSlot::MetallicRoughness,
+        TextureSlot::Occlusion,
+        TextureSlot::Emissive,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TextureSlot::BaseColor => "base color",
+            TextureSlot::Normal => "normal",
+            TextureSlot::MetallicRoughness => "metal/rough",
+            TextureSlot::Occlusion => "occlusion",
+            TextureSlot::Emissive => "emissive",
+        }
+    }
+
+    /// COLOUR is sRGB-encoded; DATA is linear. This is the whole reason the
+    /// slot table exists.
+    pub fn is_srgb(self) -> bool {
+        matches!(self, TextureSlot::BaseColor | TextureSlot::Emissive)
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub struct MaterialDef {
@@ -48,8 +109,43 @@ pub struct MaterialDef {
     pub alpha_cutoff: f32,
     pub unlit: bool,
     pub double_sided: bool,
-    /// Imported texture (identity pipeline uuid) for the base color slot.
+    /// LEGACY, format 1: the only texture slot there used to be. Kept so old
+    /// `materials.ron` files still load; `migrate` folds it into `textures` and
+    /// clears it, so nothing downstream has to know it existed.
     pub base_color_texture: Option<Uuid>,
+    /// Imported textures (identity pipeline uuids) by slot. A map rather than a
+    /// field per map: the panel renders one row per declared slot, so a new
+    /// slot costs one enum variant and nothing else.
+    pub textures: std::collections::BTreeMap<TextureSlot, Uuid>,
+    /// How many times the texture repeats across the surface. A wall kit is
+    /// unusable without it — one stretched copy per piece is not a wall.
+    pub uv_tiling: [f32; 2],
+    pub uv_offset: [f32; 2],
+}
+
+impl MaterialDef {
+    /// Fold format-1 fields into their format-2 homes. Idempotent, so running
+    /// it on an already-migrated def does nothing.
+    fn migrate(&mut self) {
+        if let Some(uuid) = self.base_color_texture.take() {
+            self.textures.entry(TextureSlot::BaseColor).or_insert(uuid);
+        }
+    }
+
+    pub fn texture(&self, slot: TextureSlot) -> Option<Uuid> {
+        self.textures.get(&slot).copied()
+    }
+
+    pub fn set_texture(&mut self, slot: TextureSlot, uuid: Option<Uuid>) {
+        match uuid {
+            Some(uuid) => {
+                self.textures.insert(slot, uuid);
+            }
+            None => {
+                self.textures.remove(&slot);
+            }
+        }
+    }
 }
 
 impl Default for MaterialDef {
@@ -67,6 +163,9 @@ impl Default for MaterialDef {
             unlit: false,
             double_sided: false,
             base_color_texture: None,
+            textures: std::collections::BTreeMap::new(),
+            uv_tiling: [1.0, 1.0],
+            uv_offset: [0.0, 0.0],
         }
     }
 }
@@ -80,27 +179,29 @@ pub fn to_standard_material(
     models: &crate::models::ModelLibrary,
     assets: Option<&AssetServer>,
 ) -> bevy::pbr::StandardMaterial {
-    let base_color_texture = def
-        .base_color_texture
-        .as_ref()
-        .and_then(|uuid| models.get(uuid))
-        .zip(assets)
-        .map(|(entry, assets)| {
-            #[allow(deprecated)]
-            assets.load_with_settings(
-                entry.asset_path.clone(),
-                |settings: &mut bevy::image::ImageLoaderSettings| {
-                    settings.is_srgb = true;
-                    settings.sampler = bevy::image::ImageSampler::Descriptor(
-                        bevy::image::ImageSamplerDescriptor {
-                            address_mode_u: bevy::image::ImageAddressMode::Repeat,
-                            address_mode_v: bevy::image::ImageAddressMode::Repeat,
-                            ..bevy::image::ImageSamplerDescriptor::linear()
-                        },
-                    );
-                },
-            )
-        });
+    // Each slot loads in ITS OWN colour space. `is_srgb` is not a sampling
+    // preference — it decides whether the loader gamma-decodes the bytes, and
+    // doing that to a normal or metallic-roughness map corrupts every value in
+    // it. Repeat wrapping so `uv_tiling` has something to repeat.
+    let load = |slot: TextureSlot| -> Option<Handle<Image>> {
+        let entry = def.texture(slot).and_then(|uuid| models.get(&uuid))?;
+        let assets = assets?;
+        let srgb = slot.is_srgb();
+        #[allow(deprecated)]
+        Some(assets.load_with_settings(
+            entry.asset_path.clone(),
+            move |settings: &mut bevy::image::ImageLoaderSettings| {
+                settings.is_srgb = srgb;
+                settings.sampler =
+                    bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
+                        address_mode_u: bevy::image::ImageAddressMode::Repeat,
+                        address_mode_v: bevy::image::ImageAddressMode::Repeat,
+                        ..bevy::image::ImageSamplerDescriptor::linear()
+                    });
+            },
+        ))
+    };
+    let base_color_texture = load(TextureSlot::BaseColor);
     bevy::pbr::StandardMaterial {
         base_color: Color::srgba(
             def.base_color[0],
@@ -122,6 +223,16 @@ pub fn to_standard_material(
             MaterialAlphaMode::Blend => AlphaMode::Blend,
             MaterialAlphaMode::Mask => AlphaMode::Mask(def.alpha_cutoff),
         },
+        normal_map_texture: load(TextureSlot::Normal),
+        metallic_roughness_texture: load(TextureSlot::MetallicRoughness),
+        occlusion_texture: load(TextureSlot::Occlusion),
+        emissive_texture: load(TextureSlot::Emissive),
+        // One transform for every slot: an artist tiles a surface, not a map.
+        uv_transform: bevy::math::Affine2::from_scale_angle_translation(
+            Vec2::new(def.uv_tiling[0], def.uv_tiling[1]),
+            0.0,
+            Vec2::new(def.uv_offset[0], def.uv_offset[1]),
+        ),
         unlit: def.unlit,
         double_sided: def.double_sided,
         cull_mode: if def.double_sided {
@@ -416,7 +527,11 @@ pub fn load_materials(path: &Path) -> Result<Vec<MaterialDef>, MaterialsError> {
             supported: MATERIALS_FORMAT_VERSION,
         });
     }
-    Ok(envelope.materials)
+    let mut materials = envelope.materials;
+    for def in &mut materials {
+        def.migrate();
+    }
+    Ok(materials)
 }
 
 pub(crate) fn load_library_at_startup(mut library: ResMut<MaterialLibrary>) {
@@ -495,6 +610,88 @@ mod tests {
     use super::*;
     use editor_core::prelude::{History, HistoryRequests};
 
+    // Format 1 wrote a single `base_color_texture`; format 2 has a slot table.
+    // Old files have to keep working, and the migration has to be idempotent.
+    #[test]
+    fn format_1_textures_migrate_into_the_slot_table() {
+        let dir = std::env::temp_dir().join(format!("mat-migrate-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("materials.ron");
+        let texture = Uuid::new_v4();
+        std::fs::write(
+            &path,
+            format!(
+                "(format_version: 1, materials: [(id: \"{}\", name: \"Old\", \
+                 base_color_texture: Some(\"{texture}\"))])",
+                Uuid::new_v4()
+            ),
+        )
+        .unwrap();
+
+        let loaded = load_materials(&path).expect("a format-1 file still loads");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(
+            loaded[0].texture(TextureSlot::BaseColor),
+            Some(texture),
+            "the legacy field lands in the base colour slot"
+        );
+        assert!(
+            loaded[0].base_color_texture.is_none(),
+            "and is cleared, so nothing downstream reads two sources"
+        );
+
+        // Idempotent: migrating again changes nothing.
+        let mut again = loaded[0].clone();
+        again.migrate();
+        assert_eq!(again, loaded[0], "migration runs clean twice");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // THE reason the slot table exists: colour maps are sRGB-encoded and data
+    // maps are linear. Loading a normal map as sRGB gamma-corrupts every vector
+    // in it, and that is exactly what a single hardcoded flag did.
+    #[test]
+    fn only_colour_slots_are_srgb() {
+        for slot in TextureSlot::ALL {
+            let expected = matches!(slot, TextureSlot::BaseColor | TextureSlot::Emissive);
+            assert_eq!(
+                slot.is_srgb(),
+                expected,
+                "{slot:?} carries {} data",
+                if expected { "colour" } else { "linear" }
+            );
+        }
+    }
+
+    // A def round-trips through RON with every slot filled, so a saved
+    // material comes back the same material.
+    #[test]
+    fn a_full_slot_table_round_trips() {
+        let mut def = MaterialDef {
+            id: Uuid::new_v4(),
+            name: "Full".into(),
+            uv_tiling: [4.0, 2.0],
+            uv_offset: [0.25, 0.5],
+            ..Default::default()
+        };
+        for slot in TextureSlot::ALL {
+            def.set_texture(slot, Some(Uuid::new_v4()));
+        }
+        let text = ron::ser::to_string(&def).unwrap();
+        let back: MaterialDef = ron::from_str(&text).unwrap();
+        assert_eq!(back, def, "every slot and the uv transform survive a save");
+    }
+
+    // Clearing a slot removes it rather than storing a hole.
+    #[test]
+    fn clearing_a_slot_empties_it() {
+        let mut def = MaterialDef::default();
+        def.set_texture(TextureSlot::Normal, Some(Uuid::new_v4()));
+        assert!(def.texture(TextureSlot::Normal).is_some());
+        def.set_texture(TextureSlot::Normal, None);
+        assert_eq!(def.texture(TextureSlot::Normal), None);
+        assert!(def.textures.is_empty(), "no empty entry left behind");
+    }
     // C6: assignment is ONE undoable transaction; undo removes the reference.
     #[test]
     fn assignment_is_undoable() {

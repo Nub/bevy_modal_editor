@@ -141,6 +141,21 @@ fn hierarchy_row_center(
     None
 }
 
+/// Where an entity actually IS on screen. Clicking a fixed fraction of the
+/// window only worked while the drums happened to project over that spot: it
+/// missed by a few pixels the moment frame timing shifted the placement, which
+/// made an unrelated change look like a selection bug.
+fn screen_position_of(world: &mut World, target: Vec3) -> Option<Vec2> {
+    let (camera, camera_transform) = world
+        .query_filtered::<(&Camera, &GlobalTransform), With<Camera3d>>()
+        .iter(world)
+        // The material preview rig has its own active camera rendering to a
+        // texture; only the one drawing the VIEWPORT can be projected through.
+        .max_by_key(|(camera, _)| camera.order)
+        .map(|(camera, transform)| (camera.clone(), *transform))?;
+    camera.world_to_viewport(&camera_transform, target).ok()
+}
+
 fn drum_roots(world: &mut World) -> Vec<Entity> {
     let mut roots: Vec<(Entity, Vec3)> = world
         .query_filtered::<(Entity, &Transform, &Name), (With<PrefabInstance>, Without<PrefabStamped>)>()
@@ -239,7 +254,7 @@ pub(crate) fn probe_handson(world: &mut World) {
             let chip = world
                 .query::<(Entity, &Field)>()
                 .iter(world)
-                .find(|(_, f)| matches!(f, Field::Texture))
+                .find(|(_, f)| matches!(f, Field::Texture(_)))
                 .map(|(e, _)| e);
             match chip.and_then(|c| ui_center(world, c)) {
                 Some(center) => move_cursor(world, center),
@@ -255,7 +270,7 @@ pub(crate) fn probe_handson(world: &mut World) {
             };
             let textured = probe_material
                 .and_then(|id| world.resource::<MaterialLibrary>().get(&id).cloned())
-                .and_then(|def| def.base_color_texture);
+                .and_then(|def| def.texture(editor_scene::materials::TextureSlot::BaseColor));
             // ANY imported texture counts: real projects have their own
             // textures in the tree and the cycle starts from the first —
             // probes must survive live project content.
@@ -288,7 +303,10 @@ pub(crate) fn probe_handson(world: &mut World) {
                 .resource::<HandsonProbe>()
                 .material
                 .and_then(|id| world.resource::<MaterialLibrary>().get(&id).cloned())
-                .is_some_and(|def| def.base_color_texture.is_none());
+                .is_some_and(|def| {
+                    def.texture(editor_scene::materials::TextureSlot::BaseColor)
+                        .is_none()
+                });
             check(world, cleared, "asset undo removed the texture binding");
             invoke(world, "core.redo");
         }
@@ -297,7 +315,10 @@ pub(crate) fn probe_handson(world: &mut World) {
                 .resource::<HandsonProbe>()
                 .material
                 .and_then(|id| world.resource::<MaterialLibrary>().get(&id).cloned())
-                .is_some_and(|def| def.base_color_texture.is_some());
+                .is_some_and(|def| {
+                    def.texture(editor_scene::materials::TextureSlot::BaseColor)
+                        .is_some()
+                });
             check(world, restored, "redo restored the texture binding");
         }
         500 => tap_named(world, KeyCode::Escape, Key::Escape),
@@ -388,11 +409,19 @@ pub(crate) fn probe_handson(world: &mut World) {
             check(world, members.len() == 3, "every drum stamped its member");
             world.resource_mut::<HandsonProbe>().members_before = members;
         }
-        // Override: the un-moved drum sits under the parked cursor — click it.
+        // Override: click the drum the cursor was parked on — by where it
+        // actually projects, so the test survives a shift in frame timing.
         1320 => {
-            let center = crate::probe_user::viewport_center(world);
-            move_cursor(world, center);
+            let target = world
+                .resource::<HandsonProbe>()
+                .members_before
+                .last()
+                .map(|(_, at)| *at + Vec3::Y * 0.3)
+                .and_then(|at| screen_position_of(world, at))
+                .unwrap_or_else(|| crate::probe_user::viewport_center(world));
+            move_cursor(world, target);
         }
+
         1330 => click(world, true),
         1332 => click(world, false),
         // Owner rule: a prefab selects as a UNIT until opened. The click lands
@@ -414,8 +443,14 @@ pub(crate) fn probe_handson(world: &mut World) {
             invoke(world, "prefab.open");
         }
         1342 => {
-            let center = crate::probe_user::viewport_center(world);
-            move_cursor(world, center);
+            let target = world
+                .resource::<HandsonProbe>()
+                .members_before
+                .last()
+                .map(|(_, at)| *at + Vec3::Y * 0.3)
+                .and_then(|at| screen_position_of(world, at))
+                .unwrap_or_else(|| crate::probe_user::viewport_center(world));
+            move_cursor(world, target);
         }
         1345 => click(world, true),
         1347 => click(world, false),

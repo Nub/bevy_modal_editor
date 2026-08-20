@@ -42,6 +42,62 @@ behavior) and is ordered AFTER the model resolvers, which write the same
 component. Covered by MATERIAL: *"the assigned material reached EVERY mesh in
 the model subtree"*.
 
+### D11 texture slots: colour space belongs to the SLOT (2026-08-19, format 2)
+
+A material had exactly one texture slot, and every texture loaded with
+`is_srgb = true`. That is correct for a base-colour or emissive map and wrong
+for every other kind: a normal map holds vectors and a metallic-roughness or
+occlusion map holds scalars, and gamma-decoding those on load corrupts every
+value in them. Adding slots without also declaring their colour space would
+have shipped that corruption silently — the render looks plausible and is
+simply wrong.
+
+Resolved: **the slot is declared, and the slot decides the colour space.**
+`TextureSlot` (BaseColor, Normal, MetallicRoughness, Occlusion, Emissive)
+carries `is_srgb()`, and `to_standard_material` loads each map through it, so
+the contract cannot be forgotten at a call site. `MaterialDef.textures` is a map
+keyed by slot rather than a field per map, so the panel renders its rows from
+`TextureSlot::ALL` and a new slot costs one enum variant.
+
+Materials also carry `uv_tiling`/`uv_offset` (one `uv_transform` for the whole
+material — an artist tiles a surface, not a map): a wall kit is unusable when
+each piece shows one stretched copy of its texture.
+
+Format 1 files load unchanged: `MaterialDef::migrate` folds the old
+`base_color_texture` into the BaseColor slot on read and clears it, so nothing
+downstream sees two sources of truth.
+
+**Two things had to change underneath for any of this to be true of the render
+rather than only of the data**, both found by review before this landed:
+
+1. **The first loader of a path wins.** The asset server keys handles by path,
+   so `load_with_settings` on a path something already requested returns the
+   existing handle and DISCARDS the settings. The import was eagerly loading
+   every texture with `ImageLoaderSettings::default()` (`is_srgb: true`,
+   ClampToEdge), which meant the per-slot colour space and the repeat wrapping
+   were inert: normal maps were still gamma-decoded and tiling smeared the edge
+   texels instead of repeating. Imported textures are no longer preloaded — the
+   material is the first loader, so the slot's settings are the ones that reach
+   the GPU. Models still preload; a Gltf has no equivalent setting.
+   *Known limitation:* one file used in two slots of different colour space
+   still resolves to a single decoded image, whichever slot loaded first.
+   Authoring the same bitmap as both a colour and a data map is unusual enough
+   to defer; when it matters, the fix is a distinct `AssetPath` per colour space.
+2. **Normal maps need tangents.** Bevy compiles the entire normal-mapping branch
+   out unless a mesh carries `ATTRIBUTE_TANGENT` (`#ifdef VERTEX_TANGENTS`), and
+   no primitive builder emits one — so a normal map on a greybox cube, on a
+   sphere, or in the material preview was discarded in silence. Primitives are
+   now built through `primitive_mesh`, which generates tangents (one in
+   `editor_scene::materials` for editor surfaces, one in `game_framework` for
+   games, because a game crate must not depend on an editor crate). glTF meshes
+   already arrive with tangents from the importer.
+
+Covered by MATERIAL, and the coverage deliberately reads the GPU-facing state —
+*"the normal map is loaded LINEAR, not sRGB"* and *"the sampler REPEATS"* — over
+`Assets<Image>`, because a def-level assertion cannot fail for either bug above
+and would have reported the feature green while the render was wrong. Also
+`format_1_textures_migrate_into_the_slot_table` and `only_colour_slots_are_srgb`.
+
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per

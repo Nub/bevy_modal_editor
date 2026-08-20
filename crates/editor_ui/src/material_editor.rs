@@ -20,7 +20,7 @@ use bevy::ui::widget::ImageNode;
 use bevy::ui::{Checked, PositionType, px};
 use bevy::ui_widgets::ValueChange;
 use editor_core::prelude::*;
-use editor_scene::materials::{MaterialAlphaMode, MaterialDef, MaterialLibrary};
+use editor_scene::materials::{MaterialAlphaMode, MaterialDef, MaterialLibrary, TextureSlot};
 use editor_scene::models::{EntryKind, ModelLibrary};
 use uuid::Uuid;
 
@@ -72,7 +72,11 @@ pub(crate) enum Field {
     AlphaMode,
     /// Rename (through the name prompt) — coalesces like any other field.
     Name,
-    Texture,
+    /// One per declared texture slot — the row knows which map it fills, so
+    /// the panel builds itself from `TextureSlot::ALL`.
+    Texture(TextureSlot),
+    UvTilingX,
+    UvTilingY,
 }
 
 /// Text mirroring a def field live. Color sliders draw no value of their own,
@@ -105,6 +109,8 @@ fn field_value(def: &MaterialDef, field: Field) -> Option<f32> {
         Field::EmissiveB => def.emissive[2],
         Field::EmissiveIntensity => def.emissive_intensity,
         Field::AlphaCutoff => def.alpha_cutoff,
+        Field::UvTilingX => def.uv_tiling[0],
+        Field::UvTilingY => def.uv_tiling[1],
         _ => return None,
     })
 }
@@ -263,7 +269,7 @@ pub(crate) fn setup_material_preview(
     ));
     let material = materials.add(StandardMaterial::default());
     commands.spawn((
-        Mesh3d(meshes.add(Sphere::new(1.0))),
+        Mesh3d(meshes.add(editor_scene::materials::primitive_mesh(Sphere::new(1.0)))),
         MeshMaterial3d(material.clone()),
         Transform::from_translation(MATERIAL_PREVIEW_HOME),
         RenderLayers::layer(MATERIAL_PREVIEW_LAYER),
@@ -545,6 +551,10 @@ pub(crate) fn on_field_value(
             Field::EmissiveB => def.emissive[2] = value,
             Field::EmissiveIntensity => def.emissive_intensity = value,
             Field::AlphaCutoff => def.alpha_cutoff = value,
+            // Tiling never reaches zero: a zero scale collapses every UV on
+            // the surface into one texel.
+            Field::UvTilingX => def.uv_tiling[0] = value.max(0.01),
+            Field::UvTilingY => def.uv_tiling[1] = value.max(0.01),
             _ => {}
         },
     );
@@ -626,9 +636,10 @@ pub(crate) fn on_chip_press(
                     MaterialAlphaMode::Mask => MaterialAlphaMode::Opaque,
                 });
             }
-            Field::Texture => {
+            Field::Texture(slot) => {
                 // none → tex0 → tex1 → … → none
-                let next = match def.base_color_texture {
+                let slot = *slot;
+                let next = match def.texture(slot) {
                     None => textures.first().copied(),
                     Some(current) => textures
                         .iter()
@@ -636,7 +647,7 @@ pub(crate) fn on_chip_press(
                         .and_then(|i| textures.get(i + 1))
                         .copied(),
                 };
-                def.base_color_texture = next;
+                def.set_texture(slot, next);
             }
             _ => {}
         },
@@ -809,10 +820,11 @@ pub(crate) fn sync_editor_ui(
     let Ok(body) = body.single() else { return };
     commands.entity(body).despawn_related::<Children>();
 
-    let texture_label = def
-        .base_color_texture
-        .and_then(|uuid| models.get(&uuid).map(|e| e.name.clone()))
-        .unwrap_or_else(|| "none".into());
+    let texture_label = |slot: TextureSlot| -> String {
+        def.texture(slot)
+            .and_then(|uuid| models.get(&uuid).map(|e| e.name.clone()))
+            .unwrap_or_else(|| "none".into())
+    };
 
     // Widgets spawn via `commands` + ChildOf (bsn scenes have no child-spawner
     // entry point); plain rows use commands the same way for symmetry.
@@ -1211,18 +1223,25 @@ pub(crate) fn sync_editor_ui(
         Field::DoubleSided,
         def.double_sided,
     );
-    caption(&mut commands, "BASE COLOR TEXTURE", false);
-    {
+    caption(&mut commands, "TEXTURES", false);
+    for slot in TextureSlot::ALL {
         let row = row_wrapper(&mut commands, 24.0);
-        gutter_label(&mut commands, &fonts, row, "texture");
+        gutter_label(&mut commands, &fonts, row, slot.label());
         chip_in(
             &mut commands,
             &fonts,
             row,
-            Field::Texture,
-            texture_label.clone(),
-            def.base_color_texture.is_some(),
+            Field::Texture(slot),
+            texture_label(slot),
+            def.texture(slot).is_some(),
         );
+    }
+    caption(&mut commands, "TILING", false);
+    for (field, label, value) in [
+        (Field::UvTilingX, "u", def.uv_tiling[0]),
+        (Field::UvTilingY, "v", def.uv_tiling[1]),
+    ] {
+        slider_row(&mut commands, &fonts, label, field, value, 8.0);
     }
     pending.0.extend(seeds.into_inner());
 }

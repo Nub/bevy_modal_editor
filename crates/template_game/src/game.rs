@@ -6,7 +6,7 @@ use avian3d::prelude::*;
 use bevy::input::mouse::AccumulatedMouseMotion;
 use bevy::prelude::*;
 use bevy::window::{CursorGrabMode, CursorOptions, PrimaryWindow};
-use game_framework::AppState;
+use game_framework::{AppState, primitive_mesh};
 
 /// Whether the game consumes player input this frame. The editor overlay (when
 /// compiled in and active) sets this false; without the editor it is always true.
@@ -74,8 +74,8 @@ fn on_primitive_added(
         1.0
     };
     let mesh = match primitive.kind {
-        PrimitiveKind::Cube => meshes.add(Cuboid::new(size, size, size)),
-        PrimitiveKind::Sphere => meshes.add(Sphere::new(size * 0.5)),
+        PrimitiveKind::Cube => meshes.add(primitive_mesh(Cuboid::new(size, size, size))),
+        PrimitiveKind::Sphere => meshes.add(primitive_mesh(Sphere::new(size * 0.5))),
     };
     commands
         .entity(entity)
@@ -273,7 +273,7 @@ fn on_ground_added(
     };
     let size = if ground.size > 0.0 { ground.size } else { 80.0 };
     commands.entity(entity).insert((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(size, size))),
+        Mesh3d(meshes.add(primitive_mesh(Plane3d::default().mesh().size(size, size)))),
         MeshMaterial3d(assets.ground.clone()),
         // The floor every dynamic prop lands on.
         RigidBody::Static,

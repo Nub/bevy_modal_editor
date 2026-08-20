@@ -150,7 +150,9 @@ pub(crate) fn sync_preview_content(world: &mut World) {
             let material_handle = world
                 .resource_mut::<Assets<StandardMaterial>>()
                 .add(standard);
-            let mesh = world.resource_mut::<Assets<Mesh>>().add(Sphere::new(1.0));
+            let mesh = world
+                .resource_mut::<Assets<Mesh>>()
+                .add(editor_scene::materials::primitive_mesh(Sphere::new(1.0)));
             world.spawn((
                 PreviewContent,
                 Mesh3d(mesh),

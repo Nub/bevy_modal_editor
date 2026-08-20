@@ -8,7 +8,7 @@ use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use bevy::ui_widgets::ValueChange;
 use editor_core::prelude::*;
-use editor_scene::materials::{MaterialLibrary, load_materials};
+use editor_scene::materials::{MaterialLibrary, TextureSlot, load_materials};
 use uuid::Uuid;
 
 use crate::material_editor::{Field, MaterialEditorRoot, MaterialEditorState, MaterialPreviewRig};
@@ -210,6 +210,120 @@ pub(crate) fn probe_material(world: &mut World) {
             slider_change(world, Field::Roughness, 0.2, true);
         }
         // ── Persistence: the library saved the edited def to disk ──────────
+        // ── Texture slots and tiling (format 2) ───────────────────────────
+        // The panel builds one row per DECLARED slot, so every slot must have a
+        // live chip — a table with no way to fill it is not authoring.
+        550 => {
+            let present: Vec<TextureSlot> = TextureSlot::ALL
+                .into_iter()
+                .filter(|slot| {
+                    world
+                        .query::<&Field>()
+                        .iter(world)
+                        .any(|field| *field == Field::Texture(*slot))
+                })
+                .collect();
+            check(
+                world,
+                present.len() == TextureSlot::ALL.len(),
+                &format!("every texture slot has a row ({present:?})"),
+            );
+            // A data map must not be gamma-decoded on load; the slot decides
+            // it, so the contract cannot be forgotten at a call site.
+            let linear = TextureSlot::ALL
+                .into_iter()
+                .filter(|slot| !slot.is_srgb())
+                .count();
+            check(
+                world,
+                linear == 3,
+                "normal, metal/rough and occlusion load linear, not sRGB",
+            );
+        }
+        560 => slider_change(world, Field::UvTilingX, 4.0, true),
+        570 => slider_change(world, Field::UvTilingY, 2.0, true),
+        600 => {
+            let tiling = created_def(world).map(|def| def.uv_tiling);
+            check(
+                world,
+                tiling.is_some_and(|t| (t[0] - 4.0).abs() < 0.01 && (t[1] - 2.0).abs() < 0.01),
+                &format!("the tiling sliders write into the def ({tiling:?})"),
+            );
+            let handle = world.resource::<MaterialPreviewRig>().material.clone();
+            let scale = world
+                .resource::<Assets<StandardMaterial>>()
+                .get(&handle)
+                .map(|m| m.uv_transform.matrix2.x_axis.x);
+            check(
+                world,
+                scale.is_some_and(|x| (x - 4.0).abs() < 0.01),
+                &format!("tiling reaches the rendered material ({scale:?})"),
+            );
+            shot(world, "60-material-tiling");
+        }
+        // The colour-space contract has to be checked where it MATTERS: on the
+        // image the GPU samples. A CPU-side assertion on the def cannot fail
+        // for the bug that mattered here — the asset server keys handles by
+        // path, so an earlier default-settings load of the same file would win
+        // and silently gamma-decode a data map while every def-level check
+        // stayed green.
+        610 => {
+            let texture = world
+                .resource::<editor_scene::models::ModelLibrary>()
+                .entries
+                .iter()
+                .find(|entry| entry.kind == editor_scene::models::EntryKind::Texture)
+                .map(|entry| entry.uuid);
+            match texture {
+                Some(uuid) => {
+                    let id = world.resource::<MaterialProbe>().created;
+                    if let Some(id) = id {
+                        let mut library = world.resource_mut::<MaterialLibrary>();
+                        if let Some(def) = library.get_mut(&id) {
+                            def.set_texture(TextureSlot::Normal, Some(uuid));
+                        }
+                    }
+                }
+                None => check(world, false, "an imported texture exists to bind"),
+            }
+        }
+        660 => {
+            let handle = world.resource::<MaterialPreviewRig>().material.clone();
+            let normal = world
+                .resource::<Assets<StandardMaterial>>()
+                .get(&handle)
+                .and_then(|m| m.normal_map_texture.clone());
+            check(
+                world,
+                normal.is_some(),
+                "the normal slot reaches StandardMaterial::normal_map_texture",
+            );
+            if let Some(normal) = normal {
+                let (srgb, repeats) = {
+                    let images = world.resource::<Assets<Image>>();
+                    let image = images.get(&normal);
+                    (
+                        image.map(|i| i.texture_descriptor.format.is_srgb()),
+                        image.map(|i| match &i.sampler {
+                            bevy::image::ImageSampler::Descriptor(descriptor) => {
+                                descriptor.address_mode_u == bevy::image::ImageAddressMode::Repeat
+                            }
+                            bevy::image::ImageSampler::Default => false,
+                        }),
+                    )
+                };
+                check(
+                    world,
+                    srgb == Some(false),
+                    &format!("the normal map is loaded LINEAR, not sRGB ({srgb:?})"),
+                );
+                check(
+                    world,
+                    repeats == Some(true),
+                    &format!("the sampler REPEATS, so tiling tiles ({repeats:?})"),
+                );
+            }
+        }
         620 => {
             let on_disk = {
                 let (path, id) = {

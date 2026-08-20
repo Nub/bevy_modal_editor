@@ -27,3 +27,20 @@ impl Plugin for GameFrameworkPlugin {
         app.init_state::<AppState>();
     }
 }
+
+/// Build a primitive mesh WITH tangents.
+///
+/// Bevy compiles the whole normal-mapping branch out unless a mesh's vertex
+/// layout carries `ATTRIBUTE_TANGENT` (the PBR shader gates it behind
+/// `#ifdef VERTEX_TANGENTS`), and no primitive builder emits one. A normal map
+/// on a greybox cube is therefore discarded in silence — no warning, no error,
+/// just a surface that never changes. glTF meshes arrive with tangents from the
+/// importer; anything a game generates has to ask.
+pub fn primitive_mesh(shape: impl Into<Mesh>) -> Mesh {
+    let mut mesh = shape.into();
+    if let Err(error) = mesh.generate_tangents() {
+        // Not fatal: the surface still shades, it just cannot show a normal map.
+        warn!("no tangents for a primitive mesh; normal maps will not show: {error}");
+    }
+    mesh
+}

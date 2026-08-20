@@ -275,15 +275,23 @@ pub(crate) fn perform_import(
     let live: std::collections::HashSet<Uuid> = library.entries.iter().map(|e| e.uuid).collect();
     handles.0.retain(|uuid, _| live.contains(uuid));
     for entry in &library.entries {
-        handles
-            .0
-            .entry(entry.uuid)
-            .or_insert_with(|| match entry.kind {
-                EntryKind::Model => assets
+        // Textures are deliberately NOT preloaded. The asset server keys
+        // handles by PATH, so the FIRST loader of a file decides its loader
+        // settings and every later `load_with_settings` for that path gets the
+        // existing handle with its settings DISCARDED. A material has to load
+        // each map in the colour space its slot declares — linear for normal,
+        // metallic-roughness and occlusion — with repeat wrapping so tiling
+        // repeats instead of smearing the edge texels. Parking a
+        // default-settings handle here would win that race and silently
+        // gamma-decode every data map, which is exactly the bug the slot table
+        // exists to prevent. Models still preload: a Gltf has no such setting.
+        if entry.kind == EntryKind::Model {
+            handles.0.entry(entry.uuid).or_insert_with(|| {
+                assets
                     .load::<bevy::gltf::Gltf>(entry.asset_path.clone())
-                    .untyped(),
-                EntryKind::Texture => assets.load::<Image>(entry.asset_path.clone()).untyped(),
+                    .untyped()
             });
+        }
     }
     for path in reload_paths {
         info!("asset import: reloading changed source {path}");
