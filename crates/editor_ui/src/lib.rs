@@ -280,6 +280,7 @@ impl Plugin for EditorUiPlugin {
             (
                 material_editor::collect_editor_actions,
                 material_editor::collect_rename,
+                material_editor::handle_material_library_verbs,
                 material_editor::apply_rename,
                 material_editor::apply_material_history,
                 material_editor::sync_editor_ui,

@@ -252,6 +252,23 @@ impl EditorFeature for MaterialEditorFeature {
                 .context("normal")
                 .bind("space r"),
         );
+        reg.action(
+            ActionDef::new("material.duplicate", "Duplicate Material")
+                .describe(
+                    "Copy the open (or selected) material and edit the copy — \
+                     the way a variant is actually made",
+                )
+                .context("normal")
+                .bind("space shift+d"),
+        );
+        reg.action(
+            // No binding, deliberately: removing a material is not undoable
+            // through the asset history, so it is reached from the palette
+            // where it has to be chosen by name rather than by muscle memory.
+            ActionDef::new("material.delete", "Delete Material")
+                .describe("Remove the open (or selected) material — refuses while it is in use")
+                .context("normal"),
+        );
     }
 }
 
@@ -360,6 +377,91 @@ pub(crate) fn collect_editor_actions(
     };
     if *scope != want {
         *scope = want;
+    }
+}
+
+/// `material.duplicate` and `material.delete`: the two verbs that made the
+/// library one-way. Without duplicate, "this wall but greener" means building a
+/// material from scratch; without delete, a mistyped material is permanent.
+pub(crate) fn handle_material_library_verbs(
+    mut reader: MessageReader<ActionInvoked>,
+    mut state: ResMut<MaterialEditorState>,
+    selection: Query<&editor_scene::materials::MaterialRef, With<Selected>>,
+    references: Query<&editor_scene::materials::MaterialRef>,
+    mut library: ResMut<MaterialLibrary>,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    for invoked in reader.read() {
+        let action = invoked.action.as_str();
+        if action != "material.duplicate" && action != "material.delete" {
+            continue;
+        }
+        // Same resolution as rename: the open material, else the selection's.
+        let Some(id) = state
+            .target
+            .or_else(|| selection.iter().next().map(|reference| reference.0))
+            .filter(|id| library.get(id).is_some())
+        else {
+            feedback.write(editor_scene::SceneIoFeedback {
+                message: "no material — open one or select a shaded object".into(),
+                success: false,
+            });
+            continue;
+        };
+        match action {
+            "material.duplicate" => {
+                let Some(source) = library.get(&id).cloned() else {
+                    continue;
+                };
+                let copy = MaterialDef {
+                    id: Uuid::new_v4(),
+                    name: format!("{} copy", source.name),
+                    ..source
+                };
+                let (new_id, name) = (copy.id, copy.name.clone());
+                library.add(copy);
+                // The COPY becomes the current material — duplicating is how a
+                // variant starts, and every edit after it belongs to the variant.
+                state.target = Some(new_id);
+                state.refresh = true;
+                feedback.write(editor_scene::SceneIoFeedback {
+                    message: format!("duplicated \u{25c6} {name}"),
+                    success: true,
+                });
+            }
+            _ => {
+                // Refuse while anything still wears it: deleting a material out
+                // from under a shaded object would leave it silently unpainted,
+                // and there is no asset-history entry to undo this with.
+                let users = references
+                    .iter()
+                    .filter(|reference| reference.0 == id)
+                    .count();
+                if users > 0 {
+                    feedback.write(editor_scene::SceneIoFeedback {
+                        message: format!(
+                            "{} object{} still use this material",
+                            users,
+                            if users == 1 { "" } else { "s" }
+                        ),
+                        success: false,
+                    });
+                    continue;
+                }
+                let name = library
+                    .remove(&id)
+                    .map(|def| def.name)
+                    .unwrap_or_else(|| "material".into());
+                if state.target == Some(id) {
+                    state.target = library.materials.first().map(|def| def.id);
+                    state.refresh = true;
+                }
+                feedback.write(editor_scene::SceneIoFeedback {
+                    message: format!("deleted {name}"),
+                    success: true,
+                });
+            }
+        }
     }
 }
 

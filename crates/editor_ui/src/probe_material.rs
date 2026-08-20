@@ -16,6 +16,8 @@ use crate::probe_user::{shot, tap, tap_named};
 
 #[derive(Resource, Default)]
 pub(crate) struct MaterialProbe {
+    library_before: usize,
+    target_before: Option<Uuid>,
     frame: u32,
     failures: Vec<String>,
     created: Option<Uuid>,
@@ -287,7 +289,7 @@ pub(crate) fn probe_material(world: &mut World) {
                 None => check(world, false, "an imported texture exists to bind"),
             }
         }
-        660 => {
+        682 => {
             let handle = world.resource::<MaterialPreviewRig>().material.clone();
             let normal = world
                 .resource::<Assets<StandardMaterial>>()
@@ -504,7 +506,116 @@ pub(crate) fn probe_material(world: &mut World) {
                 library.generation += 1;
             }
         }
-        1000 => {
+        // ── Library verbs: the library used to only grow ──────────────────
+        1020 => {
+            // Target explicitly rather than inheriting whatever the run left
+            // open: these checks are about the verbs, not about panel state.
+            let first = world
+                .resource::<MaterialLibrary>()
+                .materials
+                .first()
+                .map(|def| def.id);
+            world.resource_mut::<MaterialEditorState>().target = first;
+            let before = world.resource::<MaterialLibrary>().materials.len();
+            world.resource_mut::<MaterialProbe>().library_before = before;
+            world.resource_mut::<MaterialProbe>().target_before = first;
+            invoke(world, "material.duplicate");
+        }
+        1060 => {
+            let before = world.resource::<MaterialProbe>().library_before;
+            let after = world.resource::<MaterialLibrary>().materials.len();
+            check(
+                world,
+                after == before + 1,
+                &format!("duplicate added a material ({before} then {after})"),
+            );
+            let copy = world
+                .resource::<MaterialLibrary>()
+                .materials
+                .last()
+                .cloned();
+            check(
+                world,
+                copy.as_ref().is_some_and(|def| def.name.ends_with(" copy")),
+                "the copy is named after its source",
+            );
+            // A duplicate is how a VARIANT starts, so the panel follows the copy.
+            let target = world.resource::<MaterialEditorState>().target;
+            let before_target = world.resource::<MaterialProbe>().target_before;
+            check(
+                world,
+                target.is_some() && target != before_target,
+                "the editor follows the copy, ready to tweak",
+            );
+        }
+        // Delete refuses while anything still wears the material: there is no
+        // asset-history entry to undo it with, and a shaded object would be
+        // silently unpainted.
+        1100 => {
+            // Put the material ON something, so the refusal is about a real
+            // reference rather than about an empty scene.
+            let id = world
+                .resource::<MaterialLibrary>()
+                .materials
+                .first()
+                .map(|def| def.id);
+            match id {
+                Some(id) => {
+                    world.spawn(editor_scene::materials::MaterialRef(id));
+                    world.resource_mut::<MaterialEditorState>().target = Some(id);
+                    let before = world.resource::<MaterialLibrary>().materials.len();
+                    world.resource_mut::<MaterialProbe>().library_before = before;
+                    invoke(world, "material.delete");
+                }
+                None => check(world, false, "a material exists to try deleting"),
+            }
+        }
+        1140 => {
+            let before = world.resource::<MaterialProbe>().library_before;
+            let after = world.resource::<MaterialLibrary>().materials.len();
+            check(
+                world,
+                after == before,
+                &format!("delete REFUSED while the material is in use ({after} of {before})"),
+            );
+        }
+        // The copy nothing wears can go — which is the whole point: a
+        // mis-created material used to be permanent.
+        1180 => {
+            let unused = {
+                let used: Vec<Uuid> = world
+                    .query::<&editor_scene::materials::MaterialRef>()
+                    .iter(world)
+                    .map(|reference| reference.0)
+                    .collect();
+                world
+                    .resource::<MaterialLibrary>()
+                    .materials
+                    .iter()
+                    .map(|def| def.id)
+                    .find(|id| !used.contains(id))
+            };
+            match unused {
+                Some(id) => {
+                    world.resource_mut::<MaterialEditorState>().target = Some(id);
+                    let before = world.resource::<MaterialLibrary>().materials.len();
+                    world.resource_mut::<MaterialProbe>().library_before = before;
+                    invoke(world, "material.delete");
+                }
+                None => check(world, false, "an unused material exists to delete"),
+            }
+        }
+        1220 => {
+            let before = world.resource::<MaterialProbe>().library_before;
+            let after = world.resource::<MaterialLibrary>().materials.len();
+            check(
+                world,
+                after == before - 1,
+                &format!("delete removed the unused material ({before} then {after})"),
+            );
+            shot(world, "61-material-verbs");
+        }
+        1300 => {
             let failures = world.resource::<MaterialProbe>().failures.clone();
             if failures.is_empty() {
                 info!("MATERIAL-PROBE PASS: the material editor end-to-end");

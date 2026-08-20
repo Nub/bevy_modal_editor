@@ -273,13 +273,25 @@ impl MaterialLibrary {
     pub fn get(&self, id: &Uuid) -> Option<&MaterialDef> {
         self.materials.iter().find(|m| &m.id == id)
     }
+    /// The generation bump belongs to a lookup that SUCCEEDED. Bumping first
+    /// meant every miss marked the library dirty, and the autosave rewrites
+    /// materials.ron on any generation change — a steady stream of disk writes
+    /// for edits that never happened (spec §8: no per-frame work at rest).
     pub fn get_mut(&mut self, id: &Uuid) -> Option<&mut MaterialDef> {
+        let index = self.materials.iter().position(|m| &m.id == id)?;
         self.generation += 1;
-        self.materials.iter_mut().find(|m| &m.id == id)
+        self.materials.get_mut(index)
     }
     pub fn add(&mut self, def: MaterialDef) {
         self.generation += 1;
         self.materials.push(def);
+    }
+    /// Remove a material. The caller decides whether removing it is SAFE —
+    /// see `material.delete`, which refuses while anything still references it.
+    pub fn remove(&mut self, id: &Uuid) -> Option<MaterialDef> {
+        let index = self.materials.iter().position(|m| &m.id == id)?;
+        self.generation += 1;
+        Some(self.materials.remove(index))
     }
 }
 
@@ -610,6 +622,55 @@ mod tests {
     use super::*;
     use editor_core::prelude::{History, HistoryRequests};
 
+    // The autosave rewrites materials.ron whenever the generation moves, so a
+    // FAILED lookup must not move it — that was a disk write for an edit that
+    // never happened (spec §8: no per-frame work at rest).
+    #[test]
+    fn a_failed_lookup_does_not_dirty_the_library() {
+        let mut library = MaterialLibrary::default();
+        library.add(MaterialDef {
+            id: Uuid::new_v4(),
+            ..Default::default()
+        });
+        let clean = library.generation;
+        assert!(library.get_mut(&Uuid::new_v4()).is_none(), "a miss is None");
+        assert_eq!(
+            library.generation, clean,
+            "a miss leaves the library clean, so nothing is written"
+        );
+        let id = library.materials[0].id;
+        assert!(library.get_mut(&id).is_some());
+        assert!(
+            library.generation > clean,
+            "a hit still marks it dirty, so the edit is saved"
+        );
+    }
+
+    // Removing reports what it removed and marks the library dirty; removing
+    // something absent changes nothing at all.
+    #[test]
+    fn remove_takes_exactly_one_material() {
+        let mut library = MaterialLibrary::default();
+        let keep = Uuid::new_v4();
+        let drop = Uuid::new_v4();
+        for id in [keep, drop] {
+            library.add(MaterialDef {
+                id,
+                name: format!("m{id}"),
+                ..Default::default()
+            });
+        }
+        let before = library.generation;
+        let removed = library.remove(&drop).expect("the material was there");
+        assert_eq!(removed.id, drop);
+        assert_eq!(library.materials.len(), 1);
+        assert_eq!(library.materials[0].id, keep, "the other one is untouched");
+        assert!(library.generation > before, "removal is a change");
+
+        let after = library.generation;
+        assert!(library.remove(&drop).is_none(), "removing twice is a miss");
+        assert_eq!(library.generation, after, "and a miss changes nothing");
+    }
     // Format 1 wrote a single `base_color_texture`; format 2 has a slot table.
     // Old files have to keep working, and the migration has to be idempotent.
     #[test]

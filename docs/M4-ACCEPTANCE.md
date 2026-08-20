@@ -98,6 +98,38 @@ Covered by MATERIAL, and the coverage deliberately reads the GPU-facing state �
 and would have reported the feature green while the render was wrong. Also
 `format_1_textures_migrate_into_the_slot_table` and `only_colour_slots_are_srgb`.
 
+
+### D11 library verbs and what is still owed (2026-08-19)
+
+The library only ever grew: the registered material actions were exactly new,
+assign, edit and rename, so a mis-created material was permanent and
+"duplicate this and tweak it" — the most common operation in any DCC — did not
+exist. `material.duplicate` (`Space Shift+D`) copies the open or selected
+material, names it *"<source> copy"*, and makes the COPY current, because
+duplicating is how a variant starts and every edit after it belongs to the
+variant.
+
+`material.delete` has **no binding on purpose**. It is not undoable through the
+asset history, so it is reached from the palette where it must be chosen by
+name rather than by muscle memory, and it REFUSES while anything still wears the
+material — deleting one out from under a shaded object would leave it silently
+unpainted. What it does delete is exactly the case that motivated it: the
+material nothing uses.
+
+Also fixed here: `MaterialLibrary::get_mut` bumped the generation BEFORE the
+lookup succeeded, so every miss marked the library dirty and the autosave
+rewrote `materials.ron` for an edit that never happened (spec §8: no per-frame
+work at rest).
+
+**Still owed — inheritance.** Every material is a full copy with no link back
+(no `base` field; `MaterialRef` is a bare uuid), so a late art-direction change
+still means re-editing N materials by hand. Spec §6:492-497 mandates keeping
+library-reference *and* inline-override semantics, and only the reference half
+exists. Inheritance is deliberately NOT built here: it wants base-plus-patches
+over one shared patch type, and this repo already carries three delta languages
+that disagree. Adding a fourth ad-hoc one to land inheritance a slice earlier
+would move the architecture backwards. It rides the delta-language
+consolidation instead.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per
