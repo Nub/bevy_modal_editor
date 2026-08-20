@@ -861,6 +861,22 @@ pub(crate) fn probe_material(world: &mut World) {
                 &format!("the searched texture landed in the NORMAL slot ({bound:?})"),
             );
             shot(world, "64-material-texture-picker");
+            // A METAL ball, captured from the offscreen target: metal is the
+            // parameter the room exists for, and the window capture is a black
+            // frame whenever the terminal is in front.
+            if let Some(id) = world.resource::<MaterialEditorState>().target
+                && let Some(def) = world.resource_mut::<MaterialLibrary>().get_mut(&id)
+            {
+                def.metallic = 1.0;
+                def.roughness = 0.22;
+                def.base_color = [0.95, 0.93, 0.88, 1.0];
+                def.set_texture(TextureSlot::Normal, None);
+                def.set_texture(TextureSlot::BaseColor, None);
+            }
+        }
+        1730 => {
+            let preview = world.resource::<MaterialPreviewRig>().image.clone();
+            crate::probe_user::shot_image(world, preview, "65-preview-metal");
         }
         // ── The room the surface is judged in ─────────────────────────────
         // Bevy PANICS if the source cubemap is not square power-of-two, and

@@ -161,10 +161,48 @@ pub(crate) fn viewport_center(world: &mut World) -> Vec2 {
 }
 
 pub(crate) fn shot(world: &mut World, name: &str) {
+    // macOS stops compositing an occluded window, so a screenshot taken while
+    // the terminal is in front reads back as a uniform black frame — which is
+    // indistinguishable from "the editor drew nothing" and has twice left UI
+    // work verified only structurally. Raising the window for the capture is
+    // the difference between a screenshot and a black rectangle.
+    raise_window(world);
     let path = format!("{SHOT_DIR}/{name}.png");
     world
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(path));
+}
+
+/// Capture an OFFSCREEN render target rather than the window.
+///
+/// A window screenshot is only as good as the compositor's willingness to draw
+/// the window, and on macOS an occluded one reads back as a uniform black
+/// frame — 46 of this repo's 48 captured frames are exactly that. A
+/// render-to-texture target has no such problem: it is drawn because something
+/// asked for it, not because someone is looking at it. Anything that needs to
+/// be SEEN to be verified should render to an image and be captured here.
+pub(crate) fn shot_image(world: &mut World, image: Handle<Image>, name: &str) {
+    let path = format!("{SHOT_DIR}/{name}.png");
+    world
+        .spawn(Screenshot::image(image))
+        .observe(save_to_disk(path));
+}
+
+/// Put the window in front so the compositor keeps drawing it. Probe-only: it
+/// runs in a run the probe already owns the machine for.
+pub(crate) fn raise_window(world: &mut World) {
+    let windows: Vec<Entity> = world
+        .query_filtered::<Entity, With<bevy::window::PrimaryWindow>>()
+        .iter(world)
+        .collect();
+    for entity in windows {
+        if let Some(mut window) = world.get_mut::<Window>(entity) {
+            if window.window_level != bevy::window::WindowLevel::AlwaysOnTop {
+                window.window_level = bevy::window::WindowLevel::AlwaysOnTop;
+            }
+            window.focused = true;
+        }
+    }
 }
 
 pub(crate) fn check(world: &mut World, ok: bool, what: &str) {

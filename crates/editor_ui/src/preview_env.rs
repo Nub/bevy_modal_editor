@@ -20,8 +20,9 @@ use bevy::render::render_resource::{
     Extent3d, TextureDimension, TextureFormat, TextureViewDescriptor, TextureViewDimension,
 };
 
-/// Face size. Small on purpose: it is filtered into mips immediately, and a
-/// studio backdrop has no detail worth more than this.
+/// Face size. 64 and 256 were compared side by side in the preview and render
+/// indistinguishably — what limits the sharpness of a reflection here is the
+/// room having little detail to reflect, not the resolution it is stored at.
 const FACE: u32 = 64;
 
 /// The generated studio, kept alive for as long as the editor runs.
@@ -58,18 +59,46 @@ fn studio_radiance(direction: Vec3) -> [f32; 3] {
         let t = (-up).powf(0.6);
         [0.26 - 0.16 * t, 0.25 - 0.16 * t, 0.24 - 0.15 * t]
     };
-    // A soft key: broad enough to read as a source with an edge, which is what
-    // roughness blurs. A point-like highlight would tell you almost nothing.
-    let key_direction = Vec3::new(-0.45, 0.72, 0.53).normalize();
-    let key = direction.dot(key_direction).max(0.0).powf(6.0);
-    // And a dimmer fill opposite it, so the dark side is not a void.
-    let fill_direction = Vec3::new(0.62, 0.28, -0.73).normalize();
-    let fill = direction.dot(fill_direction).max(0.0).powf(3.0) * 0.25;
+    // A HORIZON. A featureless gradient is a room a mirror cannot prove it is
+    // reflecting: the first version of this rendered a chrome ball as a smooth
+    // grey egg, because a smooth gradient reflected sharply is still a smooth
+    // gradient. What makes metal read as metal is an EDGE, and what makes
+    // roughness legible is watching that edge soften.
+    let horizon = smoothstep(-0.045, 0.045, up);
+    let mut radiance = [
+        base[0] * (0.62 + 0.38 * horizon),
+        base[1] * (0.62 + 0.38 * horizon),
+        base[2] * (0.62 + 0.38 * horizon),
+    ];
+    // Softboxes: bright discs with defined rims, the way a product shot is lit.
+    // Two of them, slightly different in colour, so a reflection also tells you
+    // which way the surface is facing.
+    let panels = [
+        (
+            Vec3::new(-0.45, 0.72, 0.53),
+            0.30_f32,
+            [0.95, 0.94, 0.90_f32],
+        ),
+        (Vec3::new(0.68, 0.34, -0.65), 0.20, [0.55, 0.60, 0.72]),
+    ];
+    for (towards, radius, colour) in panels {
+        let angle = direction.dot(towards.normalize()).clamp(-1.0, 1.0).acos();
+        // A hard core with a short falloff: the rim is the part roughness eats.
+        let inside = 1.0 - smoothstep(radius * 0.72, radius, angle);
+        for channel in 0..3 {
+            radiance[channel] += colour[channel] * inside;
+        }
+    }
     [
-        (base[0] + key + fill).clamp(0.0, 1.0),
-        (base[1] + key * 0.98 + fill).clamp(0.0, 1.0),
-        (base[2] + key * 0.94 + fill * 1.05).clamp(0.0, 1.0),
+        radiance[0].clamp(0.0, 1.0),
+        radiance[1].clamp(0.0, 1.0),
+        radiance[2].clamp(0.0, 1.0),
     ]
+}
+
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 pub(crate) fn build_studio_cubemap() -> Image {

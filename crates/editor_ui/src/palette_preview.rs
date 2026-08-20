@@ -87,7 +87,7 @@ pub(crate) fn setup_preview_rig(
             // looks like.
             bevy::light::GeneratedEnvironmentMapLight {
                 environment_map: environment.0.clone(),
-                intensity: 1400.0,
+                intensity: 900.0,
                 ..default()
             },
         ))

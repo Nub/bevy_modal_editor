@@ -70,6 +70,9 @@ pub(crate) fn probe_blockout(world: &mut World) {
     let frame = world.resource::<BlockoutProbe>().frame;
     if frame == 1 {
         let _ = std::fs::create_dir_all(crate::probe_user::SHOT_DIR);
+        // Raise it NOW, not at capture time: the compositor needs frames to
+        // start drawing an occluded window again.
+        crate::probe_user::raise_window(world);
         info!("BLOCKOUT-PROBE armed");
     }
     match frame {

@@ -172,7 +172,7 @@ pub(crate) struct MaterialEditorTitle;
 
 #[derive(Resource)]
 pub(crate) struct MaterialPreviewRig {
-    image: Handle<Image>,
+    pub(crate) image: Handle<Image>,
     pub(crate) material: Handle<StandardMaterial>,
     pub(crate) camera: Entity,
 }
@@ -339,7 +339,7 @@ pub(crate) fn setup_material_preview(
             // black and `metallic` is a slider with nothing to show.
             bevy::light::GeneratedEnvironmentMapLight {
                 environment_map: environment.0.clone(),
-                intensity: 1400.0,
+                intensity: 900.0,
                 ..default()
             },
         ))

@@ -242,10 +242,22 @@ component has become a filtered `EnvironmentMapLight` rather than merely that it
 was inserted: Bevy only makes that swap once it has validated and filtered the
 source, and it panics outright on a source that is not square power-of-two.
 
-**Unverified:** the intensity (1400 cd/m²) and the room's balance were chosen by
-reasoning, not by looking. Probe screenshots came back as the black-frame flake
-that happens when the window is not frontmost, so nobody has yet SEEN this. The
-numbers are in one place and are meant to be tuned by eye.
+**Seen, and then fixed.** The first version was tuned by reasoning and was wrong
+twice over. Captured, it showed a flat washed-out ball: the room was clipping to
+white across most of the sphere, so there was no gradient left to shade with.
+Retuned well clear of 1.0 and dropped to 900 cd/m², the form reads. Then a metal
+ball still looked matte — because a featureless gradient reflected sharply is
+still a featureless gradient. What makes metal read as metal is an EDGE, so the
+room gained a horizon and two softbox discs with defined rims, which is also
+what gives roughness something to visibly blur.
+
+Resolution was tested rather than assumed: 64 and 256 render indistinguishably
+here, because what limits a reflection's sharpness is the room having little to
+reflect, not the resolution it is stored at.
+
+Screenshots of the panel itself are still unreliable, but the preview target is
+captured OFFSCREEN now (see `shot_image`), so what the sphere looks like is
+verifiable regardless of which window has focus.
 
 **Not applied to the viewport.** The scene camera has no environment light, so a
 metal object in the level still renders as it did. Whether the editor should
