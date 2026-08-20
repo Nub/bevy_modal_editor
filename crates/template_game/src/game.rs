@@ -564,6 +564,15 @@ fn spawn_level(mut commands: Commands, mut next: ResMut<NextState<AppState>>) {
         game_framework::PostProcess::default(),
         Name::new("Post Process"),
     ));
+    // An emitter waiting for its cue. Every number on it is a track address, so
+    // the burst itself can be animated — a fountain that widens is two keys.
+    commands.spawn((
+        #[cfg(feature = "editor")]
+        editor_api::prelude::SceneId::random(),
+        game_framework::Burst::default(),
+        Name::new("Burst"),
+        Transform::from_xyz(0.0, 1.0, 0.0),
+    ));
     // The spawn POINT is authored data; the player camera derives from it, so
     // moving the widget moves where you start.
     let spawn = Transform::from_xyz(0.0, 0.0, 6.0);

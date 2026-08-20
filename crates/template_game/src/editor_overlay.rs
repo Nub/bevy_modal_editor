@@ -170,6 +170,7 @@ impl EditorFeature for GameFeature {
             .component::<crate::game::Ground>()
             .component::<crate::game::PlayerSpawn>()
             .component::<game_framework::PostProcess>()
+            .component::<game_framework::Burst>()
             .component::<PhysicsBody>()
             .component::<Name>()
             .entity_kind(EntityKindDef {
@@ -1024,8 +1025,15 @@ fn draw_player_spawn(cx: &mut editor_api::gizmos::GizmoCx) {
 fn answer_timeline_events(
     mut events: MessageReader<editor_scene::anim::TimelineEvent>,
     mut spinners: Query<&mut crate::game::Spinner>,
+    mut effects: MessageWriter<game_framework::FireEffect>,
 ) {
     for event in events.read() {
+        // EVERY event becomes an effect cue as well. An emitter that wants this
+        // name will fire; nothing else notices. That is the whole translation —
+        // and when the sequencer moves game-side, this line is what disappears.
+        effects.write(game_framework::FireEffect {
+            name: event.name.clone(),
+        });
         match event.name.as_str() {
             "spin" => {
                 for mut spinner in &mut spinners {

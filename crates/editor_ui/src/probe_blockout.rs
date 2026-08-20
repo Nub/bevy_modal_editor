@@ -113,6 +113,33 @@ fn game_number(world: &mut World, type_suffix: &str, field: &str) -> Option<f32>
     best
 }
 
+/// Count particles the way the editor knows anything about a game: by name.
+fn particle_count(world: &mut World) -> usize {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let Some(registration) = registry
+        .iter()
+        .find(|registration| registration.type_info().type_path().ends_with("::Particle"))
+    else {
+        return 0;
+    };
+    let Some(reflect_component) = registration.data::<bevy::ecs::reflect::ReflectComponent>()
+    else {
+        return 0;
+    };
+    let entities: Vec<Entity> = world.iter_entities().map(|entity| entity.id()).collect();
+    entities
+        .into_iter()
+        .filter(|entity| {
+            world
+                .get_entity(*entity)
+                .ok()
+                .and_then(|entity_ref| reflect_component.reflect(entity_ref))
+                .is_some()
+        })
+        .count()
+}
+
 fn window_size(world: &mut World) -> Vec2 {
     world
         .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>()
@@ -1023,7 +1050,48 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 &format!("and still arrives exactly on the key ({arrived})"),
             );
         }
-        2360 => {
+        // ── An event that makes something HAPPEN ──────────────────────────
+        // The whole chain, end to end: a moment marked in the editor, fired by
+        // the playhead, translated into a game-side cue, and answered by an
+        // emitter the level authored.
+        2350 => {
+            let count = particle_count(world);
+            check(
+                world,
+                count == 0,
+                &format!("nothing in flight yet ({count})"),
+            );
+            world
+                .resource_mut::<editor_scene::anim::Timeline>()
+                .events
+                .push(editor_scene::anim::EventMarker {
+                    time: 0.1,
+                    name: "burst".into(),
+                });
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.0;
+        }
+        2354 => invoke(world, "anim.play"),
+        2380 => {
+            let count = particle_count(world);
+            check(
+                world,
+                count > 0,
+                &format!("the marked moment threw particles ({count})"),
+            );
+            shot(world, "49-blockout-burst");
+            invoke(world, "anim.rewind");
+        }
+        // And they clean up after themselves: an effect that leaks entities is
+        // a memory leak with a pretty face.
+        2500 => {
+            let count = particle_count(world);
+            check(
+                world,
+                count == 0,
+                &format!("and every particle expired ({count})"),
+            );
+        }
+        2540 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

@@ -27,6 +27,10 @@ impl Plugin for GameFrameworkPlugin {
         app.init_state::<AppState>();
         app.register_type::<PostProcess>();
         app.add_systems(Update, (adopt_authored_look, apply_post_process).chain());
+        app.register_type::<Burst>();
+        app.register_type::<Particle>();
+        app.add_message::<FireEffect>();
+        app.add_systems(Update, (fire_bursts, age_particles));
     }
 }
 
@@ -254,5 +258,241 @@ mod adopt_tests {
             Some(0.1),
             "and follows it when it changes"
         );
+    }
+}
+
+/// Ask for a named effect. The sequencer's events arrive as these, but so can
+/// anything else — a collision, a pickup, a rule firing — which is the point:
+/// effects are triggered by NAME, and nothing that triggers one needs to know
+/// what it looks like.
+#[derive(Message, Clone, Debug)]
+pub struct FireEffect {
+    pub name: String,
+}
+
+/// A particle burst, authored on an entity, waiting for its cue.
+///
+/// Every field is a number a track can address, so the burst itself is
+/// animatable: a fountain that widens over ten seconds is two keys, not a new
+/// component. It lives here rather than in the editor because it has to exist
+/// in a release build — the editor edits it, the game runs it.
+#[derive(Component, Reflect, Clone, PartialEq, Debug)]
+#[reflect(Component, Default)]
+pub struct Burst {
+    /// The cue. Matching on a name is the whole interface.
+    pub event: String,
+    pub count: u32,
+    /// Metres per second, before gravity.
+    pub speed: f32,
+    /// Seconds each particle lives. Nothing outlives its burst.
+    pub lifetime: f32,
+    pub size: f32,
+    /// How much the spray is pulled down. 0 for sparks in space.
+    pub gravity: f32,
+}
+
+impl Default for Burst {
+    fn default() -> Self {
+        Self {
+            event: "burst".into(),
+            count: 24,
+            speed: 4.0,
+            lifetime: 0.9,
+            size: 0.08,
+            gravity: 9.8,
+        }
+    }
+}
+
+/// One particle in flight. Despawned by `age_particles` when it runs out.
+///
+/// Reflected so tools can SEE it. It is deliberately not an editor component:
+/// particles are transient and must never be selected, saved, or keyed.
+#[derive(Component, Reflect, Clone, Copy, Debug)]
+#[reflect(Component)]
+pub struct Particle {
+    pub velocity: Vec3,
+    pub remaining: f32,
+    pub gravity: f32,
+}
+
+/// Directions spread over a sphere by the golden angle.
+///
+/// Deterministic on purpose: a burst that looks different every run cannot be
+/// tested, and a designer tuning a fountain wants the change they made to be
+/// the only thing that moved. It is also, conveniently, more even than random.
+pub fn burst_direction(index: u32, count: u32) -> Vec3 {
+    let count = count.max(1) as f32;
+    let i = index as f32;
+    // Fibonacci sphere: y walks the axis, the angle turns by the golden angle.
+    let y = 1.0 - (i / count) * 2.0;
+    let radius = (1.0 - y * y).max(0.0).sqrt();
+    let theta = std::f32::consts::PI * (3.0 - 5.0_f32.sqrt()) * i;
+    Vec3::new(theta.cos() * radius, y, theta.sin() * radius)
+}
+
+fn fire_bursts(
+    mut commands: Commands,
+    mut effects: MessageReader<FireEffect>,
+    emitters: Query<(&Burst, &GlobalTransform)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let fired: Vec<String> = effects.read().map(|effect| effect.name.clone()).collect();
+    if fired.is_empty() {
+        return;
+    }
+    for (burst, at) in &emitters {
+        if !fired.contains(&burst.event) {
+            continue;
+        }
+        // Unlit: a spark is a light source, not a surface being lit, and an
+        // unlit quad reads as a spark at any size.
+        let material = materials.add(StandardMaterial {
+            base_color: Color::srgb(1.0, 0.85, 0.5),
+            unlit: true,
+            ..default()
+        });
+        let mesh = meshes.add(primitive_mesh(Sphere::new(burst.size.max(0.001))));
+        let origin = at.translation();
+        for index in 0..burst.count {
+            commands.spawn((
+                Particle {
+                    velocity: burst_direction(index, burst.count) * burst.speed,
+                    remaining: burst.lifetime,
+                    gravity: burst.gravity,
+                },
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_translation(origin),
+            ));
+        }
+    }
+}
+
+fn age_particles(
+    mut commands: Commands,
+    time: Option<Res<Time>>,
+    mut particles: Query<(Entity, &mut Particle, &mut Transform)>,
+) {
+    let Some(time) = time else { return };
+    let delta = time.delta_secs();
+    for (entity, mut particle, mut transform) in &mut particles {
+        particle.remaining -= delta;
+        if particle.remaining <= 0.0 {
+            // Nothing outlives its burst: a particle system that leaks entities
+            // is a memory leak with a pretty face.
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let gravity = particle.gravity;
+        particle.velocity.y -= gravity * delta;
+        let step = particle.velocity * delta;
+        transform.translation += step;
+    }
+}
+
+#[cfg(test)]
+mod burst_tests {
+    use super::*;
+
+    fn burst_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()));
+        app.init_asset::<Mesh>();
+        app.init_asset::<StandardMaterial>();
+        app.add_message::<FireEffect>();
+        app.add_systems(Update, (fire_bursts, age_particles));
+        app
+    }
+
+    // The cue is a NAME: an emitter fires for its own event and stays put for
+    // anything else, which is what lets one timeline drive many effects.
+    #[test]
+    fn an_emitter_fires_only_for_its_own_event() {
+        let mut app = burst_app();
+        app.world_mut().spawn((
+            Burst {
+                event: "sparks".into(),
+                count: 8,
+                ..Default::default()
+            },
+            GlobalTransform::default(),
+        ));
+
+        app.world_mut().write_message(FireEffect {
+            name: "something else".into(),
+        });
+        app.update();
+        assert_eq!(count_particles(&mut app), 0, "not its cue");
+
+        app.world_mut().write_message(FireEffect {
+            name: "sparks".into(),
+        });
+        app.update();
+        assert_eq!(count_particles(&mut app), 8, "its cue, its count");
+    }
+
+    fn count_particles(app: &mut App) -> usize {
+        let world = app.world_mut();
+        world.query::<&Particle>().iter(world).count()
+    }
+
+    // Nothing outlives its burst. A particle system that leaks entities is a
+    // memory leak with a pretty face.
+    #[test]
+    fn particles_expire() {
+        let mut app = burst_app();
+        app.world_mut().spawn((
+            Burst {
+                event: "puff".into(),
+                count: 4,
+                lifetime: 0.05,
+                ..Default::default()
+            },
+            GlobalTransform::default(),
+        ));
+        app.world_mut().write_message(FireEffect {
+            name: "puff".into(),
+        });
+        app.update();
+        assert_eq!(count_particles(&mut app), 4);
+
+        // Long enough for the lifetime to pass, whatever the tick was.
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            app.update();
+        }
+        assert_eq!(count_particles(&mut app), 0, "all gone");
+    }
+
+    // The spread covers a sphere rather than clumping: every direction is a
+    // unit vector, and opposite indices genuinely point apart.
+    #[test]
+    fn the_spread_covers_a_sphere() {
+        let count = 64;
+        for index in 0..count {
+            let direction = burst_direction(index, count);
+            assert!(
+                (direction.length() - 1.0).abs() < 1e-3,
+                "index {index} is a unit direction, got {}",
+                direction.length()
+            );
+        }
+        let first = burst_direction(0, count);
+        let last = burst_direction(count - 1, count);
+        assert!(
+            first.dot(last) < -0.9,
+            "the ends of the spiral point opposite ways: {first:?} {last:?}"
+        );
+    }
+
+    // Deterministic: a burst that looks different every run cannot be tested,
+    // and a designer tuning one wants their change to be the only thing moving.
+    #[test]
+    fn the_spread_is_the_same_every_time() {
+        let once: Vec<Vec3> = (0..16).map(|i| burst_direction(i, 16)).collect();
+        let again: Vec<Vec3> = (0..16).map(|i| burst_direction(i, 16)).collect();
+        assert_eq!(once, again);
     }
 }

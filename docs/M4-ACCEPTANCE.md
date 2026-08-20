@@ -290,6 +290,38 @@ type by the tail of its path and reads the field by reflect path, because
 
 Zero bloom REMOVES the pass rather than running it imperceptibly: a stack that
 cannot be turned off is a permanent frame cost.
+
+### The effects layer: bursts (2026-08-20)
+
+An event that nothing can see is a log line. `Burst` is an emitter component the
+LEVEL authors — count, speed, lifetime, size, gravity — waiting on a named cue.
+`FireEffect { name }` is the cue, and every timeline event becomes one, so a
+moment marked in the editor throws particles in the game. Anything else can fire
+one too: a collision, a pickup, a rule. Triggering by NAME means nothing that
+triggers an effect needs to know what it looks like.
+
+Every field is a number a track can address, so the burst is itself animatable:
+a fountain that widens over ten seconds is two keys, not a new component.
+
+The spread is a Fibonacci sphere rather than random directions. Deterministic on
+purpose: a burst that looks different every run cannot be tested, and a designer
+tuning a fountain wants their change to be the only thing that moved. It is also
+more even than random.
+
+Nothing outlives its burst — a particle system that leaks entities is a memory
+leak with a pretty face — and the probe asserts the count returns to zero.
+
+Like `PostProcess`, this lives in `game_framework` and ships in a release build.
+`Particle` is reflected so tools can SEE it, and deliberately NOT registered as
+an editor component: particles are transient and must never be selected, saved,
+or keyed.
+
+**Audio was considered first and rejected for now.** Bevy's default audio
+feature enables Vorbis only, so a procedurally generated WAV — the trick that
+avoided shipping a binary blob for the preview environment — would not decode,
+and hand-authoring an OGG is not viable. Sound wants either a feature flag on
+the pinned Bevy dependency or a licensed asset, and both are decisions to take
+deliberately rather than in passing.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per
