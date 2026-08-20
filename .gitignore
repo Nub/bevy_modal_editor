@@ -15,3 +15,6 @@ crates/template_game/assets/models/
 **/prefabs/red.prefab.ron
 **/prefabs/keg.prefab.ron
 **/prefabs/cask.prefab.ron
+# Processed-asset cache: derived, hash-keyed, regenerable on any machine (spec §6).
+# Anywhere, because the asset root follows CARGO_MANIFEST_DIR at dev time.
+.editor-cache/

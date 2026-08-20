@@ -384,6 +384,35 @@ paused).
 gizmo-only widget had ever been clickable — the mechanism existed and had never
 worked. And feature gizmos vanished on play, which is right for furniture and
 wrong for a widget that IS the object; `Space t v` now keeps them.
+
+### D2 and D3 confession: the stages ran empty (2026-08-20)
+
+Both rows were marked implemented and both were, as libraries. Neither was
+reachable from the running editor:
+
+- **D2 (Validate).** `builtin_validators()` was written and unit-tested, and no
+  feature ever registered it. `ValidatorCatalog` was empty in every real
+  session, so `run_validators` iterated an empty list and every import reported
+  "0 problems" — a units-mismatch export, a missing material and a corrupt GLB
+  were all equally silent.
+- **D3 (Process).** `process_asset` was written, unit-tested for determinism,
+  caching and version invalidation, and called by nothing. A game could
+  `reg.processor(...)` and watch it never run.
+
+Both are registered now, both run during import, and the failure mode itself is
+tested: `the_pipeline_stages_are_actually_registered` asserts the catalogs have
+contents, because an empty registry passes every other test in the suite.
+
+Covered by `BARREL_PROBE` in the real binary: the catalogs are non-empty, the
+import produced outputs, the library knows the barrel's size without spawning
+it, and — the assertion that fails if the whole slice is inert — the artist's
+re-export at scale 2.5 re-processes rather than serving the cache, and the
+recorded size follows it (0.8 × 1.1 × 0.8 → 2.0 × 2.75 × 2.0).
+
+Also landed: recursive scanning (a foldered asset pack was previously invisible
+and silent), a problem for any file nothing claims, `gltf.bounds` as the first
+processor, and a `.editor-cache` that sits outside the asset root so the
+pipeline cannot re-import its own output.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per

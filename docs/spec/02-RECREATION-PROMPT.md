@@ -408,6 +408,66 @@ upstream contributions for gaps, mirroring the feathers rule.
 - Evaluate Bevy's asset-processing (`AssetProcessor`/distill-style) infrastructure first and
   build on it where it fits; wrap rather than fork.
 
+
+**Two of the four stages were dead (2026-08-20).** Import ran. Validate ran
+against an EMPTY catalog, because `builtin_validators()` was written, tested,
+and registered by nobody — so every import in the real binary reported "0
+problems" whatever it was handed. Process was never called at all: a game could
+register a processor and it would never execute. Both are now registered by
+`editor_scene`'s models feature and run during import, and a test asserts the
+catalogs are non-empty, because a stage with an empty registry fails silently
+and looks exactly like a stage that passed.
+
+- **Where processing happens.** The runner in `editor_assets` runs at import
+  time, synchronously, on the bytes the stage already read. That is not a
+  divergence from "game builds consume cooked output": the editor is the
+  fall-back path §6 already describes, and Cook remains owed. The ledger's
+  wrap-don't-fork decision still stands for cook-time packaging (ledger #10).
+- **Cache location.** `<assets>/../.editor-cache/process`, deliberately a
+  SIBLING of the asset root: a cache underneath it would be served by the asset
+  server and re-scanned as source on the next import, and the pipeline would
+  start eating its own output. Gitignored — it is derived, hash-keyed and
+  regenerable, like every bake artifact.
+- **Failure policy.** A processor that fails, or panics, is a PROBLEM; the asset
+  still imports. Processors run at startup, so one panicking on one malformed
+  file must not be able to make a project unopenable — a panic is caught and
+  reported exactly like a returned error.
+- **`extensions: &[]` means "every extension"** in Process, matching the
+  validator registry exactly. The two registries sit in one pipeline, and a game
+  registering an any-asset processor by the validator's precedent would
+  otherwise get one that silently never runs — the very bug this wiring ends.
+
+**Nothing is dropped in silence (2026-08-20).** The scan walks `models/` and
+`textures/` RECURSIVELY: a purchased pack arrives as `models/dungeon/walls/*`,
+and a flat scan found the directory, could make no asset of it, and said
+nothing. A file no importer and no processor claims is now a PROBLEM naming its
+extension, rather than an absence — this project's own
+`assets/textures/*.tif` had been invisible with no way to find that out. A file
+only a PROCESSOR claims (a `.tif` waiting on a converter) is pipeline input and
+deliberately NOT a library entry: the editor cannot load one, and offering it in
+the palette would place something that never appears.
+
+**First processor: `gltf.bounds` (2026-08-20).** Model bounds and triangle
+counts, read from POSITION accessor `min`/`max` at the JSON layer — the same
+chunk the validators parse and the same bytes the cache is keyed on. Chosen over
+a texture or mesh processor for a reason worth recording: the cache key hashes
+ONE file, so any processor that reads external `.bin` buffers or images would be
+silently wrong the moment a `.gltf` sibling changed. Bounds are hermetic under
+that key — never wrong, at worst stale.
+
+It answers a question the editor could not previously ask: how big is this
+asset, BEFORE it has loaded. `piece_bounds`, socket generation and the socket
+snap all gave up when a model had not finished loading — "select the wall you
+just imported, generate sockets, get nothing" — and now fall back to the
+recorded box. The live `Aabb` stays authoritative once loaded; this is the same
+answer arriving earlier, not a second source of truth (§11).
+
+Deliberate limits, documented not fixed: the content hash covers one file, so a
+`.gltf` whose sibling `.bin` changes does not invalidate; there is no cache
+eviction and no clear verb; processing is synchronous on the main thread, which
+is why the first processor had to be a cheap one; and Cook — the manifest from
+UUID to cooked path — remains owed, with `ProcessedAssets` recording exactly
+what it will need.
 ### Prefabs (`editor_prefabs`) — the unit of game-ready
 The pipeline's terminal product and the primary authoring workflow:
 - A **prefab** = versioned asset: entity hierarchy of registered components + references (by

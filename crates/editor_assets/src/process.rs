@@ -58,13 +58,25 @@ pub fn process_asset(
             cache_hit: true,
         });
     }
-    let produced =
-        (def.process)(&ProcessCx { source, bytes }).map_err(|message| ProcessError::Processor {
-            id: def.id.to_string(),
-            message,
-        })?;
+    // A processor is third-party code that runs at STARTUP (imports fire once
+    // on boot). One panicking on one malformed asset would make the project
+    // unopenable, with no way in to remove the asset — so a panic is caught and
+    // reported exactly like a returned error.
+    let produced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        (def.process)(&ProcessCx { source, bytes })
+    }))
+    .map_err(|_| ProcessError::Processor {
+        id: def.id.to_string(),
+        message: "panicked".into(),
+    })?
+    .map_err(|message| ProcessError::Processor {
+        id: def.id.to_string(),
+        message,
+    })?;
     std::fs::create_dir_all(cache_dir).map_err(ProcessError::Io)?;
-    let tmp = output.with_extension("bin.tmp");
+    // Process-unique: two editors open on one project would otherwise rename
+    // each other's half-written file into place.
+    let tmp = output.with_extension(format!("{}.bin.tmp", std::process::id()));
     std::fs::write(&tmp, &produced).map_err(ProcessError::Io)?;
     std::fs::rename(&tmp, &output).map_err(ProcessError::Io)?;
     Ok(ProcessOutcome {

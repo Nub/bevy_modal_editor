@@ -1143,7 +1143,39 @@ fn piece_bounds(world: &mut World, root: Entity) -> Option<(Vec3, Vec3)> {
             stack.extend(children.iter());
         }
     }
-    (min.x <= max.x).then_some((min, max))
+    if min.x <= max.x {
+        return Some((min, max));
+    }
+    // Nothing loaded yet. Before the Process stage ran at import this was the
+    // end of the line: select a model you just imported, generate sockets, and
+    // get NOTHING, with no message, because the gltf was still in flight. The
+    // pipeline measured the same box at import time and the library is holding
+    // it, so the answer exists — it just was not being asked for.
+    imported_bounds(world, root)
+}
+
+/// The pre-load answer: bounds recorded by the `gltf.bounds` processor for
+/// whichever imported model this subtree references.
+///
+/// Model-space, which is root-local here because the derived gltf subtree is
+/// parented at identity — see `MeshRefDerived`.
+fn imported_bounds(world: &mut World, root: Entity) -> Option<(Vec3, Vec3)> {
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if let Some(mesh_ref) = world.get::<editor_scene::models::MeshRef>(entity).copied() {
+            let bounds = world
+                .resource::<editor_scene::models::ModelLibrary>()
+                .get(&mesh_ref.0)
+                .and_then(|entry| entry.bounds);
+            if let Some(bounds) = bounds {
+                return Some((Vec3::from(bounds.min), Vec3::from(bounds.max)));
+            }
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    None
 }
 
 /// `socket.generate-*`: put a socket on each chosen face of the selection's

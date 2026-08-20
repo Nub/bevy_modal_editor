@@ -573,6 +573,7 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<models::ImportRequested>()
             .init_resource::<models::FlattenRequested>()
             .init_resource::<models::ModelHandles>()
+            .init_resource::<models::ProcessedAssets>()
             .init_resource::<level_validation::LevelValidation>()
             .init_resource::<level_validation::ValidationRequests>()
             .init_resource::<session::ReloadRequested>()

@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use editor_core::prelude::*;
 use editor_prefabs::{PrefabInstance, PrefabLibrary};
 use editor_scene::PrefabStamped;
-use editor_scene::models::{MeshRef, MeshRefDerived, ModelLibrary};
+use editor_scene::models::{MeshRef, MeshRefDerived, ModelLibrary, ProcessedAssets};
 use uuid::Uuid;
 
 use crate::probe_user::{shot, tap, tap_named};
@@ -23,6 +23,8 @@ pub(crate) struct BarrelProbe {
     uuid: Option<Uuid>,
     /// Instance-root positions captured before the re-import.
     positions: Vec<(Entity, Vec3)>,
+    /// Size the Process stage recorded at first import.
+    bounds: Option<[f32; 3]>,
 }
 
 fn check(world: &mut World, ok: bool, what: &str) {
@@ -119,6 +121,13 @@ pub(crate) fn probe_barrel(world: &mut World) {
                 library.prefabs.remove(&id);
             }
         }
+        // The processed-asset cache is a probe-owned artifact too: leaving it
+        // behind makes the re-export a cache HIT on the second run, and the
+        // "did the pipeline re-process?" check would pass or fail depending on
+        // whether anyone ran the probe yesterday.
+        let _ = std::fs::remove_dir_all(editor_scene::models::process_cache_dir(
+            &world.resource::<ModelLibrary>().fs_root,
+        ));
         let glb = glb_path(world);
         let _ = std::fs::create_dir_all(glb.parent().unwrap());
         let _ = std::fs::remove_file(editor_assets::identity::sidecar_path(&glb));
@@ -194,6 +203,47 @@ pub(crate) fn probe_barrel(world: &mut World) {
             ] {
                 tap(world, code, ch);
             }
+        }
+        // ── The stages the pipeline advertises actually run (spec §6) ──────
+        // Both were dead in the real binary: no validators were ever
+        // registered, so every import reported "0 problems" whatever it was
+        // handed, and nothing ever called the Process stage at all.
+        205 => {
+            let validators = world.resource::<ValidatorCatalog>().validators.len();
+            check(
+                world,
+                validators > 0,
+                &format!("the Validate stage has validators registered ({validators})"),
+            );
+            let processors = world.resource::<ProcessorCatalog>().processors.len();
+            check(
+                world,
+                processors > 0,
+                &format!("the Process stage has processors registered ({processors})"),
+            );
+            let outputs = world.resource::<ProcessedAssets>().outputs.len();
+            check(
+                world,
+                outputs > 0,
+                &format!("and importing RAN it ({outputs} outputs)"),
+            );
+        }
+        // The point of processing at import: the editor knows how big the
+        // asset is before anything has loaded or spawned it.
+        210 => {
+            let bounds = world
+                .resource::<ModelLibrary>()
+                .entries
+                .iter()
+                .find(|entry| entry.name == "barrel")
+                .and_then(|entry| entry.bounds);
+            let measured = bounds.map(|b| b.size()).unwrap_or([0.0; 3]);
+            check(
+                world,
+                bounds.is_some_and(|b| b.complete && b.triangles > 0),
+                &format!("the library knows the barrel's size without spawning it ({measured:?})"),
+            );
+            world.resource_mut::<BarrelProbe>().bounds = bounds.map(|b| b.size());
         }
         600 => tap_named(world, KeyCode::Enter, Key::Enter),
         660 => {
@@ -278,6 +328,40 @@ pub(crate) fn probe_barrel(world: &mut World) {
                         == probe_uuid
             };
             check(world, uuid_kept, "re-import preserved the asset UUID");
+        }
+        // THE inert check: the artist re-exported at a different scale, so the
+        // cache must MISS and the recorded size must move. A second import of
+        // unchanged bytes would only prove the cache works.
+        1240 => {
+            let (missed, size) = {
+                let outputs = world.resource::<ProcessedAssets>();
+                let library = world.resource::<ModelLibrary>();
+                let entry = library.entries.iter().find(|e| e.name == "barrel");
+                let missed = entry.is_some_and(|entry| {
+                    outputs
+                        .for_asset(entry.uuid)
+                        .any(|output| !output.cache_hit)
+                });
+                (
+                    missed,
+                    entry.and_then(|entry| entry.bounds).map(|b| b.size()),
+                )
+            };
+            check(
+                world,
+                missed,
+                "the re-export re-processed rather than serving the cache",
+            );
+            let before = world.resource::<BarrelProbe>().bounds;
+            let grew = match (before, size) {
+                (Some(before), Some(after)) => (0..3).all(|axis| after[axis] > before[axis] * 2.0),
+                _ => false,
+            };
+            check(
+                world,
+                grew,
+                &format!("and the recorded size followed the re-export ({before:?} -> {size:?})"),
+            );
         }
         // Reload + respawn settle, then THE verdict: content moved, layout didn't.
         1500 => {

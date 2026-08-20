@@ -57,6 +57,21 @@ pub fn builtin_validators() -> Vec<ValidatorDef> {
     ]
 }
 
+/// Parse the JSON layer of a `.glb` or `.gltf`, shared by Validate and
+/// Process: both stages inspect STRUCTURE, and there must be exactly one
+/// answer to "is this file readable" across the pipeline.
+pub(crate) fn parse_root(bytes: &[u8]) -> Result<gltf::json::Root, String> {
+    let json_bytes: std::borrow::Cow<[u8]> = if bytes.starts_with(b"glTF") {
+        match gltf::Glb::from_slice(bytes) {
+            Ok(glb) => std::borrow::Cow::Owned(glb.json.into_owned()),
+            Err(e) => return Err(format!("not a readable GLB: {e}")),
+        }
+    } else {
+        std::borrow::Cow::Borrowed(bytes)
+    };
+    gltf::json::Root::from_slice(&json_bytes).map_err(|e| format!("not a readable GLTF: {e}"))
+}
+
 /// Structural parse (gltf::json layer): validators inspect STRUCTURE — full
 /// buffer validation belongs to the Process stage, and demanding it here would
 /// reject perfectly checkable test fixtures and partial exports.

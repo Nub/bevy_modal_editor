@@ -59,6 +59,14 @@ pub struct ModelEntry {
     pub asset_path: String,
     /// blake3 of the source at last import — resolution keys off this.
     pub content_hash: String,
+    /// How big it is, from the Process stage, WITHOUT loading or spawning it.
+    ///
+    /// The live `Aabb` stays authoritative once a model is loaded; this is the
+    /// answer to the same question BEFORE that, which is the window in which
+    /// socket generation, ghost sizing and footprint proposals currently get
+    /// nothing at all. Two sources that disagree would be a v1 pattern (§11);
+    /// one source that arrives earlier is not.
+    pub bounds: Option<editor_assets::ModelBounds>,
 }
 
 /// The imported-models index, rebuilt by `asset.import` (and once at startup).
@@ -107,71 +115,249 @@ pub fn assets_fs_root() -> PathBuf {
 pub const MODELS_DIR: &str = "models";
 pub const TEXTURES_DIR: &str = "textures";
 
-/// Scan + import every source under `<assets>/models` and `<assets>/textures`:
-/// assigns/refreshes identity sidecars, runs the validator catalog, returns
-/// entries + problems. Pure with respect to the world — callers surface the
-/// problems.
-pub fn scan_models(
-    fs_root: &std::path::Path,
-    validators: &[editor_api::validate::ValidatorDef],
-) -> (Vec<ModelEntry>, Vec<String>) {
-    let mut entries = Vec::new();
-    let mut problems = Vec::new();
-    let kind_of = |p: &std::path::Path| match p
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_lowercase())
-        .as_deref()
-    {
-        Some("glb") | Some("gltf") => Some(EntryKind::Model),
-        Some("png") | Some("jpg") | Some("jpeg") | Some("ktx2") => Some(EntryKind::Texture),
-        _ => None,
-    };
+/// Where processed outputs are cached: a SIBLING of the asset root, never
+/// inside it. A cache under `assets/` would be served by the asset server and
+/// re-scanned as source on the next import — the pipeline would start eating
+/// its own output.
+pub fn process_cache_dir(fs_root: &std::path::Path) -> PathBuf {
+    fs_root
+        .parent()
+        .unwrap_or(fs_root)
+        .join(".editor-cache")
+        .join("process")
+}
+
+/// One processed output: which processor produced what, for which asset.
+///
+/// The Cook stage (spec §6) is a manifest over exactly this — uuid to path —
+/// which is why the record is kept rather than thrown away after the toast.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcessedOutput {
+    pub uuid: Uuid,
+    pub processor: String,
+    pub output: PathBuf,
+    /// False when this run actually did the work.
+    pub cache_hit: bool,
+}
+
+/// What the pipeline produced for the whole tree.
+#[derive(Default)]
+pub struct IngestReport {
+    pub entries: Vec<ModelEntry>,
+    pub problems: Vec<String>,
+    pub outputs: Vec<ProcessedOutput>,
+}
+
+/// The stages, as data: what to check with, what to run, where to cache.
+pub struct IngestConfig<'a> {
+    pub validators: &'a [editor_api::validate::ValidatorDef],
+    pub processors: &'a [editor_api::pipeline::ProcessorDef],
+    pub cache_dir: &'a std::path::Path,
+}
+
+/// Import → Validate → Process over every source under `<assets>/models` and
+/// `<assets>/textures`, recursively (spec §6).
+///
+/// Import assigns or refreshes the identity sidecar; Validate runs the
+/// validator catalog; Process runs every registered processor whose declared
+/// extensions match, through the content-hash + version keyed cache. All three
+/// see the same bytes, read once.
+///
+/// Nothing here touches the world — the caller surfaces the problems — and
+/// nothing here aborts on a bad asset: a source that fails a stage still gets
+/// an identity and still appears, because an asset that vanishes from the
+/// library because a processor disliked it is the worst possible failure mode.
+///
+/// **Nothing is dropped in silence.** A file the pipeline cannot place and no
+/// processor claims becomes a PROBLEM saying so. Asset packs ship `.fbx`,
+/// `.tga` and `.tif`, and "imported 0 models · 0 problems" for a folder full
+/// of art is the least debuggable sentence this editor could print.
+pub fn ingest(fs_root: &std::path::Path, config: &IngestConfig) -> IngestReport {
+    let mut report = IngestReport::default();
     for dir_name in [MODELS_DIR, TEXTURES_DIR] {
-        let Ok(read) = std::fs::read_dir(fs_root.join(dir_name)) else {
-            continue; // subtree absent — nothing imported from it
-        };
-        let mut sources: Vec<PathBuf> = read
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| kind_of(p).is_some())
-            .collect();
+        let mut sources = Vec::new();
+        // Recursive: a purchased pack arrives as `models/dungeon/walls/*.glb`,
+        // which is the shape every marketplace ships. A flat scan finds the
+        // directory, cannot make an asset of it, and says nothing at all.
+        collect_sources(&fs_root.join(dir_name), &mut sources, &mut report.problems);
         sources.sort(); // deterministic order
         for source in sources {
-            let kind = kind_of(&source).expect("filtered above");
+            let extension = extension_of(&source);
+            let kind = kind_of(&source);
+            let claimed = config
+                .processors
+                .iter()
+                .any(|def| processor_claims(def, &extension));
+            if kind.is_none() && !claimed {
+                report.problems.push(format!(
+                    "{}: nothing imports or processes .{extension} — ignored",
+                    display_relative(fs_root, &source)
+                ));
+                continue;
+            }
+            let mut bounds = None;
             let identity = match editor_assets::import_file(&source) {
                 Ok(identity) => identity,
                 Err(e) => {
-                    problems.push(format!("{}: {e}", source.display()));
+                    report.problems.push(format!("{}: {e}", source.display()));
                     continue;
                 }
             };
             match std::fs::read(&source) {
                 Ok(bytes) => {
-                    for problem in editor_assets::run_validators(&source, &bytes, validators) {
-                        problems.push(format!("{:?}: {}", problem.severity, problem.message));
+                    for problem in editor_assets::run_validators(&source, &bytes, config.validators)
+                    {
+                        report
+                            .problems
+                            .push(format!("{:?}: {}", problem.severity, problem.message));
                     }
+                    process_one(
+                        &source,
+                        &bytes,
+                        &extension,
+                        identity.uuid,
+                        config,
+                        &mut report,
+                    );
+                    bounds = read_bounds(&report, identity.uuid);
                 }
-                Err(e) => problems.push(format!("{}: {e}", source.display())),
+                Err(e) => report.problems.push(format!("{}: {e}", source.display())),
             }
+            // A source only a processor claims (a `.tif` waiting on a
+            // converter) is a real asset of the pipeline and NOT a member of
+            // the library: the editor cannot load it, and offering it in the
+            // palette would place something that never appears.
+            let Some(kind) = kind else { continue };
             let name = source
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("asset")
                 .to_string();
-            let asset_path = format!(
-                "{dir_name}/{}",
-                source.file_name().and_then(|s| s.to_str()).unwrap_or("")
-            );
-            entries.push(ModelEntry {
+            report.entries.push(ModelEntry {
                 uuid: identity.uuid,
                 kind,
                 name,
-                asset_path,
+                asset_path: display_relative(fs_root, &source),
                 content_hash: identity.content_hash,
+                bounds,
             });
         }
     }
-    (entries, problems)
+    report
+}
+
+/// Pull the built-in bounds record out of what the Process stage just
+/// produced, so the library carries the number in memory.
+///
+/// The library knowing the id of ONE built-in processor is deliberate: bounds
+/// are wanted on a gesture path, where reading a file is not acceptable.
+/// Everything else a processor produces stays a path in `ProcessedAssets`,
+/// which is what the Cook stage will read.
+fn read_bounds(report: &IngestReport, uuid: Uuid) -> Option<editor_assets::ModelBounds> {
+    let output = report
+        .outputs
+        .iter()
+        .rev()
+        .find(|o| o.uuid == uuid && o.processor == editor_assets::BOUNDS_PROCESSOR)?;
+    let bytes = std::fs::read(&output.output).ok()?;
+    ron::de::from_bytes(&bytes).ok()
+}
+/// Every file under `dir`, depth-first. Unreadable subtrees are problems, not
+/// silence — a permissions error that hides half a pack has to be loud.
+fn collect_sources(dir: &std::path::Path, out: &mut Vec<PathBuf>, problems: &mut Vec<String>) {
+    let read = match std::fs::read_dir(dir) {
+        Ok(read) => read,
+        // Absent is normal: a project may have no textures at all.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+        Err(e) => {
+            problems.push(format!("{}: {e}", dir.display()));
+            return;
+        }
+    };
+    let mut children: Vec<PathBuf> = read.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    children.sort();
+    for child in children {
+        if child.is_dir() {
+            collect_sources(&child, out, problems);
+        } else if !is_sidecar(&child) {
+            out.push(child);
+        }
+    }
+}
+
+/// Import sidecars are the pipeline's own book-keeping, not source assets.
+fn is_sidecar(path: &std::path::Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with(".import.ron") || name.ends_with(".meta"))
+}
+
+fn extension_of(path: &std::path::Path) -> String {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default()
+}
+
+/// What the EDITOR can load. A file outside this list may still be pipeline
+/// input; it is simply not a library entry.
+fn kind_of(path: &std::path::Path) -> Option<EntryKind> {
+    match extension_of(path).as_str() {
+        "glb" | "gltf" => Some(EntryKind::Model),
+        "png" | "jpg" | "jpeg" | "ktx2" => Some(EntryKind::Texture),
+        _ => None,
+    }
+}
+
+/// Asset-server-relative path, forward-slashed on every platform because that
+/// is what the asset server takes.
+fn display_relative(fs_root: &std::path::Path, source: &std::path::Path) -> String {
+    source
+        .strip_prefix(fs_root)
+        .unwrap_or(source)
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// An EMPTY extension list means "every extension", matching the validator
+/// registry exactly (`run_validators`). The two registries sitting next to each
+/// other in one pipeline must not read the same declaration in opposite ways —
+/// a game registering an any-asset processor by the validator's precedent would
+/// otherwise get a processor that silently never runs, which is the very bug
+/// this wiring exists to end.
+fn processor_claims(def: &editor_api::pipeline::ProcessorDef, extension: &str) -> bool {
+    def.extensions.is_empty() || def.extensions.contains(&extension)
+}
+
+/// The Process stage for one source: every processor that claims this
+/// extension, in registration order.
+fn process_one(
+    source: &std::path::Path,
+    bytes: &[u8],
+    extension: &str,
+    uuid: Uuid,
+    config: &IngestConfig,
+    report: &mut IngestReport,
+) {
+    for def in config.processors {
+        if !processor_claims(def, extension) {
+            continue;
+        }
+        match editor_assets::process_asset(source, bytes, def, config.cache_dir) {
+            Ok(outcome) => report.outputs.push(ProcessedOutput {
+                uuid,
+                processor: def.id.to_string(),
+                output: outcome.output,
+                cache_hit: outcome.cache_hit,
+            }),
+            // A processor that fails is a PROBLEM, not an import failure: the
+            // asset is still in the project, and the designer needs to know
+            // which stage refused it rather than watching it disappear.
+            Err(e) => report.problems.push(format!("{}: {e}", source.display())),
+        }
+    }
 }
 
 pub(crate) struct ModelsFeature;
@@ -181,6 +367,19 @@ impl EditorFeature for ModelsFeature {
         FeatureManifest::new("models", "Imported Models")
     }
     fn register(&self, reg: &mut FeatureRegistry) {
+        // THE BUILT-IN VALIDATORS, REGISTERED. They existed, they were tested,
+        // and nothing ever put them in the catalog — so every import in the
+        // real binary ran `run_validators` against an EMPTY list and reported
+        // "0 problems" whatever it was handed. A stage that cannot fail is not
+        // a stage. (spec §6 Validate, M4-D2.)
+        for validator in editor_assets::builtin_validators() {
+            reg.validator(validator);
+        }
+        // And the Process stage's first processor. Bounds are readable from
+        // the JSON chunk alone — the same bytes the cache is keyed on — so
+        // this is the one kind of processing that is honest under a cache key
+        // that hashes a single file (spec §6 Process, M4-D3).
+        reg.processor(editor_assets::bounds::processor());
         reg.component::<MeshRef>()
             .component::<MeshNode>()
             .action(
@@ -199,6 +398,23 @@ impl EditorFeature for ModelsFeature {
     }
 }
 
+/// What the Process stage produced this session, by asset.
+///
+/// Kept rather than discarded because it is exactly the input the Cook stage
+/// needs (spec §6: "a manifest maps UUID → cooked path"), and because a
+/// pipeline whose results are invisible is indistinguishable from one that
+/// never ran — which is how the stage came to be dead code in the first place.
+#[derive(Resource, Default)]
+pub struct ProcessedAssets {
+    pub outputs: Vec<ProcessedOutput>,
+}
+
+impl ProcessedAssets {
+    /// Everything produced for one asset.
+    pub fn for_asset(&self, uuid: Uuid) -> impl Iterator<Item = &ProcessedOutput> {
+        self.outputs.iter().filter(move |o| o.uuid == uuid)
+    }
+}
 #[derive(Resource, Default)]
 pub(crate) struct ImportRequested(pub bool);
 
@@ -234,8 +450,10 @@ pub(crate) fn perform_import(
     mut requested: ResMut<ImportRequested>,
     mut library: ResMut<ModelLibrary>,
     validators: Option<Res<ValidatorCatalog>>,
+    processors: Option<Res<ProcessorCatalog>>,
     assets: Option<Res<AssetServer>>,
     mut handles: ResMut<ModelHandles>,
+    mut processed: ResMut<ProcessedAssets>,
     mut feedback: MessageWriter<super::SceneIoFeedback>,
 ) {
     // Headless test worlds have no AssetServer — imports stand down there.
@@ -246,7 +464,20 @@ pub(crate) fn perform_import(
         return;
     }
     requested.0 = false;
-    let (entries, problems) = scan_models(&library.fs_root, &validators.validators);
+    let cache_dir = process_cache_dir(&library.fs_root);
+    let no_processors = Vec::new();
+    let report = ingest(
+        &library.fs_root,
+        &IngestConfig {
+            validators: &validators.validators,
+            processors: processors
+                .as_ref()
+                .map(|catalog| catalog.processors.as_slice())
+                .unwrap_or(&no_processors),
+            cache_dir: &cache_dir,
+        },
+    );
+    let (entries, problems, report_outputs) = (report.entries, report.problems, report.outputs);
     for problem in &problems {
         warn!("asset import: {problem}");
     }
@@ -297,9 +528,12 @@ pub(crate) fn perform_import(
         info!("asset import: reloading changed source {path}");
         assets.reload(path);
     }
+    let ran = report_outputs.iter().filter(|o| !o.cache_hit).count();
+    let cached = report_outputs.len() - ran;
+    processed.outputs = report_outputs;
     feedback.write(super::SceneIoFeedback {
         message: format!(
-            "imported {} model{} \u{b7} {} problem{}",
+            "imported {} model{} \u{b7} processed {ran} ({cached} cached) \u{b7} {} problem{}",
             library.entries.len(),
             if library.entries.len() == 1 { "" } else { "s" },
             problems.len(),
@@ -563,38 +797,346 @@ pub(crate) fn resolve_mesh_nodes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use editor_api::pipeline::ProcessorDef;
+    use editor_api::prelude::ProcessorId;
+
+    fn validate_only<'a>(
+        validators: &'a [editor_api::validate::ValidatorDef],
+        cache: &'a std::path::Path,
+    ) -> IngestConfig<'a> {
+        IngestConfig {
+            validators,
+            processors: &[],
+            cache_dir: cache,
+        }
+    }
+
+    fn counting_processor(extensions: &'static [&'static str]) -> ProcessorDef {
+        ProcessorDef {
+            id: ProcessorId::new_static("test.size"),
+            name: "Byte count",
+            version: 1,
+            extensions,
+            process: |cx| Ok(format!("{}", cx.bytes.len()).into_bytes()),
+        }
+    }
+
+    fn failing_processor() -> ProcessorDef {
+        ProcessorDef {
+            id: ProcessorId::new_static("test.refuses"),
+            name: "Refuses everything",
+            version: 1,
+            extensions: &["glb"],
+            process: |_| Err("nope".into()),
+        }
+    }
+
+    fn corpus() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("assets");
+        std::fs::create_dir_all(root.join(MODELS_DIR)).unwrap();
+        std::fs::write(
+            root.join(MODELS_DIR).join("barrel.glb"),
+            editor_assets::fixture::barrel_glb(1.0),
+        )
+        .unwrap();
+        (dir, root)
+    }
 
     // D12 (import half): the scan assigns stable identity, survives re-export
     // with the SAME uuid + a NEW hash, and surfaces validator problems.
     #[test]
     fn scan_imports_and_keeps_identity() {
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().join("assets");
-        std::fs::create_dir_all(root.join(MODELS_DIR)).unwrap();
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
         let glb = root.join(MODELS_DIR).join("barrel.glb");
-        std::fs::write(&glb, editor_assets::fixture::barrel_glb(1.0)).unwrap();
 
         let validators = editor_assets::builtin_validators();
-        let (entries, problems) = scan_models(&root, &validators);
-        assert!(problems.is_empty(), "{problems:?}");
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].name, "barrel");
-        assert_eq!(entries[0].asset_path, "models/barrel.glb");
-        let first = entries[0].clone();
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        assert!(report.problems.is_empty(), "{:?}", report.problems);
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].name, "barrel");
+        assert_eq!(report.entries[0].asset_path, "models/barrel.glb");
+        let first = report.entries[0].clone();
 
         // Artist re-export: identity survives, hash moves.
         std::fs::write(&glb, editor_assets::fixture::barrel_glb(2.0)).unwrap();
-        let (entries, _) = scan_models(&root, &validators);
-        assert_eq!(entries[0].uuid, first.uuid, "uuid survives re-export");
-        assert_ne!(entries[0].content_hash, first.content_hash);
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        assert_eq!(
+            report.entries[0].uuid, first.uuid,
+            "uuid survives re-export"
+        );
+        assert_ne!(report.entries[0].content_hash, first.content_hash);
 
         // A broken source is a PROBLEM, never a silent skip.
         std::fs::write(root.join(MODELS_DIR).join("broken.glb"), b"not a glb").unwrap();
-        let (entries, problems) = scan_models(&root, &validators);
-        assert_eq!(entries.len(), 2, "broken source still gets identity");
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        assert_eq!(report.entries.len(), 2, "broken source still gets identity");
         assert!(
-            problems.iter().any(|p| p.contains("broken.glb")),
-            "{problems:?}"
+            report.problems.iter().any(|p| p.contains("broken.glb")),
+            "{:?}",
+            report.problems
         );
+    }
+
+    // D3, the wiring half: importing RUNS the registered processors, and says
+    // what it produced. The stage was a tested library that nothing called —
+    // this is the test that would have caught that.
+    #[test]
+    fn importing_runs_the_registered_processors() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        let validators = editor_assets::builtin_validators();
+        let processors = vec![counting_processor(&["glb"])];
+        let config = IngestConfig {
+            validators: &validators,
+            processors: &processors,
+            cache_dir: &cache,
+        };
+
+        let report = ingest(&root, &config);
+        assert_eq!(report.outputs.len(), 1, "the processor ran");
+        assert_eq!(report.outputs[0].processor, "test.size");
+        assert_eq!(report.outputs[0].uuid, report.entries[0].uuid);
+        assert!(!report.outputs[0].cache_hit, "first run does the work");
+        assert!(report.outputs[0].output.exists(), "and left its output");
+
+        // Second import, nothing changed: the cache answers.
+        let again = ingest(&root, &config);
+        assert!(again.outputs[0].cache_hit, "unchanged input is a cache hit");
+        assert_eq!(again.outputs[0].output, report.outputs[0].output);
+    }
+
+    /// A processor only claims what it declares. Otherwise a texture
+    /// compressor would be handed a .glb and fail on every import.
+    #[test]
+    fn a_processor_only_sees_the_extensions_it_claims() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        let validators = editor_assets::builtin_validators();
+        let processors = vec![counting_processor(&["png"])];
+        let report = ingest(
+            &root,
+            &IngestConfig {
+                validators: &validators,
+                processors: &processors,
+                cache_dir: &cache,
+            },
+        );
+        assert_eq!(report.entries.len(), 1, "the model still imported");
+        assert!(report.outputs.is_empty(), "but no png processor ran on it");
+    }
+
+    /// An asset that a processor refuses is still an asset. Anything else and
+    /// one strict processor can delete a designer's model from the project.
+    #[test]
+    fn a_failing_processor_is_a_problem_not_a_lost_asset() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        let validators = editor_assets::builtin_validators();
+        let processors = vec![failing_processor(), counting_processor(&["glb"])];
+        let report = ingest(
+            &root,
+            &IngestConfig {
+                validators: &validators,
+                processors: &processors,
+                cache_dir: &cache,
+            },
+        );
+        assert_eq!(report.entries.len(), 1, "the asset survived");
+        assert!(
+            report.problems.iter().any(|p| p.contains("test.refuses")),
+            "and said which processor refused it: {:?}",
+            report.problems
+        );
+        assert_eq!(report.outputs.len(), 1, "the processors after it still ran");
+    }
+
+    /// The cache must never live inside the tree the scan walks, or the
+    /// pipeline starts importing its own output.
+    #[test]
+    fn the_process_cache_sits_outside_the_asset_root() {
+        let root = PathBuf::from("/project/assets");
+        let cache = process_cache_dir(&root);
+        assert!(!cache.starts_with(&root), "{cache:?}");
+    }
+
+    /// A purchased pack arrives foldered. A flat scan finds a directory it
+    /// cannot make an asset of and says nothing — "imported 0 models · 0
+    /// problems" for a folder full of art.
+    #[test]
+    fn the_scan_walks_subfolders() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        let nested = root.join(MODELS_DIR).join("dungeon").join("walls");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(
+            nested.join("wall.glb"),
+            editor_assets::fixture::barrel_glb(1.0),
+        )
+        .unwrap();
+
+        let validators = editor_assets::builtin_validators();
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        let paths: Vec<&str> = report
+            .entries
+            .iter()
+            .map(|entry| entry.asset_path.as_str())
+            .collect();
+        assert!(
+            paths.contains(&"models/dungeon/walls/wall.glb"),
+            "nested source imported at its asset-server path: {paths:?}"
+        );
+        assert!(paths.contains(&"models/barrel.glb"), "{paths:?}");
+    }
+
+    /// Half the packs on the market ship `.fbx`, and this project's own asset
+    /// folder has a `.tif` in it. Dropping them without a word is the least
+    /// debuggable thing ingest can do.
+    #[test]
+    fn a_file_nothing_claims_is_a_problem_not_a_silence() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        std::fs::write(root.join(MODELS_DIR).join("chair.fbx"), b"fbx bytes").unwrap();
+
+        let validators = editor_assets::builtin_validators();
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        assert!(
+            report
+                .problems
+                .iter()
+                .any(|p| p.contains("chair.fbx") && p.contains("ignored")),
+            "{:?}",
+            report.problems
+        );
+    }
+
+    /// The converter case: a processor claiming `.tif` makes the file pipeline
+    /// input even though the editor cannot load one. It must be processed and
+    /// must NOT appear in the library — offering it in the palette would place
+    /// something that never renders.
+    #[test]
+    fn a_processor_can_claim_a_format_the_editor_cannot_load() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        std::fs::write(root.join(MODELS_DIR).join("metal.tif"), b"tif bytes").unwrap();
+
+        let validators = editor_assets::builtin_validators();
+        let processors = vec![counting_processor(&["tif"])];
+        let report = ingest(
+            &root,
+            &IngestConfig {
+                validators: &validators,
+                processors: &processors,
+                cache_dir: &cache,
+            },
+        );
+        assert_eq!(report.outputs.len(), 1, "the converter saw it");
+        assert!(
+            !report.problems.iter().any(|p| p.contains("metal.tif")),
+            "and it is no longer an ignored file: {:?}",
+            report.problems
+        );
+        assert!(
+            report.entries.iter().all(|e| e.name != "metal"),
+            "but it is not offered as placeable content"
+        );
+    }
+
+    /// The two registries sit in one pipeline; an empty extension list must
+    /// not mean "everything" in Validate and "nothing" in Process.
+    #[test]
+    fn an_empty_extension_list_means_every_extension_in_both_registries() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        let validators = editor_assets::builtin_validators();
+        let processors = vec![counting_processor(&[])];
+        let report = ingest(
+            &root,
+            &IngestConfig {
+                validators: &validators,
+                processors: &processors,
+                cache_dir: &cache,
+            },
+        );
+        assert_eq!(report.outputs.len(), 1, "an any-asset processor ran");
+    }
+
+    /// Its own book-keeping is not source content.
+    #[test]
+    fn sidecars_are_not_imported_as_assets() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        let validators = editor_assets::builtin_validators();
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        assert!(root.join(MODELS_DIR).join("barrel.glb.import.ron").exists());
+        let again = ingest(&root, &validate_only(&validators, &cache));
+        assert_eq!(again.entries.len(), report.entries.len(), "no new entries");
+        assert!(
+            !again.problems.iter().any(|p| p.contains("import.ron")),
+            "and the sidecar is not an ignored file: {:?}",
+            again.problems
+        );
+    }
+
+    /// The bug class that hid for a whole milestone: a stage whose registry is
+    /// EMPTY runs happily and reports nothing. `builtin_validators()` existed,
+    /// was tested, and was registered by nobody — so every import in the real
+    /// binary validated against an empty list and said "0 problems" whatever it
+    /// was handed. Assert the catalogs have contents, not just that the code
+    /// that would fill them compiles.
+    #[test]
+    fn the_pipeline_stages_are_actually_registered() {
+        let mut registry = editor_api::feature::FeatureRegistry::default();
+        registry.register_feature(&ModelsFeature);
+        assert!(
+            !registry.validators.is_empty(),
+            "Validate has validators registered"
+        );
+        assert!(
+            !registry.processors.is_empty(),
+            "Process has processors registered"
+        );
+        assert!(
+            registry
+                .processors
+                .iter()
+                .any(|(_, def)| def.id.as_str() == editor_assets::BOUNDS_PROCESSOR),
+            "including the bounds processor the library reads"
+        );
+    }
+
+    /// The library carries the size of an asset it has never spawned — which
+    /// is the whole point of measuring at import.
+    #[test]
+    fn the_library_knows_how_big_a_model_is_without_loading_it() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        let validators = editor_assets::builtin_validators();
+        let processors = vec![editor_assets::bounds::processor()];
+        let config = IngestConfig {
+            validators: &validators,
+            processors: &processors,
+            cache_dir: &cache,
+        };
+        let report = ingest(&root, &config);
+        let bounds = report.entries[0].bounds.expect("bounds recorded");
+        assert!(bounds.complete && bounds.triangles > 0);
+        let small = bounds.size();
+
+        // The artist re-exports at 2.5: the cache MISSES and the number moves.
+        // A second import of unchanged bytes would prove only that the cache
+        // works; this proves the pipeline is measuring the file in front of it.
+        std::fs::write(
+            root.join(MODELS_DIR).join("barrel.glb"),
+            editor_assets::fixture::barrel_glb(2.5),
+        )
+        .unwrap();
+        let report = ingest(&root, &config);
+        assert!(!report.outputs[0].cache_hit, "changed content re-processes");
+        let large = report.entries[0].bounds.expect("bounds recorded").size();
+        for axis in 0..3 {
+            assert!(large[axis] > small[axis] * 2.0, "{small:?} -> {large:?}");
+        }
     }
 }

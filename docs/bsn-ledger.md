@@ -1,4 +1,4 @@
-# BSN Gap Ledger
+# BSN Gap Ledgermigrate the runner onto `AssetProcessor` at cook (D12 packaging). **2026-08-20: the runner is now LIVE at import** (it had never been called) — it stays ours there because `AssetProcessor` is an app-wide processed-mode switch that also takes over the `load_with_settings` source path the material slots depend on; convergence remains a cook-time decision | Open |
 
 Tracks every place we diverge from or gap-fill BSN (spec §5 BSN-first policy). Reviewed
 at every phase-boundary Bevy upgrade. Each entry: what BSN lacks, what we built instead,
