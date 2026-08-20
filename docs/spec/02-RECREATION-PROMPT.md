@@ -624,6 +624,47 @@ with progress UI.
 
 ---
 
+
+**Model previews, and two chips that were never drawing (2026-08-20).** §7's
+palette pane promises "visual previews for assets/prefabs/materials". Imported
+models were the one placeable thing that reached the preview slot and left it
+empty — import a kit and the palette is forty rows of `SM_Bld_Ruin_Wall_*` you
+must already know by name. A model now previews from the SAME `MeshRef` the
+scene uses, so the chip cannot drift from what placement produces.
+
+Three things fell out of building it, all of them pre-existing:
+
+- **The material and texture chips rendered nothing.** The texture sphere was
+  never parented to the preview root, so it sat at the world origin 900 units
+  from the preview camera; the material sphere was translated to preview home a
+  second time under a root already there, putting it at −1800. Both panes had
+  been blank. Nothing caught it because the only preview assertion in the suite
+  reads the MATERIAL EDITOR's rig, which is a different camera — and because a
+  check written as "a mesh exists on the preview layer" passes for geometry
+  parked anywhere in the world. The probe now counts meshes on the layer AND in
+  front of the camera, which is the thing anyone actually meant.
+- **The preview must contain what a gltf brings with it.** Bevy's loader
+  defaults to `load_cameras: true, load_lights: true`, and the camera it spawns
+  is ACTIVE when no other active camera was found, pointed at the primary
+  window. A Blender file saved with its default Sun and Camera would light — or
+  take over — the real level, once per highlighted palette row. Preview
+  containment walks down from the rig root: meshes join the preview layer and
+  stop being pickable, lights are confined to the preview layer, and cameras are
+  switched off.
+- **Every subject starts from the same three-quarter pose.** The turntable never
+  reset, so arrowing down a kit showed each piece at whatever yaw the previous
+  one happened to reach. Forty walls that differ by a window or a broken corner
+  can only be compared if they are shown alike — a flipbook, not forty unrelated
+  pictures. It also makes the preview screenshot deterministic.
+
+**The pane carries the numbers the picture cannot (2026-08-20).** A chip is fit
+to frame, so a 0.4 m bolt and a 4 m wall render the same size — and "is this the
+full wall or the half wall" is the question a kit poses. The pane prints the
+asset path, the real size in metres and the triangle count, all from the bounds
+the Process stage recorded at import (§6): `≥` and a dimmed tint when the record
+is incomplete, an explicit "size unknown" when there is none. Never over the
+render — the pane is ordinary UI, and the standing rule against floating text on
+the viewport is untouched.
 ## 8. Engineering Standards (the studio bar)
 
 The meta-lesson of v1: **every defect traced to an invariant enforced by convention.**

@@ -1231,6 +1231,7 @@ fn rebuild_results(
     fonts: Res<UiFonts>,
     rig: Option<Res<crate::palette_preview::PreviewRig>>,
     registry: Res<AppTypeRegistry>,
+    models: Res<editor_scene::models::ModelLibrary>,
     mut subject: ResMut<crate::palette_preview::PreviewSubject>,
     mut commands: Commands,
 ) {
@@ -1345,6 +1346,7 @@ fn rebuild_results(
         Some(PalettePayload::Prefab(id)) => Some(Subject::Prefab(*id)),
         Some(PalettePayload::Material(id)) => Some(Subject::Material(*id)),
         Some(PalettePayload::Texture(Some(id))) => Some(Subject::Texture(*id)),
+        Some(PalettePayload::Model(id)) => Some(Subject::Model(*id)),
         Some(PalettePayload::Action(id)) => id
             .as_str()
             .strip_prefix("insert.kind.")
@@ -1370,6 +1372,49 @@ fn rebuild_results(
                         ..default()
                     },
                 ));
+            }
+            // A chip is fit to frame, so a 0.4m bolt and a 4m wall render the
+            // same size — and "is this the full wall or the half wall" is THE
+            // question a kit poses. The picture cannot carry absolute scale, so
+            // the pane does: these are the numbers the Process stage recorded
+            // at import, which is also the first time anything a designer looks
+            // at has read them.
+            if let Some(PalettePayload::Model(model)) = &selected_payload {
+                if let Some(entry) = models.get(model) {
+                    pane.spawn((
+                        Text::new(entry.asset_path.clone()),
+                        style::mono(&fonts, ui.font_size_xs),
+                        TextColor(style::color::TEXT_DIM),
+                    ));
+                }
+                let bounds = models.get(model).and_then(|entry| entry.bounds);
+                let size_line = match bounds {
+                    Some(bounds) => {
+                        let [x, y, z] = bounds.size();
+                        // `≥` when a primitive could not be measured: the box is
+                        // a lower bound, and the record says so rather than
+                        // rounding the uncertainty away.
+                        let prefix = if bounds.complete { "" } else { "\u{2265} " };
+                        format!("{prefix}{x:.2} \u{d7} {y:.2} \u{d7} {z:.2} m")
+                    }
+                    None => "size unknown \u{b7} no bounds recorded".into(),
+                };
+                pane.spawn((
+                    Text::new(size_line),
+                    style::mono(&fonts, ui.font_size_s),
+                    TextColor(if bounds.is_some_and(|b| b.complete) {
+                        style::color::TEXT_KEYS
+                    } else {
+                        style::color::TEXT_DIM
+                    }),
+                ));
+                if let Some(bounds) = bounds {
+                    pane.spawn((
+                        Text::new(format!("{} tris", bounds.triangles)),
+                        style::mono(&fonts, ui.font_size_s),
+                        TextColor(style::color::TEXT_DIM),
+                    ));
+                }
             }
             pane.spawn((
                 Text::new("\u{23ce} place at cursor"),

@@ -40,6 +40,10 @@ pub(crate) enum Subject {
     /// case where you want the image itself and not a lighting judgement, and
     /// unlit is as close to "the file" as this rig gets.
     Texture(Uuid),
+    /// An imported model, rendered from the same `MeshRef` the scene uses.
+    /// Without this a kit of forty near-identical wall pieces is forty text
+    /// rows you have to already know the names of.
+    Model(Uuid),
 }
 
 #[derive(Resource)]
@@ -145,6 +149,16 @@ pub(crate) fn sync_preview_content(world: &mut World) {
         camera.is_active = subject.is_some();
     }
 
+    // Every subject starts from the SAME three-quarter pose. The turntable
+    // never reset, so arrowing down a kit showed each piece at whatever yaw the
+    // last one happened to reach — and for forty walls that differ by a window
+    // or a broken corner, comparing them depends entirely on their being shown
+    // alike. A flipbook makes the difference pop; forty unrelated pictures hide
+    // it. It also makes the preview screenshot deterministic.
+    if let Some(mut transform) = world.get_mut::<Transform>(root) {
+        transform.rotation = Quat::from_rotation_y(-std::f32::consts::FRAC_PI_8);
+    }
+
     let mut radius: f32 = 1.0;
     match subject {
         None => {}
@@ -176,6 +190,10 @@ pub(crate) fn sync_preview_content(world: &mut World) {
                 MeshMaterial3d(material_handle),
                 Transform::default(),
                 RenderLayers::layer(PREVIEW_LAYER),
+                // Unparented, this sphere sat at the world ORIGIN while the
+                // preview camera looked 900 units below it: the texture chip
+                // has been rendering an empty pane.
+                ChildOf(root),
             ));
         }
         Some(Subject::Material(material)) => {
@@ -203,7 +221,10 @@ pub(crate) fn sync_preview_content(world: &mut World) {
                 PreviewContent,
                 Mesh3d(mesh),
                 MeshMaterial3d(material_handle),
-                Transform::from_translation(PREVIEW_HOME),
+                // The ROOT is already at `PREVIEW_HOME`; translating by it
+                // again put this sphere at y = -1800, twice as far down as the
+                // camera looks. The material chip has been empty too.
+                Transform::default(),
                 RenderLayers::layer(PREVIEW_LAYER),
                 ChildOf(root),
             ));
@@ -217,6 +238,36 @@ pub(crate) fn sync_preview_content(world: &mut World) {
                 return;
             };
             spawn_preview_entity(world, root, &components);
+        }
+        Some(Subject::Model(model)) => {
+            // The SAME reference the scene uses: the resolver spawns the
+            // derived gltf subtree under this entity exactly as it does for a
+            // placed model, so the preview cannot drift from what placement
+            // actually produces.
+            let bounds = world
+                .resource::<editor_scene::models::ModelLibrary>()
+                .get(&model)
+                .and_then(|entry| entry.bounds);
+            let entity = spawn_preview_entity(
+                world,
+                root,
+                &[Box::new(editor_scene::models::MeshRef(model)).into_partial_reflect()],
+            );
+            // Centre and frame it from the bounds the PROCESS STAGE recorded at
+            // import. Measuring live would mean waiting for the gltf to load —
+            // the preview would open mis-framed and jump. The number is already
+            // in the library on the first frame the pane appears.
+            if let Some(bounds) = bounds {
+                let (min, max) = (Vec3::from(bounds.min), Vec3::from(bounds.max));
+                let centre = (min + max) * 0.5;
+                if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+                    // A wall pivoted at one end, a prop pivoted at its base:
+                    // most models are not centred on their own origin, and a
+                    // preview that frames the origin shows half the asset.
+                    transform.translation = -centre;
+                }
+                radius = radius.max((max - min).length() * 0.5);
+            }
         }
         Some(Subject::Prefab(prefab)) => {
             // Template records → preview entities (same reflection path as
@@ -315,17 +366,63 @@ fn spawn_preview_entity(
     entity
 }
 
-/// Regenerate observers attach meshes AFTER the spawn — those meshes must join
-/// the preview layer or the preview camera can't see what the observer added.
-/// (RenderLayers does NOT propagate to hierarchy in Bevy.)
-pub(crate) fn inherit_preview_layer(
-    added: Query<Entity, (With<PreviewContent>, With<Mesh3d>, Without<RenderLayers>)>,
+/// Everything under the preview root joins the preview — and nothing under it
+/// is allowed to touch the real editor.
+///
+/// Two separate reasons this cannot be "stamp the entity I spawned":
+///
+/// 1. Regenerate observers attach meshes AFTER the spawn, and a model's
+///    geometry arrives deeper still — the gltf scene spawner builds a whole
+///    subtree of its own, none of it carrying `PreviewContent`. `RenderLayers`
+///    does not propagate in Bevy, so an unstamped mesh is invisible to the
+///    preview camera and visible to the level's.
+/// 2. A gltf brings whatever the artist saved in it. Bevy's loader defaults to
+///    `load_cameras: true, load_lights: true`, and the camera it spawns is
+///    ACTIVE when no other active camera was found, pointed at the primary
+///    window. A Blender file with its default Sun and Camera would therefore
+///    light — or take over — the actual level, once per highlighted palette
+///    row. The preview must be a room, not a guest with opinions.
+///
+/// Walks DOWN from the root rather than testing ancestry across the world:
+/// scene meshes carry no `RenderLayers` either, so a global query would sweep
+/// the whole level every frame to rediscover that a wall is not a palette chip.
+pub(crate) fn contain_preview_content(
+    rig: Option<Res<PreviewRig>>,
+    children: Query<&Children>,
+    meshes: Query<(), (With<Mesh3d>, Without<RenderLayers>)>,
+    lights: Query<
+        (),
+        (
+            Without<RenderLayers>,
+            Or<(With<DirectionalLight>, With<PointLight>, With<SpotLight>)>,
+        ),
+    >,
+    mut cameras: Query<&mut Camera, Without<RenderLayers>>,
     mut commands: Commands,
 ) {
-    for entity in &added {
-        commands
-            .entity(entity)
-            .insert(RenderLayers::layer(PREVIEW_LAYER));
+    let Some(rig) = rig else { return };
+    let mut stack = vec![rig.root];
+    while let Some(entity) = stack.pop() {
+        if let Ok(kids) = children.get(entity) {
+            stack.extend(kids.iter());
+        }
+        if meshes.contains(entity) {
+            commands.entity(entity).insert((
+                RenderLayers::layer(PREVIEW_LAYER),
+                // A chip is a picture, not a click target.
+                bevy::picking::Pickable::IGNORE,
+            ));
+        } else if lights.contains(entity) {
+            // Confine it: an imported sun lights the preview room only.
+            commands
+                .entity(entity)
+                .insert(RenderLayers::layer(PREVIEW_LAYER));
+        } else if let Ok(mut camera) = cameras.get_mut(entity) {
+            // An imported camera renders to the primary window at order 0.
+            // Nothing about highlighting a palette row should change what the
+            // designer is looking at.
+            camera.is_active = false;
+        }
     }
 }
 
@@ -343,4 +440,29 @@ pub(crate) fn turn_preview(
     if let Ok(mut transform) = transforms.get_mut(rig.root) {
         transform.rotate_y(time.delta_secs() * 0.6);
     }
+}
+
+/// How many meshes are actually rendering into the preview pane right now.
+///
+/// On the preview layer AND within reach of the preview camera. The layer
+/// alone is not the question: both sibling chips carried the right layer and
+/// sat 900 units from where the camera looks, so "a mesh exists on the preview
+/// layer" was true of two panes that rendered nothing. What a probe wants to
+/// know is whether the picture has anything in it.
+pub(crate) fn preview_mesh_count(world: &mut World) -> usize {
+    let layer = RenderLayers::layer(PREVIEW_LAYER);
+    world
+        .query_filtered::<(&RenderLayers, &GlobalTransform), With<Mesh3d>>()
+        .iter(world)
+        .filter(|(layers, global)| {
+            layers.intersects(&layer) && global.translation().distance(PREVIEW_HOME) < 50.0
+        })
+        .count()
+}
+
+/// The live preview image, for a probe that wants to LOOK at it.
+pub(crate) fn preview_image(world: &World) -> Option<Handle<Image>> {
+    world
+        .get_resource::<PreviewRig>()
+        .map(|rig| rig.image.clone())
 }

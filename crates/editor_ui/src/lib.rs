@@ -281,7 +281,7 @@ impl Plugin for EditorUiPlugin {
                 socket_gizmo::sync_socket_gizmos,
                 inspector::reveal_section,
                 palette_preview::sync_preview_content,
-                palette_preview::inherit_preview_layer,
+                palette_preview::contain_preview_content,
                 palette_preview::turn_preview,
                 probe_prefab::probe_prefab.run_if(|| std::env::var("PREFAB_PROBE").is_ok()),
                 probe_user::probe_user.run_if(|| std::env::var("USER_PROBE").is_ok()),

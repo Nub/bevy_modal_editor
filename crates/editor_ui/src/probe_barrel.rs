@@ -292,6 +292,79 @@ pub(crate) fn probe_barrel(world: &mut World) {
         960 => tap(world, KeyCode::Digit3, "3"),
         970 => tap_named(world, KeyCode::Enter, Key::Enter),
         // Settle + record the world as the user arranged it.
+        // ── The palette SHOWS a model, not just its name (spec §7) ─────────
+        // Imported models were the only placeable thing with no preview: a kit
+        // of forty near-identical walls was forty text rows you had to know by
+        // name. The gltf is loaded by now, so this is the steady state a
+        // designer actually browses in.
+        1000 => invoke(world, "select.clear"),
+        1010 => tap(world, KeyCode::KeyI, "i"),
+        1040 => {
+            for (code, ch) in [
+                (KeyCode::KeyB, "b"),
+                (KeyCode::KeyA, "a"),
+                (KeyCode::KeyR, "r"),
+                (KeyCode::KeyR, "r"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        1100 => {
+            let meshes = crate::palette_preview::preview_mesh_count(world);
+            // The fixture is two nodes (barrel + lid), and they arrive as
+            // DESCENDANTS of the derived subtree — which is exactly what the
+            // old layer-stamping missed, so counting them is the check.
+            check(
+                world,
+                meshes >= 2,
+                &format!("the palette previews the model's geometry ({meshes} meshes)"),
+            );
+            // Framed from the bounds recorded at IMPORT: the preview entity is
+            // pushed by the model's own centre offset, so a wall pivoted at one
+            // end is not half out of frame.
+            let offset = world
+                .query_filtered::<&Transform, With<crate::palette_preview::PreviewContent>>()
+                .iter(world)
+                .next()
+                .map(|transform| transform.translation);
+            let bounds = world
+                .resource::<ModelLibrary>()
+                .entries
+                .iter()
+                .find(|entry| entry.name == "barrel")
+                .and_then(|entry| entry.bounds);
+            let expected = bounds.map(|b| -(Vec3::from(b.min) + Vec3::from(b.max)) * 0.5);
+            let centred = match (offset, expected) {
+                (Some(offset), Some(expected)) => offset.distance(expected) < 1e-4,
+                _ => false,
+            };
+            check(
+                world,
+                centred,
+                &format!("and centres it on the imported bounds ({offset:?} vs {expected:?})"),
+            );
+            // The chip is fit to frame, so it cannot say how BIG this is. The
+            // pane must, and these are the import-time numbers — the first
+            // thing a designer actually reads out of the Process stage.
+            let pane_text: Vec<String> = world
+                .query::<&Text>()
+                .iter(world)
+                .map(|text| text.0.clone())
+                .collect();
+            let sized = pane_text
+                .iter()
+                .any(|line| line.contains('\u{d7}') && line.ends_with(" m"));
+            let counted = pane_text.iter().any(|line| line.ends_with(" tris"));
+            check(
+                world,
+                sized && counted,
+                &format!("the pane prints its real size and triangle count ({sized}, {counted})"),
+            );
+            if let Some(image) = crate::palette_preview::preview_image(world) {
+                crate::probe_user::shot_image(world, image, "19-model-preview");
+            }
+        }
+        1120 => tap_named(world, KeyCode::Escape, Key::Escape),
         1150 => {
             let roots = instance_roots(world);
             check(world, roots.len() == 3, "three keg instances placed");

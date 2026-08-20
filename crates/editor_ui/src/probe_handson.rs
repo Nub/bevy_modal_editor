@@ -273,6 +273,21 @@ pub(crate) fn probe_handson(world: &mut World) {
             check(world, open, "the texture chip opens the picker");
             type_word(world, "swa");
         }
+        // The texture chip is LIVE right now (the picker is filtered to
+        // "swa"). Both sibling preview arms were mis-parented — the texture
+        // sphere sat at the world origin 900 units from the preview camera,
+        // and the material sphere was translated to preview home a second time
+        // under a root already there — so both panes rendered nothing at all.
+        // Nobody noticed because the only preview assertion in this probe reads
+        // the MATERIAL EDITOR's rig, which is a different camera entirely.
+        350 => {
+            let meshes = crate::palette_preview::preview_mesh_count(world);
+            check(
+                world,
+                meshes >= 1,
+                &format!("the texture picker actually shows the texture ({meshes} meshes)"),
+            );
+        }
         360 => tap_named(world, KeyCode::Enter, Key::Enter),
         380 => {
             let (probe_material, probe_texture) = {
@@ -309,6 +324,17 @@ pub(crate) fn probe_handson(world: &mut World) {
             shot(world, "22-textured-material");
         }
         400 => invoke(world, "core.undo"),
+        // And the material chip, the other mis-parented arm.
+        392 => invoke(world, "material.assign"),
+        420 => {
+            let meshes = crate::palette_preview::preview_mesh_count(world);
+            check(
+                world,
+                meshes >= 1,
+                &format!("the material palette actually shows the material ({meshes} meshes)"),
+            );
+        }
+        424 => tap_named(world, KeyCode::Escape, Key::Escape),
         440 => {
             let cleared = world
                 .resource::<HandsonProbe>()
