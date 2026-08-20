@@ -665,6 +665,40 @@ the Process stage recorded at import (§6): `≥` and a dimmed tint when the rec
 is incomplete, an explicit "size unknown" when there is none. Never over the
 render — the pane is ordinary UI, and the standing rule against floating text on
 the viewport is untouched.
+
+**The palette a newcomer can learn from (2026-08-20, owner testing).** The
+owner, opening it fresh: "hard to learn from as a newb, make sure it has
+sections and is super easy to understand." Three defects, each verified:
+
+- **The row cap was applied BEFORE grouping**, and it was 50 — fewer than the
+  editor's own action list. An alphabetical run of ~74 normal-mode actions was
+  sliced at "Rotate Selection", so undo, save, every view, and all nine socket
+  verbs were simply not on the first screen, with nothing saying so. Browsing
+  could not teach what browsing could not show. The cut is now announced ("…
+  N more · keep typing to narrow"), the cap is 200 — the list scrolls, and the
+  cap is for the pathological case (a component palette offering hundreds), not
+  the normal one.
+- **Sections were filed by MODE, and only two modes exist**, so every
+  normal-mode action landed in one "EDITOR" bucket and the header printed once.
+  Actions now declare a `PaletteGroup` — PLACE, SOCKETS & KITS, SELECT & EDIT,
+  PREFABS, MATERIALS, ANIMATION, VIEW & PANELS, SCENE & SESSION — defaulted from
+  the id namespace so a feature that says nothing is still filed sensibly.
+  Ordered by what a builder reaches for, never alphabetically.
+- **Inside a section, order is REGISTRATION order.** `sort_by(label)` scattered
+  each workflow across six letters (Chain… / Fill Run / Paint With Piece /
+  Repeat Piece / Snap Socket… / Sockets:…), while the registration order in the
+  feature is already the order its author teaches them in. Deleting one sort
+  bought a curriculum.
+
+Sections also survive a query now: they used to vanish the moment you typed,
+which is exactly when the result set turns heterogeneous and the domain cue is
+worth most.
+
+**Settings froze the old default (2026-08-20).** Raising the cap changed nothing
+at first, because settings are saved WHOLE: every default a user has ever run
+with is written into their `editor-settings.ron` and frozen there. `load_user`
+now runs a migrator, and the first entry retires the 50-row cap — nobody chose
+50, the editor wrote it. A cap a user actually chose is left alone.
 ## 8. Engineering Standards (the studio bar)
 
 The meta-lesson of v1: **every defect traced to an invariant enforced by convention.**

@@ -708,6 +708,61 @@ pub(crate) fn probe_user(world: &mut World) {
         // holding the right button and flying there.
         // Pointer over the VIEWPORT: the wheel belongs to whatever it is over,
         // and the previous frames left it on a panel.
+        // ── The palette teaches (owner: "hard to learn from as a newb") ────
+        // The first screen used to be one alphabetical bucket cut at row 50,
+        // so every socket verb was off the page with nothing saying so.
+        2106 => {
+            world.write_message(ActionInvoked {
+                action: ActionId::new_static("core.palette"),
+                args: None,
+                source: InvocationSource::Test,
+            });
+        }
+        2110 => {
+            let rows: Vec<String> = world
+                .query::<&Text>()
+                .iter(world)
+                .map(|text| text.0.clone())
+                .collect();
+            let headers = [
+                "PLACE",
+                "SOCKETS & KITS",
+                "SELECT & EDIT",
+                "VIEW & PANELS",
+                "SCENE & SESSION",
+            ];
+            let present = headers
+                .iter()
+                .filter(|header| rows.iter().any(|row| row == *header))
+                .count();
+            check(
+                world,
+                present == 5,
+                &format!("the palette opens in SECTIONS ({present}/5 headers)"),
+            );
+            // The verbs the owner could not find: on the page, unsearched.
+            let teaches_sockets = rows.iter().any(|row| row.starts_with("Sockets:"));
+            check(
+                world,
+                teaches_sockets,
+                "and a socket verb is on the first screen without typing",
+            );
+            // Nothing may be cut in SILENCE. Either the whole list is on the
+            // page, or a row says how much was held back — the invisible cut is
+            // what hid every socket verb from a newcomer.
+            let actions = world.resource::<ActionCatalog>().actions.len();
+            let listed = rows.len();
+            let announced = rows
+                .iter()
+                .any(|row| row.contains("more") && row.contains("keep typing"));
+            check(
+                world,
+                announced || listed >= actions / 2,
+                &format!("nothing is cut in silence ({listed} rows, {actions} actions)"),
+            );
+            shot(world, "18-palette-sections");
+        }
+        2114 => tap_named(world, KeyCode::Escape, Key::Escape),
         2112 => {
             let center = viewport_center(world);
             move_cursor(world, center);

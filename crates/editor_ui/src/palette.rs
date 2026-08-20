@@ -197,6 +197,7 @@ fn spawn_palette(mut commands: Commands) {
     });
 }
 
+#[derive(Debug)]
 struct DisplayRow {
     label: String,
     suffix: String,
@@ -204,9 +205,13 @@ struct DisplayRow {
 }
 
 /// One titled group of the results list (None = flat).
+#[derive(Debug)]
 struct DisplaySection {
     title: Option<String>,
     rows: Vec<DisplayRow>,
+    /// How many further matches were cut, reported on the last section rather
+    /// than dropped in silence.
+    more: usize,
 }
 
 fn flat_len(sections: &[DisplaySection]) -> usize {
@@ -224,7 +229,6 @@ fn build_palette_items(
     state: Res<PaletteState>,
     catalog: Res<ActionCatalog>,
     keymap: Res<ResolvedKeymap>,
-    modes: Res<Modes>,
     entities: Query<(&SceneId, &Name)>,
     library: Res<editor_scene::materials::MaterialLibrary>,
     prefabs: Res<editor_prefabs::PrefabLibrary>,
@@ -443,35 +447,33 @@ fn build_palette_items(
             items.0.extend(kinds);
         }
         PaletteFilter::Commands => {
-            // EDITOR block first, then per-mode blocks (owner rule) — the engine
-            // preserves this order for empty queries; searching goes flat-ranked.
-            let mut editor = Vec::new();
-            let mut modal: std::collections::BTreeMap<String, Vec<PaletteEntry>> =
+            // GROUPED BY DOMAIN, in the order a level builder reaches for them
+            // — and inside a group, in REGISTRATION order, because that is the
+            // order the feature's author taught them in (generate sockets, snap
+            // them, set the chain direction, repeat, fill, paint). Sorting by
+            // label scattered each workflow across six letters and taught
+            // nothing.
+            //
+            // The old rule filed by MODE, and only two modes exist, so all ~74
+            // normal-mode actions landed in one alphabetical "EDITOR" bucket.
+            let mut grouped: std::collections::BTreeMap<usize, Vec<PaletteEntry>> =
                 Default::default();
             for def in &catalog.actions {
                 if def.flags.hidden {
                     continue;
                 }
-                let section = def.contexts.iter().find_map(|context| {
-                    if context.as_str() == "normal" {
-                        return None;
-                    }
-                    modes
-                        .get(&ModeId::new(context.as_str().to_string()))
-                        .map(|mode| mode.name.to_uppercase())
-                });
-                match section {
-                    Some(section) => modal
-                        .entry(section.clone())
-                        .or_default()
-                        .push(entry_for_action(def, &keymap, Some(section))),
-                    None => editor.push(entry_for_action(def, &keymap, Some("EDITOR".into()))),
-                }
+                let group = def.palette_group();
+                let order = editor_api::actions::PaletteGroup::ORDER
+                    .iter()
+                    .position(|candidate| candidate == &group)
+                    .unwrap_or(usize::MAX);
+                grouped.entry(order).or_default().push(entry_for_action(
+                    def,
+                    &keymap,
+                    Some(group.as_str().into()),
+                ));
             }
-            editor.sort_by(|a, b| a.label.cmp(&b.label));
-            items.0.extend(editor);
-            for (_, mut block) in modal {
-                block.sort_by(|a, b| a.label.cmp(&b.label));
+            for (_, block) in grouped {
                 items.0.extend(block);
             }
         }
@@ -499,30 +501,50 @@ fn entry_for_action(
     }
 }
 
-/// Ranked view: empty query keeps category grouping (source order); a live query
-/// flattens to best-match-first (what fingers expect from fuzzy search).
+/// Ranked view, grouped into sections.
+///
+/// Two rules, both learned the hard way:
+///
+/// **Sections survive a query.** They used to vanish the moment you typed,
+/// which is exactly when the result set becomes heterogeneous and a domain cue
+/// is worth most — a Commands row's suffix is a keybinding, so a searched row
+/// carried no hint of what it belonged to at all.
+///
+/// **The cut is VISIBLE.** The row cap used to be applied to the ranked list
+/// BEFORE grouping, so an alphabetical list of ~74 editor actions was sliced at
+/// "Rotate Selection" and everything after it — undo, save, every view, and all
+/// nine socket verbs — was simply not on the newcomer's first screen, with
+/// nothing saying so. Browsing could not teach what browsing could not show.
 fn display_sections(items: &PaletteItems, query: &str, max_results: usize) -> Vec<DisplaySection> {
     let ranked = rank(&items.0, query);
+    let total = ranked.len();
     let mut sections: Vec<DisplaySection> = Vec::new();
-    for index in ranked.into_iter().take(max_results) {
+    let mut shown = 0usize;
+    for index in ranked.into_iter() {
+        if shown >= max_results {
+            break;
+        }
+        shown += 1;
         let item = &items.0[index];
         let row = DisplayRow {
             label: item.label.clone(),
             suffix: item.suffix.clone(),
             item: index,
         };
-        let title = if query.is_empty() {
-            item.category.clone()
-        } else {
-            None
-        };
+        let title = item.category.clone();
         match sections.last_mut() {
             Some(section) if section.title == title => section.rows.push(row),
             _ => sections.push(DisplaySection {
                 title,
                 rows: vec![row],
+                more: 0,
             }),
         }
+    }
+    if total > shown
+        && let Some(section) = sections.last_mut()
+    {
+        section.more = total - shown;
     }
     sections
 }
@@ -1347,6 +1369,24 @@ fn rebuild_results(
                     }
                 });
             }
+            // The list was CUT. Say so on the page, in the reader's own terms:
+            // an invisible cut is why a newcomer could browse this palette and
+            // conclude the editor had no socket verbs.
+            if section.more > 0 {
+                parent.spawn((
+                    Text::new(format!(
+                        "\u{2026} {} more \u{b7} keep typing to narrow",
+                        section.more
+                    )),
+                    style::sans(&fonts, ui.font_size_xs),
+                    TextColor(style::color::TEXT_DIM),
+                    Node {
+                        padding: UiRect::all(px(style::space::S)),
+                        flex_shrink: 0.0,
+                        ..default()
+                    },
+                ));
+            }
         }
         if flat_index == 0 {
             parent.spawn((
@@ -1626,4 +1666,87 @@ fn camera_focus_ground(world: &mut World) -> Option<Vec3> {
         let ahead = transform.translation() + *transform.forward() * 6.0;
         Vec3::new(ahead.x, 0.0, ahead.z)
     }))
+}
+
+#[cfg(test)]
+mod section_tests {
+    use super::*;
+    use crate::palette_engine::PaletteEntry;
+
+    fn entry(label: &str, category: &str) -> PaletteEntry {
+        PaletteEntry {
+            label: label.into(),
+            category: Some(category.into()),
+            keywords: label.to_lowercase(),
+            suffix: String::new(),
+            payload: PalettePayload::Action(ActionId::new(label.to_lowercase())),
+        }
+    }
+
+    /// The headline defect: the cap was applied to the RANKED list before
+    /// grouping, so an alphabetical run of editor actions was sliced partway
+    /// through and everything after it — undo, save, every socket verb — was
+    /// not on the page, with nothing saying so.
+    #[test]
+    fn a_truncated_list_says_how_much_it_cut() {
+        let items = PaletteItems(
+            (0..30)
+                .map(|index| entry(&format!("Action {index:02}"), "EDITOR"))
+                .collect(),
+        );
+        let sections = display_sections(&items, "", 10);
+        assert_eq!(flat_len(&sections), 10, "the cap still applies");
+        assert_eq!(
+            sections.last().unwrap().more,
+            20,
+            "and the remainder is reported, not dropped"
+        );
+    }
+
+    /// Nothing to report when nothing was cut — a palette that always claims
+    /// there is more is noise.
+    #[test]
+    fn an_untruncated_list_says_nothing() {
+        let items = PaletteItems(vec![entry("Undo", "SELECT & EDIT")]);
+        let sections = display_sections(&items, "", 10);
+        assert_eq!(sections.last().unwrap().more, 0);
+    }
+
+    /// Sections used to vanish the moment you typed — exactly when the result
+    /// set becomes heterogeneous and the domain cue is worth most.
+    #[test]
+    fn sections_survive_a_query() {
+        let items = PaletteItems(vec![
+            entry("Sockets: Ends", "SOCKETS & KITS"),
+            entry("Socket Save", "SCENE & SESSION"),
+        ]);
+        let sections = display_sections(&items, "socket", 10);
+        assert!(
+            sections.iter().all(|section| section.title.is_some()),
+            "every row still says which domain it came from"
+        );
+        assert!(
+            sections.len() >= 2,
+            "and they are still separate: {sections:?}"
+        );
+    }
+
+    /// A group is derived from the id namespace when nobody said, so a feature
+    /// that forgets is filed sensibly rather than dumped in a catch-all.
+    #[test]
+    fn groups_derive_from_the_id() {
+        use editor_api::actions::PaletteGroup;
+        assert_eq!(
+            PaletteGroup::from_id("socket.generate-ends"),
+            PaletteGroup::SOCKETS
+        );
+        assert_eq!(
+            PaletteGroup::from_id("prefab.repeat"),
+            PaletteGroup::SOCKETS
+        );
+        assert_eq!(PaletteGroup::from_id("prefab.open"), PaletteGroup::PREFABS);
+        assert_eq!(PaletteGroup::from_id("transform.drop"), PaletteGroup::EDIT);
+        assert_eq!(PaletteGroup::from_id("view.top"), PaletteGroup::VIEW);
+        assert_eq!(PaletteGroup::from_id("scene.save"), PaletteGroup::SCENE);
+    }
 }

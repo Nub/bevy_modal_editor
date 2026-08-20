@@ -541,6 +541,7 @@ fn host_features(world: &mut World) {
                     ContextId::new_static("insert"),
                 ],
                 default_bindings: Vec::new(),
+                group: Some(editor_api::actions::PaletteGroup::PLACE),
                 flags: editor_api::actions::ActionFlags {
                     is_edit: true,
                     hidden: false,
@@ -565,6 +566,7 @@ fn host_features(world: &mut World) {
                 description: std::borrow::Cow::Borrowed("Show or hide this panel"),
                 contexts: Vec::new(), // global: panels toggle from anywhere
                 default_bindings: Vec::new(),
+                group: Some(editor_api::actions::PaletteGroup::VIEW),
                 flags: editor_api::actions::ActionFlags::default(),
             };
             (feature.clone(), def)

@@ -25,10 +25,29 @@ pub const SETTINGS_FILE: &str = "editor-settings.ron";
 impl EditorSettings {
     /// Layer the user file over defaults (partial files work — serde defaults).
     pub fn load_user() -> Self {
-        std::fs::read_to_string(SETTINGS_FILE)
+        let mut settings: Self = std::fs::read_to_string(SETTINGS_FILE)
             .ok()
             .and_then(|text| ron::from_str(&text).ok())
-            .unwrap_or_default()
+            .unwrap_or_default();
+        settings.migrate();
+        settings
+    }
+
+    /// Settings are saved WHOLE, so every default a user ever ran with is
+    /// frozen into their file — improving a default afterwards changes nothing
+    /// for anyone who has already opened the editor once. This is the migrator
+    /// for the cases where that froze something wrong.
+    ///
+    /// `palette_max_results` was 50, which is fewer than the editor's own
+    /// action list: the command palette's first screen was cut partway through
+    /// and a newcomer browsing it could not see that the rest existed. Nobody
+    /// chose 50 — the editor wrote it — so it is migrated rather than
+    /// respected.
+    fn migrate(&mut self) {
+        const OLD_PALETTE_CAP: usize = 50;
+        if self.ui.palette_max_results == OLD_PALETTE_CAP {
+            self.ui.palette_max_results = UiSettings::default().palette_max_results;
+        }
     }
     /// Persist the full settings (v1 discipline: saved on every change).
     pub fn save_user(&self) {
@@ -117,7 +136,13 @@ pub struct UiSettings {
     pub font_size_search: f32,
     /// Transient status feedback (save/load flash) duration, seconds.
     pub status_flash_secs: f32,
-    /// Hard cap on palette results (the list scrolls; guards pathological volume).
+    /// Hard cap on palette results (the list scrolls; guards pathological
+    /// volume — a component palette can offer hundreds).
+    ///
+    /// It was 50, which is FEWER than the editor's own action list, so the
+    /// command palette's first screen was cut partway through the alphabet and
+    /// a newcomer browsing it could not see that the second half existed. The
+    /// list scrolls; the cap is for the pathological case, not the normal one.
     pub palette_max_results: usize,
     /// Dock sizes, logical px (draggable resize arrives with the layout manager).
     pub dock_left_width: f32,
@@ -133,7 +158,7 @@ impl Default for UiSettings {
             font_size_m: 14.0,
             font_size_search: 16.0,
             status_flash_secs: 3.0,
-            palette_max_results: 50,
+            palette_max_results: 200,
             dock_left_width: 280.0,
             dock_right_width: 320.0,
             dock_bottom_height: 200.0,
@@ -144,6 +169,30 @@ impl Default for UiSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Settings are saved whole, so a value the editor itself wrote once is
+    /// frozen forever — improving a default would otherwise change nothing for
+    /// anyone who has already run the editor.
+    #[test]
+    fn the_old_palette_cap_is_migrated_not_respected() {
+        let mut settings = EditorSettings::default();
+        settings.ui.palette_max_results = 50;
+        settings.migrate();
+        assert_eq!(
+            settings.ui.palette_max_results,
+            UiSettings::default().palette_max_results,
+            "a cap smaller than the action list is not a preference"
+        );
+    }
+
+    /// A cap a user actually chose is left alone.
+    #[test]
+    fn a_deliberate_cap_survives() {
+        let mut settings = EditorSettings::default();
+        settings.ui.palette_max_results = 12;
+        settings.migrate();
+        assert_eq!(settings.ui.palette_max_results, 12);
+    }
 
     // The future editor-settings.ron contract: a PARTIAL file layers over defaults
     // (serde(default) at every level), and the full round-trip holds.

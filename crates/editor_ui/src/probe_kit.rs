@@ -438,6 +438,12 @@ pub(crate) fn probe_kit(world: &mut World) {
         // resolve to the instance root — which made every socket verb
         // mouse-unreachable on exactly the pieces that could use them.
         1250 => {
+            let target = free_socket(world);
+            let Some((entity, at)) = target else {
+                check(world, false, "a free socket to click");
+                return;
+            };
+            world.resource_mut::<KitProbe>().socket_at = Some(at);
             let selected: Vec<Entity> = world
                 .query_filtered::<Entity, With<editor_core::selection::Selected>>()
                 .iter(world)
@@ -447,17 +453,41 @@ pub(crate) fn probe_kit(world: &mut World) {
                     .entity_mut(previous)
                     .remove::<editor_core::selection::Selected>();
             }
-            let target = free_socket(world);
-            world.resource_mut::<KitProbe>().socket_at = target.map(|(_, at)| at);
-            if let Some((_, at)) = target
-                && let Some(screen) = crate::probe_handson::screen_position_of(world, at)
-            {
+            // Frame it first: a probe that clicks at a projected point needs the
+            // point to be ON SCREEN and not behind a wall, and after a painted
+            // run there are two hundred walls to hide behind. Framing is also
+            // what a person would do.
+            world
+                .entity_mut(entity)
+                .insert(editor_core::selection::Selected);
+            world.write_message(editor_core::selection::SelectionChanged);
+            world.write_message(editor_core::prelude::ActionInvoked {
+                action: editor_core::prelude::ActionId::new_static("camera.frame"),
+                args: None,
+                source: editor_core::prelude::InvocationSource::Test,
+            });
+        }
+        1290 => {
+            // Now drop the selection: the click has to EARN it.
+            let selected: Vec<Entity> = world
+                .query_filtered::<Entity, With<editor_core::selection::Selected>>()
+                .iter(world)
+                .collect();
+            for previous in selected {
+                world
+                    .entity_mut(previous)
+                    .remove::<editor_core::selection::Selected>();
+            }
+            let Some(at) = world.resource::<KitProbe>().socket_at else {
+                return;
+            };
+            if let Some(screen) = crate::probe_handson::screen_position_of(world, at) {
                 move_cursor(world, screen);
             }
         }
-        1256 => click(world, true),
-        1260 => click(world, false),
-        1275 => {
+        1296 => click(world, true),
+        1300 => click(world, false),
+        1315 => {
             let on_socket = world
                 .query_filtered::<(), (With<Socket>, With<editor_core::selection::Selected>)>()
                 .iter(world)
