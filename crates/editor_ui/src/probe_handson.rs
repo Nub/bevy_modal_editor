@@ -28,6 +28,9 @@ pub(crate) struct HandsonProbe {
     members_before: Vec<(Entity, Vec3)>,
     overridden_root: Option<Entity>,
     edited_root: Option<Entity>,
+    /// The entity an inspector field addresses, and its transform before the
+    /// edit — a patched leaf must leave every sibling field untouched.
+    patched: Option<(Entity, Transform)>,
 }
 
 fn check(world: &mut World, ok: bool, what: &str) {
@@ -497,18 +500,56 @@ pub(crate) fn probe_handson(world: &mut World) {
         // stamped selection deliberately move the whole instance): commit
         // translation.y = 1 through the real field event.
         1360 => {
+            // An inspector edit is a PATCH on one leaf, so record the WHOLE
+            // transform of the entity the field addresses: the siblings have to
+            // come through untouched.
             let field = world
                 .query::<(Entity, &crate::inspector::InspectorField)>()
                 .iter(world)
                 .find(|(_, f)| f.path == "translation.y")
-                .map(|(e, _)| e);
+                .map(|(entity, f)| (entity, f.target));
             match field {
-                Some(source) => world.trigger(bevy::ui_widgets::ValueChange {
-                    source,
-                    value: 1.0f32,
-                    is_final: true,
-                }),
+                Some((source, target)) => {
+                    let subject = world
+                        .resource::<editor_api::edits::SceneIndex>()
+                        .get(&target);
+                    world.resource_mut::<HandsonProbe>().patched = subject
+                        .and_then(|entity| world.get::<Transform>(entity).copied())
+                        .map(|transform| (subject.unwrap(), transform));
+                    world.trigger(bevy::ui_widgets::ValueChange {
+                        source,
+                        value: 1.0f32,
+                        is_final: true,
+                    });
+                }
                 None => check(world, false, "inspector Y field present for the member"),
+            }
+        }
+        1370 => {
+            let recorded = world.resource::<HandsonProbe>().patched;
+            let before = recorded.map(|(_, transform)| transform);
+            let after = recorded.and_then(|(entity, _)| world.get::<Transform>(entity).copied());
+            match (before, after) {
+                (Some(before), Some(after)) => {
+                    check(
+                        world,
+                        (after.translation.y - 1.0).abs() < 1e-4,
+                        &format!("the edited leaf took the value ({})", after.translation.y),
+                    );
+                    // Field granularity, end to end: editing y through the
+                    // inspector must not carry x, z, the rotation or the scale
+                    // along with it.
+                    let siblings_held = (after.translation.x - before.translation.x).abs() < 1e-6
+                        && (after.translation.z - before.translation.z).abs() < 1e-6
+                        && after.scale.abs_diff_eq(before.scale, 1e-6)
+                        && after.rotation.abs_diff_eq(before.rotation, 1e-6);
+                    check(
+                        world,
+                        siblings_held,
+                        "editing one field left every other field of the component alone",
+                    );
+                }
+                _ => check(world, false, "the member's transform is readable"),
             }
         }
         1400 => tap_named(world, KeyCode::Escape, Key::Escape),

@@ -211,6 +211,40 @@ fn apply_op(
             touched.push(target);
             Some(inverse)
         }
+        Op::Patch {
+            target,
+            type_path,
+            path,
+            value,
+        } => {
+            let entity = resolve(world, &target)?;
+            let registration = registry.get_with_type_path(&type_path)?;
+            let reflect_component = registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
+            // The component still round-trips as a whole — that is how a
+            // reflected component is written back — but the OP carries one leaf,
+            // so the history entry is a field and the inverse is the field's
+            // previous value.
+            let mut dynamic = clone_component(world, registry, entity, registration.type_id())?;
+            let parsed = bevy::reflect::ParsedPath::parse(&path).ok()?;
+            let element = parsed.reflect_element_mut(dynamic.as_mut()).ok()?;
+            let old = element.to_dynamic();
+            element.try_apply(value.as_ref()).ok()?;
+            let mut entity_mut = world.get_entity_mut(entity).ok()?;
+            reflect_component.apply_or_insert_mapped(
+                &mut entity_mut,
+                dynamic.as_ref(),
+                registry,
+                &mut (),
+                RelationshipHookMode::Run,
+            );
+            touched.push(target);
+            Some(Op::Patch {
+                target,
+                type_path,
+                path,
+                value: old,
+            })
+        }
         Op::Remove { target, type_path } => {
             let entity = resolve(world, &target)?;
             let registration = registry.get_with_type_path(&type_path)?;
@@ -628,6 +662,182 @@ mod tests {
         );
     }
 
+    // Spec §5: patches are THE one delta language. A patch addresses one leaf by
+    // reflect path, and its inverse carries that leaf's previous value — so the
+    // history entry for a slider drag is an f32, not a whole Transform.
+    #[test]
+    fn a_patch_sets_one_leaf_and_inverts_to_the_old_one() {
+        let mut app = test_app();
+        let id = SceneId::random();
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![
+                        Box::new(Transform::from_xyz(1.0, 2.0, 3.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
+        });
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "edit y".into(),
+                gesture: None,
+                ops: vec![Op::Patch {
+                    target: id,
+                    type_path: "bevy_transform::components::transform::Transform".into(),
+                    path: "translation.y".into(),
+                    value: Box::new(9.0_f32).into_partial_reflect(),
+                }],
+            });
+        });
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().translation,
+            Vec3::new(1.0, 9.0, 3.0),
+            "only the addressed leaf moved"
+        );
+
+        undo(&mut app, 1);
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().translation,
+            Vec3::new(1.0, 2.0, 3.0),
+            "the inverse restored the leaf, leaving its siblings alone"
+        );
+    }
+
+    // The whole point of field granularity: a patch must not clobber the fields
+    // it did not address, even when something else changed them in between.
+    #[test]
+    fn a_patch_leaves_its_siblings_alone() {
+        let mut app = test_app();
+        let id = SceneId::random();
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![
+                        Box::new(Transform::from_xyz(0.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
+        });
+        for (path, value) in [("translation.x", 5.0_f32), ("translation.z", 7.0)] {
+            edit(&mut app, |q| {
+                q.0.push(Transaction {
+                    label: "edit".into(),
+                    gesture: None,
+                    ops: vec![Op::Patch {
+                        target: id,
+                        type_path: "bevy_transform::components::transform::Transform".into(),
+                        path: path.into(),
+                        value: Box::new(value).into_partial_reflect(),
+                    }],
+                });
+            });
+        }
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().translation,
+            Vec3::new(5.0, 0.0, 7.0),
+            "two patches to different leaves compose"
+        );
+    }
+
+    // Coalescing is op-agnostic, and has to stay that way: thirty patched frames
+    // of a drag are ONE entry that undoes to where the drag started.
+    #[test]
+    fn patched_gesture_frames_coalesce_to_one_entry() {
+        let mut app = test_app();
+        let id = SceneId::random();
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![
+                        Box::new(Transform::from_xyz(0.0, 0.0, 0.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
+        });
+        for i in 1..=30 {
+            edit(&mut app, |q| {
+                q.0.push(Transaction {
+                    label: "drag".into(),
+                    gesture: Some(11),
+                    ops: vec![Op::Patch {
+                        target: id,
+                        type_path: "bevy_transform::components::transform::Transform".into(),
+                        path: "translation.x".into(),
+                        value: Box::new(i as f32 * 0.1).into_partial_reflect(),
+                    }],
+                });
+            });
+        }
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            2,
+            "spawn + ONE gesture, however many patched frames"
+        );
+        undo(&mut app, 1);
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().translation.x,
+            0.0,
+            "undo returns to where the drag STARTED (first-old-value)"
+        );
+    }
+
+    // An unresolvable path is skipped rather than applied wrongly — the kernel
+    // is the one place that validates, so the UI cannot smuggle a bad delta in.
+    #[test]
+    fn a_patch_with_a_bad_path_changes_nothing() {
+        let mut app = test_app();
+        let id = SceneId::random();
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id,
+                    components: vec![
+                        Box::new(Transform::from_xyz(1.0, 2.0, 3.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
+        });
+        let depth = app.world().resource::<History>().undo_depth();
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "bad".into(),
+                gesture: None,
+                ops: vec![Op::Patch {
+                    target: id,
+                    type_path: "bevy_transform::components::transform::Transform".into(),
+                    path: "nonexistent.field".into(),
+                    value: Box::new(9.0_f32).into_partial_reflect(),
+                }],
+            });
+        });
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().translation,
+            Vec3::new(1.0, 2.0, 3.0),
+            "nothing moved"
+        );
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth,
+            "and nothing was recorded to undo"
+        );
+    }
     // F1 contract: a coalesced gesture is ONE entry and undo restores pre-gesture.
     #[test]
     fn gesture_coalesces_first_old_value() {

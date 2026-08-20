@@ -130,6 +130,33 @@ over one shared patch type, and this repo already carries three delta languages
 that disagree. Adding a fourth ad-hoc one to land inheritance a slice earlier
 would move the architecture backwards. It rides the delta-language
 consolidation instead.
+
+### Patches: what landed, and what is still two languages (2026-08-19)
+
+Spec §5 declares patches THE one delta language. `Op::Patch { target,
+type_path, path, value }` now exists in the kernel: it addresses one leaf by
+reflect path, and its inverse carries that leaf's PREVIOUS value, so a history
+entry for a slider drag holds an `f32` rather than a whole `Transform` per
+frame. Coalescing is op-agnostic and needed no change. An unresolvable path is
+skipped and records nothing — the kernel is the one place that validates, so no
+UI can smuggle a bad delta past it.
+
+The inspector routes numbers and bools — the two kinds that dominate history
+volume — through it. Three kinds stay component-granular ON PURPOSE, which is
+the "fall back to Set when a leaf cannot be compared" case: `Name` rebuilds
+through its constructor because its hash is derived, a Euler degree is one of
+three fields feeding a single quaternion, and the enum cycle needs the registry
+to resolve the next variant.
+
+**Still two representations, deliberately.** `PrefabOverrides` keeps its RON
+string value. The kernel patch is the IN-MEMORY undo path, and serializing a
+value on every frame of a drag is exactly the per-frame work §8 forbids and the
+serialize-to-compare pattern the v1 post-mortem bans. What is shared is the
+ADDRESSING — a type path plus a reflect path — and the apply/revert semantics.
+Unifying the value representation is not obviously correct and should not be
+done for tidiness; the honest next step is to derive a prefab override from the
+patch op that produced it, rather than diffing whole components afterwards,
+which this op finally makes possible.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per

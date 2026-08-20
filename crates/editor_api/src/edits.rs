@@ -19,6 +19,24 @@ pub enum Op {
         target: SceneId,
         value: Box<dyn PartialReflect>,
     },
+    /// Set ONE FIELD of a component, addressed by reflect path (spec §5: patches
+    /// are the one delta language). Inverse: the same patch carrying the leaf's
+    /// previous value, so history holds a field rather than a whole component —
+    /// a slider drag stores an `f32`, not a `Transform` per frame.
+    ///
+    /// The value stays a reflect value rather than a serialized string: this is
+    /// the in-memory undo path, and serializing on every frame of a drag is the
+    /// per-frame work spec §8 forbids. Prefab overrides persist the same
+    /// addressing with a RON value, which is a storage concern, not a second
+    /// language.
+    Patch {
+        target: SceneId,
+        /// Stable type path of the component the path is rooted in.
+        type_path: String,
+        /// Reflect path INTO that component ("translation.y", "size").
+        path: String,
+        value: Box<dyn PartialReflect>,
+    },
     /// Remove a component by stable type path. Inverse: `Set` of the captured value.
     Remove { target: SceneId, type_path: String },
     /// Spawn an entity with `SceneId` + reflected components. Inverse: `Despawn`.
@@ -115,6 +133,22 @@ impl TransactionBuilder<'_> {
     }
     pub fn set_dynamic(mut self, target: SceneId, value: Box<dyn PartialReflect>) -> Self {
         self.transaction.ops.push(Op::Set { target, value });
+        self
+    }
+    /// One field, by reflect path — the delta an inspector edit actually is.
+    pub fn patch(
+        mut self,
+        target: SceneId,
+        type_path: impl Into<String>,
+        path: impl Into<String>,
+        value: Box<dyn PartialReflect>,
+    ) -> Self {
+        self.transaction.ops.push(Op::Patch {
+            target,
+            type_path: type_path.into(),
+            path: path.into(),
+            value,
+        });
         self
     }
     pub fn remove(mut self, target: SceneId, type_path: impl Into<String>) -> Self {

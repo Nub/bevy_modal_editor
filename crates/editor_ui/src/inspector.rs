@@ -1531,6 +1531,37 @@ fn queue_set(
             return;
         }
 
+        // A number or a bool IS a leaf, so it goes through Op::Patch — the
+        // delta an inspector edit actually is. The history entry then holds an
+        // f32 rather than a whole Transform per frame of a drag, and a prefab
+        // override can be read straight off the op instead of diffed back out
+        // of the component afterwards (spec §5: patches are the one delta
+        // language). The kinds below this are genuinely component-granular:
+        // Name rebuilds through its constructor because its hash is derived,
+        // and a Euler degree is one of three fields feeding one quaternion.
+        let leaf: Option<Box<dyn PartialReflect>> = match (field.kind, &new_value) {
+            (FieldKind::Direct, FieldNewValue::F32(value)) => Some(Box::new(*value)),
+            (FieldKind::Bool, FieldNewValue::Bool(value)) => Some(Box::new(*value)),
+            _ => None,
+        };
+        if let Some(value) = leaf {
+            drop(registry);
+            world.resource_mut::<EditQueue>().0.push(Transaction {
+                label: format!(
+                    "Edit {}",
+                    field.type_path.rsplit("::").next().unwrap_or("field")
+                ),
+                gesture,
+                ops: vec![Op::Patch {
+                    target: field.target,
+                    type_path: field.type_path.to_string(),
+                    path: field.path.to_string(),
+                    value,
+                }],
+            });
+            return;
+        }
+
         let boxed: Box<dyn PartialReflect> = match (field.kind, new_value) {
             (FieldKind::Direct, FieldNewValue::F32(new_value)) => {
                 let Some(current) = current else { return };
