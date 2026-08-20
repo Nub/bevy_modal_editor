@@ -15,16 +15,18 @@
 use bevy::prelude::*;
 use bevy::reflect::ParsedPath;
 use editor_api::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 /// A value at a time.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Key {
     pub time: f32,
     pub value: f32,
 }
 
 /// One scalar field over time, addressed exactly as a patch addresses it.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Track {
     pub target: SceneId,
     pub type_path: String,
@@ -74,12 +76,103 @@ impl Track {
     }
 }
 
-/// The authored tracks. In memory for now: the level envelope is hand-written
-/// serde and persisting this wants its own format bump, which is a separable
-/// piece of work.
-#[derive(Resource, Default)]
+/// The authored tracks, in their own file beside the level.
+///
+/// Spec §9 calls this a timeline ASSET, and a sidecar is what that means here:
+/// the material library already establishes the shape (own envelope, own format
+/// version, atomic write with a backup), and keeping it out of the level's
+/// hand-written serde means a timeline can gain fields without touching the
+/// scene format at all.
+#[derive(Resource)]
 pub struct Timeline {
     pub tracks: Vec<Track>,
+    /// Bumped on every change; the autosave writes when it moves.
+    pub generation: u64,
+    pub path: PathBuf,
+}
+
+impl Default for Timeline {
+    fn default() -> Self {
+        Self {
+            tracks: Vec::new(),
+            generation: 0,
+            path: PathBuf::from("timeline.ron"),
+        }
+    }
+}
+
+pub const TIMELINE_FORMAT_VERSION: u32 = 1;
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(default)]
+struct TimelineEnvelope {
+    format_version: u32,
+    tracks: Vec<Track>,
+}
+
+#[derive(Debug)]
+pub enum TimelineError {
+    Io(std::io::Error),
+    Format(String),
+    FutureVersion { found: u32, supported: u32 },
+}
+
+pub fn save_timeline(timeline: &Timeline, path: &Path) -> Result<(), TimelineError> {
+    let envelope = TimelineEnvelope {
+        format_version: TIMELINE_FORMAT_VERSION,
+        tracks: timeline.tracks.clone(),
+    };
+    let text = ron::ser::to_string_pretty(&envelope, ron::ser::PrettyConfig::default())
+        .map_err(|e| TimelineError::Format(e.to_string()))?;
+    // Same atomic dance as the material library: write beside, back up, rename.
+    let tmp = path.with_extension("ron.tmp");
+    std::fs::write(&tmp, &text).map_err(TimelineError::Io)?;
+    if path.exists() {
+        let bak = path.with_extension("ron.bak");
+        let _ = std::fs::copy(path, bak);
+    }
+    std::fs::rename(&tmp, path).map_err(TimelineError::Io)?;
+    Ok(())
+}
+
+/// Parse fully before touching anything; a FUTURE version refuses loudly rather
+/// than silently dropping tracks it does not understand.
+pub fn load_timeline(path: &Path) -> Result<Vec<Track>, TimelineError> {
+    let text = std::fs::read_to_string(path).map_err(TimelineError::Io)?;
+    let envelope: TimelineEnvelope =
+        ron::from_str(&text).map_err(|e| TimelineError::Format(e.to_string()))?;
+    if envelope.format_version > TIMELINE_FORMAT_VERSION {
+        return Err(TimelineError::FutureVersion {
+            found: envelope.format_version,
+            supported: TIMELINE_FORMAT_VERSION,
+        });
+    }
+    Ok(envelope.tracks)
+}
+
+pub(crate) fn load_timeline_at_startup(mut timeline: ResMut<Timeline>) {
+    let path = timeline.path.clone();
+    match load_timeline(&path) {
+        Ok(tracks) => {
+            if !tracks.is_empty() {
+                info!("timeline: loaded {} tracks", tracks.len());
+            }
+            timeline.tracks = tracks;
+        }
+        Err(TimelineError::Io(_)) => {} // no file yet is the normal first run
+        Err(error) => error!("timeline load failed: {error:?}"),
+    }
+}
+
+pub(crate) fn save_timeline_on_change(timeline: Res<Timeline>, mut last_saved: Local<u64>) {
+    if timeline.generation == *last_saved || timeline.generation == 0 {
+        return;
+    }
+    *last_saved = timeline.generation;
+    let path = timeline.path.clone();
+    if let Err(error) = save_timeline(&timeline, &path) {
+        error!("timeline save failed: {error:?}");
+    }
 }
 
 impl Timeline {
@@ -226,6 +319,10 @@ pub(crate) fn handle_anim_actions(
                     }
                     keyed += 1;
                 }
+                if keyed > 0 {
+                    // The autosave writes when this moves.
+                    timeline.generation += 1;
+                }
                 let message = match keyed {
                     0 => "select something to key".to_string(),
                     1 => format!("keyed at {at:.2}s"),
@@ -282,6 +379,86 @@ mod tests {
         }
     }
 
+    // A timeline is an ASSET: it has to come back the way it went out, or a
+    // keyed animation is a session-long demo.
+    #[test]
+    fn a_timeline_round_trips_through_its_file() {
+        let dir = std::env::temp_dir().join(format!("timeline-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("timeline.ron");
+
+        let mut timeline = Timeline {
+            path: path.clone(),
+            ..Default::default()
+        };
+        let target = SceneId::random();
+        timeline
+            .track_mut(target, TRANSFORM_PATH, "translation.y")
+            .set_key(0.0, 1.0);
+        timeline
+            .track_mut(target, TRANSFORM_PATH, "translation.y")
+            .set_key(2.0, 5.0);
+        save_timeline(&timeline, &path).expect("saved");
+
+        let loaded = load_timeline(&path).expect("loaded");
+        assert_eq!(loaded, timeline.tracks, "every track and key survived");
+        assert_eq!(
+            loaded[0].sample(1.0),
+            Some(3.0),
+            "and it still samples the same"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A file from a LATER version refuses rather than silently dropping tracks
+    // it does not understand — the same contract scenes and materials hold to.
+    #[test]
+    fn a_future_timeline_refuses_to_load() {
+        let dir = std::env::temp_dir().join(format!("timeline-future-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("timeline.ron");
+        std::fs::write(&path, "(format_version: 99, tracks: [])").unwrap();
+        assert!(
+            matches!(
+                load_timeline(&path),
+                Err(TimelineError::FutureVersion { found: 99, .. })
+            ),
+            "a future version is refused loudly"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // Saving is atomic and leaves a backup: a crash mid-write must not cost the
+    // animation, and the previous version stays recoverable.
+    #[test]
+    fn saving_leaves_a_backup_and_no_temp_file() {
+        let dir = std::env::temp_dir().join(format!("timeline-atomic-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("timeline.ron");
+        let mut timeline = Timeline {
+            path: path.clone(),
+            ..Default::default()
+        };
+        timeline
+            .track_mut(SceneId::random(), TRANSFORM_PATH, "translation.y")
+            .set_key(0.0, 1.0);
+        save_timeline(&timeline, &path).unwrap();
+        timeline
+            .track_mut(SceneId::random(), TRANSFORM_PATH, "translation.x")
+            .set_key(0.0, 2.0);
+        save_timeline(&timeline, &path).unwrap();
+
+        assert!(path.exists(), "the file is there");
+        assert!(
+            path.with_extension("ron.bak").exists(),
+            "and so is the previous version"
+        );
+        assert!(
+            !path.with_extension("ron.tmp").exists(),
+            "with no temp file left behind"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     // Between two keys the value moves; the halfway point is halfway.
     #[test]
     fn a_track_interpolates_between_its_keys() {

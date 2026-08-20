@@ -460,6 +460,41 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 "rewind stops it and puts it back to the start",
             );
         }
+        // The keys have to reach DISK, or the animation is a session-long demo.
+        1800 => {
+            let path = world
+                .resource::<editor_scene::anim::Timeline>()
+                .path
+                .clone();
+            let on_disk = editor_scene::anim::load_timeline(&path);
+            match on_disk {
+                Ok(tracks) => {
+                    check(
+                        world,
+                        tracks.len() >= 3,
+                        &format!(
+                            "the keyed tracks reached the file ({} tracks)",
+                            tracks.len()
+                        ),
+                    );
+                    // And they came back as the SAME animation, not just as rows.
+                    let sampled = tracks
+                        .iter()
+                        .find(|track| track.path == "translation.y")
+                        .and_then(|track| track.sample(1.0));
+                    check(
+                        world,
+                        sampled.is_some_and(|y| (y - 3.0).abs() < 0.05),
+                        &format!("and reloaded they sample the same pose ({sampled:?})"),
+                    );
+                }
+                Err(error) => check(
+                    world,
+                    false,
+                    &format!("the timeline file loads back ({error:?})"),
+                ),
+            }
+        }
         1820 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {

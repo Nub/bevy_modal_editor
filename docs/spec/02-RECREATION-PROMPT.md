@@ -868,8 +868,20 @@ Evaluation also yields while a gesture is running, which the probe found the
 hard way: a track that already drives a field would otherwise snap an object
 back in the same frame the user moved it, so a second pose could never be keyed.
 
-**Not yet persisted.** The level envelope is hand-written serde and giving it a
-timeline wants its own format bump; the timeline lives in memory until then.
+**Persisted as its own asset** (`timeline.ron`, format 1). Spec §9 calls this a
+timeline ASSET, and a sidecar is what that means here: its own envelope, its own
+format version, an atomic write with a backup — the shape the material library
+already establishes. Keeping it out of the level's hand-written serde means a
+timeline can gain fields without touching the scene format at all, and a FUTURE
+version refuses loudly rather than silently dropping tracks it cannot read.
+
+The status line shows where time is, because scrubbing had no on-screen presence
+whatsoever: a playhead parked mid-animation was indistinguishable from a scene
+somebody had moved by hand.
+
+**Owed:** there is no track VIEW. What is keyed, and when, is legible only by
+reading the file — the same gap material inheritance had before its rows were
+marked, and the same fix applies.
 
 **Layer 2 — Animation graph (per-rig).** Built on `bevy_animation`'s runtime
 (`AnimationGraph` blend/mask nodes) — we build the authoring layer, not a pose engine.

@@ -574,6 +574,7 @@ impl Plugin for EditorScenePlugin {
         app.add_editor_feature(models::ModelsFeature);
         app.add_editor_feature(session::ReloadFeature);
         app.add_systems(Startup, materials::load_library_at_startup);
+        app.add_systems(Startup, anim::load_timeline_at_startup);
         app.add_systems(Startup, models::import_at_startup);
         app.add_systems(
             Update,
@@ -608,6 +609,7 @@ impl Plugin for EditorScenePlugin {
                     // not history (see `anim`), so it must never queue a
                     // transaction.
                     anim::advance_playhead,
+                    anim::save_timeline_on_change,
                     anim::evaluate_timeline,
                 )
                     .chain()

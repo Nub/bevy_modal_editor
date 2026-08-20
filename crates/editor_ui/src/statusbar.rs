@@ -166,6 +166,8 @@ pub(crate) struct StatusData<'w> {
     validation: Res<'w, editor_scene::level_validation::LevelValidation>,
     grid_snap: Res<'w, GridSnap>,
     angle_snap: Res<'w, AngleSnap>,
+    timeline: Res<'w, editor_scene::anim::Timeline>,
+    playhead: Res<'w, editor_scene::anim::Playhead>,
     settings: Res<'w, EditorSettings>,
 }
 
@@ -299,6 +301,22 @@ pub(crate) fn update_statusbar(
         }
         if data.angle_snap.enabled {
             parts.push(format!("snap {}\u{b0}", data.settings.viewport.angle_step));
+        }
+        // Where time is. Scrubbing and playback had no on-screen presence at
+        // all, so a playhead parked mid-animation looked like a scene someone
+        // had moved by hand.
+        let duration = data.timeline.duration();
+        if duration > 0.0 {
+            parts.push(format!(
+                "{} {:.2}s / {:.2}s",
+                if data.playhead.playing {
+                    "\u{25b6}"
+                } else {
+                    "\u{25ae}\u{25ae}"
+                },
+                data.playhead.time,
+                duration
+            ));
         }
         // Level validation counts are STATE (the level is/isn't valid) — shown
         // whenever any registered rule fails, silent when the level is clean.

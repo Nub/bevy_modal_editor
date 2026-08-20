@@ -2,6 +2,8 @@
 **/*.rs.bk
 # Bake artifacts are re-derivable caches, never source of truth (spec §6)
 /bake/
+# Per-machine editor preferences: window layout, snap steps. Not the project.
+/editor-settings.ron
 .DS_Store
 *.prefab.ron.bak
 # Test-run prefab artifacts (prefabs now resolve under the asset root)
