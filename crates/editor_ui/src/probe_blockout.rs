@@ -72,6 +72,46 @@ fn game_flag(world: &mut World, type_suffix: &str, field: &str) -> Option<bool> 
     Some(false)
 }
 
+/// The type path of a registered component, found by the tail of its name.
+/// The editor knows game types only as strings — that is the whole contract.
+fn game_type_path(world: &mut World, suffix: &str) -> Option<String> {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    registry
+        .iter()
+        .map(|registration| registration.type_info().type_path())
+        .find(|path| path.ends_with(suffix))
+        .map(|path| path.to_string())
+}
+
+/// The largest value of a f32 field across every entity carrying a component,
+/// again by name only.
+fn game_number(world: &mut World, type_suffix: &str, field: &str) -> Option<f32> {
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let registration = registry
+        .iter()
+        .find(|registration| registration.type_info().type_path().ends_with(type_suffix))?;
+    let reflect_component = registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
+    let parsed = bevy::reflect::ParsedPath::parse(field).ok()?;
+    let entities: Vec<Entity> = world.iter_entities().map(|entity| entity.id()).collect();
+    let mut best: Option<f32> = None;
+    for entity in entities {
+        let Ok(entity_ref) = world.get_entity(entity) else {
+            continue;
+        };
+        let Some(component) = reflect_component.reflect(entity_ref) else {
+            continue;
+        };
+        if let Ok(element) = parsed.reflect_element(component.as_partial_reflect())
+            && let Some(value) = element.try_downcast_ref::<f32>()
+        {
+            best = Some(best.map_or(*value, |current: f32| current.max(*value)));
+        }
+    }
+    best
+}
+
 fn window_size(world: &mut World) -> Vec2 {
     world
         .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>()
@@ -874,6 +914,61 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 "playing past the event made the GAME act on it",
             );
             invoke(world, "anim.rewind");
+        }
+        // ── An EFFECT on the timeline ─────────────────────────────────────
+        // The look is game data on a component, so it inherits the whole
+        // authoring stack for nothing: a track addresses it exactly as it
+        // addresses a position, and the sequencer drives it. Bloom over time
+        // with no effects-specific animation code anywhere.
+        2290 => {
+            // Found by NAME, like everything else the editor knows about a game.
+            let type_path = game_type_path(world, "PostProcess");
+            let target = type_path.as_ref().and_then(|path| {
+                let registry = world.resource::<AppTypeRegistry>().clone();
+                let registry = registry.read();
+                let registration = registry.get_with_type_path(path)?;
+                let reflect_component =
+                    registration.data::<bevy::ecs::reflect::ReflectComponent>()?;
+                let entities: Vec<Entity> = world.iter_entities().map(|e| e.id()).collect();
+                entities.into_iter().find_map(|entity| {
+                    let entity_ref = world.get_entity(entity).ok()?;
+                    reflect_component.reflect(entity_ref)?;
+                    world.get::<SceneId>(entity).copied()
+                })
+            });
+            match (type_path, target) {
+                (Some(path), Some(id)) => {
+                    let leaked: &'static str = Box::leak(path.into_boxed_str());
+                    let mut timeline = world.resource_mut::<editor_scene::anim::Timeline>();
+                    timeline.track_mut(id, leaked, "bloom").set_key(0.0, 0.0);
+                    timeline.track_mut(id, leaked, "bloom").set_key(2.0, 0.8);
+                    timeline.generation += 1;
+                }
+                _ => check(world, false, "the level authors a post-process look"),
+            }
+        }
+        2300 => world.resource_mut::<editor_scene::anim::Playhead>().time = 1.0,
+        2310 => {
+            let bloom = game_number(world, "PostProcess", "bloom").unwrap_or(0.0);
+            check(
+                world,
+                (bloom - 0.4).abs() < 0.05,
+                &format!("a keyframed EFFECT scrubs like anything else ({bloom})"),
+            );
+        }
+        2316 => {
+            // And it reaches the render path: intent becomes a real bloom pass.
+            let intensity = world
+                .query::<&bevy::post_process::bloom::Bloom>()
+                .iter(world)
+                .map(|bloom| bloom.intensity)
+                .fold(0.0_f32, f32::max);
+            check(
+                world,
+                intensity > 0.3,
+                &format!("and the camera is actually blooming ({intensity})"),
+            );
+            shot(world, "48-blockout-effect");
         }
         2320 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();

@@ -264,6 +264,32 @@ metal object in the level still renders as it did. Whether the editor should
 light the game's world is the game's business, not the editor's, and it is a
 decision worth taking deliberately rather than as a side effect of fixing a
 preview.
+
+### Post-process, and the shape the runtime split should take (2026-08-20)
+
+The effects layer starts where it costs least: a `PostProcess` component —
+bloom and EV100 exposure — that a level authors and cameras adopt. "This room
+glows" is a property of the room, not of a camera that exists only while someone
+is playing, so the look is authored data and cameras copy it, which also means
+keyframing the level's bloom drives every camera.
+
+**It lives in `game_framework`, not in an editor crate**, and that is the point
+of the exercise. Because it is an ordinary registered component it inherits the
+whole authoring stack for nothing: the inspector edits it, the scene serializes
+it, a track addresses it exactly as it addresses a position, and the sequencer
+drives it. Bloom over two seconds needed no effects-specific animation code.
+And because it is game-side, it exists in a release build.
+
+That is the template for the runtime split recorded above: put the RUNTIME in
+`game_framework` and let the editor reach it through registration and
+reflection, rather than moving the editor into the game. The editor knows this
+component only as a name — the probe that verifies a keyframed bloom finds the
+type by the tail of its path and reads the field by reflect path, because
+`editor_ui` must not depend on `game_framework` any more than it may depend on
+`template_game`.
+
+Zero bloom REMOVES the pass rather than running it imperceptibly: a stack that
+cannot be turned off is a permanent frame cost.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per

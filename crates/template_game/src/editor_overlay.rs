@@ -169,6 +169,7 @@ impl EditorFeature for GameFeature {
             .component::<AutoBoxCollider>()
             .component::<crate::game::Ground>()
             .component::<crate::game::PlayerSpawn>()
+            .component::<game_framework::PostProcess>()
             .component::<PhysicsBody>()
             .component::<Name>()
             .entity_kind(EntityKindDef {

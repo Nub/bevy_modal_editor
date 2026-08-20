@@ -554,6 +554,16 @@ fn spawn_level(mut commands: Commands, mut next: ResMut<NextState<AppState>>) {
         Name::new("Sun"),
         Transform::from_rotation(Quat::from_euler(EulerRot::XYZ, -0.9, 0.4, 0.0)),
     ));
+    // The LOOK is authored data too: "this room glows" is a property of the
+    // room, not of a camera that only exists while someone is playing. Cameras
+    // adopt it (see `game_framework::adopt_authored_look`), which also means
+    // the sequencer can keyframe the level's bloom and every camera follows.
+    commands.spawn((
+        #[cfg(feature = "editor")]
+        editor_api::prelude::SceneId::random(),
+        game_framework::PostProcess::default(),
+        Name::new("Post Process"),
+    ));
     // The spawn POINT is authored data; the player camera derives from it, so
     // moving the widget moves where you start.
     let spawn = Transform::from_xyz(0.0, 0.0, 6.0);
