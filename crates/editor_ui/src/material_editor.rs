@@ -805,6 +805,41 @@ pub(crate) fn on_field_toggle(
 }
 
 /// Chip presses: alpha-mode cycle, texture cycle (imported textures + none).
+/// The revert glyph on a row this material has CLAIMED: pressing it hands the
+/// field back to the base.
+#[derive(Component, Clone, Copy)]
+pub(crate) struct RevertField(pub editor_scene::materials::MaterialField);
+
+/// Give one claimed field back to the base. The value that appears is whatever
+/// the base says NOW — reverting is not an undo, it is a change of ownership.
+pub(crate) fn on_revert_press(
+    press: On<Pointer<Press>>,
+    reverts: Query<&RevertField>,
+    time: Res<Time>,
+    mut library: ResMut<MaterialLibrary>,
+    mut history: ResMut<MaterialHistory>,
+    mut editor: ResMut<MaterialEditorState>,
+) {
+    let Ok(revert) = reverts.get(press.entity) else {
+        return;
+    };
+    let Some(id) = editor.target else { return };
+    // Through the same history path as any other material edit, so one Ctrl+Z
+    // puts the claim back.
+    edit_material(
+        &mut library,
+        &mut history,
+        time.elapsed_secs_f64(),
+        id,
+        Field::Name, // not an inheritable field: reverting must not re-claim
+        true,
+        |def| {
+            def.overridden.remove(&revert.0);
+        },
+    );
+    editor.refresh = true;
+}
+
 pub(crate) fn on_chip_press(
     press: On<Pointer<Press>>,
     fields: Query<&Field>,
@@ -1019,9 +1054,18 @@ pub(crate) fn sync_editor_ui(
     if !state.open {
         return;
     }
-    let Some(def) = state.target.and_then(|id| library.get(&id)).cloned() else {
+    // VALUES come from the resolved material — an inherited value is still what
+    // the surface looks like, and a slider showing a stale own-value would lie.
+    // The CLAIMS come from what is stored, because that is what the editor
+    // edits: which fields this material has taken ownership of.
+    let Some(def) = state.target.and_then(|id| library.resolved(&id)) else {
         return;
     };
+    let claims: Option<std::collections::BTreeSet<editor_scene::materials::MaterialField>> = state
+        .target
+        .and_then(|id| library.get(&id))
+        .filter(|stored| stored.base.is_some())
+        .map(|stored| stored.overridden.clone());
     for mut text in &mut title {
         if text.0 != def.name {
             text.0 = def.name.clone();
@@ -1134,6 +1178,60 @@ pub(crate) fn sync_editor_ui(
             ChildOf(parent),
         ));
     };
+    // On a material that follows a base, the gutter says where each value comes
+    // FROM: dimmed while it is the base's, and carrying a revert affordance
+    // once this material has claimed it. Without this the inheritance is real
+    // but invisible — the only way to tell was to read the file.
+    let inheritance_label =
+        |commands: &mut Commands, fonts: &UiFonts, parent: Entity, label: &str, field: Field| {
+            let Some(claims) = claims.as_ref() else {
+                gutter_label(commands, fonts, parent, label);
+                return;
+            };
+            let Some(which) = inherited_field(field) else {
+                gutter_label(commands, fonts, parent, label);
+                return;
+            };
+            let claimed = claims.contains(&which);
+            let slot = commands
+                .spawn((
+                    Node {
+                        width: px(GUTTER),
+                        flex_shrink: 0.0,
+                        align_items: AlignItems::Center,
+                        column_gap: px(style::space::XS),
+                        ..default()
+                    },
+                    ChildOf(parent),
+                ))
+                .id();
+            commands.spawn((
+                Text::new(label.to_string()),
+                style::no_wrap(),
+                style::sans(fonts, 11.0),
+                TextColor(if claimed {
+                    style::color::TEXT_KEYS
+                } else {
+                    // Inherited: present, readable, plainly not this material's own.
+                    style::color::TEXT_DIM
+                }),
+                ChildOf(slot),
+            ));
+            if claimed {
+                // A claimed field can be given back. The glyph is the affordance —
+                // a full button per row would drown a panel of sixteen rows.
+                commands
+                    .spawn((
+                        RevertField(which),
+                        Text::new("\u{21b6}".to_string()),
+                        style::no_wrap(),
+                        style::sans(fonts, 11.0),
+                        TextColor(style::color::accent()),
+                        ChildOf(slot),
+                    ))
+                    .observe(on_revert_press);
+            }
+        };
     // Fixed-height wrappers with flex_shrink 0: the height-capped panel would
     // otherwise COMPRESS rows, collapsing the widgets' percent-sized tracks.
     // Seeds queue in a resource — the bsn template lands after this frame and
@@ -1164,7 +1262,7 @@ pub(crate) fn sync_editor_ui(
                      value: f32,
                      base: Color| {
         let wrapper = row_wrapper(commands, 22.0);
-        gutter_label(commands, fonts, wrapper, label);
+        inheritance_label(commands, fonts, wrapper, label, field);
         let slot = commands
             .spawn((
                 Node {
@@ -1213,7 +1311,7 @@ pub(crate) fn sync_editor_ui(
                       value: f32,
                       max: f32| {
         let wrapper = row_wrapper(commands, 24.0);
-        gutter_label(commands, fonts, wrapper, label);
+        inheritance_label(commands, fonts, wrapper, label, field);
         let slot = commands
             .spawn((
                 Node {
@@ -1285,7 +1383,7 @@ pub(crate) fn sync_editor_ui(
     };
     let toggle = |commands: &mut Commands, fonts: &UiFonts, label: &str, field: Field, on: bool| {
         let row = row_wrapper(commands, 24.0);
-        gutter_label(commands, fonts, row, label);
+        inheritance_label(commands, fonts, row, label, field);
         let mut switch = commands.spawn_scene(bsn! { @FeathersToggleSwitch });
         switch.insert((field, ChildOf(row)));
         if on {
@@ -1399,7 +1497,7 @@ pub(crate) fn sync_editor_ui(
     // one-chip cycle hid both which modes exist and where a click would land.
     {
         let row = row_wrapper(&mut commands, 24.0);
-        gutter_label(&mut commands, &fonts, row, "mode");
+        inheritance_label(&mut commands, &fonts, row, "mode", Field::AlphaMode);
         for (mode, label) in [
             (MaterialAlphaMode::Opaque, "opaque"),
             (MaterialAlphaMode::Blend, "blend"),
@@ -1436,7 +1534,13 @@ pub(crate) fn sync_editor_ui(
     caption(&mut commands, "TEXTURES", false);
     for slot in TextureSlot::ALL {
         let row = row_wrapper(&mut commands, 24.0);
-        gutter_label(&mut commands, &fonts, row, slot.label());
+        inheritance_label(
+            &mut commands,
+            &fonts,
+            row,
+            slot.label(),
+            Field::Texture(slot),
+        );
         chip_in(
             &mut commands,
             &fonts,

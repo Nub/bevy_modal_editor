@@ -89,7 +89,7 @@ fn type_word(world: &mut World, word: &str) {
 }
 
 /// Logical-pixel center of a UI node — drives REAL cursor clicks on chrome.
-fn ui_center(world: &mut World, entity: Entity) -> Option<Vec2> {
+pub(crate) fn ui_center(world: &mut World, entity: Entity) -> Option<Vec2> {
     let physical = world
         .get::<bevy::ui::UiGlobalTransform>(entity)
         .map(|t| t.translation)?;

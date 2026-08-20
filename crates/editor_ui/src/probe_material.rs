@@ -12,12 +12,13 @@ use editor_scene::materials::{MaterialLibrary, TextureSlot, load_materials};
 use uuid::Uuid;
 
 use crate::material_editor::{Field, MaterialEditorRoot, MaterialEditorState, MaterialPreviewRig};
-use crate::probe_user::{shot, tap, tap_named};
+use crate::probe_user::{click, move_cursor, shot, tap, tap_named};
 
 #[derive(Resource, Default)]
 pub(crate) struct MaterialProbe {
     library_before: usize,
     target_before: Option<Uuid>,
+    before_detach: Option<editor_scene::materials::MaterialDef>,
     frame: u32,
     failures: Vec<String>,
     created: Option<Uuid>,
@@ -701,8 +702,75 @@ pub(crate) fn probe_material(world: &mut World) {
             );
             shot(world, "62-material-inheritance");
         }
-        // Detaching keeps the look and stops the following.
-        1460 => invoke(world, "material.detach"),
+        // The panel has to SAY which fields are claimed, or the inheritance is
+        // real and invisible — readable only in the file.
+        1430 => {
+            world.resource_mut::<MaterialEditorState>().open = true;
+            world.resource_mut::<MaterialEditorState>().refresh = true;
+        }
+        1450 => {
+            let reverts: Vec<editor_scene::materials::MaterialField> = world
+                .query::<&crate::material_editor::RevertField>()
+                .iter(world)
+                .map(|revert| revert.0)
+                .collect();
+            check(
+                world,
+                reverts == vec![editor_scene::materials::MaterialField::Metallic],
+                &format!("exactly the claimed field offers a revert ({reverts:?})"),
+            );
+            // Give it back: the value becomes whatever the base says now.
+            let glyph = world
+                .query_filtered::<Entity, With<crate::material_editor::RevertField>>()
+                .iter(world)
+                .next();
+            match glyph {
+                Some(entity) => {
+                    let center = crate::probe_handson::ui_center(world, entity)
+                        .unwrap_or(Vec2::new(10.0, 10.0));
+                    move_cursor(world, center);
+                    click(world, true);
+                    click(world, false);
+                }
+                None => check(world, false, "a revert affordance exists to press"),
+            }
+        }
+        1470 => {
+            let instance = world.resource::<MaterialEditorState>().target;
+            let (stored, resolved) = {
+                let library = world.resource::<MaterialLibrary>();
+                (
+                    instance.and_then(|id| library.get(&id).cloned()),
+                    instance.and_then(|id| library.resolved(&id)),
+                )
+            };
+            check(
+                world,
+                stored.as_ref().is_some_and(|def| def.overridden.is_empty()),
+                "reverting gave the field back to the base",
+            );
+            let base_metallic = stored
+                .as_ref()
+                .and_then(|def| def.base)
+                .and_then(|base| world.resource::<MaterialLibrary>().resolved(&base))
+                .map(|def| def.metallic);
+            check(
+                world,
+                resolved.map(|def| def.metallic) == base_metallic,
+                "and the value is the base's again",
+            );
+            shot(world, "63-material-inherited-rows");
+        }
+        // Detaching keeps the look and stops the following. Capture what it
+        // looks like FIRST: the assertion is "unchanged", not a fixed number.
+        1490 => {
+            let looked_like = world
+                .resource::<MaterialEditorState>()
+                .target
+                .and_then(|id| world.resource::<MaterialLibrary>().resolved(&id));
+            world.resource_mut::<MaterialProbe>().before_detach = looked_like;
+            invoke(world, "material.detach");
+        }
         1500 => {
             let instance = world.resource::<MaterialEditorState>().target;
             let stored =
@@ -712,12 +780,21 @@ pub(crate) fn probe_material(world: &mut World) {
                 stored.as_ref().is_some_and(|def| def.base.is_none()),
                 "detach stopped the following",
             );
+            let looked_like = world.resource::<MaterialProbe>().before_detach.clone();
+            let unchanged = match (&stored, &looked_like) {
+                (Some(now), Some(before)) => {
+                    (now.roughness - before.roughness).abs() < 1e-5
+                        && (now.metallic - before.metallic).abs() < 1e-5
+                        && now.base_color == before.base_color
+                        && now.unlit == before.unlit
+                        && now.textures == before.textures
+                }
+                _ => false,
+            };
             check(
                 world,
-                stored.as_ref().is_some_and(|def| {
-                    (def.roughness - 0.123).abs() < 1e-4 && (def.metallic - 0.75).abs() < 1e-4
-                }),
-                "and baked in exactly what it looked like",
+                unchanged,
+                "and baked in exactly what it looked like, field for field",
             );
         }
         1560 => {

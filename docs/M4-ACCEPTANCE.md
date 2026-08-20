@@ -190,9 +190,15 @@ appearance.
 Format 3, because a format-2 reader would drop the wiring and flatten an
 instance to its own sparse values, which is a different material.
 
-**Owed:** the panel does not yet grey inherited values or offer a per-field
-revert, so which fields are claimed is visible only in the file. That is UI work
-on a model that now exists, and it is the natural next material slice.
+The panel says where each value comes FROM: on a material that follows a base,
+an inherited row's label is dimmed, and a claimed row carries a revert glyph that
+hands the field back. Reverting goes through the same asset-history path as any
+other material edit, so one Ctrl+Z puts the claim back — and it is a change of
+OWNERSHIP, not an undo: the value that appears is whatever the base says now.
+
+**Owed:** the revert affordance is a glyph rather than a hit-tested button, which
+is a deliberate density choice in a sixteen-row panel but is a small target.
+Worth revisiting the first time it annoys someone.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per
