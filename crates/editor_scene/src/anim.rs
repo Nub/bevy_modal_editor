@@ -18,11 +18,95 @@ use editor_api::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// A value at a time.
+/// How a segment LEAVES a key.
+///
+/// Linear motion reads as machinery: constant speed, instant starts, instant
+/// stops. Easing is most of the difference between something that moves and
+/// something that looks animated, and it costs one enum on a key.
+///
+/// The ease belongs to the key the segment STARTS from, so "this key eases out
+/// into the next" is a property of the key you selected — which is the one you
+/// are looking at when you decide.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub enum Ease {
+    #[default]
+    Linear,
+    /// Starts slow. Weight taking up.
+    In,
+    /// Ends slow. Weight settling.
+    Out,
+    /// Both — the default shape of almost every deliberate movement.
+    InOut,
+    /// No interpolation at all: the value holds until the next key and then
+    /// jumps. Switches, visibility, anything that has no in-between.
+    Hold,
+}
+
+impl Ease {
+    /// Reshape 0..1. Cubic: the cheapest curve that reads as ease rather than
+    /// as a slightly bent line.
+    pub fn apply(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            Ease::Linear => t,
+            Ease::In => t * t * t,
+            Ease::Out => {
+                let inverted = 1.0 - t;
+                1.0 - inverted * inverted * inverted
+            }
+            Ease::InOut => {
+                if t < 0.5 {
+                    4.0 * t * t * t
+                } else {
+                    let inverted = -2.0 * t + 2.0;
+                    1.0 - inverted * inverted * inverted / 2.0
+                }
+            }
+            Ease::Hold => 0.0,
+        }
+    }
+
+    /// Cycle for a control that has no room for five labels.
+    pub fn next(self) -> Self {
+        match self {
+            Ease::Linear => Ease::InOut,
+            Ease::InOut => Ease::In,
+            Ease::In => Ease::Out,
+            Ease::Out => Ease::Hold,
+            Ease::Hold => Ease::Linear,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Ease::Linear => "linear",
+            Ease::In => "ease in",
+            Ease::Out => "ease out",
+            Ease::InOut => "ease in-out",
+            Ease::Hold => "hold",
+        }
+    }
+}
+
+/// A value at a time, and how it leaves for the next one.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Key {
     pub time: f32,
     pub value: f32,
+    /// Defaulted, so every timeline written before easing existed still loads
+    /// and behaves exactly as it did.
+    pub ease: Ease,
+}
+
+impl Default for Key {
+    fn default() -> Self {
+        Self {
+            time: 0.0,
+            value: 0.0,
+            ease: Ease::Linear,
+        }
+    }
 }
 
 /// One scalar field over time, addressed exactly as a patch addresses it.
@@ -54,7 +138,7 @@ impl Track {
         if span <= f32::EPSILON {
             return Some(after.value);
         }
-        let t = (time - before.time) / span;
+        let t = before.ease.apply((time - before.time) / span);
         Some(before.value + (after.value - before.value) * t)
     }
 
@@ -69,7 +153,11 @@ impl Track {
         {
             Some(index) => self.keys[index].value = value,
             None => {
-                self.keys.push(Key { time, value });
+                self.keys.push(Key {
+                    time,
+                    value,
+                    ease: Ease::default(),
+                });
                 self.keys.sort_by(|a, b| a.time.total_cmp(&b.time));
             }
         }
@@ -436,6 +524,34 @@ pub(crate) fn handle_anim_actions(
                     success: true,
                 });
             }
+            // Cycle the ease of every key sitting at the playhead. Keys at the
+            // SAME moment move together because they were authored together —
+            // the three axes of one pose are one decision, not three.
+            "anim.ease" => {
+                let at = playhead.time;
+                let mut changed = 0;
+                let mut label = Ease::Linear;
+                for track in &mut timeline.tracks {
+                    for key in &mut track.keys {
+                        if (key.time - at).abs() < 1e-3 {
+                            key.ease = key.ease.next();
+                            label = key.ease;
+                            changed += 1;
+                        }
+                    }
+                }
+                if changed > 0 {
+                    timeline.generation += 1;
+                }
+                feedback.write(crate::SceneIoFeedback {
+                    message: if changed > 0 {
+                        format!("{} \u{2014} {}", label.label(), changed)
+                    } else {
+                        "no key at the playhead".into()
+                    },
+                    success: changed > 0,
+                });
+            }
             "anim.rewind" => {
                 playhead.playing = false;
                 playhead.time = 0.0;
@@ -459,6 +575,7 @@ mod tests {
                 .map(|(time, value)| Key {
                     time: *time,
                     value: *value,
+                    ease: Ease::Linear,
                 })
                 .collect(),
         }
@@ -623,6 +740,136 @@ mod tests {
             "with no temp file left behind"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn eased_track(ease: Ease) -> Track {
+        Track {
+            target: SceneId::random(),
+            type_path: "T".into(),
+            path: "p".into(),
+            keys: vec![
+                Key {
+                    time: 0.0,
+                    value: 0.0,
+                    ease,
+                },
+                Key {
+                    time: 1.0,
+                    value: 10.0,
+                    ease: Ease::Linear,
+                },
+            ],
+        }
+    }
+
+    // Every ease starts and ends where the keys say. A curve that misses its
+    // own endpoints is not an ease, it is a bug with a nice name.
+    #[test]
+    fn every_ease_hits_both_keys_exactly() {
+        for ease in [Ease::Linear, Ease::In, Ease::Out, Ease::InOut, Ease::Hold] {
+            let track = eased_track(ease);
+            assert_eq!(track.sample(0.0), Some(0.0), "{ease:?} starts at its key");
+            assert_eq!(track.sample(1.0), Some(10.0), "{ease:?} ends at the next");
+        }
+    }
+
+    // Ease IN starts slow: at halfway it has covered less than half the
+    // distance. Ease OUT is the mirror.
+    #[test]
+    fn easing_in_starts_slow_and_out_ends_slow() {
+        let midpoint = |ease| eased_track(ease).sample(0.5).unwrap();
+        assert!(
+            midpoint(Ease::In) < 5.0,
+            "ease in lags at halfway: {}",
+            midpoint(Ease::In)
+        );
+        assert!(
+            midpoint(Ease::Out) > 5.0,
+            "ease out leads at halfway: {}",
+            midpoint(Ease::Out)
+        );
+        assert!(
+            (midpoint(Ease::Linear) - 5.0).abs() < 1e-5,
+            "and linear is exactly halfway"
+        );
+    }
+
+    // Ease in-out is symmetric about the middle: what it gives up early it
+    // gains back late, which is why it reads as deliberate.
+    #[test]
+    fn ease_in_out_is_symmetric() {
+        let track = eased_track(Ease::InOut);
+        assert!((track.sample(0.5).unwrap() - 5.0).abs() < 1e-4, "centred");
+        let early = track.sample(0.25).unwrap();
+        let late = track.sample(0.75).unwrap();
+        assert!(
+            ((10.0 - late) - early).abs() < 1e-4,
+            "mirrored about the middle: {early} and {late}"
+        );
+    }
+
+    // HOLD does not interpolate at all: the value stays put and then jumps,
+    // which is what a switch or a visibility flag needs.
+    #[test]
+    fn hold_stays_put_until_the_next_key() {
+        let track = eased_track(Ease::Hold);
+        assert_eq!(track.sample(0.25), Some(0.0));
+        assert_eq!(track.sample(0.99), Some(0.0), "still held");
+        assert_eq!(track.sample(1.0), Some(10.0), "and then it is simply there");
+    }
+
+    // The ease belongs to the key the segment LEAVES, so a track can ease out
+    // of one key and hold from the next.
+    #[test]
+    fn each_segment_uses_the_ease_of_the_key_it_leaves() {
+        let track = Track {
+            target: SceneId::random(),
+            type_path: "T".into(),
+            path: "p".into(),
+            keys: vec![
+                Key {
+                    time: 0.0,
+                    value: 0.0,
+                    ease: Ease::Hold,
+                },
+                Key {
+                    time: 1.0,
+                    value: 10.0,
+                    ease: Ease::Linear,
+                },
+                Key {
+                    time: 2.0,
+                    value: 20.0,
+                    ease: Ease::Linear,
+                },
+            ],
+        };
+        assert_eq!(
+            track.sample(0.5),
+            Some(0.0),
+            "held across the first segment"
+        );
+        assert_eq!(
+            track.sample(1.5),
+            Some(15.0),
+            "and linear across the second"
+        );
+    }
+
+    // Cycling reaches every mode and comes back — a control with no room for
+    // five labels still has to be able to select all five.
+    #[test]
+    fn cycling_ease_visits_every_mode() {
+        let mut seen = vec![Ease::Linear];
+        let mut current = Ease::Linear;
+        for _ in 0..4 {
+            current = current.next();
+            seen.push(current);
+        }
+        assert_eq!(current.next(), Ease::Linear, "and wraps");
+        for ease in [Ease::Linear, Ease::In, Ease::Out, Ease::InOut, Ease::Hold] {
+            assert!(seen.contains(&ease), "{ease:?} is reachable");
+        }
     }
     // Between two keys the value moves; the halfway point is halfway.
     #[test]

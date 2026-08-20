@@ -18,6 +18,7 @@ pub(crate) struct BlockoutProbe {
     named_before: usize,
     undo_before_scrub: usize,
     time_at_play: f32,
+    linear_midpoint: f32,
     events_seen: usize,
 }
 
@@ -970,7 +971,59 @@ pub(crate) fn probe_blockout(world: &mut World) {
             );
             shot(world, "48-blockout-effect");
         }
-        2320 => {
+        // ── Easing: the difference between moving and being animated ──────
+        // Linear motion reads as machinery. What matters is not that the data
+        // changed but that the MOTION did, so this checks the sampled midpoint.
+        // Sample a QUARTER of the way in, not the middle: the first ease in the
+        // cycle is in-out, which is symmetric, so the midpoint is exactly where
+        // it was and comparing there proves nothing. (It read as a failure once,
+        // and the failure was the assertion's.)
+        2318 => {
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.5;
+            let linear = game_number(world, "PostProcess", "bloom").unwrap_or(0.0);
+            world.resource_mut::<BlockoutProbe>().linear_midpoint = linear;
+            // Cycle the key at 0.0, which is the one the segment leaves.
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.0;
+        }
+        2322 => invoke(world, "anim.ease"),
+        2326 => {
+            let eased = world
+                .resource::<editor_scene::anim::Timeline>()
+                .tracks
+                .iter()
+                .flat_map(|track| track.keys.iter())
+                .any(|key| key.ease != editor_scene::anim::Ease::Linear);
+            check(world, eased, "cycling changed how the key leaves");
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.5;
+        }
+        2332 => {
+            let linear = world.resource::<BlockoutProbe>().linear_midpoint;
+            let now = game_number(world, "PostProcess", "bloom").unwrap_or(0.0);
+            check(
+                world,
+                (now - linear).abs() > 1e-4,
+                &format!("and the MOTION changed with it ({linear} then {now})"),
+            );
+            check(
+                world,
+                now < linear,
+                &format!("an eased start LAGS a linear one ({now} behind {linear})"),
+            );
+        }
+        2340 => {
+            // And still arrives: an ease that misses its own endpoint is a bug
+            // with a nice name.
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 2.0;
+        }
+        2348 => {
+            let arrived = game_number(world, "PostProcess", "bloom").unwrap_or(0.0);
+            check(
+                world,
+                (arrived - 0.8).abs() < 0.01,
+                &format!("and still arrives exactly on the key ({arrived})"),
+            );
+        }
+        2360 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

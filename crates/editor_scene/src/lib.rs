@@ -368,6 +368,16 @@ impl EditorFeature for ScenesFeature {
                 .bind("space space"),
         );
         reg.action(
+            ActionDef::new("anim.ease", "Cycle Key Easing")
+                .describe(
+                    "Cycle how the keys at the playhead leave — \
+                     linear, in-out, in, out, hold",
+                )
+                .context("normal")
+                .bind("space t c")
+                .edit(),
+        );
+        reg.action(
             ActionDef::new("anim.rewind", "Rewind Timeline")
                 .describe("Put the playhead back to the start")
                 .context("normal")

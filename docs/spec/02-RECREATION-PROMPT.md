@@ -847,6 +847,22 @@ at timestamps (VFX, audio, gameplay triggers), and **command rigs to play clips*
 the cinematic slot. Hot-reloadable, scrubbing-friendly, playable from gameplay rules and
 the effects layer. Full cinematic camera-cut suites remain a non-goal.
 
+**Easing (2026-08-20).** Linear motion reads as machinery: constant speed,
+instant starts, instant stops. A key carries how the segment LEAVES it —
+linear, in, out, in-out, or hold — which is most of the difference between
+something that moves and something that looks animated, for the price of one
+enum on a key. `Space T C` cycles the keys sitting at the playhead, together,
+because the three axes of one pose are one decision rather than three.
+
+The ease belongs to the key the segment leaves, so "this key eases out into the
+next" is a property of the key you are looking at when you decide. `Hold` does
+not interpolate at all — the value stays and then jumps, which is what a switch
+or a visibility flag needs. Every ease hits both its keys exactly: a curve that
+misses its own endpoints is a bug with a nice name.
+
+Defaulted in serde, so every timeline written before easing existed loads and
+behaves exactly as it did.
+
 **Events (2026-08-20).** The sequencer's second job in §9: fire events at
 timestamps. `Space T E` marks the playhead with a NAME, asked for through the
 one name prompt, because an event's whole content is its name — it is what the
