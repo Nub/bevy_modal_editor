@@ -215,6 +215,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<material_editor::MaterialHistory>();
         app.init_resource::<material_editor::PendingSeeds>();
         app.init_resource::<material_editor::RenameTarget>();
+        app.init_resource::<material_editor::PendingTextureSlot>();
         app.init_resource::<problems::ProblemsState>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();

@@ -44,6 +44,8 @@ pub enum PaletteFilter {
     FindObject,
     /// The material library (C6): Enter assigns to the selection.
     Materials,
+    /// Imported textures, for the slot the material panel is filling.
+    Textures,
 }
 
 #[derive(Resource, Default)]
@@ -351,6 +353,32 @@ fn build_palette_items(
                 payload: PalettePayload::Action(ActionId::new_static("material.new")),
             });
         }
+        PaletteFilter::Textures => {
+            // Clearing is a choice like any other, so it lives in the same list
+            // rather than being a separate gesture to remember.
+            items.0.push(PaletteEntry {
+                label: "none".into(),
+                category: None,
+                keywords: "clear none remove empty".into(),
+                suffix: "clear".into(),
+                payload: PalettePayload::Texture(None),
+            });
+            let mut textures: Vec<&editor_scene::models::ModelEntry> = models
+                .entries
+                .iter()
+                .filter(|entry| entry.kind == editor_scene::models::EntryKind::Texture)
+                .collect();
+            textures.sort_by(|a, b| a.name.cmp(&b.name));
+            for entry in textures {
+                items.0.push(PaletteEntry {
+                    label: entry.name.clone(),
+                    category: None,
+                    keywords: entry.asset_path.clone(),
+                    suffix: "texture".into(),
+                    payload: PalettePayload::Texture(Some(entry.uuid)),
+                });
+            }
+        }
         PaletteFilter::FindObject => {
             let mut named: Vec<(&SceneId, &Name)> = entities.iter().collect();
             named.sort_by_key(|(id, _)| id.0);
@@ -595,6 +623,7 @@ fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<Palet
         PaletteFilter::Commands => "COMMANDS",
         PaletteFilter::FindObject => "FIND OBJECT",
         PaletteFilter::Materials => "ASSIGN MATERIAL",
+        PaletteFilter::Textures => "PICK TEXTURE",
     };
     for mut text in &mut title {
         if text.0 != label {
@@ -623,6 +652,13 @@ fn handle_open_action(
             } else {
                 PaletteFilter::Commands
             };
+            if let Ok(mut text) = editable.get_mut(*input) {
+                text.clear();
+            }
+        }
+        if invoked.action.as_str() == "material.pick-texture" && !state.open {
+            open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
+            state.filter = PaletteFilter::Textures;
             if let Ok(mut text) = editable.get_mut(*input) {
                 text.clear();
             }
@@ -1025,6 +1061,56 @@ fn palette_keys(
                             });
                         });
                     }
+                    PalettePayload::Texture(texture) => {
+                        let texture = *texture;
+                        commands.queue(move |world: &mut World| {
+                            let Some(slot) = world
+                                .resource::<crate::material_editor::PendingTextureSlot>()
+                                .0
+                            else {
+                                return;
+                            };
+                            let Some(id) = world
+                                .resource::<crate::material_editor::MaterialEditorState>()
+                                .target
+                            else {
+                                return;
+                            };
+                            // Through the SAME asset-history path a slider
+                            // takes: binding a texture is a material edit, and
+                            // one Ctrl+Z has to take it back. It also claims the
+                            // field on an inheriting material, which
+                            // `edit_material` already knows how to do.
+                            let seconds = world.resource::<Time>().elapsed_secs_f64();
+                            world.resource_scope(
+                                |world,
+                                 mut library: Mut<editor_scene::materials::MaterialLibrary>| {
+                                    world.resource_scope(
+                                        |_world,
+                                         mut history: Mut<
+                                            crate::material_editor::MaterialHistory,
+                                        >| {
+                                            crate::material_editor::edit_material(
+                                                &mut library,
+                                                &mut history,
+                                                seconds,
+                                                id,
+                                                crate::material_editor::Field::Texture(slot),
+                                                true,
+                                                |def| def.set_texture(slot, texture),
+                                            );
+                                        },
+                                    );
+                                },
+                            );
+                            world
+                                .resource_mut::<crate::material_editor::PendingTextureSlot>()
+                                .0 = None;
+                            let mut state =
+                                world.resource_mut::<crate::material_editor::MaterialEditorState>();
+                            state.refresh = true;
+                        });
+                    }
                     PalettePayload::Material(material) => {
                         let material = *material;
                         commands.queue(move |world: &mut World| {
@@ -1258,6 +1344,7 @@ fn rebuild_results(
     let preview_subject = match &selected_payload {
         Some(PalettePayload::Prefab(id)) => Some(Subject::Prefab(*id)),
         Some(PalettePayload::Material(id)) => Some(Subject::Material(*id)),
+        Some(PalettePayload::Texture(Some(id))) => Some(Subject::Texture(*id)),
         Some(PalettePayload::Action(id)) => id
             .as_str()
             .strip_prefix("insert.kind.")

@@ -266,6 +266,14 @@ pub(crate) fn probe_handson(world: &mut World) {
         }
         310 => click(world, true),
         312 => click(world, false),
+        // The chip opens the PICKER now rather than cycling blindly through
+        // every imported texture — so choose the one wanted, by name.
+        330 => {
+            let open = world.resource::<crate::palette::PaletteState>().open;
+            check(world, open, "the texture chip opens the picker");
+            type_word(world, "swa");
+        }
+        360 => tap_named(world, KeyCode::Enter, Key::Enter),
         380 => {
             let (probe_material, probe_texture) = {
                 let probe = world.resource::<HandsonProbe>();

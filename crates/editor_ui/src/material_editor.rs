@@ -21,7 +21,7 @@ use bevy::ui::{Checked, PositionType, px};
 use bevy::ui_widgets::ValueChange;
 use editor_core::prelude::*;
 use editor_scene::materials::{MaterialAlphaMode, MaterialDef, MaterialLibrary, TextureSlot};
-use editor_scene::models::{EntryKind, ModelLibrary};
+use editor_scene::models::ModelLibrary;
 use uuid::Uuid;
 
 use crate::appear::FloatingSurface;
@@ -260,6 +260,13 @@ impl EditorFeature for MaterialEditorFeature {
                 )
                 .context("normal")
                 .bind("space shift+d"),
+        );
+        reg.action(
+            // Opened by pressing a texture chip; listed so the palette and
+            // which-key can still find it by name.
+            ActionDef::new("material.pick-texture", "Pick Texture")
+                .describe("Choose a texture for the slot the material panel is filling")
+                .context("normal"),
         );
         reg.action(
             ActionDef::new("material.new-instance", "New Material Instance")
@@ -660,7 +667,7 @@ pub(crate) fn apply_material_history(
 
 /// One committed edit: snapshot-before into the undo stack (coalescing drag
 /// bursts), apply the mutation, bump the library (visual sync + save follow).
-fn edit_material(
+pub(crate) fn edit_material(
     library: &mut MaterialLibrary,
     history: &mut MaterialHistory,
     time_seconds: f64,
@@ -805,6 +812,11 @@ pub(crate) fn on_field_toggle(
 }
 
 /// Chip presses: alpha-mode cycle, texture cycle (imported textures + none).
+/// Which texture slot the palette is currently picking for. Set when a texture
+/// chip opens the picker, cleared when a choice lands.
+#[derive(Resource, Default)]
+pub(crate) struct PendingTextureSlot(pub Option<TextureSlot>);
+
 /// The revert glyph on a row this material has CLAIMED: pressing it hands the
 /// field back to the base.
 #[derive(Component, Clone, Copy)]
@@ -843,9 +855,10 @@ pub(crate) fn on_revert_press(
 pub(crate) fn on_chip_press(
     press: On<Pointer<Press>>,
     fields: Query<&Field>,
+    mut pending: ResMut<PendingTextureSlot>,
+    mut actions: MessageWriter<ActionInvoked>,
     segments: Query<&AlphaModeChip>,
     time: Res<Time>,
-    models: Res<ModelLibrary>,
     mut library: ResMut<MaterialLibrary>,
     mut history: ResMut<MaterialHistory>,
     mut editor: ResMut<MaterialEditorState>,
@@ -855,15 +868,22 @@ pub(crate) fn on_chip_press(
     };
     debug!("material chip pressed: {field:?}");
     let Some(id) = editor.target else { return };
+    // A texture chip OPENS THE PICKER. Cycling blindly through every imported
+    // texture was tolerable with one slot and is not with five: you cannot see
+    // what you are choosing, and finding one map means pressing a chip until
+    // its name goes past. The palette already searches and previews.
+    if let Field::Texture(slot) = field {
+        pending.0 = Some(*slot);
+        actions.write(ActionInvoked {
+            action: ActionId::new_static("material.pick-texture"),
+            args: None,
+            source: InvocationSource::Palette,
+        });
+        return;
+    }
     // A segment says exactly which mode it is; only the legacy single chip
     // cycles.
     let segment = segments.get(press.entity).ok().map(|chip| chip.0);
-    let textures: Vec<Uuid> = models
-        .entries
-        .iter()
-        .filter(|e| e.kind == EntryKind::Texture)
-        .map(|e| e.uuid)
-        .collect();
     edit_material(
         &mut library,
         &mut history,
@@ -871,28 +891,16 @@ pub(crate) fn on_chip_press(
         id,
         *field,
         true,
-        |def| match field {
-            Field::AlphaMode => {
+        // The alpha mode is the only chip that still edits in place; texture
+        // chips returned above, having opened the picker instead.
+        |def| {
+            if matches!(field, Field::AlphaMode) {
                 def.alpha_mode = segment.unwrap_or(match def.alpha_mode {
                     MaterialAlphaMode::Opaque => MaterialAlphaMode::Blend,
                     MaterialAlphaMode::Blend => MaterialAlphaMode::Mask,
                     MaterialAlphaMode::Mask => MaterialAlphaMode::Opaque,
                 });
             }
-            Field::Texture(slot) => {
-                // none → tex0 → tex1 → … → none
-                let slot = *slot;
-                let next = match def.texture(slot) {
-                    None => textures.first().copied(),
-                    Some(current) => textures
-                        .iter()
-                        .position(|t| *t == current)
-                        .and_then(|i| textures.get(i + 1))
-                        .copied(),
-                };
-                def.set_texture(slot, next);
-            }
-            _ => {}
         },
     );
     // Chip labels come from the def — rebuild them.

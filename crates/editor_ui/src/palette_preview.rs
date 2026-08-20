@@ -36,6 +36,10 @@ pub(crate) enum Subject {
     /// editor's own preview gives, so "which one is the rusty metal" is a
     /// look, not a guess at a name.
     Material(Uuid),
+    /// An imported texture, unlit on the same sphere: picking a MAP is the one
+    /// case where you want the image itself and not a lighting judgement, and
+    /// unlit is as close to "the file" as this rig gets.
+    Texture(Uuid),
 }
 
 #[derive(Resource)]
@@ -132,6 +136,36 @@ pub(crate) fn sync_preview_content(world: &mut World) {
     let mut radius: f32 = 1.0;
     match subject {
         None => {}
+        Some(Subject::Texture(texture)) => {
+            // A one-slot material carrying just this map, unlit: what the file
+            // looks like, wrapped on the same ball as everything else.
+            let mut def = editor_scene::materials::MaterialDef {
+                unlit: true,
+                ..Default::default()
+            };
+            def.set_texture(
+                editor_scene::materials::TextureSlot::BaseColor,
+                Some(texture),
+            );
+            let standard =
+                world.resource_scope(|world, models: Mut<editor_scene::models::ModelLibrary>| {
+                    let assets = world.get_resource::<AssetServer>().cloned();
+                    editor_scene::materials::to_standard_material(&def, &models, assets.as_ref())
+                });
+            let material_handle = world
+                .resource_mut::<Assets<StandardMaterial>>()
+                .add(standard);
+            let mesh = world
+                .resource_mut::<Assets<Mesh>>()
+                .add(editor_scene::materials::primitive_mesh(Sphere::new(1.0)));
+            world.spawn((
+                PreviewContent,
+                Mesh3d(mesh),
+                MeshMaterial3d(material_handle),
+                Transform::default(),
+                RenderLayers::layer(PREVIEW_LAYER),
+            ));
+        }
         Some(Subject::Material(material)) => {
             // The chip shows the RESOLVED material, the same as the scene.
             let Some(def) = world

@@ -23,6 +23,10 @@ pub(crate) enum PalettePayload {
     Prefab(uuid::Uuid),
     /// Place an entity referencing this imported model (M4-D12).
     Model(uuid::Uuid),
+    /// Bind this imported texture to the slot the material panel is filling —
+    /// `None` clears it. Five slots cycling blindly through every imported
+    /// texture is not picking, it is guessing.
+    Texture(Option<uuid::Uuid>),
     /// Insert this component (default value) onto every selected entity.
     AddComponent(std::any::TypeId),
     /// Remove this component (by type path) from every selected entity.

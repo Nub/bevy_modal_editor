@@ -797,7 +797,72 @@ pub(crate) fn probe_material(world: &mut World) {
                 "and baked in exactly what it looked like, field for field",
             );
         }
+        // ── Picking a texture by NAME, not by cycling ─────────────────────
+        1540 => {
+            // Press the normal-map chip: five slots each cycling blindly
+            // through every imported texture is guessing, not picking.
+            world.resource_mut::<MaterialEditorState>().open = true;
+            world.resource_mut::<MaterialEditorState>().refresh = true;
+        }
+        1550 => {
+            // The texture rows live below the fold of a sixteen-row panel, so
+            // scroll to them first — the press has to be a real press on a
+            // real, visible chip for this to be worth anything.
+            let bodies: Vec<Entity> = world
+                .query_filtered::<Entity, With<crate::material_editor::MaterialEditorBody>>()
+                .iter(world)
+                .collect();
+            for body in bodies {
+                if let Some(mut scroll) = world.get_mut::<ScrollPosition>(body) {
+                    scroll.y = 4000.0;
+                }
+            }
+        }
         1560 => {
+            let chip = world
+                .query::<(Entity, &Field)>()
+                .iter(world)
+                .find(|(_, field)| **field == Field::Texture(TextureSlot::Normal))
+                .map(|(entity, _)| entity);
+            match chip {
+                Some(entity) => {
+                    let center = crate::probe_handson::ui_center(world, entity)
+                        .unwrap_or(Vec2::new(10.0, 10.0));
+                    move_cursor(world, center);
+                    click(world, true);
+                    click(world, false);
+                }
+                None => check(world, false, "the normal slot has a chip to press"),
+            }
+        }
+        1600 => {
+            let open = world.resource::<crate::palette::PaletteState>().open;
+            check(world, open, "a texture chip opens the picker");
+            // Type part of the name: the point is finding one, not walking past
+            // the others until it comes round.
+            for (code, ch) in [
+                (KeyCode::KeyS, "s"),
+                (KeyCode::KeyW, "w"),
+                (KeyCode::KeyA, "a"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        1640 => tap_named(world, KeyCode::Enter, Key::Enter),
+        1700 => {
+            let bound = world
+                .resource::<MaterialEditorState>()
+                .target
+                .and_then(|id| world.resource::<MaterialLibrary>().get(&id).cloned())
+                .and_then(|def| def.texture(TextureSlot::Normal));
+            check(
+                world,
+                bound.is_some(),
+                &format!("the searched texture landed in the NORMAL slot ({bound:?})"),
+            );
+            shot(world, "64-material-texture-picker");
+        }
+        1760 => {
             let failures = world.resource::<MaterialProbe>().failures.clone();
             if failures.is_empty() {
                 info!("MATERIAL-PROBE PASS: the material editor end-to-end");

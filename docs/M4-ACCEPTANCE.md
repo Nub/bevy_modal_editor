@@ -199,6 +199,25 @@ OWNERSHIP, not an undo: the value that appears is whatever the base says now.
 **Owed:** the revert affordance is a glyph rather than a hit-tested button, which
 is a deliberate density choice in a sixteen-row panel but is a small target.
 Worth revisiting the first time it annoys someone.
+
+### D11 texture picking (2026-08-20)
+
+The texture chip cycled: press it and the slot advanced to the next imported
+texture, name only, wrapping round to none. That was tolerable with ONE slot and
+became untenable at five — finding a particular map meant pressing a chip until
+its name went past, five times over, with no way to see what you were choosing.
+The slot table made this worse, so it belongs to the same work.
+
+A chip now opens the command palette filtered to imported textures: type part of
+a name, see it previewed unlit on the same sphere the material preview uses, and
+press Enter. `none` is the first entry, so clearing a slot is a choice in the
+same list rather than a separate gesture to remember.
+
+The binding goes through `edit_material`, the same asset-history path a slider
+takes — the first version wrote straight to the library and silently cost the
+texture binding its undo, which the hands-on probe caught. It also claims the
+Textures field on an inheriting material, exactly as moving a slider claims its
+own field.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per
