@@ -615,7 +615,112 @@ pub(crate) fn probe_material(world: &mut World) {
             );
             shot(world, "61-material-verbs");
         }
-        1300 => {
+        // ── Inheritance: one edit instead of N ────────────────────────────
+        1240 => {
+            let first = world
+                .resource::<MaterialLibrary>()
+                .materials
+                .first()
+                .map(|def| def.id);
+            world.resource_mut::<MaterialEditorState>().target = first;
+            world.resource_mut::<MaterialProbe>().target_before = first;
+            invoke(world, "material.new-instance");
+        }
+        1280 => {
+            let base = world.resource::<MaterialProbe>().target_before;
+            let instance = world.resource::<MaterialEditorState>().target;
+            let follows = instance
+                .and_then(|id| world.resource::<MaterialLibrary>().get(&id).cloned())
+                .map(|def| def.base);
+            check(
+                world,
+                follows == Some(base) && instance != base,
+                &format!("the instance follows its base ({follows:?})"),
+            );
+            // It owns nothing yet, so it IS its base.
+            let (resolved, base_def) = {
+                let library = world.resource::<MaterialLibrary>();
+                (
+                    instance.and_then(|id| library.resolved(&id)),
+                    base.and_then(|id| library.resolved(&id)),
+                )
+            };
+            check(
+                world,
+                resolved.as_ref().map(|def| def.roughness)
+                    == base_def.as_ref().map(|d| d.roughness)
+                    && resolved.as_ref().map(|def| def.base_color)
+                        == base_def.as_ref().map(|d| d.base_color),
+                "a fresh instance looks exactly like its base",
+            );
+        }
+        // Edit the BASE and the instance follows, in the same frame.
+        1320 => {
+            let base = world.resource::<MaterialProbe>().target_before;
+            if let Some(base) = base
+                && let Some(def) = world.resource_mut::<MaterialLibrary>().get_mut(&base)
+            {
+                def.roughness = 0.123;
+            }
+        }
+        1340 => {
+            let instance = world.resource::<MaterialEditorState>().target;
+            let followed =
+                instance.and_then(|id| world.resource::<MaterialLibrary>().resolved(&id));
+            check(
+                world,
+                followed.is_some_and(|def| (def.roughness - 0.123).abs() < 1e-4),
+                "a base edit reached the instance without touching it",
+            );
+        }
+        // Claim ONE field on the instance; the rest still follows.
+        1380 => slider_change(world, Field::Metallic, 0.75, true),
+        1420 => {
+            let instance = world.resource::<MaterialEditorState>().target;
+            let (stored, resolved) = {
+                let library = world.resource::<MaterialLibrary>();
+                (
+                    instance.and_then(|id| library.get(&id).cloned()),
+                    instance.and_then(|id| library.resolved(&id)),
+                )
+            };
+            check(
+                world,
+                stored.as_ref().is_some_and(|def| {
+                    def.overridden
+                        .contains(&editor_scene::materials::MaterialField::Metallic)
+                }),
+                "editing a field CLAIMED it for the instance",
+            );
+            check(
+                world,
+                resolved.as_ref().is_some_and(|def| {
+                    (def.metallic - 0.75).abs() < 1e-4 && (def.roughness - 0.123).abs() < 1e-4
+                }),
+                "the claimed field is its own and the rest still follows",
+            );
+            shot(world, "62-material-inheritance");
+        }
+        // Detaching keeps the look and stops the following.
+        1460 => invoke(world, "material.detach"),
+        1500 => {
+            let instance = world.resource::<MaterialEditorState>().target;
+            let stored =
+                instance.and_then(|id| world.resource::<MaterialLibrary>().get(&id).cloned());
+            check(
+                world,
+                stored.as_ref().is_some_and(|def| def.base.is_none()),
+                "detach stopped the following",
+            );
+            check(
+                world,
+                stored.as_ref().is_some_and(|def| {
+                    (def.roughness - 0.123).abs() < 1e-4 && (def.metallic - 0.75).abs() < 1e-4
+                }),
+                "and baked in exactly what it looked like",
+            );
+        }
+        1560 => {
             let failures = world.resource::<MaterialProbe>().failures.clone();
             if failures.is_empty() {
                 info!("MATERIAL-PROBE PASS: the material editor end-to-end");

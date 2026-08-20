@@ -133,10 +133,10 @@ pub(crate) fn sync_preview_content(world: &mut World) {
     match subject {
         None => {}
         Some(Subject::Material(material)) => {
+            // The chip shows the RESOLVED material, the same as the scene.
             let Some(def) = world
                 .resource::<editor_scene::materials::MaterialLibrary>()
-                .get(&material)
-                .cloned()
+                .resolved(&material)
             else {
                 return;
             };

@@ -262,6 +262,20 @@ impl EditorFeature for MaterialEditorFeature {
                 .bind("space shift+d"),
         );
         reg.action(
+            ActionDef::new("material.new-instance", "New Material Instance")
+                .describe(
+                    "Create a material that INHERITS from the open one — \
+                     edit a field and only that field stops following the base",
+                )
+                .context("normal")
+                .bind("space shift+i"),
+        );
+        reg.action(
+            ActionDef::new("material.detach", "Detach Material")
+                .describe("Bake the inherited values in and stop following the base")
+                .context("normal"),
+        );
+        reg.action(
             // No binding, deliberately: removing a material is not undoable
             // through the asset history, so it is reached from the palette
             // where it has to be chosen by name rather than by muscle memory.
@@ -393,7 +407,10 @@ pub(crate) fn handle_material_library_verbs(
 ) {
     for invoked in reader.read() {
         let action = invoked.action.as_str();
-        if action != "material.duplicate" && action != "material.delete" {
+        if !matches!(
+            action,
+            "material.duplicate" | "material.delete" | "material.new-instance" | "material.detach"
+        ) {
             continue;
         }
         // Same resolution as rename: the open material, else the selection's.
@@ -429,10 +446,70 @@ pub(crate) fn handle_material_library_verbs(
                     success: true,
                 });
             }
-            _ => {
+            "material.new-instance" => {
+                let Some(source) = library.get(&id).cloned() else {
+                    continue;
+                };
+                // An instance starts owning NOTHING: it is its base until a
+                // field is edited, and then it owns exactly that field.
+                let instance = MaterialDef {
+                    id: Uuid::new_v4(),
+                    name: format!("{} instance", source.name),
+                    base: Some(id),
+                    overridden: std::collections::BTreeSet::new(),
+                    ..source
+                };
+                let (new_id, name) = (instance.id, instance.name.clone());
+                library.add(instance);
+                state.target = Some(new_id);
+                state.refresh = true;
+                feedback.write(editor_scene::SceneIoFeedback {
+                    message: format!("instance \u{25c6} {name}"),
+                    success: true,
+                });
+            }
+            "material.detach" => {
+                let Some(resolved) = library.resolved(&id) else {
+                    continue;
+                };
+                if resolved.base.is_none() {
+                    feedback.write(editor_scene::SceneIoFeedback {
+                        message: format!("{} follows nothing", resolved.name),
+                        success: false,
+                    });
+                    continue;
+                }
+                // Flatten EXACTLY: keep what it looks like right now, then stop
+                // following. Detaching must never change the render.
+                if let Some(def) = library.get_mut(&id) {
+                    *def = MaterialDef {
+                        base: None,
+                        overridden: std::collections::BTreeSet::new(),
+                        ..resolved
+                    };
+                }
+                state.refresh = true;
+                feedback.write(editor_scene::SceneIoFeedback {
+                    message: "detached — the values are its own now".into(),
+                    success: true,
+                });
+            }
+            "material.delete" => {
                 // Refuse while anything still wears it: deleting a material out
                 // from under a shaded object would leave it silently unpainted,
                 // and there is no asset-history entry to undo this with.
+                let children = library.children_of(&id);
+                if !children.is_empty() {
+                    feedback.write(editor_scene::SceneIoFeedback {
+                        message: format!(
+                            "{} material{} inherit from this one",
+                            children.len(),
+                            if children.len() == 1 { "" } else { "s" }
+                        ),
+                        success: false,
+                    });
+                    continue;
+                }
                 let users = references
                     .iter()
                     .filter(|reference| reference.0 == id)
@@ -461,6 +538,7 @@ pub(crate) fn handle_material_library_verbs(
                     success: true,
                 });
             }
+            _ => {}
         }
     }
 }
@@ -610,7 +688,35 @@ fn edit_material(
     };
     if let Some(def) = library.get_mut(&id) {
         mutate(def);
+        // Editing a field CLAIMS it: from here on this material owns that value
+        // and stops following its base for it. Nothing happens for a material
+        // with no base, which is every material until someone makes a variant.
+        if def.base.is_some()
+            && let Some(claimed) = inherited_field(field)
+        {
+            def.overridden.insert(claimed);
+        }
     }
+}
+
+/// Which inheritable field a panel control writes. `None` for controls that are
+/// not inheritable at all — a rename is identity, not appearance.
+fn inherited_field(field: Field) -> Option<editor_scene::materials::MaterialField> {
+    use editor_scene::materials::MaterialField as M;
+    Some(match field {
+        Field::BaseR | Field::BaseG | Field::BaseB | Field::BaseA => M::BaseColor,
+        Field::Metallic => M::Metallic,
+        Field::Roughness => M::Roughness,
+        Field::EmissiveR | Field::EmissiveG | Field::EmissiveB => M::Emissive,
+        Field::EmissiveIntensity => M::EmissiveIntensity,
+        Field::AlphaCutoff => M::AlphaCutoff,
+        Field::AlphaMode => M::AlphaMode,
+        Field::Unlit => M::Unlit,
+        Field::DoubleSided => M::DoubleSided,
+        Field::Texture(_) => M::Textures,
+        Field::UvTilingX | Field::UvTilingY => M::UvTiling,
+        Field::Name => return None,
+    })
 }
 
 /// Slider/color-slider commits.
@@ -778,11 +884,13 @@ pub(crate) fn sync_preview(
     if !state.open || !(library.is_changed() || state.is_changed()) {
         return;
     }
-    let Some(def) = state.target.and_then(|id| library.get(&id)) else {
+    // The preview shows the RESOLVED material: an inherited value is still what
+    // the surface looks like.
+    let Some(def) = state.target.and_then(|id| library.resolved(&id)) else {
         return;
     };
     if let Some(mut material) = materials.get_mut(&rig.material) {
-        *material = editor_scene::materials::to_standard_material(def, &models, assets.as_deref());
+        *material = editor_scene::materials::to_standard_material(&def, &models, assets.as_deref());
     }
 }
 

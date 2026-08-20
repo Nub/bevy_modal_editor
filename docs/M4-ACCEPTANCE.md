@@ -157,6 +157,42 @@ Unifying the value representation is not obviously correct and should not be
 done for tidiness; the honest next step is to derive a prefab override from the
 patch op that produced it, rather than diffing whole components afterwards,
 which this op finally makes possible.
+
+### D11 material inheritance (2026-08-20, materials format 3)
+
+Spec §6:492-497 mandates keeping BOTH library-reference and inline-override
+semantics, and only the reference half existed: every material was a full copy
+with no link back, so a late art-direction change meant re-editing N materials
+by hand.
+
+A material may now name a `base` and carry the set of fields it has claimed.
+Everything unclaimed resolves from the base, live and transitively, so editing a
+base re-shades every instance in the same pass. `material.new-instance`
+(`Space Shift+I`) makes a child that owns NOTHING — it *is* its base until a
+field is edited, and editing a field claims exactly that field.
+`material.detach` bakes the resolved values in and stops the following; it must
+never change what the surface looks like, and there is a test that says so.
+
+`overridden` is a closed enum rather than reflect paths. A material's fields are
+known at compile time, so the compiler checks that resolution stays exhaustive
+when a field is added — the concept shared with prefab overrides is "a base plus
+the fields you took ownership of", which is the semantics, not the encoding.
+
+`MaterialLibrary::resolved` is what everything that RENDERS calls — scene sync,
+the panel preview, the palette chip — while `get` still returns what is STORED,
+which is what an editor edits. A cycle resolves rather than hanging: refusing to
+render is worse than a base chain that stops early.
+
+Delete now also refuses while other materials inherit from the target, not just
+while objects wear it — orphaning an instance would silently change its
+appearance.
+
+Format 3, because a format-2 reader would drop the wiring and flatten an
+instance to its own sparse values, which is a different material.
+
+**Owed:** the panel does not yet grey inherited values or offer a per-field
+revert, so which fields are claimed is visible only in the file. That is UI work
+on a model that now exists, and it is the natural next material slice.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per

@@ -14,10 +14,13 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+/// 3: materials can INHERIT (`base` + `overridden`). A format-2 reader would
+/// silently drop the wiring and flatten an instance to its own sparse values,
+/// which is why this is a version bump and not just two more fields.
 /// 2: textures moved from a single `base_color_texture` field to a slot table
 /// carrying colour space, plus uv tiling/offset. Format-1 files load and
 /// migrate on read (`MaterialDef::migrate`).
-pub const MATERIALS_FORMAT_VERSION: u32 = 2;
+pub const MATERIALS_FORMAT_VERSION: u32 = 3;
 
 /// Scene-side reference: which library material shades this entity. Serialized
 /// with the scene BY ID — never by value.
@@ -121,6 +124,84 @@ pub struct MaterialDef {
     /// unusable without it — one stretched copy per piece is not a wall.
     pub uv_tiling: [f32; 2],
     pub uv_offset: [f32; 2],
+    /// Inherit from another library material: every field NOT listed in
+    /// `overridden` resolves from it, live. Spec §6 mandates keeping BOTH
+    /// library-reference and inline-override semantics, and only the reference
+    /// half existed — every wall colour was a full copy with no link back, so a
+    /// late art-direction change meant re-editing each one by hand.
+    pub base: Option<Uuid>,
+    /// Which fields this material owns outright. A closed set rather than
+    /// reflect paths: a material's fields are known at compile time, so the
+    /// compiler can check the resolution is exhaustive. The concept shared with
+    /// prefab overrides is "a base plus the fields you took ownership of" — the
+    /// semantics, not the encoding.
+    pub overridden: std::collections::BTreeSet<MaterialField>,
+}
+
+/// One inheritable field of a `MaterialDef`. `id` and `name` are absent on
+/// purpose: identity is never inherited.
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub enum MaterialField {
+    BaseColor,
+    Metallic,
+    Roughness,
+    Emissive,
+    EmissiveIntensity,
+    AlphaMode,
+    AlphaCutoff,
+    Unlit,
+    DoubleSided,
+    Textures,
+    UvTiling,
+    UvOffset,
+}
+
+impl MaterialField {
+    pub const ALL: [MaterialField; 12] = [
+        MaterialField::BaseColor,
+        MaterialField::Metallic,
+        MaterialField::Roughness,
+        MaterialField::Emissive,
+        MaterialField::EmissiveIntensity,
+        MaterialField::AlphaMode,
+        MaterialField::AlphaCutoff,
+        MaterialField::Unlit,
+        MaterialField::DoubleSided,
+        MaterialField::Textures,
+        MaterialField::UvTiling,
+        MaterialField::UvOffset,
+    ];
+}
+
+impl MaterialDef {
+    /// This material's own values laid OVER `base`. Identity (id, name, and the
+    /// inheritance wiring itself) always stays this material's own.
+    fn over(&self, base: &MaterialDef) -> MaterialDef {
+        let mut out = base.clone();
+        out.id = self.id;
+        out.name = self.name.clone();
+        out.base = self.base;
+        out.overridden = self.overridden.clone();
+        for field in &self.overridden {
+            match field {
+                MaterialField::BaseColor => out.base_color = self.base_color,
+                MaterialField::Metallic => out.metallic = self.metallic,
+                MaterialField::Roughness => out.roughness = self.roughness,
+                MaterialField::Emissive => out.emissive = self.emissive,
+                MaterialField::EmissiveIntensity => {
+                    out.emissive_intensity = self.emissive_intensity
+                }
+                MaterialField::AlphaMode => out.alpha_mode = self.alpha_mode,
+                MaterialField::AlphaCutoff => out.alpha_cutoff = self.alpha_cutoff,
+                MaterialField::Unlit => out.unlit = self.unlit,
+                MaterialField::DoubleSided => out.double_sided = self.double_sided,
+                MaterialField::Textures => out.textures = self.textures.clone(),
+                MaterialField::UvTiling => out.uv_tiling = self.uv_tiling,
+                MaterialField::UvOffset => out.uv_offset = self.uv_offset,
+            }
+        }
+        out
+    }
 }
 
 impl MaterialDef {
@@ -166,6 +247,8 @@ impl Default for MaterialDef {
             textures: std::collections::BTreeMap::new(),
             uv_tiling: [1.0, 1.0],
             uv_offset: [0.0, 0.0],
+            base: None,
+            overridden: std::collections::BTreeSet::new(),
         }
     }
 }
@@ -286,6 +369,46 @@ impl MaterialLibrary {
         self.generation += 1;
         self.materials.push(def);
     }
+    /// A material with its inheritance applied — THE thing to render, name a
+    /// colour by, or preview. `get` returns what is STORED (own values plus the
+    /// override set), which is what an editor edits; this returns what it looks
+    /// like, which is what everything else wants.
+    ///
+    /// A cycle resolves to the deepest material's own values rather than
+    /// looping: a base chain is a chain, and refusing to hang is worth more
+    /// than refusing to render.
+    pub fn resolved(&self, id: &Uuid) -> Option<MaterialDef> {
+        let mut chain: Vec<&MaterialDef> = Vec::new();
+        let mut seen: Vec<Uuid> = Vec::new();
+        let mut current = self.get(id)?;
+        loop {
+            if seen.contains(&current.id) {
+                break; // cycle: stop, keep what we have
+            }
+            seen.push(current.id);
+            chain.push(current);
+            let Some(base) = current.base.and_then(|base| self.get(&base)) else {
+                break;
+            };
+            current = base;
+        }
+        // Deepest base first, each descendant laid over it.
+        let mut resolved = chain.pop()?.clone();
+        while let Some(child) = chain.pop() {
+            resolved = child.over(&resolved);
+        }
+        Some(resolved)
+    }
+
+    /// Every material that inherits from `id`, directly.
+    pub fn children_of(&self, id: &Uuid) -> Vec<Uuid> {
+        self.materials
+            .iter()
+            .filter(|def| def.base == Some(*id))
+            .map(|def| def.id)
+            .collect()
+    }
+
     /// Remove a material. The caller decides whether removing it is SAFE —
     /// see `material.delete`, which refuses while anything still references it.
     pub fn remove(&mut self, id: &Uuid) -> Option<MaterialDef> {
@@ -417,11 +540,14 @@ pub(crate) fn sync_material_refs(
     // Library param edits patch the SHARED handles: no entity is touched, and
     // every user of the material re-shades this frame.
     if library.is_changed() {
+        // Resolve, so an edit to a BASE re-shades every material inheriting
+        // from it in the same pass — which is the whole point of inheritance.
         for def in &library.materials {
             if let Some(handle) = handles.0.get(&def.id)
                 && let Some(mut material) = materials.get_mut(handle)
+                && let Some(resolved) = library.resolved(&def.id)
             {
-                *material = to_standard_material(def, &models, server);
+                *material = to_standard_material(&resolved, &models, server);
             }
         }
     }
@@ -429,12 +555,12 @@ pub(crate) fn sync_material_refs(
                       handles: &mut MaterialHandles,
                       materials: &mut Assets<StandardMaterial>|
      -> Option<Handle<StandardMaterial>> {
-        let def = library.get(id)?;
+        let resolved = library.resolved(id)?;
         Some(
             handles
                 .0
-                .entry(def.id)
-                .or_insert_with(|| materials.add(to_standard_material(def, &models, server)))
+                .entry(resolved.id)
+                .or_insert_with(|| materials.add(to_standard_material(&resolved, &models, server)))
                 .clone(),
         )
     };
@@ -622,6 +748,192 @@ mod tests {
     use super::*;
     use editor_core::prelude::{History, HistoryRequests};
 
+    fn library_with(defs: Vec<MaterialDef>) -> MaterialLibrary {
+        let mut library = MaterialLibrary::default();
+        for def in defs {
+            library.add(def);
+        }
+        library
+    }
+
+    // Spec §6: a material is a library REFERENCE plus inline overrides. An
+    // instance follows its base for everything it has not claimed.
+    #[test]
+    fn an_instance_resolves_over_its_base() {
+        let base = Uuid::new_v4();
+        let instance = Uuid::new_v4();
+        let library = library_with(vec![
+            MaterialDef {
+                id: base,
+                name: "Stone".into(),
+                base_color: [0.5, 0.5, 0.5, 1.0],
+                roughness: 0.9,
+                metallic: 0.1,
+                ..Default::default()
+            },
+            MaterialDef {
+                id: instance,
+                name: "Mossy Stone".into(),
+                base: Some(base),
+                base_color: [0.2, 0.6, 0.2, 1.0],
+                overridden: [MaterialField::BaseColor].into_iter().collect(),
+                ..Default::default()
+            },
+        ]);
+        let resolved = library.resolved(&instance).unwrap();
+        assert_eq!(
+            resolved.base_color,
+            [0.2, 0.6, 0.2, 1.0],
+            "the claimed field is the instance's own"
+        );
+        assert_eq!(resolved.roughness, 0.9, "the rest follows the base");
+        assert_eq!(resolved.metallic, 0.1, "all of the rest");
+        assert_eq!(resolved.name, "Mossy Stone", "identity is never inherited");
+    }
+
+    // THE payoff: change the base once and every instance follows. This is what
+    // makes a late art-direction change one edit instead of N.
+    #[test]
+    fn a_base_edit_reaches_every_instance() {
+        let base = Uuid::new_v4();
+        let instances: Vec<Uuid> = (0..3).map(|_| Uuid::new_v4()).collect();
+        let mut defs = vec![MaterialDef {
+            id: base,
+            roughness: 0.9,
+            ..Default::default()
+        }];
+        defs.extend(instances.iter().map(|id| MaterialDef {
+            id: *id,
+            base: Some(base),
+            ..Default::default()
+        }));
+        let mut library = library_with(defs);
+
+        library.get_mut(&base).unwrap().roughness = 0.1;
+
+        for id in &instances {
+            assert_eq!(
+                library.resolved(id).unwrap().roughness,
+                0.1,
+                "the instance followed the base"
+            );
+        }
+    }
+
+    // Inheritance is a CHAIN: an instance of an instance resolves through both.
+    #[test]
+    fn inheritance_resolves_through_a_chain() {
+        let (root, middle, leaf) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        let library = library_with(vec![
+            MaterialDef {
+                id: root,
+                roughness: 0.9,
+                metallic: 0.0,
+                ..Default::default()
+            },
+            MaterialDef {
+                id: middle,
+                base: Some(root),
+                metallic: 1.0,
+                overridden: [MaterialField::Metallic].into_iter().collect(),
+                ..Default::default()
+            },
+            MaterialDef {
+                id: leaf,
+                base: Some(middle),
+                unlit: true,
+                overridden: [MaterialField::Unlit].into_iter().collect(),
+                ..Default::default()
+            },
+        ]);
+        let resolved = library.resolved(&leaf).unwrap();
+        assert_eq!(resolved.roughness, 0.9, "from the root");
+        assert_eq!(resolved.metallic, 1.0, "from the middle");
+        assert!(resolved.unlit, "its own");
+    }
+
+    // A cycle must not hang the editor. Refusing to render would be worse than
+    // resolving to something sane.
+    #[test]
+    fn a_cycle_resolves_instead_of_hanging() {
+        let (a, b) = (Uuid::new_v4(), Uuid::new_v4());
+        let library = library_with(vec![
+            MaterialDef {
+                id: a,
+                base: Some(b),
+                roughness: 0.1,
+                overridden: [MaterialField::Roughness].into_iter().collect(),
+                ..Default::default()
+            },
+            MaterialDef {
+                id: b,
+                base: Some(a),
+                ..Default::default()
+            },
+        ]);
+        let resolved = library.resolved(&a).expect("a cycle still resolves");
+        assert_eq!(resolved.id, a, "and resolves to the material asked for");
+        assert_eq!(resolved.roughness, 0.1, "keeping its own claimed field");
+    }
+
+    // Detaching must not change what the surface LOOKS like — it only changes
+    // where the values come from.
+    #[test]
+    fn detaching_keeps_exactly_what_it_looked_like() {
+        let base = Uuid::new_v4();
+        let instance = Uuid::new_v4();
+        let mut library = library_with(vec![
+            MaterialDef {
+                id: base,
+                roughness: 0.9,
+                metallic: 0.4,
+                ..Default::default()
+            },
+            MaterialDef {
+                id: instance,
+                base: Some(base),
+                unlit: true,
+                overridden: [MaterialField::Unlit].into_iter().collect(),
+                ..Default::default()
+            },
+        ]);
+        let before = library.resolved(&instance).unwrap();
+
+        let resolved = library.resolved(&instance).unwrap();
+        *library.get_mut(&instance).unwrap() = MaterialDef {
+            base: None,
+            overridden: std::collections::BTreeSet::new(),
+            ..resolved
+        };
+
+        let after = library.resolved(&instance).unwrap();
+        assert_eq!(after.roughness, before.roughness, "the look is identical");
+        assert_eq!(after.metallic, before.metallic);
+        assert_eq!(after.unlit, before.unlit);
+        assert!(after.base.is_none(), "and it follows nothing now");
+
+        // Proof it detached: the base can move and the instance no longer cares.
+        library.get_mut(&base).unwrap().roughness = 0.0;
+        assert_eq!(
+            library.resolved(&instance).unwrap().roughness,
+            before.roughness,
+            "a detached material stopped listening"
+        );
+    }
+
+    // A material with no base resolves to itself, unchanged — the common case
+    // has to cost nothing and change nothing.
+    #[test]
+    fn a_material_with_no_base_resolves_to_itself() {
+        let id = Uuid::new_v4();
+        let library = library_with(vec![MaterialDef {
+            id,
+            name: "Plain".into(),
+            roughness: 0.33,
+            ..Default::default()
+        }]);
+        assert_eq!(library.resolved(&id).unwrap(), *library.get(&id).unwrap());
+    }
     // The autosave rewrites materials.ron whenever the generation moves, so a
     // FAILED lookup must not move it — that was a disk write for an edit that
     // never happened (spec §8: no per-frame work at rest).
