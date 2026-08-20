@@ -293,6 +293,22 @@ pub(crate) enum RowSpec {
     },
 }
 
+impl RowSpec {
+    /// The object this row edits, when it edits one. Used to decide whether a
+    /// remembered focus still belongs to what the inspector is showing.
+    pub(crate) fn target(&self) -> Option<SceneId> {
+        match self {
+            RowSpec::Header { field, .. } => Some(field.target),
+            RowSpec::Toggle { field, .. }
+            | RowSpec::TextField { field, .. }
+            | RowSpec::Variant { field, .. } => Some(field.target),
+            RowSpec::Number { field, .. } => Some(field.field.target),
+            RowSpec::Triple { fields, .. } => fields.first().map(|spec| spec.field.target),
+            _ => None,
+        }
+    }
+}
+
 /// The collected view of the selection — plain data between the two phases.
 #[derive(Resource, Default)]
 pub(crate) struct InspectorModel {
@@ -1499,7 +1515,19 @@ pub(crate) fn render_inspector(
 
     // AFTER the new widgets exist (queued last): hand focus back to the field
     // the user was on — rebuilds must be invisible to keyboard navigation.
-    if let Some(field) = focused_field {
+    //
+    // ONLY while the inspector is still showing the same object. Restoring
+    // across a SELECTION CHANGE kept a dead text field focused forever, and
+    // `KeyCapture` follows focus: every key after that went to a text box
+    // nobody could see instead of to the resolver, so `i`, `o` and Tab all
+    // stopped working. Focus belongs to what you are looking at.
+    let still_same_object = focused_field.as_ref().is_some_and(|field| {
+        model
+            .rows
+            .iter()
+            .any(|row| row.target() == Some(field.target))
+    });
+    if let Some(field) = focused_field.filter(|_| still_same_object) {
         commands.queue(move |world: &mut World| {
             let target = {
                 let mut query = world.query::<(Entity, &InspectorField)>();

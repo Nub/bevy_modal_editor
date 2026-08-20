@@ -114,6 +114,12 @@ pub fn mate_transform(target: &GlobalTransform, local: &Transform) -> Transform 
 ///
 /// The tolerance is deliberately tight — this answers "are these two joined",
 /// not "are these two nearby", and the mate math places sockets exactly.
+/// The keymap layer that is live while a socket is armed. A modal editor
+/// answers "does this break `i`?" by rebinding `i` — in socket mode it means
+/// "place a piece HERE" rather than "add a component to what I hold".
+pub const SOCKET_CONTEXT: editor_api::prelude::ContextId =
+    editor_api::prelude::ContextId::new_static("socket");
+
 pub const JOINT_TOLERANCE: f32 = 0.02;
 
 pub fn sockets_are_joined(a: &GlobalTransform, b: &GlobalTransform) -> bool {

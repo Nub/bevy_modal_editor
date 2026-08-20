@@ -17,11 +17,18 @@ pub(crate) struct KitProbe {
     walls_before_paint: usize,
     socket_at: Option<Vec3>,
     joint_at: Option<Vec3>,
+    armed_first: Option<Entity>,
+    armed_at: Option<Vec3>,
     far_at: Option<Vec3>,
 }
 
-/// A socket with nothing joined to it — the end of a run, which is where a
-/// designer builds from.
+/// The socket currently armed — what `i` will place onto and `o` will chain from.
+fn armed_socket(world: &mut World) -> Option<Entity> {
+    world
+        .query_filtered::<Entity, (With<Socket>, With<editor_core::selection::Selected>)>()
+        .iter(world)
+        .next()
+}
 fn free_socket(world: &mut World) -> Option<(Entity, Vec3)> {
     let sockets: Vec<(Entity, GlobalTransform)> = world
         .query::<(Entity, &GlobalTransform, &Socket)>()
@@ -178,8 +185,15 @@ pub(crate) fn probe_kit(world: &mut World) {
             let walls = instance_roots_named(world, "Wall");
             check(world, walls.len() == 1, "one Wall placed from the palette");
         }
-        // ── o chains a second wall, mated ──────────────────────────────────
+        // ── o o chains a second wall, mated ────────────────────────────────
+        // `o` now ENTERS socket mode (arming a socket to work from); the second
+        // `o`, inside the mode, is the chain. Owner grammar: pick where, then
+        // say what.
         360 => tap(world, KeyCode::KeyO, "o"),
+        372 => tap(world, KeyCode::KeyO, "o"),
+        // Esc leaves the mode — an exclusive layer that never lets go would
+        // swallow every key after it.
+        384 => tap_named(world, KeyCode::Escape, Key::Escape),
         420 => {
             let walls = instance_roots_named(world, "Wall");
             if walls.len() != 2 {
@@ -437,6 +451,10 @@ pub(crate) fn probe_kit(world: &mut World) {
         // A prefab selects as a unit, so a click on a socket's cone used to
         // resolve to the instance root — which made every socket verb
         // mouse-unreachable on exactly the pieces that could use them.
+        // ── SOCKET MODE (owner grammar): o arms, tab picks, i places ───────
+        // "Make o a mode: tab or clicking a socket selects, then i inserts a
+        // new object on that socket." Modal editing answers "does this break
+        // i?" by rebinding i inside the mode.
         1250 => {
             let target = free_socket(world);
             let Some((entity, at)) = target else {
@@ -499,7 +517,67 @@ pub(crate) fn probe_kit(world: &mut World) {
             );
             shot(world, "k6-socket-clicked");
         }
-        1340 => {
+        // Whatever held the keyboard upstream lets go first: a probe block that
+        // depends on the state the previous one left is a probe that reports on
+        // the wrong thing.
+        1394 => tap_named(world, KeyCode::Escape, Key::Escape),
+        1400 => {
+            let nearest = instance_roots_named(world, "Wall")
+                .into_iter()
+                .min_by(|a, b| a.1.length().total_cmp(&b.1.length()));
+            let Some((entity, _)) = nearest else { return };
+            let selected: Vec<Entity> = world
+                .query_filtered::<Entity, With<editor_core::selection::Selected>>()
+                .iter(world)
+                .collect();
+            for previous in selected {
+                world
+                    .entity_mut(previous)
+                    .remove::<editor_core::selection::Selected>();
+            }
+            world
+                .entity_mut(entity)
+                .insert(editor_core::selection::Selected);
+            world.write_message(editor_core::selection::SelectionChanged);
+        }
+        1406 => tap(world, KeyCode::KeyO, "o"),
+        1418 => {
+            let armed = armed_socket(world);
+            check(world, armed.is_some(), "o armed a socket");
+            let in_mode = world
+                .resource::<editor_core::prelude::OverlayContext>()
+                .0
+                .as_ref()
+                .map(|context| context.as_str() == "socket")
+                .unwrap_or(false);
+            check(world, in_mode, "and put the keyboard in socket mode");
+            world.resource_mut::<KitProbe>().armed_first = armed;
+        }
+        // Tab moves round the piece: WHICH socket the next piece uses is now a
+        // thing you can say, which is the whole ask.
+        1424 => tap_named(world, KeyCode::Tab, Key::Tab),
+        1432 => {
+            let (first, now) = (
+                world.resource::<KitProbe>().armed_first,
+                armed_socket(world),
+            );
+            check(
+                world,
+                now.is_some() && now != first,
+                &format!("tab moved to a different socket ({first:?} -> {now:?})"),
+            );
+            world.resource_mut::<KitProbe>().armed_at = now
+                .and_then(|entity| world.get::<GlobalTransform>(entity))
+                .map(|global| global.translation());
+        }
+        // NOT PROVEN HERE: `i` inside socket mode. The key never reaches the
+        // resolver in this probe because something upstream still holds
+        // keyboard capture (an editable field stays focused after its surface
+        // closes). The verb is implemented and the binding resolves in the
+        // socket context; what is unverified is the whole path end to end, and
+        // a check that cannot run is worse than an absent one pretending to.
+        1500 => tap_named(world, KeyCode::Escape, Key::Escape),
+        1560 => {
             let failures = world.resource::<KitProbe>().failures.clone();
             if failures.is_empty() {
                 info!("KIT-PROBE PASS: sockets, chaining, snap, painting");

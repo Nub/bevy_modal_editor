@@ -944,6 +944,35 @@ had only ever asserted "more walls than before", which 411 satisfies.
   in the same kit, else `"default"` — and the toast names it (`generated 2
   sockets · type wall`), because the moment of creation is the one moment the
   type is knowable without opening the inspector.
+
+**Socket mode (2026-08-20, owner direction).** The owner's words: "let's make
+`o` a mode — Tab or clicking a socket selects, then `i` inserts a new object on
+that socket", and when asked whether an exclusive keyboard layer would break
+`i`: "it won't break `i`, it needs to be a modal editor, so `i`'s context just
+changes."
+
+So `o` no longer places a piece; it puts you WHERE placing happens. It arms a
+socket (the first free one on the selected piece) and raises the `socket`
+keymap layer, in which:
+
+| key | means |
+|-----|-------|
+| `tab` | the next socket round the piece — this is how you say WHICH socket the next piece uses |
+| `i` | place a piece here (the palette, mating what you pick to the armed socket) |
+| `o` | chain another of the same piece |
+| `esc` | done |
+
+The layer is exclusive, which is the modal answer rather than a problem: a mode
+rebinds the keys that mean something else in it. What a mode must never be is
+INVISIBLE, so the status bar now names the active keyboard layer the way it
+names a gesture or an open prefab.
+
+**Focus follows what you are looking at (2026-08-20).** The inspector restores
+field focus across its own rebuilds, so keyboard navigation survives a rebuild —
+correct, and it kept doing so across a SELECTION CHANGE. A dead text field
+stayed focused forever, `KeyCapture` follows focus, and every key after that
+went to a text box nobody could see instead of to the resolver. Restoration is
+now conditional on the inspector still showing the same object.
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

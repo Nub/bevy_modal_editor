@@ -40,6 +40,14 @@ pub(crate) struct PrefabRequests {
     /// Pin the selected socket as the chain's IN end (owner ask).
     pin_chain_entry: bool,
     repeat: bool,
+    /// Enter socket mode, arming a socket to work from (owner ask).
+    arm_socket: bool,
+    /// Move to the next socket round the armed piece.
+    next_socket: bool,
+    /// Leave socket mode.
+    exit_socket: bool,
+    /// Open the palette to place a piece ON the armed socket.
+    insert_at_socket: bool,
 }
 
 /// What the inline name prompt is naming (title + commit routing).
@@ -131,6 +139,10 @@ pub(crate) fn collect_prefab_actions(
             "prefab.flatten" => requests.flatten = true,
             "prefab.bake" => bake_requests.bake = true,
             "prefab.repeat" => requests.repeat = true,
+            "socket.arm" => requests.arm_socket = true,
+            "socket.next" => requests.next_socket = true,
+            "socket.exit" => requests.exit_socket = true,
+            "socket.insert" => requests.insert_at_socket = true,
             "prefab.fill" => {
                 if !selection.is_empty() {
                     prompt.open = true;
@@ -326,6 +338,18 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
     }
     if requests.repeat {
         repeat_piece(world);
+    }
+    if requests.arm_socket {
+        enter_socket_mode(world);
+    }
+    if requests.next_socket {
+        cycle_socket(world);
+    }
+    if requests.exit_socket {
+        leave_socket_mode(world);
+    }
+    if requests.insert_at_socket {
+        insert_at_armed_socket(world);
     }
     if let Some(feature) = requests.snap_socket {
         snap_selected_sockets(world, feature);
@@ -937,6 +961,187 @@ fn pin_chain_entry(world: &mut World) {
 /// A SELECTED socket is a direction: chain out of THAT one. Returns the socket
 /// and the instance root owning it, so picking a socket is enough to say both
 /// "repeat this piece" and "grow this way".
+/// `o` — enter SOCKET MODE and arm a socket to work from.
+///
+/// The owner's grammar: "make `o` a mode, tab or clicking a socket selects,
+/// then `i` inserts a new object on that socket." So `o` no longer places a
+/// piece by itself; it puts you where placing happens, with a socket armed and
+/// the keys that matter rebound. Modal editing answers "does this break `i`?"
+/// by rebinding `i`: in socket mode it means place a piece HERE.
+fn enter_socket_mode(world: &mut World) {
+    let already_armed = {
+        let mut query =
+            world.query_filtered::<Entity, (With<crate::sockets::Socket>, With<Selected>)>();
+        query.iter(world).next().is_some()
+    };
+    if !already_armed {
+        cycle_socket(world);
+    }
+    let armed = {
+        let mut query =
+            world.query_filtered::<Entity, (With<crate::sockets::Socket>, With<Selected>)>();
+        query.iter(world).next()
+    };
+    if armed.is_none() {
+        return; // cycle_socket already said why
+    }
+    world
+        .resource_mut::<editor_core::prelude::OverlayContext>()
+        .0 = Some(crate::sockets::SOCKET_CONTEXT);
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: "socket mode \u{b7} tab next \u{b7} i place \u{b7} o chain \u{b7} esc done".into(),
+        success: true,
+    });
+}
+
+fn leave_socket_mode(world: &mut World) {
+    world
+        .resource_mut::<editor_core::prelude::OverlayContext>()
+        .0 = None;
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: "socket mode off".into(),
+        success: true,
+    });
+}
+
+/// `i` inside socket mode: the ordinary insert palette, which already mates
+/// what you pick to the armed socket.
+fn insert_at_armed_socket(world: &mut World) {
+    // Leaving the overlay first is what lets the palette's own keys (typing,
+    // Enter, Escape) work — the layer exists to rebind `i`, not to sit on top
+    // of the surface `i` opens.
+    world
+        .resource_mut::<editor_core::prelude::OverlayContext>()
+        .0 = None;
+    let changed = {
+        let mut mode = world.resource_mut::<editor_core::prelude::CurrentMode>();
+        (mode.0 != editor_core::prelude::MODE_INSERT)
+            .then(|| std::mem::replace(&mut mode.0, editor_core::prelude::MODE_INSERT))
+    };
+    if let Some(from) = changed {
+        world.write_message(editor_core::prelude::ModeChanged {
+            from,
+            to: editor_core::prelude::MODE_INSERT,
+        });
+    }
+}
+
+/// `socket.next` — ARM the socket the next piece will use.
+///
+/// The owner's ask, in their words: "there needs to be a way with `o` to
+/// determine which socket will be used", and "tab or clicking a socket selects,
+/// then `i` inserts a new object on that socket".
+///
+/// So a socket is ARMED by selecting it, and everything downstream already
+/// honours that: `i` places the next piece mated to it, `o` chains from it, and
+/// a rotate pivots about it. Tab is how you say it without aiming — with a
+/// PIECE selected it arms that piece's first free socket, and with a socket
+/// already armed it moves to the next one round the piece, wrapping.
+///
+/// Deliberately NOT an exclusive keyboard mode: an overlay context grabs every
+/// key, and while a socket is armed you still want `i`, `o`, Escape and the
+/// move gesture to mean what they always mean. The mode-feel comes from the
+/// armed socket being visible and named, not from taking the keyboard away.
+fn cycle_socket(world: &mut World) {
+    let selected: Vec<Entity> = world
+        .query_filtered::<Entity, With<Selected>>()
+        .iter(world)
+        .collect();
+    let armed = selected
+        .iter()
+        .copied()
+        .find(|entity| world.get::<crate::sockets::Socket>(*entity).is_some());
+    // The piece whose sockets we are cycling: the armed socket's owner, or the
+    // selected piece itself.
+    let piece = match armed {
+        Some(socket) => socket_owner_entity(world, socket),
+        None => selected
+            .iter()
+            .copied()
+            .find(|entity| world.get::<SceneId>(*entity).is_some()),
+    };
+    let Some(piece) = piece else {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: "select a piece (or one of its sockets) first".into(),
+            success: false,
+        });
+        return;
+    };
+    let sockets = sockets_of_piece(world, piece);
+    if sockets.is_empty() {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message: "this piece has no sockets — space s 2 gives it some".into(),
+            success: false,
+        });
+        return;
+    }
+    let next = match armed {
+        Some(current) => {
+            let at = sockets.iter().position(|entity| *entity == current);
+            sockets[(at.unwrap_or(0) + 1) % sockets.len()]
+        }
+        None => sockets[0],
+    };
+    for previous in selected {
+        world.entity_mut(previous).remove::<Selected>();
+    }
+    world.entity_mut(next).insert(Selected);
+    world.write_message(editor_core::selection::SelectionChanged);
+    let name = world
+        .get::<crate::sockets::Socket>(next)
+        .map(|socket| socket.name.clone())
+        .unwrap_or_else(|| "socket".into());
+    let index = sockets
+        .iter()
+        .position(|entity| *entity == next)
+        .unwrap_or(0)
+        + 1;
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: format!(
+            "socket {name} ({index}/{}) \u{b7} i places here \u{b7} o chains",
+            sockets.len()
+        ),
+        success: true,
+    });
+}
+
+/// Sockets under a piece, in a STABLE order, so Tab walks the same ring every
+/// time rather than a hash order that changes between runs.
+fn sockets_of_piece(world: &mut World, piece: Entity) -> Vec<Entity> {
+    // `members_of`, not a Children walk: a prefab instance's stamped members
+    // are not necessarily its children, and walking the hierarchy found nothing
+    // on exactly the pieces this verb is for.
+    let members = crate::open_mode::members_of(world, piece);
+    let mut found: Vec<(Entity, Vec3)> = Vec::new();
+    for entity in members {
+        if world.get::<crate::sockets::Socket>(entity).is_some()
+            && let Some(global) = world.get::<GlobalTransform>(entity)
+        {
+            found.push((entity, global.translation()));
+        }
+    }
+    found.sort_by(|a, b| {
+        a.1.x
+            .total_cmp(&b.1.x)
+            .then(a.1.z.total_cmp(&b.1.z))
+            .then(a.1.y.total_cmp(&b.1.y))
+    });
+    found.into_iter().map(|(entity, _)| entity).collect()
+}
+
+/// The piece a socket hangs off — an instance root, a stamped member's root, or
+/// simply the nearest ancestor that is scene content.
+fn socket_owner_entity(world: &World, socket: Entity) -> Option<Entity> {
+    let mut current = socket;
+    while let Some(parent) = world.get::<ChildOf>(current).map(|parent| parent.parent()) {
+        if world.get::<SceneId>(parent).is_some() {
+            return Some(parent);
+        }
+        current = parent;
+    }
+    None
+}
+
 fn selected_chain_socket(world: &mut World) -> Option<(Entity, SceneId)> {
     let socket = {
         let mut query =

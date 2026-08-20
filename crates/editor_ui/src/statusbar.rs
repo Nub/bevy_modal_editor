@@ -155,6 +155,9 @@ pub(crate) struct StatusData<'w> {
     modes: Res<'w, Modes>,
     pending: Res<'w, PendingKeys>,
     gesture: Res<'w, MoveGesture>,
+    // A keyboard LAYER is a mode by any other name: while one is live, most keys
+    // mean something else, and a mode you cannot see is a trap.
+    overlay: Res<'w, editor_core::prelude::OverlayContext>,
     insert: Res<'w, InsertState>,
     kinds: Res<'w, KindCatalog>,
     flash: Res<'w, StatusFlash>,
@@ -232,10 +235,16 @@ pub(crate) fn update_statusbar(
     let mode_def = data.modes.get(&data.mode.0);
     // The resting state is the quietest thing on screen; the accent fill is the
     // signal that the editor has left NORMAL (design bar).
+    let overlay = data
+        .overlay
+        .0
+        .as_ref()
+        .map(|context| context.as_str().to_uppercase());
     let at_rest = !gesture_active
         && open_prefab.is_none()
         && focused_panel.is_none()
         && inserting.is_none()
+        && overlay.is_none()
         && data.mode.0 == MODE_NORMAL;
     for mut chip_bg in &mut mode_chip {
         let want = if at_rest {
@@ -273,6 +282,8 @@ pub(crate) fn update_statusbar(
                 }
                 MoveGesture::Idle => "MOVE".to_string(),
             }
+        } else if let Some(overlay) = &overlay {
+            format!("{overlay} MODE")
         } else if let Some(prefab) = &open_prefab {
             format!("EDITING ◆ {}", prefab.to_uppercase())
         } else if let Some(title) = focused_panel {

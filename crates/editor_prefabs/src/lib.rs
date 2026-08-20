@@ -435,6 +435,7 @@ impl EditorFeature for PrefabsFeature {
     fn register(&self, reg: &mut FeatureRegistry) {
         // The instance root's serialized shape: {prefab_id, transform, overrides}.
         reg.context(paint::PAINT_CONTEXT);
+        reg.context(crate::sockets::SOCKET_CONTEXT);
         reg.component::<PrefabInstance>()
             .component::<PrefabOverrides>()
             .component::<sockets::Socket>()
@@ -473,8 +474,8 @@ impl EditorFeature for PrefabsFeature {
             )
             .action(
                 ActionDef::new("prefab.repeat", "Repeat Piece")
-                    .describe("Chain another instance of the selected piece at its free socket")
-                    .context("normal")
+                    .describe("Chain another instance of the selected piece at the armed socket")
+                    .context("socket")
                     .bind("o"),
             )
             .action(
@@ -519,6 +520,38 @@ impl EditorFeature for PrefabsFeature {
                     .describe("Put the selected socket on the nearest corner, bisecting all three")
                     .context("normal")
                     .bind("space s c"),
+            )
+            .action(
+                ActionDef::new("socket.arm", "Socket Mode")
+                    .describe(
+                        "Work from a socket: Tab picks which one, i places a piece there, \
+                         o chains another of the same",
+                    )
+                    .context("normal")
+                    .bind("o"),
+            )
+            .action(
+                ActionDef::new("socket.insert", "Socket: Place Piece Here")
+                    .describe("Open the palette and mate what you pick to the armed socket")
+                    .context("socket")
+                    .bind("i"),
+            )
+            .action(
+                ActionDef::new("socket.exit", "Socket: Done")
+                    .describe("Leave socket mode")
+                    .context("socket")
+                    .bind("escape"),
+            )
+            .action(
+                ActionDef::new("socket.next", "Socket: Next Socket")
+                    .describe(
+                        "Arm the next socket on the selected piece — the armed socket is \
+                         where `i` places the next piece and where `o` chains from",
+                    )
+                    .context("socket")
+                    .context("normal")
+                    .bind("tab")
+                    .bind("space s n"),
             )
             // Generate a whole mating set at once. Named for the LAYOUT each
             // produces — a run, a grid, a stack — because that is the choice
