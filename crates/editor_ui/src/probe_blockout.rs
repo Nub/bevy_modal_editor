@@ -8,7 +8,7 @@ use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use editor_core::prelude::*;
 
-use crate::probe_user::{shot, tap_named};
+use crate::probe_user::{click, move_cursor, shot, tap_named};
 
 #[derive(Resource, Default)]
 pub(crate) struct BlockoutProbe {
@@ -36,6 +36,15 @@ fn invoke(world: &mut World, action: &'static str) {
         args: None,
         source: InvocationSource::Test,
     });
+}
+
+fn window_size(world: &mut World) -> Vec2 {
+    world
+        .query_filtered::<&Window, With<bevy::window::PrimaryWindow>>()
+        .iter(world)
+        .next()
+        .map(|window| Vec2::new(window.width(), window.height()))
+        .unwrap_or(Vec2::new(1280.0, 720.0))
 }
 
 fn piece_transform(world: &mut World) -> Option<Transform> {
@@ -278,7 +287,75 @@ pub(crate) fn probe_blockout(world: &mut World) {
             shot(world, "43-blockout-angle-snap");
             invoke(world, "transform.cancel");
         }
-        1160 => {
+        // ── Marquee: select several things without clicking each ──────────
+        // The kernel's unit tests project flat because a headless app has no
+        // render target; THIS is where the real camera projection and the real
+        // pointer path get exercised.
+        1200 => {
+            world.write_message(ActionInvoked {
+                action: ActionId::new_static("select.clear"),
+                args: None,
+                source: InvocationSource::Test,
+            });
+        }
+        1240 => {
+            // Starting ON the ground is the point: a press arms, the release
+            // decides. Requiring empty space would make a box impossible to
+            // start anywhere the floor covers, which is most of the viewport.
+            let size = window_size(world);
+            move_cursor(world, Vec2::new(size.x * 0.68, size.y * 0.88));
+            click(world, true);
+        }
+        1250..=1270 if frame.is_multiple_of(4) => {
+            let size = window_size(world);
+            let progress = (frame - 1250) as f32 / 20.0;
+            move_cursor(
+                world,
+                Vec2::new(
+                    size.x * (0.68 - 0.46 * progress),
+                    size.y * (0.88 - 0.76 * progress),
+                ),
+            );
+        }
+        1274 => {
+            let dragging = world.resource::<Marquee>().rect().is_some();
+            check(world, dragging, "a drag past the threshold IS a box");
+            shot(world, "44-blockout-marquee");
+        }
+        1280 => click(world, false),
+        1320 => {
+            let selected = world
+                .query_filtered::<(), (With<Selected>, With<SceneId>)>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                selected > 1,
+                &format!("a box over the scene selected {selected} things at once"),
+            );
+            let gone = world.resource::<Marquee>().rect().is_none();
+            check(world, gone, "and the box is put away on release");
+        }
+        // A plain click still selects exactly one thing — the release-decides
+        // rewrite must not have cost the ordinary click.
+        1360 => {
+            let size = window_size(world);
+            move_cursor(world, Vec2::new(size.x * 0.5, size.y * 0.6));
+            click(world, true);
+        }
+        1364 => click(world, false),
+        1400 => {
+            let selected = world
+                .query_filtered::<(), (With<Selected>, With<SceneId>)>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                selected == 1,
+                &format!("a click still selects exactly one ({selected})"),
+            );
+        }
+        1460 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

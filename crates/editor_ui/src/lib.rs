@@ -17,6 +17,7 @@ mod grid;
 mod hierarchy;
 mod inspector;
 mod light_gizmo;
+mod marquee;
 mod material_editor;
 mod open_indicator;
 mod outline;
@@ -197,6 +198,11 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<probe_barrel::BarrelProbe>();
         app.init_resource::<probe_blockout::BlockoutProbe>();
         app.init_resource::<probe_place::PlaceProbe>();
+        app.add_systems(Startup, marquee::spawn_marquee);
+        app.add_systems(
+            Update,
+            marquee::sync_marquee.in_set(editor_core::EditorSet::Sync),
+        );
         app.init_resource::<probe_material::MaterialProbe>();
         app.init_resource::<probe_socket::SocketProbe>();
         app.init_resource::<probe_handson::HandsonProbe>();

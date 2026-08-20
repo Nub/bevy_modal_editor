@@ -95,6 +95,23 @@ immediate modal gesture on the selection: mouse moves it; `x`/`y`/`z` constrain 
 amount (`w x 2.5 Enter` = move +2.5 on X); `Enter`/click commits, `Esc` cancels and restores.
 One undo entry per gesture. Counts compose: `3.` repeats a nudge three times.
 
+**Box select (implemented 2026-08-20, spec §9 layout throughput):** dragging in
+the viewport selects everything the box covers; shift adds to the selection
+instead of replacing it. Under five pixels of travel it is still a click, so a
+wobble while clicking cannot turn into a selection gesture.
+
+This moved the selection decision from the PRESS to the RELEASE. Selecting on
+press made a box impossible to start anywhere the ground plane covers — which at
+blockout scale is most of the viewport — because the press was consumed as a
+click on the floor. Now a press only ARMS: the release decides whether it was a
+click on what was under the cursor or a box that happened to start over it. A
+plain click behaves exactly as before, and the probe asserts that specifically.
+
+Entities are tested by their ORIGIN, not their bounds: a world AABB is not
+available for every derived gltf subtree, and "the thing is in the box" reads
+the same either way at blockout scale. Sealed containers resolve as a unit here
+exactly as they do for a click, so a box over half a prefab takes the prefab.
+
 **Duplicate (implemented 2026-08-19):** `Shift+D` copies every registered
 component of the selection — the v1 post-mortem records ITS duplicate as lossy
 (kind, position and rotation only), so this one goes through the same reflection

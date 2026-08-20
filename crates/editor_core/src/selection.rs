@@ -56,6 +56,66 @@ fn clear_selection_world(world: &mut World) {
     }
 }
 
+/// Pixels of travel before a press stops being a click and becomes a box.
+const MARQUEE_THRESHOLD: f32 = 5.0;
+
+/// A box-select in flight. A press on empty space arms it; the release decides
+/// what it was — under the threshold it was a click (which clears), over it a
+/// marquee (which selects what it covers). Deferring that decision to the
+/// release is why an empty press no longer clears immediately: you cannot know
+/// at press time whether the user is about to drag.
+#[derive(Resource, Default)]
+pub struct Marquee {
+    /// Where the press landed, in screen space. `None` when nothing is armed.
+    pub start: Option<Vec2>,
+    pub current: Vec2,
+    /// Shift was held: add to the selection rather than replace it.
+    pub additive: bool,
+    /// What the press landed on, if anything. A press ARMS; the release decides
+    /// whether it was a click on this entity or a box that happened to start
+    /// over it. Selecting on press instead would make a box impossible to start
+    /// anywhere the ground plane covers, which at blockout scale is everywhere.
+    pub pressed: Option<Entity>,
+}
+
+impl Marquee {
+    /// The covered rectangle, normalized, once the drag is past the threshold.
+    /// `None` while it is still a click.
+    pub fn rect(&self) -> Option<Rect> {
+        let start = self.start?;
+        let span = (self.current - start).abs();
+        if span.x < MARQUEE_THRESHOLD && span.y < MARQUEE_THRESHOLD {
+            return None;
+        }
+        Some(Rect::from_corners(start, self.current))
+    }
+}
+
+/// Follow the pointer while a box is being dragged.
+pub(crate) fn track_marquee(
+    mut marquee: ResMut<Marquee>,
+    window: Query<&Window, With<bevy::window::PrimaryWindow>>,
+    locations: Query<&bevy::picking::pointer::PointerLocation>,
+) {
+    if marquee.start.is_none() {
+        return;
+    }
+    // Same two sources as the ground cursor: the window's field for a real
+    // mouse, the pointer location for synthetic input (probes, remote control).
+    let position = window
+        .single()
+        .ok()
+        .and_then(|window| window.cursor_position())
+        .or_else(|| {
+            locations
+                .iter()
+                .find_map(|l| l.location.as_ref().map(|loc| loc.position))
+        });
+    if let Some(position) = position {
+        marquee.current = position;
+    }
+}
+
 /// Global picking observer: press on a scene entity (or a descendant of one) selects
 /// it; shift extends. Skips while a gesture owns the pointer or the editor is off.
 pub(crate) fn on_pointer_press(
@@ -136,32 +196,164 @@ pub(crate) fn on_pointer_press(
     let extend = keys
         .map(|k| k.pressed(KeyCode::ShiftLeft) || k.pressed(KeyCode::ShiftRight))
         .unwrap_or(false);
-    match target {
-        Some(target) => {
-            // Scoped editing (open prefab): clicks outside the scope are inert.
-            if let Some(scope) = &scope.0
-                && !scope.contains(&target)
-            {
-                return;
-            }
-            commands.queue(move |world: &mut World| select_entity(world, target, extend));
-        }
-        // Click on empty space (ground, sky) clears the selection — unless extending.
-        None if !extend => {
-            commands.queue(|world: &mut World| {
-                let had_selection = world
-                    .query_filtered::<(), With<Selected>>()
-                    .iter(world)
-                    .count()
-                    > 0;
-                if had_selection {
-                    clear_selection_world(world);
-                    world.write_message(SelectionChanged);
-                }
-            });
-        }
-        None => {}
+    // Scoped editing (open prefab): presses outside the scope are inert.
+    if let Some(target) = target
+        && let Some(scope) = &scope.0
+        && !scope.contains(&target)
+    {
+        return;
     }
+    // ARM. Nothing is selected yet — the release decides whether this was a
+    // click on `target` or a box that started over it.
+    let at = press.pointer_location.position;
+    commands.queue(move |world: &mut World| {
+        let mut marquee = world.resource_mut::<Marquee>();
+        marquee.start = Some(at);
+        marquee.current = at;
+        marquee.additive = extend;
+        marquee.pressed = target;
+    });
+}
+
+/// Release ends a box-select. Under the threshold it was a click on empty space,
+/// which clears; over it, everything the box covered becomes the selection.
+pub(crate) fn on_pointer_release(
+    release: On<Pointer<Release>>,
+    mut marquee: ResMut<Marquee>,
+    mut commands: Commands,
+) {
+    if release.button != bevy::picking::pointer::PointerButton::Primary {
+        return;
+    }
+    let Some(_) = marquee.start else { return };
+    let rect = marquee.rect();
+    let additive = marquee.additive;
+    let pressed = marquee.pressed;
+    marquee.start = None;
+    marquee.pressed = None;
+    match (rect, pressed) {
+        // A drag is a box, wherever it started.
+        (Some(rect), _) => commands.queue(move |world: &mut World| {
+            select_within(world, rect, additive);
+        }),
+        // A click on something selects it.
+        (None, Some(target)) => {
+            commands.queue(move |world: &mut World| select_entity(world, target, additive));
+        }
+        // A click on nothing clears, unless extending.
+        (None, None) if !additive => commands.queue(|world: &mut World| {
+            let had_selection = world
+                .query_filtered::<(), With<Selected>>()
+                .iter(world)
+                .count()
+                > 0;
+            if had_selection {
+                clear_selection_world(world);
+                world.write_message(SelectionChanged);
+            }
+        }),
+        (None, None) => {}
+    }
+}
+
+/// Select every scene entity whose origin projects inside `rect`.
+///
+/// Origins rather than bounds: a bounds test needs every entity's world AABB,
+/// which derived gltf subtrees do not all have, and "the thing is in the box"
+/// reads the same to a designer either way at blockout scale.
+pub(crate) fn select_within(world: &mut World, rect: Rect, additive: bool) {
+    let Some((camera, camera_transform)) = world
+        .query::<(
+            &Camera,
+            &GlobalTransform,
+            Option<&bevy::camera::RenderTarget>,
+        )>()
+        .iter(world)
+        .find(|(camera, _, target)| crate::camera::is_viewport_camera(camera, *target))
+        .map(|(camera, transform, _)| (camera.clone(), *transform))
+    else {
+        return;
+    };
+    select_projected(world, rect, additive, |at| {
+        camera.world_to_viewport(&camera_transform, at).ok()
+    });
+}
+
+/// The decision itself, with the projection handed in: which scene entities the
+/// box covers, resolved through seals and scope, and what that does to the
+/// selection. Split out because the camera half needs a real render target —
+/// which a headless test has no way to provide — and the DECISION half is the
+/// part worth testing.
+pub(crate) fn select_projected(
+    world: &mut World,
+    rect: Rect,
+    additive: bool,
+    project: impl Fn(Vec3) -> Option<Vec2>,
+) {
+    // Sealed containers select as a unit here too: a box over half a prefab
+    // picks the prefab, exactly as a click on one of its parts does.
+    let candidates: Vec<(Entity, Vec3)> = world
+        .query_filtered::<(Entity, &GlobalTransform), With<SceneId>>()
+        .iter(world)
+        .map(|(entity, transform)| (entity, transform.translation()))
+        .collect();
+    let scope = world.resource::<SelectionScope>().0.clone();
+    let mut covered: Vec<Entity> = Vec::new();
+    for (entity, at) in candidates {
+        let Some(screen) = project(at) else {
+            continue; // behind the camera or off-screen
+        };
+        if !rect.contains(screen) {
+            continue;
+        }
+        let resolved = outermost_seal(world, entity);
+        if let Some(scope) = &scope
+            && !scope.contains(&resolved)
+        {
+            continue;
+        }
+        if !covered.contains(&resolved) {
+            covered.push(resolved);
+        }
+    }
+    if covered.is_empty() && !additive {
+        let had_selection = world
+            .query_filtered::<(), With<Selected>>()
+            .iter(world)
+            .count()
+            > 0;
+        if had_selection {
+            clear_selection_world(world);
+            world.write_message(SelectionChanged);
+        }
+        return;
+    }
+    if covered.is_empty() {
+        return;
+    }
+    if !additive {
+        clear_selection_world(world);
+    }
+    for entity in covered {
+        world.entity_mut(entity).insert(Selected);
+    }
+    world.write_message(SelectionChanged);
+}
+
+/// The outermost sealed ancestor of `entity`, or the entity itself.
+fn outermost_seal(world: &World, entity: Entity) -> Entity {
+    let mut resolved = entity;
+    let mut current = entity;
+    loop {
+        if world.get::<SelectionSealed>(current).is_some() {
+            resolved = current;
+        }
+        match world.get::<ChildOf>(current) {
+            Some(parent) => current = parent.parent(),
+            None => break,
+        }
+    }
+    resolved
 }
 
 /// Select this entity once its spawn transaction has applied (placement,
@@ -216,5 +408,168 @@ pub(crate) fn handle_selection_actions(
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::EditorCorePlugin;
+
+    fn test_app() -> App {
+        let mut app = App::new();
+        app.add_plugins(EditorCorePlugin);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.finish();
+        app.update();
+        app.world_mut().resource_mut::<EditorState>().active = true;
+        // A viewport camera looking down -Z from +Z, so world x/y map to screen
+        // predictably.
+        app.world_mut().spawn((
+            Camera3d::default(),
+            // An explicit viewport: headless there is no window to take a size
+            // from, and projection needs one.
+            Camera {
+                viewport: Some(bevy::camera::Viewport {
+                    physical_position: UVec2::ZERO,
+                    physical_size: UVec2::new(1280, 720),
+                    ..default()
+                }),
+                ..default()
+            },
+            Projection::Perspective(PerspectiveProjection::default()),
+            Transform::from_xyz(0.0, 0.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+        ));
+        app.update();
+        app
+    }
+
+    fn spawn_at(app: &mut App, at: Vec3) -> Entity {
+        app.world_mut()
+            .spawn((
+                SceneId::random(),
+                Transform::from_translation(at),
+                GlobalTransform::from_translation(at),
+            ))
+            .id()
+    }
+
+    /// A projection with nothing to go wrong in it: world x/y ARE screen x/y.
+    /// The real one needs a render target, which a headless app cannot provide;
+    /// what these tests are about is which entities a box takes.
+    fn flat(at: Vec3) -> Option<Vec2> {
+        Some(Vec2::new(at.x, at.y))
+    }
+    // A box under the threshold is a CLICK, not a marquee: a five-pixel wobble
+    // while clicking empty space must not turn into a selection gesture.
+    #[test]
+    fn a_short_drag_is_still_a_click() {
+        let marquee = Marquee {
+            start: Some(Vec2::new(100.0, 100.0)),
+            current: Vec2::new(103.0, 102.0),
+            additive: false,
+            pressed: None,
+        };
+        assert!(marquee.rect().is_none(), "under the threshold");
+        let dragged = Marquee {
+            current: Vec2::new(140.0, 160.0),
+            ..marquee
+        };
+        assert!(dragged.rect().is_some(), "past it, it is a box");
+    }
+
+    // Dragging in ANY direction gives the same box — a marquee started at the
+    // bottom-right has to work exactly like one started at the top-left.
+    #[test]
+    fn a_box_normalizes_whichever_way_it_is_dragged() {
+        let forward = Marquee {
+            start: Some(Vec2::new(10.0, 10.0)),
+            current: Vec2::new(90.0, 70.0),
+            additive: false,
+            pressed: None,
+        };
+        let backward = Marquee {
+            start: Some(Vec2::new(90.0, 70.0)),
+            current: Vec2::new(10.0, 10.0),
+            additive: false,
+            pressed: None,
+        };
+        assert_eq!(forward.rect(), backward.rect());
+    }
+
+    // The verb itself: everything the box covers becomes the selection, and
+    // everything outside it does not.
+    #[test]
+    fn a_box_selects_what_it_covers() {
+        let mut app = test_app();
+        let inside_a = spawn_at(&mut app, Vec3::new(-1.0, 0.0, 0.0));
+        let inside_b = spawn_at(&mut app, Vec3::new(1.0, 0.0, 0.0));
+        let outside = spawn_at(&mut app, Vec3::new(9.0, 0.0, 0.0));
+        app.update();
+
+        let rect = Rect::from_corners(Vec2::new(-5.0, -5.0), Vec2::new(5.0, 5.0));
+        let world = app.world_mut();
+        select_projected(world, rect, false, flat);
+        app.update();
+
+        assert!(app.world().get::<Selected>(inside_a).is_some(), "covered");
+        assert!(app.world().get::<Selected>(inside_b).is_some(), "covered");
+        assert!(
+            app.world().get::<Selected>(outside).is_none(),
+            "outside the box, untouched"
+        );
+    }
+
+    // Shift ADDS: laying a second box must not throw away the first.
+    #[test]
+    fn an_additive_box_keeps_what_was_selected() {
+        let mut app = test_app();
+        let first = spawn_at(&mut app, Vec3::new(-1.0, 0.0, 0.0));
+        let second = spawn_at(&mut app, Vec3::new(1.0, 0.0, 0.0));
+        app.update();
+
+        let a = Vec2::new(-1.0, 0.0);
+        let b = Vec2::new(1.0, 0.0);
+        select_projected(
+            app.world_mut(),
+            Rect::from_corners(a - Vec2::splat(0.5), a + Vec2::splat(0.5)),
+            false,
+            flat,
+        );
+        app.update();
+        assert!(app.world().get::<Selected>(first).is_some());
+
+        select_projected(
+            app.world_mut(),
+            Rect::from_corners(b - Vec2::splat(0.5), b + Vec2::splat(0.5)),
+            true,
+            flat,
+        );
+        app.update();
+        assert!(
+            app.world().get::<Selected>(first).is_some(),
+            "the first survived an additive box"
+        );
+        assert!(
+            app.world().get::<Selected>(second).is_some(),
+            "and the second joined"
+        );
+    }
+
+    // A box over nothing clears, exactly as a click on empty space does.
+    #[test]
+    fn an_empty_box_clears_the_selection() {
+        let mut app = test_app();
+        let entity = spawn_at(&mut app, Vec3::ZERO);
+        app.update();
+        app.world_mut().entity_mut(entity).insert(Selected);
+
+        let far = Rect::from_corners(Vec2::new(2000.0, 2000.0), Vec2::new(2200.0, 2200.0));
+        select_projected(app.world_mut(), far, false, flat);
+        app.update();
+        assert!(
+            app.world().get::<Selected>(entity).is_none(),
+            "a box over nothing clears"
+        );
     }
 }

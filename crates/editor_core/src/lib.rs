@@ -40,7 +40,7 @@ pub mod prelude {
         PointerOverChrome, ResolvedKeymap, active_contexts, which_key_continuations,
     };
     pub use crate::selection::{
-        PendingSelect, Selected, SelectionChanged, SelectionScope, SelectionSealed,
+        Marquee, PendingSelect, Selected, SelectionChanged, SelectionScope, SelectionSealed,
     };
     pub use crate::settings::EditorSettings;
     pub use crate::{BakerCatalog, GizmoCatalog, ProcessorCatalog, ValidatorCatalog};
@@ -414,6 +414,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<resolver::PointerOverChrome>()
             .init_resource::<selection::SelectionScope>()
             .init_resource::<selection::PendingSelect>()
+            .init_resource::<selection::Marquee>()
             .init_resource::<camera::FlyingCamera>()
             .insert_resource(settings::EditorSettings::load_user())
             .init_resource::<gesture::MoveGesture>()
@@ -439,6 +440,7 @@ impl Plugin for EditorCorePlugin {
         app.add_observer(edits::index_on_add);
         app.add_observer(edits::index_on_remove);
         app.add_observer(selection::on_pointer_press);
+        app.add_observer(selection::on_pointer_release);
 
         app.add_editor_feature(CoreFeature);
 
@@ -472,6 +474,7 @@ impl Plugin for EditorCorePlugin {
                     clipboard::collect_clipboard_actions,
                     clipboard::perform_clipboard,
                     edits::handle_history_actions,
+                    selection::track_marquee,
                     selection::handle_selection_actions,
                     selection::select_pending,
                     camera::handle_frame_actions,
