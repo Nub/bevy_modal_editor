@@ -35,6 +35,137 @@ use crate::style::{self, UiFonts};
 
 pub(crate) const INSPECTOR_PANEL: &str = "inspector";
 
+/// Put a key diamond at the end of a numeric row.
+fn spawn_key_affordance(
+    commands: &mut Commands,
+    row: Entity,
+    fonts: &UiFonts,
+    ui: &editor_core::settings::UiSettings,
+    target: SceneId,
+    type_path: &'static str,
+    paths: Vec<String>,
+) {
+    commands
+        .spawn((
+            KeyFieldAffordance {
+                target,
+                type_path,
+                paths,
+            },
+            Text::new("\u{25c7}".to_string()),
+            style::no_wrap(),
+            style::sans(fonts, ui.font_size_s),
+            // Dim until pressed: a keyable row is EVERY numeric row, so this
+            // has to sit quietly beside the value rather than competing with it.
+            TextColor(style::color::TEXT_DIM),
+            Node {
+                flex_shrink: 0.0,
+                margin: UiRect::left(px(style::space::XS)),
+                ..default()
+            },
+            ChildOf(row),
+        ))
+        .observe(on_key_field_press);
+}
+
+/// A key the user asked for, waiting for a system that can read the world.
+///
+/// The observer cannot do this itself: reading an arbitrary component by type
+/// path needs whole-world reflection access, which cannot coexist with a
+/// mutable timeline in one system. Recording the ASK and performing it in an
+/// exclusive system is the pattern the rest of this editor already uses for
+/// exactly this reason.
+#[derive(Resource, Default)]
+pub(crate) struct PendingFieldKeys(pub Vec<KeyFieldAffordance>);
+
+fn on_key_field_press(
+    press: On<Pointer<Press>>,
+    affordances: Query<&KeyFieldAffordance>,
+    mut pending: ResMut<PendingFieldKeys>,
+) {
+    if let Ok(affordance) = affordances.get(press.entity) {
+        pending.0.push(affordance.clone());
+    }
+}
+
+/// Key each requested field at the playhead, from whatever it reads right now.
+pub(crate) fn perform_field_keys(world: &mut World) {
+    let requests = std::mem::take(&mut world.resource_mut::<PendingFieldKeys>().0);
+    if requests.is_empty() {
+        return;
+    }
+    let at = world.resource::<editor_scene::anim::Playhead>().time;
+    let registry = world.resource::<AppTypeRegistry>().clone();
+    let registry = registry.read();
+    let mut keyed = Vec::new();
+    for affordance in requests {
+        let Some(entity) = world
+            .resource::<editor_api::edits::SceneIndex>()
+            .get(&affordance.target)
+        else {
+            continue;
+        };
+        let Some(registration) = registry.get_with_type_path(affordance.type_path) else {
+            continue;
+        };
+        let Some(reflect_component) = registration.data::<bevy::ecs::reflect::ReflectComponent>()
+        else {
+            continue;
+        };
+        let Ok(entity_ref) = world.get_entity(entity) else {
+            continue;
+        };
+        let Some(component) = reflect_component.reflect(entity_ref) else {
+            continue;
+        };
+        for path in &affordance.paths {
+            let Ok(parsed) = bevy::reflect::ParsedPath::parse(path) else {
+                continue;
+            };
+            let Ok(element) = parsed.reflect_element(component.as_partial_reflect()) else {
+                continue;
+            };
+            let Some(value) = element.try_downcast_ref::<f32>().copied() else {
+                continue;
+            };
+            keyed.push((affordance.target, affordance.type_path, path.clone(), value));
+        }
+    }
+    if keyed.is_empty() {
+        return;
+    }
+    let mut messages = Vec::new();
+    {
+        let mut timeline = world.resource_mut::<editor_scene::anim::Timeline>();
+        for (target, type_path, path, value) in keyed {
+            timeline
+                .track_mut(target, type_path, &path)
+                .set_key(at, value);
+            messages.push(format!("keyed {path} at {at:.2}s"));
+        }
+        timeline.generation += 1;
+    }
+    for message in messages {
+        world.write_message(editor_scene::SceneIoFeedback {
+            message,
+            success: true,
+        });
+    }
+}
+
+/// The diamond on a numeric row: pressing it keys THAT field at the playhead.
+/// Carrying the address rather than looking it up later is what makes keying a
+/// nested field on any component the same operation as keying a position.
+#[derive(Component, Clone)]
+pub(crate) struct KeyFieldAffordance {
+    pub target: SceneId,
+    pub type_path: &'static str,
+    /// One address for a scalar row; three for a position or a scale, because
+    /// keying two axes of a position and forgetting the third is a bug the
+    /// designer would find later, in motion.
+    pub paths: Vec<String>,
+}
+
 /// What a number field edits when it commits.
 #[derive(Component, Clone, PartialEq)]
 pub(crate) struct InspectorField {
@@ -1260,10 +1391,44 @@ pub(crate) fn render_inspector(
                 for spec in fields {
                     spawn_number_field(&mut commands, row, spec);
                 }
+                // One diamond for the row, keying all three axes: a position is
+                // three tracks and nobody means to key only two of them.
+                if let Some(first) = fields.first()
+                    && first.field.kind == FieldKind::Direct
+                {
+                    let paths = fields
+                        .iter()
+                        .map(|spec| spec.field.path.clone())
+                        .collect::<Vec<_>>();
+                    spawn_key_affordance(
+                        &mut commands,
+                        row,
+                        &fonts,
+                        &ui,
+                        first.field.target,
+                        first.field.type_path,
+                        paths,
+                    );
+                }
             }
             RowSpec::Number { label, field } => {
                 let row = spawn_labeled_row(&mut commands, body_entity, label, &fonts, &ui);
                 spawn_number_field(&mut commands, row, field);
+                // Spec §9 promises tracks that keyframe ANY reflected property.
+                // A track holds one SCALAR, so every f32 row is exactly one
+                // keyable thing — a light's intensity, a fog density, whatever
+                // a game defines — and the row already knows its own address.
+                if field.field.kind == FieldKind::Direct {
+                    spawn_key_affordance(
+                        &mut commands,
+                        row,
+                        &fonts,
+                        &ui,
+                        field.field.target,
+                        field.field.type_path,
+                        vec![field.field.path.clone()],
+                    );
+                }
             }
             RowSpec::Toggle {
                 label,

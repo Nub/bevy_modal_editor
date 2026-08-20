@@ -598,7 +598,124 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 &format!("the cursor sits where time is ({left:?})"),
             );
         }
-        1970 => {
+        // ── Keying a field that is NOT a position ─────────────────────────
+        // Spec §9 promises any reflected property. Scale is the proof that the
+        // address, not the meaning, is what a track holds.
+        // The inspector shows the SELECTION, and its key affordances address
+        // whatever it is showing — so the thing being posed has to be the thing
+        // being inspected. The marquee and the click before this left something
+        // else selected, and the keys went there.
+        1936 => {
+            let id = world.resource::<BlockoutProbe>().piece.unwrap();
+            let previous: Vec<Entity> = world
+                .query_filtered::<Entity, With<Selected>>()
+                .iter(world)
+                .collect();
+            for entity in previous {
+                world.entity_mut(entity).remove::<Selected>();
+            }
+            if let Some(entity) = world.resource::<editor_api::edits::SceneIndex>().get(&id) {
+                world.entity_mut(entity).insert(Selected);
+            }
+            // The inspector rebuilds on the MESSAGE, not on the component:
+            // inserting Selected quietly is enough for a gesture and not for a
+            // panel, which is why the rows kept addressing the old entity.
+            world.write_message(SelectionChanged);
+        }
+        1940 => {
+            let id = world.resource::<BlockoutProbe>().piece.unwrap();
+            if let Some(entity) = world.resource::<editor_api::edits::SceneIndex>().get(&id)
+                && let Some(mut transform) = world.get_mut::<Transform>(entity)
+            {
+                transform.scale = Vec3::splat(1.0);
+            }
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.0;
+        }
+        1950 => {
+            let affordances: Vec<Entity> = world
+                .query_filtered::<Entity, With<crate::inspector::KeyFieldAffordance>>()
+                .iter(world)
+                .collect();
+            check(
+                world,
+                !affordances.is_empty(),
+                &format!(
+                    "numeric rows carry a key affordance ({})",
+                    affordances.len()
+                ),
+            );
+            // Key scale.x specifically, by address.
+            let target = world
+                .query::<(Entity, &crate::inspector::KeyFieldAffordance)>()
+                .iter(world)
+                .find(|(_, affordance)| affordance.paths.iter().any(|path| path == "scale.x"))
+                .map(|(entity, _)| entity);
+            match target {
+                Some(entity) => {
+                    let center = crate::probe_handson::ui_center(world, entity)
+                        .unwrap_or(Vec2::new(10.0, 10.0));
+                    move_cursor(world, center);
+                    click(world, true);
+                    click(world, false);
+                }
+                None => check(world, false, "the inspector offers a scale.x row to key"),
+            }
+        }
+        1960 => {
+            let keyed = world
+                .resource::<editor_scene::anim::Timeline>()
+                .tracks
+                .iter()
+                .any(|track| track.path == "scale.x");
+            check(world, keyed, "pressing it keyed scale.x, not a position");
+        }
+        // A second key at a later moment, then scrub between: the field has to
+        // MOVE, which is what proves the track drives it.
+        1966 => {
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 2.0;
+        }
+        1972 => {
+            let id = world.resource::<BlockoutProbe>().piece.unwrap();
+            if let Some(entity) = world.resource::<editor_api::edits::SceneIndex>().get(&id)
+                && let Some(mut transform) = world.get_mut::<Transform>(entity)
+            {
+                transform.scale.x = 5.0;
+            }
+        }
+        1978 => {
+            // Re-assert the pose in the SAME frame as the press. Evaluation and
+            // the probe are both in Sync with no order between them, so a pose
+            // set several frames earlier can be overwritten before it is keyed
+            // — which is exactly what happened, and recorded a key of 1.0.
+            let id = world.resource::<BlockoutProbe>().piece.unwrap();
+            if let Some(entity) = world.resource::<editor_api::edits::SceneIndex>().get(&id)
+                && let Some(mut transform) = world.get_mut::<Transform>(entity)
+            {
+                transform.scale.x = 5.0;
+            }
+            let target = world
+                .query::<(Entity, &crate::inspector::KeyFieldAffordance)>()
+                .iter(world)
+                .find(|(_, affordance)| affordance.paths.iter().any(|path| path == "scale.x"))
+                .map(|(entity, _)| entity);
+            if let Some(entity) = target {
+                let center =
+                    crate::probe_handson::ui_center(world, entity).unwrap_or(Vec2::new(10.0, 10.0));
+                move_cursor(world, center);
+                click(world, true);
+                click(world, false);
+            }
+        }
+        1990 => world.resource_mut::<editor_scene::anim::Playhead>().time = 1.0,
+        2000 => {
+            let scale = piece_transform(world).map(|transform| transform.scale.x);
+            check(
+                world,
+                scale.is_some_and(|x| (x - 3.0).abs() < 0.05),
+                &format!("scrubbing drives the keyed SCALE, halfway ({scale:?})"),
+            );
+        }
+        2040 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

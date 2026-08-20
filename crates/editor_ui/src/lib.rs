@@ -220,6 +220,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<material_editor::RenameTarget>();
         app.init_resource::<material_editor::PendingTextureSlot>();
         app.init_resource::<timeline_panel::TimelinePanelState>();
+        app.init_resource::<inspector::PendingFieldKeys>();
         app.init_resource::<problems::ProblemsState>();
         app.init_resource::<hierarchy::HierarchyState>();
         app.init_resource::<inspector::InspectorModel>();
@@ -295,6 +296,7 @@ impl Plugin for EditorUiPlugin {
                 material_editor::handle_material_library_verbs,
                 material_editor::apply_rename,
                 material_editor::apply_material_history,
+                inspector::perform_field_keys,
                 timeline_panel::sync_timeline_rows,
                 timeline_panel::sync_timeline_cursor,
                 material_editor::sync_editor_ui,

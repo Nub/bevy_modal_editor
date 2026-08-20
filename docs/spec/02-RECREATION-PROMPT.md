@@ -847,6 +847,19 @@ at timestamps (VFX, audio, gameplay triggers), and **command rigs to play clips*
 the cinematic slot. Hot-reloadable, scrubbing-friendly, playable from gameplay rules and
 the effects layer. Full cinematic camera-cut suites remain a non-goal.
 
+**Any reflected property (2026-08-20).** Every numeric inspector row carries a
+key diamond, so what can be keyed is whatever the inspector can show: a light's
+intensity, a fog density, a scalar on a component a game defines. A position or
+a scale gets ONE diamond for the row that keys all three axes, because nobody
+means to key two axes of a position and leave the third behind. Spec §9's "any
+reflected component property" is the addressing the tracks already used; this is
+the surface that reaches it.
+
+Keying reads the value through reflection, which needs whole-world access and
+therefore cannot share a system with a mutable timeline — the press records the
+ASK and an exclusive system performs it, the same request/perform split the rest
+of the editor uses.
+
 **Layer 1, first track (implemented 2026-08-20).** A `Timeline` of `Track`s, each
 addressing ONE scalar field the way a patch does — a type path plus a reflect
 path — with keys sorted by time, linear between them and HELD outside them (a
