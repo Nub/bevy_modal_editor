@@ -218,6 +218,40 @@ takes — the first version wrote straight to the library and silently cost the
 texture binding its undo, which the hands-on probe caught. It also claims the
 Textures field on an inheriting material, exactly as moving a slider claims its
 own field.
+
+### D11 the room a material is judged in (2026-08-20)
+
+A metal surface is a mirror. With nothing around it, it renders black and
+`metallic` is a slider with no visible effect; `roughness` under a single
+directional light only moves one specular dot, when what it actually controls is
+how sharply the surroundings are reflected. Two of the six parameters the panel
+exposes could not honestly be judged.
+
+Both preview rigs — the material panel's and the palette chip's — now stand
+their subject in a generated studio: a bright ceiling, a mid horizon, a darker
+floor, one broad key high to the left and a dimmer fill opposite. Broad on
+purpose, because a point-like highlight tells you nothing about roughness; what
+roughness blurs is an EDGE.
+
+The cubemap is generated rather than shipped. An asset would be a binary blob in
+the repo needing a licence and a pipeline, and what is wanted is a neutral room,
+not a photograph. Bevy filters it on the GPU
+(`GeneratedEnvironmentMapLight`), so roughness gets a real prefiltered mip chain
+instead of one flat reflection — which is also why the probe asserts that the
+component has become a filtered `EnvironmentMapLight` rather than merely that it
+was inserted: Bevy only makes that swap once it has validated and filtered the
+source, and it panics outright on a source that is not square power-of-two.
+
+**Unverified:** the intensity (1400 cd/m²) and the room's balance were chosen by
+reasoning, not by looking. Probe screenshots came back as the black-frame flake
+that happens when the window is not frontmost, so nobody has yet SEEN this. The
+numbers are in one place and are meant to be tuned by eye.
+
+**Not applied to the viewport.** The scene camera has no environment light, so a
+metal object in the level still renders as it did. Whether the editor should
+light the game's world is the game's business, not the editor's, and it is a
+decision worth taking deliberately rather than as a side effect of fixing a
+preview.
 ## Status (2026-08-05)
 
 D1–D12 all implemented with executable coverage: unit/property tests per

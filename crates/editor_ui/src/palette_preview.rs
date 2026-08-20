@@ -52,7 +52,11 @@ pub(crate) struct PreviewRig {
 #[derive(Component)]
 pub(crate) struct PreviewContent;
 
-pub(crate) fn setup_preview_rig(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+pub(crate) fn setup_preview_rig(
+    environment: Res<crate::preview_env::PreviewEnvironment>,
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+) {
     let image = images.add(Image::new_target_texture(
         PREVIEW_SIZE,
         PREVIEW_SIZE,
@@ -78,6 +82,14 @@ pub(crate) fn setup_preview_rig(mut commands: Commands, mut images: ResMut<Asset
             Transform::from_translation(PREVIEW_HOME + Vec3::new(2.4, 1.8, 2.4))
                 .looking_at(PREVIEW_HOME, Vec3::Y),
             RenderLayers::layer(PREVIEW_LAYER),
+            // The same room as the material panel: a palette chip and the
+            // editor's own preview must not disagree about what a surface
+            // looks like.
+            bevy::light::GeneratedEnvironmentMapLight {
+                environment_map: environment.0.clone(),
+                intensity: 1400.0,
+                ..default()
+            },
         ))
         .id();
     commands.spawn((

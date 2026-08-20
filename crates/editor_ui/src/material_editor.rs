@@ -294,6 +294,7 @@ impl EditorFeature for MaterialEditorFeature {
 }
 
 pub(crate) fn setup_material_preview(
+    environment: Res<crate::preview_env::PreviewEnvironment>,
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -334,6 +335,13 @@ pub(crate) fn setup_material_preview(
             Transform::from_translation(MATERIAL_PREVIEW_HOME + Vec3::new(0.0, 0.9, 2.6))
                 .looking_at(MATERIAL_PREVIEW_HOME, Vec3::Y),
             RenderLayers::layer(MATERIAL_PREVIEW_LAYER),
+            // The room the surface is judged in. Without it a metal sphere is
+            // black and `metallic` is a slider with nothing to show.
+            bevy::light::GeneratedEnvironmentMapLight {
+                environment_map: environment.0.clone(),
+                intensity: 1400.0,
+                ..default()
+            },
         ))
         .id();
     commands.insert_resource(MaterialPreviewRig {

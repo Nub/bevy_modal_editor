@@ -862,6 +862,28 @@ pub(crate) fn probe_material(world: &mut World) {
             );
             shot(world, "64-material-texture-picker");
         }
+        // ── The room the surface is judged in ─────────────────────────────
+        // Bevy PANICS if the source cubemap is not square power-of-two, and
+        // only replaces the generated light with a real EnvironmentMapLight
+        // once it has filtered it — so this check proves the cubemap was
+        // accepted and prefiltered, not merely that a component was inserted.
+        1720 => {
+            let rig = world.resource::<MaterialPreviewRig>().camera;
+            let generated = world
+                .get::<bevy::light::GeneratedEnvironmentMapLight>(rig)
+                .is_some();
+            let filtered = world.get::<bevy::light::EnvironmentMapLight>(rig).is_some();
+            check(
+                world,
+                generated || filtered,
+                "the material preview stands in an environment",
+            );
+            check(
+                world,
+                filtered,
+                "and Bevy filtered it, so roughness has mips to blur through",
+            );
+        }
         1760 => {
             let failures = world.resource::<MaterialProbe>().failures.clone();
             if failures.is_empty() {

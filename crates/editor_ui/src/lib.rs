@@ -24,6 +24,7 @@ mod outline;
 mod palette;
 mod palette_engine;
 mod palette_preview;
+mod preview_env;
 mod probe_barrel;
 mod probe_blockout;
 mod probe_handson;
@@ -309,6 +310,7 @@ impl Plugin for EditorUiPlugin {
                 which_key::spawn_which_key,
                 prompt::spawn_prompt,
                 grid::spawn_grid,
+                preview_env::setup_preview_environment,
                 palette_preview::setup_preview_rig,
                 material_editor::setup_material_preview,
                 material_editor::spawn_editor_root,
