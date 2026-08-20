@@ -153,7 +153,16 @@ pub(crate) fn collect_prefab_actions(
             // try to mate it with a nearby compatible socket. Collect runs
             // pre-conventions, so the gesture is still Active here.
             "transform.commit" => {
-                if let MoveGesture::Active { originals, .. } = &*gesture
+                if let MoveGesture::Active {
+                    // MOVE only, exactly as `snap_during_drag` filters: mating
+                    // replaces the whole transform, so letting a rotate or a
+                    // scale commit through here would throw away the angle or
+                    // the size the user just dialled in — and as a separate
+                    // history entry, so one undo could not put it back.
+                    kind: editor_core::gesture::GestureKind::Move,
+                    originals,
+                    ..
+                } = &*gesture
                     && let [(root_id, _)] = originals.as_slice()
                     && instances
                         .get(index.get(root_id).unwrap_or(Entity::PLACEHOLDER))

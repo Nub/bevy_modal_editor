@@ -250,6 +250,16 @@ impl EditorFeature for CoreFeature {
                      x/y/z constrain, typed amounts are DEGREES (yaw by default)",
                 )
                 .context("normal")
+                .bind("e")
+                .edit(),
+        )
+        .action(
+            ActionDef::new("transform.scale", "Scale Selection")
+                .describe(
+                    "Start a scale gesture on the selection — \
+                     x/y/z scale ONE axis, typed amounts are a FACTOR (2 = twice as big)",
+                )
+                .context("normal")
                 .bind("r")
                 .edit(),
         )

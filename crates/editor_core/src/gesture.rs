@@ -35,6 +35,19 @@ pub enum GestureKind {
     #[default]
     Move,
     Rotate,
+    Scale,
+}
+
+impl GestureKind {
+    /// The ONE name for this gesture — the transaction label in history and the
+    /// mode readout in the statusbar, so the two can never drift apart.
+    pub fn label(self) -> &'static str {
+        match self {
+            GestureKind::Move => "Move",
+            GestureKind::Rotate => "Rotate",
+            GestureKind::Scale => "Scale",
+        }
+    }
 }
 
 #[derive(Resource, Default)]
@@ -46,7 +59,8 @@ pub enum MoveGesture {
         kind: GestureKind,
         axis: Option<usize>,
         /// Move: total world displacement. Rotate: `x` carries the angle in
-        /// DEGREES (one accumulator, so typed amounts and drags interchange).
+        /// DEGREES. Scale: `x` carries the FACTOR, seeded to 1. One accumulator
+        /// either way, so typed amounts and drags interchange.
         accumulated: Vec3,
         /// Rotate about THIS point when set; the selection's centroid otherwise.
         pivot: Option<Vec3>,
@@ -93,12 +107,7 @@ fn apply_gesture(
     originals: &[(SceneId, Transform)],
     edits: &mut EditScope,
 ) {
-    let mut transaction = edits
-        .transaction(match kind {
-            GestureKind::Move => "Move",
-            GestureKind::Rotate => "Rotate",
-        })
-        .gesture(id);
+    let mut transaction = edits.transaction(kind.label()).gesture(id);
     match kind {
         GestureKind::Move => {
             for (scene_id, original) in originals {
@@ -113,16 +122,7 @@ fn apply_gesture(
             let mut direction = Vec3::ZERO;
             direction[axis.unwrap_or(1)] = 1.0;
             let spin = Quat::from_axis_angle(direction, amount.x.to_radians());
-            // An explicit pivot (a pinned socket) wins; otherwise multiple
-            // selections turn about their shared centroid and a single one
-            // turns in place.
-            let pivot = explicit_pivot.unwrap_or_else(|| {
-                originals
-                    .iter()
-                    .map(|(_, t)| t.translation)
-                    .fold(Vec3::ZERO, |acc, t| acc + t)
-                    / originals.len().max(1) as f32
-            });
+            let pivot = pivot_of(explicit_pivot, originals);
             for (scene_id, original) in originals {
                 let mut turned = *original;
                 turned.rotation = spin * original.rotation;
@@ -130,9 +130,46 @@ fn apply_gesture(
                 transaction = transaction.set(*scene_id, turned);
             }
         }
+        GestureKind::Scale => {
+            // Unconstrained scale is uniform; a constraint makes it ONE axis,
+            // which is how a cube becomes a wall without opening the inspector.
+            let factor = amount.x.max(MIN_SCALE);
+            let mut ratio = Vec3::splat(factor);
+            if let Some(axis) = axis {
+                ratio = Vec3::ONE;
+                ratio[axis] = factor;
+            }
+            let pivot = pivot_of(explicit_pivot, originals);
+            for (scene_id, original) in originals {
+                let mut scaled = *original;
+                scaled.scale = original.scale * ratio;
+                // Offsets grow with the group, so a multi-selection scales
+                // APART rather than every piece swelling in place.
+                scaled.translation = pivot + (original.translation - pivot) * ratio;
+                transaction = transaction.set(*scene_id, scaled);
+            }
+        }
     }
     transaction.commit();
 }
+
+/// What a rotate or a scale pivots about: an explicit pivot (a pinned socket)
+/// wins; otherwise a multi-selection uses its shared centroid, and a single one
+/// uses its own origin — so it turns or grows in place.
+fn pivot_of(explicit: Option<Vec3>, originals: &[(SceneId, Transform)]) -> Vec3 {
+    explicit.unwrap_or_else(|| {
+        originals
+            .iter()
+            .map(|(_, t)| t.translation)
+            .fold(Vec3::ZERO, |acc, t| acc + t)
+            / originals.len().max(1) as f32
+    })
+}
+
+/// Scale never reaches zero and never flips negative: a zero scale makes
+/// degenerate colliders and NaN normals, and a mirror is not something a drag
+/// should be able to produce by accident.
+const MIN_SCALE: f32 = 0.001;
 
 fn apply_typed(gesture: &mut MoveGesture, edits: &mut EditScope) {
     let MoveGesture::Active {
@@ -147,16 +184,23 @@ fn apply_typed(gesture: &mut MoveGesture, edits: &mut EditScope) {
     else {
         return;
     };
-    let value: f32 = typed.parse().unwrap_or(0.0);
+    let parsed = typed.parse::<f32>().ok();
     let desired = match kind {
         // Unconstrained typed amounts run along X (constrain first for y/z).
         GestureKind::Move => {
             let mut direction = Vec3::ZERO;
             direction[axis.unwrap_or(0)] = 1.0;
-            direction * value
+            direction * parsed.unwrap_or(0.0)
         }
         // Degrees, whatever the axis.
-        GestureKind::Rotate => Vec3::X * value,
+        GestureKind::Rotate => Vec3::X * parsed.unwrap_or(0.0),
+        // The FACTOR itself, so "r 2 ⏎" is exactly twice as big. A half-typed
+        // buffer has to mean 1× rather than 0×: an empty one after a backspace,
+        // a lone "-", and the "0" on the way to "0.5" are all states the user
+        // passes THROUGH, and collapsing the selection at each of them (the
+        // floor takes 0 to near-nothing) makes the object flicker out of
+        // existence mid-keystroke.
+        GestureKind::Scale => Vec3::X * parsed.filter(|value| *value > 0.0).unwrap_or(1.0),
     };
     *accumulated = desired;
     apply_gesture(*kind, *id, *axis, desired, *pivot, originals, edits);
@@ -177,7 +221,7 @@ pub(crate) fn handle_gesture_actions(
 ) {
     for invoked in reader.read() {
         match invoked.action.as_str() {
-            action @ ("transform.move" | "transform.rotate") => {
+            action @ ("transform.move" | "transform.rotate" | "transform.scale") => {
                 if matches!(*gesture, MoveGesture::Idle) {
                     let rotating = action == "transform.rotate";
                     // PIVOT ON SOCKET: with a socket pinned, a rotate turns the
@@ -207,15 +251,21 @@ pub(crate) fn handle_gesture_actions(
                         continue;
                     }
                     counter.0 += 1;
+                    let kind = match action {
+                        "transform.rotate" => GestureKind::Rotate,
+                        "transform.scale" => GestureKind::Scale,
+                        _ => GestureKind::Move,
+                    };
                     *gesture = MoveGesture::Active {
                         id: counter.0,
-                        kind: if action == "transform.rotate" {
-                            GestureKind::Rotate
-                        } else {
-                            GestureKind::Move
-                        },
+                        kind,
                         axis: None,
-                        accumulated: Vec3::ZERO,
+                        // Scale's accumulator IS the factor, so it starts at 1×
+                        // — zero would collapse the selection on frame one.
+                        accumulated: match kind {
+                            GestureKind::Scale => Vec3::X,
+                            _ => Vec3::ZERO,
+                        },
                         pivot,
                         originals,
                         typed: String::new(),
@@ -322,11 +372,27 @@ pub(crate) fn drive_gesture(
             };
             Vec3::X * screen.x * ROTATE_DEGREES_PER_PIXEL
         }
+        // Drag right to grow, left to shrink — the same horizontal grammar.
+        GestureKind::Scale => {
+            let Some(screen) = motion.screen.take() else {
+                return;
+            };
+            Vec3::X * screen.x * SCALE_PER_PIXEL
+        }
     };
     if delta == Vec3::ZERO {
         return;
     }
-    *accumulated += delta;
+    match kind {
+        // Scale accumulates MULTIPLICATIVELY: the drag is an exponent, so equal
+        // travel each way are exact inverses (200px doubles, 200px back halves)
+        // and the factor approaches zero asymptotically instead of crossing it.
+        // Adding pixels to a ratio instead would give shrink a hard 200px of
+        // range and then wind up off the floor, leaving a dead zone the user
+        // has to drag back out of before anything moves.
+        GestureKind::Scale => accumulated.x = (accumulated.x * delta.x.exp()).max(MIN_SCALE),
+        _ => *accumulated += delta,
+    }
     apply_gesture(
         *kind,
         *id,
@@ -340,6 +406,10 @@ pub(crate) fn drive_gesture(
 
 /// Drag sensitivity: a full 360° needs a deliberate sweep, not a flick.
 const ROTATE_DEGREES_PER_PIXEL: f32 = 0.5;
+
+/// Drag sensitivity: the drag is an EXPONENT (see `drive_gesture`), so ~200px
+/// doubles the selection and ~200px the other way halves it.
+const SCALE_PER_PIXEL: f32 = 0.003_466;
 
 /// v1's keep-list drag math (gizmos/transform.rs:28-65): project the pivot and a
 /// point one world unit along `axis_dir` to the viewport — the screen distance is
@@ -617,6 +687,132 @@ mod tests {
         );
     }
 
+    fn scale_of(app: &mut App, id: SceneId) -> Vec3 {
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        app.world().get::<Transform>(entity).unwrap().scale
+    }
+
+    // Spec §9 blockout: scale shares the whole move/rotate grammar, and a typed
+    // amount is the FACTOR — "s 2 ⏎" is exactly twice as big, in one undo step.
+    #[test]
+    fn scale_typed_factor_resizes_exactly() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        let depth_before = app.world().resource::<History>().undo_depth();
+
+        invoke(&mut app, "transform.scale");
+        invoke(&mut app, "transform.digit-2");
+        invoke(&mut app, "transform.commit");
+        app.update();
+
+        assert_eq!(scale_of(&mut app, id), Vec3::splat(2.0), "s 2 ⏎ doubles");
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth_before + 1,
+            "the whole scale is ONE history entry"
+        );
+    }
+
+    // THE blockout move: constrain an axis and a cube becomes a wall, without
+    // ever opening the inspector.
+    #[test]
+    fn scale_axis_constraint_is_non_uniform() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        invoke(&mut app, "transform.scale");
+        invoke(&mut app, "transform.axis-x");
+        invoke(&mut app, "transform.digit-4");
+        invoke(&mut app, "transform.commit");
+        app.update();
+        assert_eq!(
+            scale_of(&mut app, id),
+            Vec3::new(4.0, 1.0, 1.0),
+            "x-only: a cube becomes a wall"
+        );
+    }
+
+    // A scale must not displace a single selection — it grows in place.
+    #[test]
+    fn scale_keeps_a_single_selection_in_place() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::new(3.0, 1.0, -2.0));
+        invoke(&mut app, "transform.scale");
+        invoke(&mut app, "transform.digit-3");
+        invoke(&mut app, "transform.commit");
+        app.update();
+        assert_eq!(
+            translation(&mut app, id),
+            Vec3::new(3.0, 1.0, -2.0),
+            "scale grows in place"
+        );
+    }
+
+    // Half-typed input is a state you pass THROUGH: the empty buffer after a
+    // backspace, a lone "-", and the "0" on the way to "0.5". Each has to leave
+    // the selection at 1x — treating them as a factor of zero made the object
+    // flicker out of existence mid-keystroke, and committing there persisted it.
+    #[test]
+    fn a_half_typed_scale_holds_at_identity() {
+        for keystrokes in [
+            vec!["transform.digit-0"],
+            vec!["transform.digit-minus"],
+            vec!["transform.digit-dot"],
+            vec!["transform.digit-5", "transform.digit-erase"],
+            vec!["transform.digit-erase"],
+        ] {
+            let mut app = test_app();
+            let id = spawn_selected(&mut app, Vec3::ZERO);
+            invoke(&mut app, "transform.scale");
+            for action in &keystrokes {
+                invoke(&mut app, action);
+            }
+            app.update();
+            assert_eq!(
+                scale_of(&mut app, id),
+                Vec3::ONE,
+                "{keystrokes:?} holds the selection at 1x"
+            );
+            invoke(&mut app, "transform.cancel");
+        }
+    }
+
+    // Typing the fraction all the way through still lands exactly.
+    #[test]
+    fn a_fractional_typed_scale_lands_exactly() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        invoke(&mut app, "transform.scale");
+        for action in [
+            "transform.digit-0",
+            "transform.digit-dot",
+            "transform.digit-5",
+        ] {
+            invoke(&mut app, action);
+        }
+        invoke(&mut app, "transform.commit");
+        app.update();
+        assert_eq!(scale_of(&mut app, id), Vec3::splat(0.5), "r 0.5 ⏎ halves");
+    }
+
+    // Esc restores the original size exactly and leaves no history — the same
+    // contract move and rotate already hold to.
+    #[test]
+    fn cancelled_scale_restores_and_leaves_no_history() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        let depth_before = app.world().resource::<History>().undo_depth();
+        invoke(&mut app, "transform.scale");
+        invoke(&mut app, "transform.digit-5");
+        invoke(&mut app, "transform.cancel");
+        app.update();
+        assert_eq!(scale_of(&mut app, id), Vec3::ONE, "exact restore");
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth_before,
+            "cancelled gesture leaves no history"
+        );
+    }
+
     // A rotate must not displace a single selection — it turns in place.
     #[test]
     fn rotate_keeps_a_single_selection_in_place() {
@@ -690,6 +886,63 @@ mod tests {
             .iter(world)
             .any(|(p, _)| matches!(p, Projection::Perspective(_)));
         assert!(perspective, "flying restores perspective");
+    }
+
+    fn push_screen(app: &mut App, dx: f32) {
+        app.world_mut().resource_mut::<GestureMotion>().screen = Some(Vec2::new(dx, 0.0));
+        app.update();
+    }
+
+    // Scale is a RATIO, so the drag has to compose multiplicatively: equal
+    // travel each way must cancel exactly. Accumulating pixels into the factor
+    // instead gave shrink 200px of range and then wound up below the floor,
+    // leaving a dead zone you had to drag back out of before anything moved.
+    #[test]
+    fn scale_drag_is_symmetric_and_never_winds_up() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        invoke(&mut app, "transform.scale");
+        for _ in 0..100 {
+            push_screen(&mut app, -10.0); // 1000px left: deep into shrink
+        }
+        let shrunk = scale_of(&mut app, id).x;
+        assert!(shrunk > 0.0, "never reaches zero: {shrunk}");
+        // The very next rightward pixel has to MOVE it — no dead zone.
+        push_screen(&mut app, 10.0);
+        assert!(
+            scale_of(&mut app, id).x > shrunk,
+            "a rightward drag responds immediately: {} then {}",
+            shrunk,
+            scale_of(&mut app, id).x
+        );
+        for _ in 0..99 {
+            push_screen(&mut app, 10.0); // retrace the remaining 990px
+        }
+        let back = scale_of(&mut app, id).x;
+        assert!(
+            (back - 1.0).abs() < 1e-3,
+            "equal travel each way cancels exactly: {back}"
+        );
+        invoke(&mut app, "transform.cancel");
+    }
+
+    // ~200px doubles, and the same distance the other way halves.
+    #[test]
+    fn scale_drag_sensitivity_is_a_doubling_per_200px() {
+        let mut app = test_app();
+        let id = spawn_selected(&mut app, Vec3::ZERO);
+        invoke(&mut app, "transform.scale");
+        for _ in 0..20 {
+            push_screen(&mut app, 10.0);
+        }
+        let grown = scale_of(&mut app, id).x;
+        assert!((grown - 2.0).abs() < 0.01, "200px doubles: {grown}");
+        for _ in 0..40 {
+            push_screen(&mut app, -10.0);
+        }
+        let halved = scale_of(&mut app, id).x;
+        assert!((halved - 0.5).abs() < 0.01, "400px back halves: {halved}");
+        invoke(&mut app, "transform.cancel");
     }
 }
 

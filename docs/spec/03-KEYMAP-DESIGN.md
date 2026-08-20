@@ -94,6 +94,14 @@ immediate modal gesture on the selection: mouse moves it; `x`/`y`/`z` constrain 
 amount (`w x 2.5 Enter` = move +2.5 on X); `Enter`/click commits, `Esc` cancels and restores.
 One undo entry per gesture. Counts compose: `3.` repeats a nudge three times.
 
+**Scale specifics (implemented 2026-08-19):** a typed amount is the **factor itself**, not a
+delta — `r 2 Enter` is exactly twice as big — so the gesture's accumulator starts at 1×
+rather than 0. Unconstrained scale is uniform; an axis constraint makes it **one axis only**
+(`r x 4 Enter` turns a cube into a wall), which is how greybox blocks get their proportions
+without opening the inspector. The factor is floored just above zero: a zero scale makes
+degenerate colliders and NaN normals, and a mirror is not something a drag should be able to
+produce by accident — negative/mirror scale, if wanted, needs its own deliberate verb.
+
 **Multi-select pivot:** rotate/scale gestures pivot on the **selection median** by default
 (DCC convention); `,` mid-gesture — or `Space t p` globally — toggles individual-origins
 (each entity transforms in place, e.g. spinning 50 trees). Current pivot mode is always

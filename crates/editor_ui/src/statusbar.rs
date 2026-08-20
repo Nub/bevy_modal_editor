@@ -255,8 +255,11 @@ pub(crate) fn update_statusbar(
         }
         let name = if gesture_active {
             match &*data.gesture {
-                MoveGesture::Active { axis, typed, .. } => {
-                    let mut label = "MOVE".to_string();
+                MoveGesture::Active {
+                    kind, axis, typed, ..
+                } => {
+                    // The gesture names ITSELF — a rotate used to read "MOVE".
+                    let mut label = kind.label().to_uppercase();
                     if let Some(axis) = axis {
                         label.push_str([" · X", " · Y", " · Z"][*axis]);
                     }

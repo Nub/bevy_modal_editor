@@ -24,6 +24,7 @@ mod palette;
 mod palette_engine;
 mod palette_preview;
 mod probe_barrel;
+mod probe_blockout;
 mod probe_handson;
 mod probe_kit;
 mod probe_material;
@@ -193,6 +194,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<probe_user::UserProbe>();
         app.init_resource::<probe_kit::KitProbe>();
         app.init_resource::<probe_barrel::BarrelProbe>();
+        app.init_resource::<probe_blockout::BlockoutProbe>();
         app.init_resource::<probe_material::MaterialProbe>();
         app.init_resource::<probe_socket::SocketProbe>();
         app.init_resource::<probe_handson::HandsonProbe>();
@@ -330,6 +332,12 @@ impl Plugin for EditorUiPlugin {
             Update,
             probe_socket::probe_socket
                 .run_if(|| std::env::var("SOCKET_PROBE").is_ok())
+                .in_set(editor_core::EditorSet::Sync),
+        );
+        app.add_systems(
+            Update,
+            probe_blockout::probe_blockout
+                .run_if(|| std::env::var("BLOCKOUT_PROBE").is_ok())
                 .in_set(editor_core::EditorSet::Sync),
         );
     }
