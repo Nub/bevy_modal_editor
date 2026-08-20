@@ -86,6 +86,7 @@ impl Track {
 #[derive(Resource)]
 pub struct Timeline {
     pub tracks: Vec<Track>,
+    pub events: Vec<EventMarker>,
     /// Bumped on every change; the autosave writes when it moves.
     pub generation: u64,
     pub path: PathBuf,
@@ -95,6 +96,7 @@ impl Default for Timeline {
     fn default() -> Self {
         Self {
             tracks: Vec::new(),
+            events: Vec::new(),
             generation: 0,
             path: PathBuf::from("timeline.ron"),
         }
@@ -108,6 +110,9 @@ pub const TIMELINE_FORMAT_VERSION: u32 = 1;
 struct TimelineEnvelope {
     format_version: u32,
     tracks: Vec<Track>,
+    /// Added after format 1; `serde(default)` means a format-1 file still loads
+    /// and simply has no events, which is what it meant.
+    events: Vec<EventMarker>,
 }
 
 #[derive(Debug)]
@@ -121,6 +126,7 @@ pub fn save_timeline(timeline: &Timeline, path: &Path) -> Result<(), TimelineErr
     let envelope = TimelineEnvelope {
         format_version: TIMELINE_FORMAT_VERSION,
         tracks: timeline.tracks.clone(),
+        events: timeline.events.clone(),
     };
     let text = ron::ser::to_string_pretty(&envelope, ron::ser::PrettyConfig::default())
         .map_err(|e| TimelineError::Format(e.to_string()))?;
@@ -137,7 +143,7 @@ pub fn save_timeline(timeline: &Timeline, path: &Path) -> Result<(), TimelineErr
 
 /// Parse fully before touching anything; a FUTURE version refuses loudly rather
 /// than silently dropping tracks it does not understand.
-pub fn load_timeline(path: &Path) -> Result<Vec<Track>, TimelineError> {
+pub fn load_timeline(path: &Path) -> Result<(Vec<Track>, Vec<EventMarker>), TimelineError> {
     let text = std::fs::read_to_string(path).map_err(TimelineError::Io)?;
     let envelope: TimelineEnvelope =
         ron::from_str(&text).map_err(|e| TimelineError::Format(e.to_string()))?;
@@ -147,17 +153,22 @@ pub fn load_timeline(path: &Path) -> Result<Vec<Track>, TimelineError> {
             supported: TIMELINE_FORMAT_VERSION,
         });
     }
-    Ok(envelope.tracks)
+    Ok((envelope.tracks, envelope.events))
 }
 
 pub(crate) fn load_timeline_at_startup(mut timeline: ResMut<Timeline>) {
     let path = timeline.path.clone();
     match load_timeline(&path) {
-        Ok(tracks) => {
-            if !tracks.is_empty() {
-                info!("timeline: loaded {} tracks", tracks.len());
+        Ok((tracks, events)) => {
+            if !tracks.is_empty() || !events.is_empty() {
+                info!(
+                    "timeline: loaded {} tracks, {} events",
+                    tracks.len(),
+                    events.len()
+                );
             }
             timeline.tracks = tracks;
+            timeline.events = events;
         }
         Err(TimelineError::Io(_)) => {} // no file yet is the normal first run
         Err(error) => error!("timeline load failed: {error:?}"),
@@ -205,11 +216,32 @@ impl Timeline {
     }
 }
 
+/// A named moment. Spec §9's second job for a sequencer: fire events at
+/// timestamps — a footstep, a puff of dust, a trigger. The timeline says WHEN
+/// and WHAT; the game decides what that means, which is why this carries a name
+/// and nothing else.
+#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+pub struct EventMarker {
+    pub time: f32,
+    pub name: String,
+}
+
+/// Fired as the playhead CROSSES a marker during playback. Games read this like
+/// any other message.
+#[derive(Message, Clone, Debug)]
+pub struct TimelineEvent {
+    pub name: String,
+    pub time: f32,
+}
+
 /// Where time is, and whether it is moving.
 #[derive(Resource, Default)]
 pub struct Playhead {
     pub time: f32,
     pub playing: bool,
+    /// Where time was when events were last fired. Crossing is a comparison
+    /// between two moments, not a test of one.
+    pub fired_through: f32,
 }
 
 /// Advance the playhead, looping at the end so a short loop reads as a loop
@@ -231,6 +263,59 @@ pub(crate) fn advance_playhead(
     }
     let next = playhead.time + time.delta_secs();
     playhead.time = if next > duration { 0.0 } else { next };
+}
+
+/// Which markers a step from `from` to `to` passes, given a looping timeline.
+///
+/// Half-open on the left — `(from, to]` — so a marker fires exactly once as it
+/// is passed rather than once per frame while the playhead sits on it. A wrap
+/// is two spans, because time went off the end and came back.
+pub fn crossed(events: &[EventMarker], from: f32, to: f32, duration: f32) -> Vec<&EventMarker> {
+    let passes = |a: f32, b: f32, marker: &EventMarker| marker.time > a && marker.time <= b;
+    if to >= from {
+        events
+            .iter()
+            .filter(|marker| passes(from, to, marker))
+            .collect()
+    } else {
+        events
+            .iter()
+            .filter(|marker| passes(from, duration, marker) || passes(-1.0, to, marker))
+            .collect()
+    }
+}
+
+/// Fire the markers the playhead just passed. Playback only: scrubbing through
+/// a footstep should not play forty footsteps, and dragging backwards should
+/// not play them in reverse. Events belong to time RUNNING.
+pub(crate) fn fire_timeline_events(
+    timeline: Res<Timeline>,
+    mut playhead: ResMut<Playhead>,
+    mut events: MessageWriter<TimelineEvent>,
+) {
+    if !playhead.playing {
+        // Keep the mark with the playhead so resuming does not fire everything
+        // that was skipped while it was paused or scrubbed — but only WRITE
+        // when it actually differs. Touching a ResMut every frame marks the
+        // resource changed every frame, which made evaluation run constantly
+        // and overwrite a pose before it could be keyed.
+        if playhead.fired_through != playhead.time {
+            playhead.fired_through = playhead.time;
+        }
+        return;
+    }
+    let duration = timeline.duration();
+    if duration <= 0.0 {
+        return;
+    }
+    let (from, to) = (playhead.fired_through, playhead.time);
+    for marker in crossed(&timeline.events, from, to, duration) {
+        events.write(TimelineEvent {
+            name: marker.name.clone(),
+            time: marker.time,
+        });
+    }
+    playhead.fired_through = to;
 }
 
 /// Write the sampled value straight into the component. NOT through `EditScope`
@@ -379,6 +464,86 @@ mod tests {
         }
     }
 
+    fn markers(times: &[(f32, &str)]) -> Vec<EventMarker> {
+        times
+            .iter()
+            .map(|(time, name)| EventMarker {
+                time: *time,
+                name: (*name).to_string(),
+            })
+            .collect()
+    }
+
+    fn names(found: Vec<&EventMarker>) -> Vec<String> {
+        found.into_iter().map(|m| m.name.clone()).collect()
+    }
+
+    // A step passes what lies between its ends.
+    #[test]
+    fn a_step_crosses_the_markers_between_its_ends() {
+        let events = markers(&[(0.5, "a"), (1.5, "b"), (2.5, "c")]);
+        assert_eq!(names(crossed(&events, 1.0, 2.0, 3.0)), vec!["b"]);
+        assert_eq!(names(crossed(&events, 0.0, 3.0, 3.0)), vec!["a", "b", "c"]);
+        assert!(names(crossed(&events, 1.6, 2.4, 3.0)).is_empty());
+    }
+
+    // Half-open on the left: sitting ON a marker must not fire it again next
+    // frame, or a held playhead machine-guns a footstep.
+    #[test]
+    fn a_marker_fires_once_as_it_is_passed() {
+        let events = markers(&[(1.0, "step")]);
+        assert_eq!(
+            names(crossed(&events, 0.9, 1.0, 2.0)),
+            vec!["step"],
+            "passed"
+        );
+        assert!(
+            names(crossed(&events, 1.0, 1.1, 2.0)).is_empty(),
+            "and not again from there"
+        );
+    }
+
+    // A loop is two spans: off the end, and back from the start.
+    #[test]
+    fn a_wrap_crosses_both_ends_of_the_loop() {
+        let events = markers(&[(0.2, "start"), (1.0, "middle"), (1.9, "end")]);
+        let found = names(crossed(&events, 1.8, 0.3, 2.0));
+        assert!(
+            found.contains(&"end".to_string()),
+            "the one before the wrap"
+        );
+        assert!(found.contains(&"start".to_string()), "and after it");
+        assert!(
+            !found.contains(&"middle".to_string()),
+            "but not the one the step never reached: {found:?}"
+        );
+    }
+
+    // A marker exactly at zero is reachable — the wrap's second span is open at
+    // its left end, so it has to include the very start.
+    #[test]
+    fn a_marker_at_the_start_is_reachable_on_a_wrap() {
+        let events = markers(&[(0.0, "top")]);
+        let found = names(crossed(&events, 1.9, 0.1, 2.0));
+        assert_eq!(found, vec!["top"], "the loop point fires");
+    }
+
+    // Events persist with the tracks: a timeline is one asset.
+    #[test]
+    fn events_round_trip_with_the_timeline() {
+        let dir = std::env::temp_dir().join(format!("timeline-ev-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("timeline.ron");
+        let timeline = Timeline {
+            path: path.clone(),
+            events: markers(&[(0.4, "dust"), (1.2, "bang")]),
+            ..Default::default()
+        };
+        save_timeline(&timeline, &path).unwrap();
+        let (_tracks, events) = load_timeline(&path).unwrap();
+        assert_eq!(events, timeline.events, "both markers came back");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
     // A timeline is an ASSET: it has to come back the way it went out, or a
     // keyed animation is a session-long demo.
     #[test]
@@ -400,7 +565,7 @@ mod tests {
             .set_key(2.0, 5.0);
         save_timeline(&timeline, &path).expect("saved");
 
-        let loaded = load_timeline(&path).expect("loaded");
+        let (loaded, _events) = load_timeline(&path).expect("loaded");
         assert_eq!(loaded, timeline.tracks, "every track and key survived");
         assert_eq!(
             loaded[0].sample(1.0),

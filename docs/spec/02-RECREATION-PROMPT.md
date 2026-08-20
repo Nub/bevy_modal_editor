@@ -847,6 +847,20 @@ at timestamps (VFX, audio, gameplay triggers), and **command rigs to play clips*
 the cinematic slot. Hot-reloadable, scrubbing-friendly, playable from gameplay rules and
 the effects layer. Full cinematic camera-cut suites remain a non-goal.
 
+**Events (2026-08-20).** The sequencer's second job in §9: fire events at
+timestamps. `Space T E` marks the playhead with a NAME, asked for through the
+one name prompt, because an event's whole content is its name — it is what the
+game matches on. Games read `TimelineEvent` like any other message; the timeline
+says when and what, and never what it means.
+
+Events fire on CROSSING, half-open on the left, so a marker fires once as it is
+passed rather than once per frame while the playhead rests on it. A loop is two
+spans — off the end and back from the start — and a marker at zero is reachable
+on the wrap. They fire during PLAYBACK only: scrubbing through a footstep should
+not play forty footsteps, and dragging backwards should not play them in
+reverse. While paused, the fired-through mark follows the playhead so resuming
+does not replay everything that was skipped.
+
 **Any reflected property (2026-08-20).** Every numeric inspector row carries a
 key diamond, so what can be keyed is whatever the inspector can show: a light's
 intensity, a fog density, a scalar on a component a game defines. A position or

@@ -130,6 +130,7 @@ pub(crate) fn sync_prompt(
                 PromptPurpose::Kit => "KIT — name it (empty clears)".into(),
                 PromptPurpose::Fill => "FILL RUN — how many pieces?".into(),
                 PromptPurpose::RenameMaterial => "RENAME MATERIAL".into(),
+                PromptPurpose::TimelineEvent => "EVENT AT THE PLAYHEAD — name it".into(),
             };
         }
         if let Ok(entity) = input.single() {

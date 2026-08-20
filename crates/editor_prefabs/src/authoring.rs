@@ -55,6 +55,9 @@ pub enum PromptPurpose {
     /// owner of the purpose consumes the commit (see `perform_prefab_requests`,
     /// which deliberately leaves non-prefab commits alone).
     RenameMaterial,
+    /// Naming a timeline event. An event's whole content IS its name — it is
+    /// what the game matches on — so it is asked for rather than generated.
+    TimelineEvent,
 }
 
 impl PromptPurpose {
@@ -353,7 +356,9 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
                     });
                 }
             },
-            PromptPurpose::RenameMaterial => {}
+            // Not prefab flows: their owners consume the commit. Unreachable
+            // anyway, since the guard above admits only prefab purposes.
+            PromptPurpose::RenameMaterial | PromptPurpose::TimelineEvent => {}
         }
     }
     if requests.revert || requests.apply {

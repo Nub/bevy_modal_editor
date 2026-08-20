@@ -567,7 +567,8 @@ impl Plugin for EditorScenePlugin {
             .init_resource::<level_validation::ValidationRequests>()
             .init_resource::<session::ReloadRequested>()
             .init_resource::<SceneIoLock>()
-            .add_message::<SceneIoFeedback>();
+            .add_message::<SceneIoFeedback>()
+            .add_message::<anim::TimelineEvent>();
         app.add_editor_feature(ScenesFeature);
         app.add_editor_feature(play::PlayFeature);
         app.add_editor_feature(materials::MaterialsFeature);
@@ -609,6 +610,7 @@ impl Plugin for EditorScenePlugin {
                     // not history (see `anim`), so it must never queue a
                     // transaction.
                     anim::advance_playhead,
+                    anim::fire_timeline_events,
                     anim::save_timeline_on_change,
                     anim::evaluate_timeline,
                 )

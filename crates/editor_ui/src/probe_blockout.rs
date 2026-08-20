@@ -8,7 +8,7 @@ use bevy::input::keyboard::Key;
 use bevy::prelude::*;
 use editor_core::prelude::*;
 
-use crate::probe_user::{click, move_cursor, shot, tap_named};
+use crate::probe_user::{click, move_cursor, shot, tap, tap_named};
 
 #[derive(Resource, Default)]
 pub(crate) struct BlockoutProbe {
@@ -18,6 +18,7 @@ pub(crate) struct BlockoutProbe {
     named_before: usize,
     undo_before_scrub: usize,
     time_at_play: f32,
+    events_seen: usize,
 }
 
 fn check(world: &mut World, ok: bool, what: &str) {
@@ -62,6 +63,20 @@ fn mode_readout(world: &mut World, starts_with: &str) -> bool {
         .query::<&Text>()
         .iter(world)
         .any(|text| text.0.starts_with(starts_with))
+}
+
+/// Count timeline events as they fire — the probe is the "game" reacting.
+pub(crate) fn count_timeline_events(
+    mut reader: MessageReader<editor_scene::anim::TimelineEvent>,
+    mut probe: ResMut<BlockoutProbe>,
+) {
+    for event in reader.read() {
+        probe.events_seen += 1;
+        info!(
+            "BLOCKOUT-PROBE saw event {:?} at {}",
+            event.name, event.time
+        );
+    }
 }
 
 pub(crate) fn probe_blockout(world: &mut World) {
@@ -468,7 +483,7 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 .clone();
             let on_disk = editor_scene::anim::load_timeline(&path);
             match on_disk {
-                Ok(tracks) => {
+                Ok((tracks, _events)) => {
                     check(
                         world,
                         tracks.len() >= 3,
@@ -715,7 +730,74 @@ pub(crate) fn probe_blockout(world: &mut World) {
                 &format!("scrubbing drives the keyed SCALE, halfway ({scale:?})"),
             );
         }
-        2040 => {
+        // ── Events: the sequencer's second job ────────────────────────────
+        2010 => {
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 1.0;
+            invoke(world, "timeline.event");
+        }
+        2030 => {
+            let open = world
+                .resource::<editor_prefabs::authoring::GroupPrompt>()
+                .open;
+            check(world, open, "adding an event asks for its name");
+            // An event's whole content is its name, so it is typed, not generated.
+            for (code, ch) in [
+                (KeyCode::KeyD, "d"),
+                (KeyCode::KeyU, "u"),
+                (KeyCode::KeyS, "s"),
+                (KeyCode::KeyT, "t"),
+            ] {
+                tap(world, code, ch);
+            }
+        }
+        2060 => tap_named(world, KeyCode::Enter, Key::Enter),
+        2090 => {
+            let events = world
+                .resource::<editor_scene::anim::Timeline>()
+                .events
+                .clone();
+            check(
+                world,
+                events.len() == 1 && events[0].name == "dust",
+                &format!("the named event landed at the playhead ({events:?})"),
+            );
+            check(
+                world,
+                events.first().is_some_and(|e| (e.time - 1.0).abs() < 0.01),
+                "at the moment time was parked on",
+            );
+        }
+        // Scrubbing must NOT fire it: dragging through a footstep should not
+        // play forty footsteps.
+        2110 => {
+            world.resource_mut::<BlockoutProbe>().events_seen = 0;
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.0;
+        }
+        2120 => world.resource_mut::<editor_scene::anim::Playhead>().time = 1.8,
+        2130 => {
+            let seen = world.resource::<BlockoutProbe>().events_seen;
+            check(
+                world,
+                seen == 0,
+                &format!("scrubbing past an event does not fire it ({seen})"),
+            );
+        }
+        // Playing across it fires it exactly once.
+        2140 => {
+            world.resource_mut::<editor_scene::anim::Playhead>().time = 0.9;
+            world.resource_mut::<BlockoutProbe>().events_seen = 0;
+            invoke(world, "anim.play");
+        }
+        2200 => {
+            let seen = world.resource::<BlockoutProbe>().events_seen;
+            check(
+                world,
+                seen == 1,
+                &format!("playing across it fires it ONCE ({seen})"),
+            );
+            invoke(world, "anim.rewind");
+        }
+        2240 => {
             let failures = world.resource::<BlockoutProbe>().failures.clone();
             if failures.is_empty() {
                 info!("BLOCKOUT-PROBE PASS: blockout verbs end-to-end");

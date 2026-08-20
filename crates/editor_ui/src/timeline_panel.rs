@@ -58,6 +58,12 @@ impl EditorFeature for TimelinePanelFeature {
                 .context("normal")
                 .bind("space t t"),
         );
+        reg.action(
+            ActionDef::new("timeline.event", "Add Timeline Event")
+                .describe("Mark this moment with a name the game can react to")
+                .context("normal")
+                .bind("space t e"),
+        );
     }
 }
 
@@ -126,12 +132,50 @@ pub(crate) fn spawn_timeline_panel(mut commands: Commands, fonts: Res<UiFonts>) 
 pub(crate) fn handle_timeline_actions(
     mut reader: MessageReader<ActionInvoked>,
     mut state: ResMut<TimelinePanelState>,
+    mut prompt: ResMut<editor_prefabs::authoring::GroupPrompt>,
 ) {
     for invoked in reader.read() {
-        if invoked.action.as_str() == "timeline.toggle" {
-            state.open = !state.open;
+        match invoked.action.as_str() {
+            "timeline.toggle" => state.open = !state.open,
+            // Through THE name prompt, the same surface prefab naming and
+            // material renaming use.
+            "timeline.event" => {
+                prompt.open = true;
+                prompt.purpose = editor_prefabs::authoring::PromptPurpose::TimelineEvent;
+            }
+            _ => {}
         }
     }
+}
+
+/// Consume the name the prompt collected and mark this moment with it.
+pub(crate) fn commit_timeline_event(
+    mut commit: ResMut<editor_prefabs::authoring::GroupCommit>,
+    prompt: Res<editor_prefabs::authoring::GroupPrompt>,
+    playhead: Res<Playhead>,
+    mut timeline: ResMut<Timeline>,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    if prompt.purpose != editor_prefabs::authoring::PromptPurpose::TimelineEvent {
+        return;
+    }
+    let Some(name) = commit.0.take() else { return };
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return;
+    }
+    let at = playhead.time;
+    timeline.events.push(editor_scene::anim::EventMarker {
+        time: at,
+        name: name.clone(),
+    });
+    // Sorted, so the track view reads left to right and crossing walks in order.
+    timeline.events.sort_by(|a, b| a.time.total_cmp(&b.time));
+    timeline.generation += 1;
+    feedback.write(editor_scene::SceneIoFeedback {
+        message: format!("{name} at {at:.2}s"),
+        success: true,
+    });
 }
 
 /// Rebuild the rows when the tracks change — NOT when time moves.

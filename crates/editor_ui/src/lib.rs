@@ -291,6 +291,7 @@ impl Plugin for EditorUiPlugin {
             Update,
             (
                 timeline_panel::handle_timeline_actions,
+                timeline_panel::commit_timeline_event,
                 material_editor::collect_editor_actions,
                 material_editor::collect_rename,
                 material_editor::handle_material_library_verbs,
@@ -359,6 +360,12 @@ impl Plugin for EditorUiPlugin {
             Update,
             probe_place::probe_place
                 .run_if(|| std::env::var("PLACE_PROBE").is_ok())
+                .in_set(editor_core::EditorSet::Sync),
+        );
+        app.add_systems(
+            Update,
+            probe_blockout::count_timeline_events
+                .run_if(|| std::env::var("BLOCKOUT_PROBE").is_ok())
                 .in_set(editor_core::EditorSet::Sync),
         );
         app.add_systems(
