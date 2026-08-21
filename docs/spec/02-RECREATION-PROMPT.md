@@ -1449,6 +1449,30 @@ scene capture cannot see it, it never enters a transaction, and it is torn down
 when the template closes. A prefab must never acquire a light it did not ask
 for because someone looked at it.
 
+
+**Drag a row to re-file it (2026-08-21, owner direction).** Reparenting existed
+on `>` and `<` — indent under the previous visible sibling, outdent to the
+grandparent. Exact, and no help at all when the new parent is somewhere else
+entirely. Dragging says where directly.
+
+It is the same verb underneath: one `EditScope` transaction carrying the
+reparent AND the rebased local transform, so a re-file is one undo step and
+never MOVES anything. Reparenting is a change of ownership; an object that
+jumped across the level because you dragged it to a different row would be a
+different edit than the one asked for.
+
+- **Dropping a group inside its own subtree is refused, out loud.** A cycle
+  makes those entities unreachable from any root: the panel stops listing them,
+  and scene capture — which walks from roots — writes a file without them.
+  Silent loss from one careless drag.
+- **Dropping on the empty space below the tree means the top level**, or the
+  only way to un-parent by mouse would be to drop onto some root and drag out
+  again.
+- **The row under the pointer is highlighted.** A drag with no target shown is
+  a guess with a commit at the end of it.
+- The DROP decides, not the drag: a pointer crosses rows on its way, and only
+  where it is released is an instruction.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

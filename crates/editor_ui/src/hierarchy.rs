@@ -43,6 +43,102 @@ pub(crate) struct HierarchyState {
     last_followed: Option<usize>,
 }
 
+/// A row being dragged onto another row, and the row it is over.
+///
+/// Reparenting already existed on `>` and `<`, which indent under the previous
+/// sibling and outdent to the grandparent — precise, and no help at all when
+/// the new parent is somewhere else entirely. Dragging says where directly.
+#[derive(Resource, Default)]
+pub(crate) struct HierarchyDrag {
+    /// What is being carried.
+    pub source: Option<SceneId>,
+    /// What it is currently over, for the drop highlight.
+    pub over: Option<SceneId>,
+    /// A completed drop, waiting for the system that owns `EditScope`.
+    pub drop: Option<(SceneId, Option<SceneId>)>,
+}
+
+/// Is `target` inside `source`'s own subtree?
+///
+/// Dropping a group into its own child would make a cycle: the entities become
+/// unreachable from any root, the hierarchy panel stops listing them, and scene
+/// capture — which walks from roots — writes a file missing them. Refusing is
+/// the only sane answer, and it has to be said out loud rather than ignored.
+pub(crate) fn is_inside(rows: &[Row], source: SceneId, target: SceneId) -> bool {
+    let mut current = Some(target);
+    while let Some(id) = current {
+        if id == source {
+            return true;
+        }
+        current = rows
+            .iter()
+            .find(|row| row.id == id)
+            .and_then(|row| row.parent);
+    }
+    false
+}
+
+/// Commit a dropped row, through the same path `>` and `<` use.
+pub(crate) fn perform_hierarchy_drop(
+    mut drag: ResMut<HierarchyDrag>,
+    entities: Query<(
+        Entity,
+        &SceneId,
+        Option<&ChildOf>,
+        Option<&Name>,
+        Has<editor_scene::models::MeshRef>,
+        Has<editor_core::lock::Locked>,
+    )>,
+    scene_ids: Query<&SceneId>,
+    hidden: Res<editor_core::hide::Hidden>,
+    state: Res<HierarchyState>,
+    index: Res<SceneIndex>,
+    globals: Query<&GlobalTransform>,
+    mut edits: EditScope,
+    mut feedback: MessageWriter<editor_scene::SceneIoFeedback>,
+) {
+    let Some((source, target)) = drag.drop.take() else {
+        return;
+    };
+    if Some(source) == target {
+        return;
+    }
+    let rows = build_rows(&entities, &scene_ids, &hidden, &state.collapsed);
+    if let Some(target) = target
+        && is_inside(&rows, source, target)
+    {
+        feedback.write(editor_scene::SceneIoFeedback {
+            message: "a group cannot go inside itself".into(),
+            success: false,
+        });
+        return;
+    }
+    // The world pose is preserved, exactly as the keyboard verbs do it: a
+    // reparent is a change of OWNERSHIP, and an object that jumped across the
+    // level because you re-filed it would be a different edit than the one
+    // asked for.
+    let mut tx = edits.transaction("Reparent").reparent(source, target);
+    if let Some(local) = world_preserving_local(&index, &globals, source, target) {
+        tx = tx.set(source, local);
+    }
+    tx.commit();
+    let name = rows
+        .iter()
+        .find(|row| row.id == source)
+        .map(|row| row.label.clone())
+        .unwrap_or_else(|| "object".into());
+    let into = target
+        .and_then(|id| rows.iter().find(|row| row.id == id))
+        .map(|row| row.label.clone());
+    feedback.write(editor_scene::SceneIoFeedback {
+        message: match into {
+            Some(parent) => format!("{name} \u{2192} {parent}"),
+            None => format!("{name} \u{2192} top level"),
+        },
+        success: true,
+    });
+}
+
 /// One visible row of the flattened tree (respecting folds).
 #[derive(Clone)]
 pub(crate) struct Row {
@@ -343,6 +439,7 @@ pub(crate) fn watch_hierarchy_inputs(
     selected: Query<&SceneId, With<Selected>>,
     focus: Res<PanelFocus>,
     state_res: Res<EditorState>,
+    drag: Res<HierarchyDrag>,
     mut state: ResMut<HierarchyState>,
 ) {
     let selection_changed = selection.read().next().is_some();
@@ -352,6 +449,9 @@ pub(crate) fn watch_hierarchy_inputs(
         || state_res.is_changed()
         // Hiding changes what every row looks like, and nothing else fires.
         || hidden.is_changed()
+        // The drop highlight lives in the row widgets, so a moving target has
+        // to rebuild them.
+        || drag.is_changed()
     {
         state.dirty = true;
     }
@@ -377,6 +477,7 @@ pub(crate) fn rebuild_hierarchy(
     )>,
     scene_ids: Query<&SceneId>,
     hidden: Res<editor_core::hide::Hidden>,
+    drag: Res<HierarchyDrag>,
     selected: Query<&SceneId, With<Selected>>,
     instances: Query<&SceneId, With<editor_prefabs::PrefabInstance>>,
     stamped: Query<&SceneId, With<editor_scene::PrefabStamped>>,
@@ -393,6 +494,18 @@ pub(crate) fn rebuild_hierarchy(
     let Some((body_entity, _)) = body.iter().find(|(_, b)| b.0.as_str() == HIERARCHY_PANEL) else {
         return;
     };
+    // Dropping on the empty space BELOW the tree means the top level. Without
+    // it, the only way to un-parent by mouse would be to find some root to
+    // drop onto and then drag out again.
+    commands.entity(body_entity).observe(
+        move |drop: On<Pointer<DragDrop>>, mut drag: ResMut<HierarchyDrag>| {
+            let _ = drop;
+            if let Some(source) = drag.source.take() {
+                drag.drop = Some((source, None));
+            }
+            drag.over = None;
+        },
+    );
     let ui = settings.ui.clone();
     let rows = build_rows(&entities, &scene_ids, &hidden, &state.collapsed);
     state.cursor = state.cursor.min(rows.len().saturating_sub(1));
@@ -452,7 +565,11 @@ pub(crate) fn rebuild_hierarchy(
                         flex_shrink: 0.0,
                         ..default()
                     },
-                    BackgroundColor(if is_cursor && panel_focused {
+                    BackgroundColor(if drag.over == Some(row.id) {
+                        // Where it would LAND. A drag with no target shown is
+                        // a guess with a commit at the end of it.
+                        style::color::accent().with_alpha(0.28)
+                    } else if is_cursor && panel_focused {
                         style::color::selection()
                     } else if is_selected {
                         // Authored for LINEAR blending: UI alpha composites in
@@ -482,6 +599,44 @@ pub(crate) fn rebuild_hierarchy(
                             }
                         },
                     )
+                    // Drag to re-file. `>` and `<` indent under the previous
+                    // sibling and outdent to the grandparent — exact, and no
+                    // help when the new parent is somewhere else entirely.
+                    .observe({
+                        let id = row.id;
+                        move |_: On<Pointer<DragStart>>, mut drag: ResMut<HierarchyDrag>| {
+                            drag.source = Some(id);
+                            drag.over = None;
+                        }
+                    })
+                    .observe({
+                        let id = row.id;
+                        move |_: On<Pointer<DragOver>>, mut drag: ResMut<HierarchyDrag>| {
+                            if drag.source.is_some_and(|source| source != id) {
+                                drag.over = Some(id);
+                            }
+                        }
+                    })
+                    .observe({
+                        let id = row.id;
+                        move |_: On<Pointer<DragLeave>>, mut drag: ResMut<HierarchyDrag>| {
+                            if drag.over == Some(id) {
+                                drag.over = None;
+                            }
+                        }
+                    })
+                    .observe({
+                        let id = row.id;
+                        move |_: On<Pointer<DragDrop>>, mut drag: ResMut<HierarchyDrag>| {
+                            // The DROP decides, not the drag: the pointer can
+                            // leave and re-enter rows on the way, and only
+                            // where it is released is an instruction.
+                            if let Some(source) = drag.source.take() {
+                                drag.drop = Some((source, Some(id)));
+                            }
+                            drag.over = None;
+                        }
+                    })
                     .with_children(|row_node| {
                         // Fold affordance: chevron folded/expanded, · leaf —
                         // nerd-font codepoints (BMP triangles are tofu here).
@@ -780,6 +935,133 @@ mod tests {
             "undo restores root"
         );
     }
+
+    fn drop_app() -> App {
+        let mut app = test_app();
+        app.init_resource::<HierarchyDrag>();
+        app.init_resource::<editor_core::hide::Hidden>();
+        app.add_systems(
+            Update,
+            perform_hierarchy_drop.in_set(editor_core::EditorSet::Tools),
+        );
+        app.update();
+        app
+    }
+
+    fn parent_of(app: &mut App, id: SceneId) -> Option<SceneId> {
+        let entity = app.world().resource::<SceneIndex>().get(&id)?;
+        let world = app.world_mut();
+        let parent = world.get::<ChildOf>(entity)?.parent();
+        world.get::<SceneId>(parent).copied()
+    }
+
+    /// A drop re-files through the same path `>` and `<` use: one transaction,
+    /// one undo entry, real `ChildOf`.
+    #[test]
+    fn dropping_a_row_onto_another_reparents_it() {
+        let mut app = drop_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        spawn_marker(&mut app, a);
+        spawn_marker(&mut app, b);
+        let depth = app.world().resource::<History>().undo_depth();
+
+        app.world_mut().resource_mut::<HierarchyDrag>().drop = Some((b, Some(a)));
+        app.update();
+        app.update();
+
+        assert_eq!(parent_of(&mut app, b), Some(a), "the drop did not land");
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth + 1,
+            "a drop must be ONE undoable step"
+        );
+        app.world_mut().resource_mut::<HistoryRequests>().undo = 1;
+        app.update();
+        assert_eq!(parent_of(&mut app, b), None, "undo did not un-file it");
+    }
+
+    /// Dropping onto empty space means the top level — otherwise the only way
+    /// to un-parent by mouse would be to drop onto some root and drag out again.
+    #[test]
+    fn dropping_on_empty_space_lifts_to_the_top_level() {
+        let mut app = drop_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        spawn_marker(&mut app, a);
+        spawn_marker(&mut app, b);
+        app.world_mut().resource_mut::<HierarchyDrag>().drop = Some((b, Some(a)));
+        app.update();
+        app.update();
+        assert_eq!(parent_of(&mut app, b), Some(a));
+
+        app.world_mut().resource_mut::<HierarchyDrag>().drop = Some((b, None));
+        app.update();
+        app.update();
+        assert_eq!(parent_of(&mut app, b), None, "it stayed filed");
+    }
+
+    /// THE refusal. A cycle makes those entities unreachable from any root, so
+    /// the panel stops listing them and scene capture writes a file without
+    /// them — silent loss, from one careless drag.
+    #[test]
+    fn dropping_a_parent_into_its_own_child_is_refused() {
+        let mut app = drop_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        spawn_marker(&mut app, a);
+        spawn_marker(&mut app, b);
+        app.world_mut().resource_mut::<HierarchyDrag>().drop = Some((b, Some(a)));
+        app.update();
+        app.update();
+
+        let depth = app.world().resource::<History>().undo_depth();
+        // Now try to put `a` inside its own child.
+        app.world_mut().resource_mut::<HierarchyDrag>().drop = Some((a, Some(b)));
+        app.update();
+        app.update();
+
+        assert_eq!(parent_of(&mut app, a), None, "a cycle was created");
+        assert_eq!(parent_of(&mut app, b), Some(a), "the tree was disturbed");
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth,
+            "a refused drop still spent an undo step"
+        );
+    }
+
+    /// A re-file must not MOVE anything. Reparenting is a change of ownership,
+    /// and an object that jumped across the level because you dragged it to a
+    /// different row would be a different edit than the one asked for.
+    ///
+    /// The globals are hand-written: this crate's test app has no
+    /// `TransformPlugin`, so nothing propagates and an assertion that trusted
+    /// `GlobalTransform` to be computed would pass against anything.
+    #[test]
+    fn a_dropped_row_keeps_its_place_in_the_world() {
+        let mut app = drop_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        spawn_marker(&mut app, a);
+        spawn_marker(&mut app, b);
+
+        let (parent_at, child_at) = (Vec3::new(10.0, 0.0, 0.0), Vec3::new(3.0, 0.0, 0.0));
+        for (id, at) in [(a, parent_at), (b, child_at)] {
+            let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+            app.world_mut().entity_mut(entity).insert((
+                Transform::from_translation(at),
+                GlobalTransform::from(Transform::from_translation(at)),
+            ));
+        }
+
+        app.world_mut().resource_mut::<HierarchyDrag>().drop = Some((b, Some(a)));
+        app.update();
+        app.update();
+
+        let entity = app.world().resource::<SceneIndex>().get(&b).unwrap();
+        let local = app.world().get::<Transform>(entity).unwrap().translation;
+        assert_eq!(
+            local,
+            child_at - parent_at,
+            "the child was re-filed but not re-based, so it jumped"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -803,5 +1085,48 @@ mod virtualization_tests {
         assert!(first < 10_000);
 
         assert_eq!(visible_window(0.0, 400.0, 0), (0, 0));
+    }
+
+    fn row(id: SceneId, parent: Option<SceneId>) -> Row {
+        Row {
+            id,
+            parent,
+            depth: 0,
+            has_children: false,
+            label: String::new(),
+            linked_model: false,
+            locked: false,
+            hidden: false,
+        }
+    }
+
+    /// A group dropped inside its own child would make a cycle: those entities
+    /// become unreachable from any root, so the panel stops listing them and
+    /// scene capture — which walks from roots — writes a file without them.
+    #[test]
+    fn a_group_cannot_be_dropped_inside_itself() {
+        let (a, b, c) = (SceneId::random(), SceneId::random(), SceneId::random());
+        let rows = vec![row(a, None), row(b, Some(a)), row(c, Some(b))];
+        assert!(is_inside(&rows, a, a), "onto itself is inside itself");
+        assert!(is_inside(&rows, a, b), "a direct child is inside");
+        assert!(
+            is_inside(&rows, a, c),
+            "a grandchild is inside — the walk has to go all the way up"
+        );
+    }
+
+    /// And everything else is fair game, including dropping a parent onto an
+    /// unrelated branch.
+    #[test]
+    fn an_unrelated_row_is_a_valid_target() {
+        let (a, b, other) = (SceneId::random(), SceneId::random(), SceneId::random());
+        let rows = vec![row(a, None), row(b, Some(a)), row(other, None)];
+        assert!(!is_inside(&rows, a, other));
+        assert!(
+            !is_inside(&rows, b, other),
+            "a child can be re-filed anywhere outside its own subtree"
+        );
+        // A child's PARENT is not inside the child.
+        assert!(!is_inside(&rows, b, a));
     }
 }

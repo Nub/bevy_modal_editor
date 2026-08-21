@@ -233,6 +233,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<inspector::InspectorReveal>();
         app.init_resource::<palette_preview::PreviewSubject>();
         app.init_resource::<template_env::TemplateEnvironment>();
+        app.init_resource::<hierarchy::HierarchyDrag>();
         app.init_resource::<material_editor::MaterialEditorState>();
         app.init_resource::<material_editor::MaterialHistory>();
         app.init_resource::<material_editor::PendingSeeds>();
@@ -294,6 +295,7 @@ impl Plugin for EditorUiPlugin {
                 socket_gizmo::sync_socket_gizmos,
                 inspector::reveal_section,
                 (
+                    hierarchy::perform_hierarchy_drop,
                     palette_preview::sync_preview_content,
                     template_env::sync_template_environment,
                     palette_preview::frame_preview,
