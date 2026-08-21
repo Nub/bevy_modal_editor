@@ -472,12 +472,17 @@ pub(crate) fn handle_selection_actions(
     hidden: Res<crate::hide::Hidden>,
     scope: Res<SelectionScope>,
     escape_from_capture: Res<crate::resolver::EscapeFromCapture>,
+    confirm: Res<crate::clipboard::DeleteConfirm>,
     mut commands: Commands,
     mut changed: MessageWriter<SelectionChanged>,
 ) {
     for invoked in reader.read() {
         match invoked.action.as_str() {
             "core.escape-home" if escape_from_capture.0 => {}
+            // A delete question owns Escape while it is up. Answering "no" and
+            // losing the selection anyway would make the safe answer nearly as
+            // expensive as the destructive one.
+            "core.escape-home" if confirm.pending.is_some() || confirm.just_cancelled => {}
             "core.escape-home" | "select.clear" => {
                 for entity in &selected {
                     commands.entity(entity).remove::<Selected>();

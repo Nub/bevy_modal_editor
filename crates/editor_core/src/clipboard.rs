@@ -24,6 +24,11 @@ pub struct EditorClipboard {
 #[derive(Resource, Default)]
 pub(crate) struct ClipboardRequests {
     cut: bool,
+    /// `d` was pressed with nothing pending: put the question up.
+    ask: bool,
+    /// The question was answered "no": say so, so a cancelled delete is not
+    /// silence.
+    cancelled: bool,
     yank: bool,
     paste: bool,
     duplicate: bool,
@@ -43,17 +48,99 @@ pub struct PendingPasteSelect(pub Vec<SceneId>);
 #[derive(Resource, Default)]
 pub(crate) struct PendingDuplicateGrab(Option<u8>);
 
+/// A delete waiting to be answered.
+///
+/// `d` is one keystroke from losing work, and the selection it acts on is not
+/// always the one you think — a box-drag catches more than it looks like, and
+/// `*` can take fifty objects at once. So `d` ASKS, and shows what it would
+/// take.
+///
+/// A second `d` answers it. That is deliberately not a `d d` key sequence: the
+/// keymap rejects binding a chord that is a strict prefix of another, and it is
+/// right to — but it also means the fast path has to come from the dialog
+/// answering, not from the resolver. The result is what the muscle wants
+/// anyway: `dd` deletes at once, a lone `d` stops and tells you what is at
+/// stake.
+#[derive(Resource, Default)]
+pub struct DeleteConfirm {
+    /// What would go, by name, for the dialog to show.
+    pub pending: Option<DeletePrompt>,
+    /// Set for the rest of the frame in which Escape answered "no", so the
+    /// selection handler — which also owns Escape — knows the key was spoken
+    /// for. Answering no must LEAVE you the selection you just saved; clearing
+    /// it would make cancelling nearly as costly as confirming.
+    pub(crate) just_cancelled: bool,
+}
+
+#[derive(Clone, Default)]
+pub struct DeletePrompt {
+    /// How many roots the delete would take.
+    pub count: usize,
+    /// The first few names, so the dialog names things rather than counts them.
+    pub names: Vec<String>,
+    /// Whether any of them carry children that would go too.
+    pub takes_children: bool,
+}
+
+impl DeletePrompt {
+    /// One line, because a dialog nobody reads is a dialog that only costs a
+    /// keystroke.
+    pub fn summary(&self) -> String {
+        let subject = match self.names.as_slice() {
+            [] => format!("{} objects", self.count),
+            [one] if self.count == 1 => one.clone(),
+            [first] => format!("{first} and {} more", self.count - 1),
+            [first, second] if self.count == 2 => format!("{first} and {second}"),
+            [first, ..] => format!("{first} and {} more", self.count - 1),
+        };
+        if self.takes_children {
+            format!("delete {subject}, and everything inside")
+        } else {
+            format!("delete {subject}")
+        }
+    }
+}
+
 pub(crate) fn collect_clipboard_actions(
     mut reader: MessageReader<ActionInvoked>,
     state: Res<EditorState>,
     mut requests: ResMut<ClipboardRequests>,
+    mut confirm: ResMut<DeleteConfirm>,
 ) {
+    // The one-frame Escape claim expires here, at the top of the next frame —
+    // after the selection handler, which runs later in the chain, has read it.
+    // Guarded so the resource is not marked changed every idle frame.
+    if confirm.just_cancelled {
+        confirm.just_cancelled = false;
+    }
     if !state.active {
         return;
     }
     for invoked in reader.read() {
         match invoked.action.as_str() {
-            "select.delete" => requests.cut = true,
+            // `d` ASKS. A second `d` while the question is up answers it, which
+            // is why this reads the pending state rather than cutting outright.
+            "select.delete" => {
+                if confirm.pending.take().is_some() {
+                    requests.cut = true;
+                } else {
+                    requests.ask = true;
+                }
+            }
+            // The palette entry and the dialog's own confirm: no question.
+            "select.delete-now" => {
+                confirm.pending = None;
+                requests.cut = true;
+            }
+            // Escape answers no, and so does the dialog own control. The
+            // question is the loudest thing on screen while it is up, so it
+            // gets first claim on the key that means "not that".
+            "select.delete-cancel" | "core.escape-home" => {
+                if confirm.pending.take().is_some() {
+                    confirm.just_cancelled = true;
+                    requests.cancelled = true;
+                }
+            }
             "select.yank" => requests.yank = true,
             "select.paste" => requests.paste = true,
             "select.duplicate" => requests.duplicate = true,
@@ -122,6 +209,42 @@ pub(crate) fn capture_copy_set(
 
 pub(crate) fn perform_clipboard(world: &mut World) {
     let requests = std::mem::take(&mut *world.resource_mut::<ClipboardRequests>());
+    if requests.ask {
+        // Build the question from the SAME fold the cut would use, so what it
+        // names is exactly what would go — a dialog that describes a different
+        // set than the verb acts on is worse than no dialog.
+        let found = crate::layout::copy_subjects(world);
+        let names: Vec<String> = found
+            .subject
+            .iter()
+            .take(3)
+            .map(|(_, entity)| {
+                world
+                    .get::<Name>(*entity)
+                    .map(|name| name.as_str().to_string())
+                    .unwrap_or_else(|| "object".into())
+            })
+            .collect();
+        let takes_children = found.subject.iter().any(|(_, entity)| {
+            world
+                .get::<Children>(*entity)
+                .is_some_and(|kids| kids.iter().any(|kid| world.get::<SceneId>(kid).is_some()))
+        });
+        if found.subject.is_empty() {
+            if let Some(message) = crate::layout::refusal(&found, "delete") {
+                say(world, message, false);
+            }
+        } else {
+            world.resource_mut::<DeleteConfirm>().pending = Some(DeletePrompt {
+                count: found.subject.len(),
+                names,
+                takes_children,
+            });
+        }
+    }
+    if requests.cancelled {
+        say(world, "kept".into(), true);
+    }
     if !requests.cut && !requests.yank && !requests.paste && !requests.duplicate {
         return;
     }
@@ -562,7 +685,7 @@ mod tests {
             world.entity_mut(entity).insert(Selected);
         }
 
-        invoke(&mut app, "select.delete");
+        invoke(&mut app, "select.delete-now");
         assert_eq!(
             payload_values(&mut app),
             Vec::<f32>::new(),
@@ -778,7 +901,7 @@ mod tests {
     fn cutting_a_group_and_pasting_it_returns_the_group() {
         let mut app = duplicate_app();
         let (a, _, _) = spawn_selected_group(&mut app);
-        invoke(&mut app, "select.delete");
+        invoke(&mut app, "select.delete-now");
         app.update();
         assert_eq!(scene_count(&mut app), 0, "the cut left something behind");
         assert!(app.world().resource::<SceneIndex>().get(&a).is_none());
@@ -811,7 +934,7 @@ mod tests {
     fn pasting_twice_gives_two_independent_groups() {
         let mut app = duplicate_app();
         spawn_selected_group(&mut app);
-        invoke(&mut app, "select.delete");
+        invoke(&mut app, "select.delete-now");
         app.update();
         invoke(&mut app, "select.paste");
         app.update();
@@ -845,7 +968,7 @@ mod tests {
     fn undoing_a_cut_restores_the_group() {
         let mut app = duplicate_app();
         spawn_selected_group(&mut app);
-        invoke(&mut app, "select.delete");
+        invoke(&mut app, "select.delete-now");
         app.update();
         app.world_mut().resource_mut::<HistoryRequests>().undo = 1;
         app.update();
@@ -929,7 +1052,7 @@ mod tests {
         app.world_mut()
             .entity_mut(b_entity)
             .insert(crate::lock::Locked);
-        invoke(&mut app, "select.delete");
+        invoke(&mut app, "select.delete-now");
         app.update();
 
         assert_eq!(scene_count(&mut app), 3, "a locked part was cut away");
@@ -1063,6 +1186,154 @@ mod tests {
             under_a,
             vec![5.0, 5.0],
             "a rejoined paste took the world pose and doubled its parent's offset"
+        );
+    }
+
+    // The delete question (owner direction): `d` asks, a second `d` answers.
+
+    fn pending(app: &App) -> bool {
+        app.world().resource::<DeleteConfirm>().pending.is_some()
+    }
+
+    #[test]
+    fn one_d_asks_and_deletes_nothing() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        invoke(&mut app, "select.delete");
+        app.update();
+        assert!(pending(&app), "d did not put the question up");
+        assert_eq!(scene_count(&mut app), 3, "d deleted before asking");
+    }
+
+    #[test]
+    fn the_question_names_what_would_go() {
+        let mut app = duplicate_app();
+        let (a, _, _) = spawn_selected_group(&mut app);
+        let entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(Name::new("Barrel"));
+        invoke(&mut app, "select.delete");
+        app.update();
+        let summary = app
+            .world()
+            .resource::<DeleteConfirm>()
+            .pending
+            .as_ref()
+            .unwrap()
+            .summary();
+        assert_eq!(
+            summary, "delete Barrel, and everything inside",
+            "the question did not name the object or warn about its children"
+        );
+    }
+
+    #[test]
+    fn a_second_d_confirms() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        invoke(&mut app, "select.delete");
+        app.update();
+        invoke(&mut app, "select.delete");
+        app.update();
+        assert!(!pending(&app), "the question stayed up after answering");
+        assert_eq!(scene_count(&mut app), 0, "dd did not delete");
+    }
+
+    #[test]
+    fn escape_answers_no_and_keeps_the_selection() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        invoke(&mut app, "select.delete");
+        app.update();
+        invoke(&mut app, "core.escape-home");
+        app.update();
+        assert!(!pending(&app), "escape left the question up");
+        assert_eq!(scene_count(&mut app), 3, "escape deleted anyway");
+        // The whole point of cancelling: you still have what you nearly lost.
+        let still_selected = app
+            .world_mut()
+            .query_filtered::<(), With<Selected>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(
+            still_selected, 1,
+            "cancelling the delete cleared the selection it was protecting"
+        );
+    }
+
+    #[test]
+    fn escape_still_clears_the_selection_with_no_question_up() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        invoke(&mut app, "core.escape-home");
+        app.update();
+        let still_selected = app
+            .world_mut()
+            .query_filtered::<(), With<Selected>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(still_selected, 0, "escape stopped clearing the selection");
+    }
+
+    #[test]
+    fn escape_clears_the_selection_again_on_the_next_press() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        invoke(&mut app, "select.delete");
+        app.update();
+        invoke(&mut app, "core.escape-home");
+        app.update();
+        // The one-frame claim must EXPIRE — otherwise cancelling a delete
+        // silently disarms Escape for the rest of the session.
+        invoke(&mut app, "core.escape-home");
+        app.update();
+        let still_selected = app
+            .world_mut()
+            .query_filtered::<(), With<Selected>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(
+            still_selected, 0,
+            "escape stayed disarmed after cancelling a delete"
+        );
+    }
+
+    #[test]
+    fn asking_with_nothing_selected_says_so_and_leaves_no_question() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        for entity in app
+            .world_mut()
+            .query_filtered::<Entity, With<Selected>>()
+            .iter(app.world())
+            .collect::<Vec<_>>()
+        {
+            app.world_mut().entity_mut(entity).remove::<Selected>();
+        }
+        invoke(&mut app, "select.delete");
+        app.update();
+        assert!(!pending(&app), "an empty question went up");
+        assert!(
+            !drain_feedback(&mut app).is_empty(),
+            "d with nothing selected said nothing at all"
+        );
+    }
+
+    #[test]
+    fn the_question_does_not_touch_the_yank_register() {
+        let mut app = duplicate_app();
+        spawn_selected_payload(&mut app, 1.0);
+        invoke(&mut app, "select.yank");
+        app.update();
+        invoke(&mut app, "select.delete");
+        app.update();
+        invoke(&mut app, "core.escape-home");
+        app.update();
+        assert_eq!(
+            app.world().resource::<EditorClipboard>().entries.len(),
+            1,
+            "putting the question up and cancelling clobbered the register"
         );
     }
 }

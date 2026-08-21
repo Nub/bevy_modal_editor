@@ -996,7 +996,7 @@ pub(crate) fn probe_handson(world: &mut World) {
             );
         }
         // The real delete verb, refused at the one choke point.
-        2670 => invoke(world, "select.delete"),
+        2670 => invoke(world, "select.delete-now"),
         2700 => {
             let roots = drum_roots(world);
             let spoke = world
@@ -1032,7 +1032,7 @@ pub(crate) fn probe_handson(world: &mut World) {
             check(world, free, "Space l again unlocks the selection");
         }
         // ...and then it deletes like anything else.
-        2750 => invoke(world, "select.delete"),
+        2750 => invoke(world, "select.delete-now"),
         2790 => {
             let remaining = drum_roots(world).len();
 
@@ -1691,6 +1691,50 @@ pub(crate) fn probe_handson(world: &mut World) {
             );
         }
         4436 => tap(world, KeyCode::KeyD, "d"),
+        // The delete question is up, on screen, and nothing is gone yet.
+        4438 => {
+            let pending = world
+                .resource::<editor_core::clipboard::DeleteConfirm>()
+                .pending
+                .clone();
+            let showing = world
+                .query_filtered::<&Visibility, With<crate::confirm::ConfirmRoot>>()
+                .iter(world)
+                .any(|v| *v == Visibility::Visible);
+            let (root, _) = world
+                .resource::<HandsonProbe>()
+                .delete_subject
+                .clone()
+                .unwrap_or((Entity::PLACEHOLDER, Vec::new()));
+            let alive = world.get_entity(root).is_ok();
+            check(
+                world,
+                pending.is_some() && showing && alive,
+                &format!(
+                    "one d asked before deleting (question {}, on screen {showing}, subject alive {alive})",
+                    pending
+                        .map(|p| p.summary())
+                        .unwrap_or_else(|| "none".into())
+                ),
+            );
+        }
+        4440 => tap(world, KeyCode::KeyD, "d"),
+        // ...and the second d took the question down with it.
+        4442 => {
+            let gone = world
+                .resource::<editor_core::clipboard::DeleteConfirm>()
+                .pending
+                .is_none();
+            let hidden = world
+                .query_filtered::<&Visibility, With<crate::confirm::ConfirmRoot>>()
+                .iter(world)
+                .all(|v| *v == Visibility::Hidden);
+            check(
+                world,
+                gone && hidden,
+                &format!("the question came down when answered (state {gone}, chrome {hidden})"),
+            );
+        }
         4470 => {
             let (root, children) = world
                 .resource::<HandsonProbe>()
@@ -1967,6 +2011,7 @@ pub(crate) fn probe_handson(world: &mut World) {
             check(world, selected == 1, "the group is selected, not the part");
         }
         4830 => tap(world, KeyCode::KeyD, "d"),
+        4834 => tap(world, KeyCode::KeyD, "d"),
         4870 => {
             let subject = world.resource::<HandsonProbe>().copy_subject.clone();
             let (root, children) = subject.unwrap_or((Entity::PLACEHOLDER, Vec::new()));
@@ -1997,6 +2042,7 @@ pub(crate) fn probe_handson(world: &mut World) {
             }
         }
         4890 => tap(world, KeyCode::KeyD, "d"),
+        4894 => tap(world, KeyCode::KeyD, "d"),
         4930 => {
             let subject = world.resource::<HandsonProbe>().copy_subject.clone();
             let (root, _) = subject.unwrap_or((Entity::PLACEHOLDER, Vec::new()));
@@ -2031,6 +2077,8 @@ pub(crate) fn probe_handson(world: &mut World) {
             }
         }
         4980 => tap(world, KeyCode::KeyD, "d"),
+        // `dd`: the second d answers the question the first one put up.
+        4984 => tap(world, KeyCode::KeyD, "d"),
         5020 => {
             let subject = world.resource::<HandsonProbe>().copy_subject.clone();
             let (root, children) = subject.unwrap_or((Entity::PLACEHOLDER, Vec::new()));

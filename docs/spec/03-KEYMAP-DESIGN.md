@@ -76,7 +76,7 @@ jump-back, and `'x/'y/'z` reads as "go to the X view."
 | `zf` | Frame whole scene | fold-ish mnemonic: "frame" |
 | `i` | **Insert mode**: place new entities (palette picks what) | insert |
 | `a` | Insert as *child of selection* ("append into") | vim `a` appends after |
-| `d` / `x` | Delete selection (to register) | same |
+| `d` / `x` | Delete selection (to register) — **asks first**; a second `d` confirms, so `dd` deletes at once (implemented 2026-08-21) | same, plus: `d` is one keystroke from losing work and the selection is not always the one you think. Not bound as a `d d` chord — the keymap rejects a binding that is a strict prefix of another, so the dialog answers rather than the resolver matching. `Esc` answers no and KEEPS the selection |
 | `Shift+D` | **Duplicate** selection and grab it (implemented 2026-08-19) | Blender; `d` is taken by delete, and duplicate-then-place is one motion in every DCC |
 | `y` / `p` / `P` | Yank / paste at cursor raycast / paste in place | same |
 | `o` | New sibling after selection (empty group / repeat last kind) | open line |

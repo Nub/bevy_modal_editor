@@ -1473,6 +1473,35 @@ different edit than the one asked for.
 - The DROP decides, not the drag: a pointer crosses rows on its way, and only
   where it is released is an instruction.
 
+**`d` asks before it deletes (2026-08-21, owner direction).** Delete is the one
+verb with no undo-shaped consolation for the second it takes to notice: undo
+brings the entities back, but the reflex is to press `d` again. And the
+selection `d` acts on is not always the one you think — a box-drag catches more
+than it looked like, `*` takes every similar object at once, and a fold means
+`d` on a child can take the parent's whole subtree. So `d` puts a question up
+first, and the question NAMES what would go rather than counting it: "delete
+Barrel and 3 more, and everything inside".
+
+A second `d` answers yes, so `dd` still deletes at once and the muscle memory
+survives. That is deliberately not a `d d` chord: `find_conflicts` rejects a
+binding that is a strict prefix of another as a hard `PrefixShadow` startup
+error, and it is right to — a `d` that waits to find out whether a second one is
+coming is a `d` that feels broken. The fast path therefore comes from the DIALOG
+answering, not the resolver matching, which also means the pause costs nothing
+when you meant it.
+
+- **The question is built from the same fold the cut uses** (`layout::copy_subjects`),
+  so it describes exactly the set the verb would take. A dialog that names a
+  different set than the verb acts on is worse than no dialog.
+- **`Esc` answers no and KEEPS the selection.** Escape otherwise clears it; while
+  a question is up the question owns the key, for one frame past the answer so
+  the two handlers cannot race. Cancelling that also cost you the selection
+  would make the safe answer nearly as expensive as the destructive one.
+- **Asking touches nothing** — not the yank register, not the history. Putting
+  the question up and dismissing it leaves the world byte-identical.
+- **`select.delete-now` is the no-question verb**, and it is what the palette
+  entry and every probe arm invoke. Automation should not have to answer dialogs.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

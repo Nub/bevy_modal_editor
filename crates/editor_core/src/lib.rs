@@ -221,10 +221,25 @@ impl EditorFeature for CoreFeature {
         // Selection is the text object (keymap doc): d cut, y yank, p paste.
         reg.action(
             ActionDef::new("select.delete", "Delete Selection")
-                .describe("Delete (cut) the selected entities")
+                .describe(
+                    "Delete (cut) the selected entities — asks first; press d \
+                     again to confirm",
+                )
                 .context("normal")
                 .bind("d")
                 .edit(),
+        )
+        .action(
+            ActionDef::new("select.delete-now", "Delete Without Asking")
+                .describe("Delete the selection immediately — no confirmation")
+                .context("normal")
+                .edit(),
+        )
+        .action(
+            ActionDef::new("select.delete-cancel", "Keep The Selection")
+                .describe("Answer no to the delete question")
+                .context("normal")
+                .hidden(),
         )
         .action(
             ActionDef::new("select.yank", "Yank Selection")
@@ -496,6 +511,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<resolver::OverlayContext>()
             .init_resource::<resolver::EscapeFromCapture>()
             .init_resource::<lock::LockRequests>()
+            .init_resource::<clipboard::DeleteConfirm>()
             .init_resource::<hide::Hidden>()
             .init_resource::<hide::HideRequests>()
             .init_resource::<similar::IdentityCatalog>()

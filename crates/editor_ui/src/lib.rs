@@ -10,6 +10,7 @@
 pub mod style;
 
 mod appear;
+mod confirm;
 mod dock;
 mod feature_gizmos;
 mod ghost;
@@ -296,6 +297,7 @@ impl Plugin for EditorUiPlugin {
                 inspector::reveal_section,
                 (
                     hierarchy::perform_hierarchy_drop,
+                    confirm::sync_confirm,
                     palette_preview::sync_preview_content,
                     template_env::sync_template_environment,
                     palette_preview::frame_preview,
@@ -344,6 +346,7 @@ impl Plugin for EditorUiPlugin {
                 statusbar::spawn_statusbar,
                 which_key::spawn_which_key,
                 prompt::spawn_prompt,
+                confirm::spawn_confirm,
                 grid::spawn_grid,
                 preview_env::setup_preview_environment,
                 template_env::setup_template_skies,
