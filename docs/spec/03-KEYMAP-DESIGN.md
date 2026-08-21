@@ -46,7 +46,7 @@
 | `/` | **Contextual search** (see per-context tables) | search |
 | `n` / `N` | Next / previous search result | same |
 | `?` | Cheat sheet / keymap browser for current context | (help) |
-| `Space` | Leader menu (which-key): `Space f` find, `Space p` play controls, `Space t` toggles (grid, gizmos, physics debug, shading), `Space w` window/panel ops, `Space l` lock/unlock the selection, `Space h` / `Space H` hide / isolate the selection, `Space u` unhide all, `Space b` light the prefab (while editing one), `Space x` array & mirror (`x/y/z` array along that world axis, shifted mirrors across it) | leader |
+| `Space` | Leader menu (which-key): `Space f` find, `Space p` play controls, `Space t` toggles (grid, gizmos, physics debug, shading), `Space w` window/panel ops (`Space w a` toggles the asset browser), `Space l` lock/unlock the selection, `Space h` / `Space H` hide / isolate the selection, `Space u` unhide all, `Space b` light the prefab (while editing one), `Space x` array & mirror (`x/y/z` array along that world axis, shifted mirrors across it) | leader |
 | `m{a-z}` / `'{a-z}` | Set / jump camera mark (marks store position + orientation) | marks |
 | `''` | Jump back to previous camera position (auto-stack) | `''` |
 | `'x` `'y` `'z` / `'X` `'Y` `'Z` | Ortho view down ±axis (orthographic toggle included) | mark-like |

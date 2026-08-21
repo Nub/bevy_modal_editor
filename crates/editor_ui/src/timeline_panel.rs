@@ -75,7 +75,12 @@ impl EditorFeature for TimelinePanelFeature {
     }
 }
 
-pub(crate) fn spawn_timeline_panel(mut commands: Commands, fonts: Res<UiFonts>) {
+pub(crate) fn spawn_timeline_panel(
+    mut commands: Commands,
+    fonts: Res<UiFonts>,
+    settings: Res<EditorSettings>,
+) {
+    let ui = settings.ui.clone();
     let root = commands
         .spawn((
             TimelinePanel,
@@ -83,9 +88,14 @@ pub(crate) fn spawn_timeline_panel(mut commands: Commands, fonts: Res<UiFonts>) 
             Node {
                 position_type: PositionType::Absolute,
                 // A timeline belongs along the bottom, above the status bar and
-                // clear of the side docks.
-                left: px(228.0),
-                right: px(492.0),
+                // clear of the side docks. It said "clear of the side docks"
+                // while hardcoding 228 against a left dock 280 wide, so it drew
+                // over the last ~50px of the hierarchy the whole time. Derived
+                // from the docks now, so the next width change cannot re-break
+                // it — and so the bottom dock, which the asset browser is the
+                // first tenant of, is not covered either.
+                left: px(ui.dock_left_width + style::space::M),
+                right: px(ui.dock_right_width + style::space::M),
                 bottom: px(style::BAR_HEIGHT + style::space::M),
                 max_height: px(200.0),
                 flex_direction: FlexDirection::Column,
@@ -198,7 +208,27 @@ pub(crate) fn sync_timeline_rows(
     panels: Query<Entity, With<TimelinePanel>>,
     bodies: Query<Entity, With<TimelineBody>>,
     mut visibility: Query<&mut Visibility, With<TimelinePanel>>,
+    mut nodes: Query<&mut Node, With<TimelinePanel>>,
+    settings: Res<EditorSettings>,
+    panel_states: Res<PanelStates>,
+    catalog: Res<PanelCatalog>,
 ) {
+    // Sit ABOVE the bottom dock when something is in it, rather than over it.
+    // The rule, not the number: any future bottom-dock tenant keeps working.
+    let bottom_dock = catalog
+        .in_placement(editor_api::panels::Placement::Bottom)
+        .any(|decl| panel_states.open(&decl.id));
+    let lift = if bottom_dock {
+        settings.ui.dock_bottom_height
+    } else {
+        0.0
+    };
+    for mut node in &mut nodes {
+        let target = px(style::BAR_HEIGHT + style::space::M + lift);
+        if node.bottom != target {
+            node.bottom = target;
+        }
+    }
     let want = state.open && editor.active;
     for mut visible in &mut visibility {
         let target = if want {

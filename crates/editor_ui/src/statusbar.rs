@@ -173,6 +173,7 @@ pub(crate) struct StatusData<'w> {
     timeline: Res<'w, editor_scene::anim::Timeline>,
     playhead: Res<'w, editor_scene::anim::Playhead>,
     settings: Res<'w, EditorSettings>,
+    asset_problems: Res<'w, editor_scene::models::AssetProblems>,
     hidden: Res<'w, editor_core::hide::Hidden>,
 }
 
@@ -353,6 +354,19 @@ pub(crate) fn update_statusbar(
         if errors + warnings > 0 {
             // Inter-covered glyphs only (× and ▲) — ✕/⚠ render tofu here.
             parts.push(format!("level \u{d7}{errors} \u{25b2}{warnings}"));
+        }
+        // And the same for the pipeline. An import problem is state too, and
+        // it used to live only in a toast that had already faded.
+        let asset_errors = data
+            .asset_problems
+            .count(editor_api::validate::Severity::Error);
+        let asset_warnings = data
+            .asset_problems
+            .count(editor_api::validate::Severity::Warning);
+        if asset_errors + asset_warnings > 0 {
+            parts.push(format!(
+                "assets \u{d7}{asset_errors} \u{25b2}{asset_warnings}"
+            ));
         }
         let status = parts.join("  ·  ");
         if text.0 != status {

@@ -14,7 +14,7 @@ use editor_core::prelude::*;
 use crate::style::{self, UiFonts};
 
 #[derive(Component)]
-pub(crate) struct DockRoot(#[allow(dead_code)] Placement);
+pub(crate) struct DockRoot(pub Placement);
 
 #[derive(Component)]
 pub(crate) struct PanelCard(pub PanelId);
@@ -301,25 +301,41 @@ pub(crate) fn style_scrollbars(
 /// the focused card gets the accent border + title (the ONE focus treatment).
 pub(crate) fn sync_dock_chrome(
     state: Res<EditorState>,
+    catalog: Res<PanelCatalog>,
     states: Res<PanelStates>,
     focus: Res<PanelFocus>,
-    mut docks: Query<(&DockRoot, &mut Visibility), Without<PanelCard>>,
+    mut docks: Query<(&DockRoot, &mut Visibility, &mut Node), Without<PanelCard>>,
     mut cards: Query<(&PanelCard, &mut Visibility, &mut BorderColor), Without<DockRoot>>,
     mut headers: Query<(&PanelHeader, &Children)>,
     mut titles: Query<&mut TextColor>,
 ) {
-    for (dock, mut visibility) in &mut docks {
+    for (dock, mut visibility, mut node) in &mut docks {
         let any_open = states.0.iter().any(|(id, open)| {
             *open
                 && cards
                     .iter()
-                    .any(|(card, _, _)| &card.0 == id && dock_has(dock, card))
+                    .any(|(card, _, _)| &card.0 == id && dock_has(dock, card, &catalog))
         });
-        *visibility = if state.active && any_open {
+        let showing = state.active && any_open;
+        *visibility = if showing {
             Visibility::Visible
         } else {
             Visibility::Hidden
         };
+        // AND out of layout. `Visibility::Hidden` stops the dock DRAWING but
+        // leaves its rectangle in the tree, where it still counts as chrome
+        // and still swallows the pointer — an empty bottom dock made every
+        // click in the lower third of the viewport select nothing at all.
+        // Nothing caught it before because no panel had ever asked for the
+        // bottom placement.
+        let display = if showing {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if node.display != display {
+            node.display = display;
+        }
     }
     for (card, mut visibility, mut border) in &mut cards {
         *visibility = if states.open(&card.0) {
@@ -354,9 +370,17 @@ pub(crate) fn sync_dock_chrome(
     }
 }
 
-fn dock_has(_dock: &DockRoot, _card: &PanelCard) -> bool {
-    // Cards live inside their dock's hierarchy; per-dock membership is structural.
-    true
+/// Does this card actually belong to this dock?
+///
+/// It used to answer "yes" for every pair, on the theory that cards live inside
+/// their own dock's hierarchy — true of the entities, useless as a predicate,
+/// because the caller asks it about a card it found by ID rather than by
+/// descent. So a dock counted as occupied whenever ANY panel anywhere was open.
+/// That was invisible while every dock had an open tenant of its own; the first
+/// panel to start CLOSED made an empty dock draw over the viewport and eat
+/// every click under it.
+fn dock_has(dock: &DockRoot, card: &PanelCard, catalog: &PanelCatalog) -> bool {
+    catalog.get(&card.0).map(|decl| decl.placement) == Some(dock.0)
 }
 
 /// Writes the kernel's `PointerOverChrome` gate: cursor inside any visible UI node

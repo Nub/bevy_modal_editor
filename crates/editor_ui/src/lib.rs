@@ -10,6 +10,7 @@
 pub mod style;
 
 mod appear;
+mod assets;
 mod confirm;
 mod dock;
 mod feature_gizmos;
@@ -18,6 +19,7 @@ mod grid;
 mod hierarchy;
 mod inspector;
 mod light_gizmo;
+mod list;
 mod marquee;
 mod material_editor;
 mod open_indicator;
@@ -26,6 +28,7 @@ mod palette;
 mod palette_engine;
 mod palette_preview;
 mod preview_env;
+mod probe_assets;
 mod probe_barrel;
 mod probe_blockout;
 mod probe_handson;
@@ -213,6 +216,7 @@ impl Plugin for EditorUiPlugin {
         app.add_editor_feature(material_editor::MaterialEditorFeature);
         app.add_editor_feature(timeline_panel::TimelinePanelFeature);
         app.add_editor_feature(problems::ProblemsFeature);
+        app.add_editor_feature(assets::AssetsFeature);
         app.add_observer(socket_gizmo::on_socket_added);
         app.add_observer(socket_gizmo::on_socket_removed);
 
@@ -246,6 +250,9 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<inspector::PendingFieldKeys>();
         app.init_resource::<problems::ProblemsState>();
         app.init_resource::<hierarchy::HierarchyState>();
+        app.init_resource::<assets::AssetsState>();
+        app.init_resource::<assets::AssetReveal>();
+        app.init_resource::<probe_assets::AssetsProbe>();
         app.init_resource::<inspector::InspectorModel>();
         app.init_resource::<inspector::InspectorGroups>();
         app.insert_resource(inspector::default_overrides());
@@ -299,6 +306,12 @@ impl Plugin for EditorUiPlugin {
                 inspector::reveal_section,
                 (
                     hierarchy::perform_hierarchy_drop,
+                    assets::watch_asset_sources,
+                    assets::collect_asset_actions,
+                    assets::perform_asset_activate,
+                    assets::open_palette_from_assets,
+                    assets::perform_reveal,
+                    assets::rebuild_assets,
                     confirm::sync_confirm,
                     palette_preview::sync_preview_content,
                     template_env::sync_template_environment,
@@ -388,6 +401,12 @@ impl Plugin for EditorUiPlugin {
             Update,
             probe_socket::probe_socket
                 .run_if(|| std::env::var("SOCKET_PROBE").is_ok())
+                .in_set(editor_core::EditorSet::Sync),
+        );
+        app.add_systems(
+            Update,
+            probe_assets::probe_assets
+                .run_if(|| std::env::var("ASSETS_PROBE").is_ok())
                 .in_set(editor_core::EditorSet::Sync),
         );
         app.add_systems(

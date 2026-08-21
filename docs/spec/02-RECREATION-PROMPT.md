@@ -553,6 +553,30 @@ which need a per-asset user-metadata store the identity sidecar deliberately is
 not; filesystem watching, which stays the explicit `asset.import` verb; and
 scene open/save-as, whose real blocker is that `scene.open`/`scene.save` take no
 argument — parameterized actions, not a browser.
+
+**What the first bottom-dock tenant exposed (2026-08-21).** Two latent defects,
+neither reachable until a panel asked for the bottom placement, and both of
+which made clicks in the lower third of the viewport select nothing at all.
+
+`sync_dock_chrome` decided whether a dock had an open tenant with a predicate
+that answered "yes" for every card/dock pair — its comment reasoned that cards
+live inside their own dock's hierarchy, which is true of the ENTITIES and
+useless as a predicate, because the caller looks a card up by id rather than by
+descent. So every dock counted as occupied whenever any panel anywhere was open.
+Invisible while every dock had an open tenant of its own; the first panel to
+start CLOSED made an empty dock draw over the viewport. The predicate now
+compares the card's declared placement against the dock's.
+
+And a dock with nothing open now leaves LAYOUT, not just rendering.
+`Visibility::Hidden` stops a node drawing but keeps its rectangle in the tree,
+where `PointerOverChrome` still counts it as chrome — an invisible panel that
+swallows input is worse than a visible one.
+
+The asset browser's probe asserts the geometry the way it should have been
+asserted all along: the timeline's rect against all three dock rects, not merely
+against the window. That check also caught the timeline's own hardcoded
+`left: 228` sitting on top of a 280-wide left dock, which it had been doing
+since the day both existed.
 ### Prefabs (`editor_prefabs`) — the unit of game-ready
 The pipeline's terminal product and the primary authoring workflow:
 - A **prefab** = versioned asset: entity hierarchy of registered components + references (by

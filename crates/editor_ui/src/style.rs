@@ -37,6 +37,9 @@ pub mod glyph {
     pub const LOCK: &str = "\u{f023}";
     /// Hidden object badge (fa-eye-slash).
     pub const EYE_SLASH: &str = "\u{f070}";
+    /// Asset browser: an imported model (fa-cube) and a texture (fa-image).
+    pub const MODEL: &str = "\u{f1b2}";
+    pub const TEXTURE: &str = "\u{f03e}";
 }
 
 /// THE chrome palette — one disciplined set, never ad-hoc RGB.

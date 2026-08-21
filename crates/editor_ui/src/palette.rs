@@ -1088,55 +1088,7 @@ fn palette_keys(
                     }
                     PalettePayload::Model(model) => {
                         let model = *model;
-                        commands.queue(move |world: &mut World| {
-                            let at = world
-                                .resource::<CursorGround>()
-                                .0
-                                .or_else(|| camera_focus_ground(world))
-                                .unwrap_or(Vec3::ZERO);
-                            let name = world
-                                .resource::<editor_scene::models::ModelLibrary>()
-                                .get(&model)
-                                .map(|entry| entry.name.clone())
-                                .unwrap_or_else(|| "model".into());
-                            // A model carries no sockets of its own, but a
-                            // SELECTED socket still says where this goes —
-                            // putting it where you pointed beats ignoring you.
-                            let (pose, _) =
-                                editor_prefabs::sockets::placement_for(world, &[], at, 0.0);
-                            let id = SceneId::random();
-                            world.resource_mut::<EditQueue>().0.push(Transaction {
-                                label: "Place Model".into(),
-                                gesture: None,
-                                ops: vec![Op::Spawn {
-                                    id,
-                                    components: vec![
-                                        Box::new(editor_scene::models::MeshRef(model))
-                                            .into_partial_reflect(),
-                                        Box::new(pose).into_partial_reflect(),
-                                        Box::new(Name::new(name.clone())).into_partial_reflect(),
-                                    ],
-                                }],
-                            });
-                            world
-                                .resource_mut::<editor_core::selection::PendingSelect>()
-                                .0 = Some(id);
-                            let from = {
-                                let mut current = world.resource_mut::<CurrentMode>();
-                                (current.0 != MODE_NORMAL)
-                                    .then(|| std::mem::replace(&mut current.0, MODE_NORMAL))
-                            };
-                            if let Some(from) = from {
-                                world.write_message(ModeChanged {
-                                    from,
-                                    to: MODE_NORMAL,
-                                });
-                            }
-                            world.write_message(editor_scene::SceneIoFeedback {
-                                message: format!("placed {name}"),
-                                success: true,
-                            });
-                        });
+                        commands.queue(move |world: &mut World| place_model(world, model));
                     }
                     PalettePayload::Environment(room) => {
                         let room = *room;
@@ -1308,6 +1260,92 @@ fn apply_search_font_setting(
     font.font_size = bevy::text::FontSize::Px(settings.ui.font_size_search);
 }
 
+/// Put an imported model into the level.
+///
+/// Extracted from the palette's Model arm so the asset browser goes through the
+/// SAME door — one `EditQueue` transaction labelled "Place Model", one undo
+/// entry, the selection landing on what was just placed. A second placement
+/// path would be the side door §8 forbids, and would drift the moment either
+/// one learned something (socket mating, say) that the other did not.
+///
+/// Already a `&mut World` closure at its call site, so lifting it here does not
+/// put `&mut World` into a UI system.
+pub(crate) fn place_model(world: &mut World, model: uuid::Uuid) {
+    let at = world
+        .resource::<CursorGround>()
+        .0
+        .or_else(|| camera_focus_ground(world))
+        .unwrap_or(Vec3::ZERO);
+    let name = world
+        .resource::<editor_scene::models::ModelLibrary>()
+        .get(&model)
+        .map(|entry| entry.name.clone())
+        .unwrap_or_else(|| "model".into());
+    // A model carries no sockets of its own, but a SELECTED socket still says
+    // where this goes — putting it where you pointed beats ignoring you.
+    let (pose, _) = editor_prefabs::sockets::placement_for(world, &[], at, 0.0);
+    let id = SceneId::random();
+    world.resource_mut::<EditQueue>().0.push(Transaction {
+        label: "Place Model".into(),
+        gesture: None,
+        ops: vec![Op::Spawn {
+            id,
+            components: vec![
+                Box::new(editor_scene::models::MeshRef(model)).into_partial_reflect(),
+                Box::new(pose).into_partial_reflect(),
+                Box::new(Name::new(name.clone())).into_partial_reflect(),
+            ],
+        }],
+    });
+    world
+        .resource_mut::<editor_core::selection::PendingSelect>()
+        .0 = Some(id);
+    let from = {
+        let mut current = world.resource_mut::<CurrentMode>();
+        (current.0 != MODE_NORMAL).then(|| std::mem::replace(&mut current.0, MODE_NORMAL))
+    };
+    if let Some(from) = from {
+        world.write_message(ModeChanged {
+            from,
+            to: MODE_NORMAL,
+        });
+    }
+    world.write_message(editor_scene::SceneIoFeedback {
+        message: format!("placed {name}"),
+        success: true,
+    });
+}
+
+/// How big a model is, as one line, from the box the Process stage measured
+/// without loading it.
+///
+/// Extracted because the browser shows the same number: two renderings of one
+/// recorded value that could disagree is exactly the pattern §11 catalogs.
+/// Returns the colour with the text because the two are one decision — a
+/// number the editor is not sure about must not look like one it is.
+pub(crate) fn size_line(bounds: Option<editor_assets::ModelBounds>) -> (String, Color) {
+    match bounds {
+        Some(bounds) => {
+            let [x, y, z] = bounds.size();
+            // `≥` when a primitive could not be measured: the box is a lower
+            // bound, and the record says so rather than rounding the
+            // uncertainty away.
+            let prefix = if bounds.complete { "" } else { "\u{2265} " };
+            (
+                format!("{prefix}{x:.2} \u{d7} {y:.2} \u{d7} {z:.2} m"),
+                if bounds.complete {
+                    style::color::TEXT_KEYS
+                } else {
+                    style::color::TEXT_DIM
+                },
+            )
+        }
+        None => (
+            "size unknown \u{b7} no bounds recorded".into(),
+            style::color::TEXT_DIM,
+        ),
+    }
+}
 fn rebuild_results(
     state: Res<PaletteState>,
     items: Res<PaletteItems>,
@@ -1515,25 +1553,11 @@ fn rebuild_results(
                     ));
                 }
                 let bounds = models.get(model).and_then(|entry| entry.bounds);
-                let size_line = match bounds {
-                    Some(bounds) => {
-                        let [x, y, z] = bounds.size();
-                        // `≥` when a primitive could not be measured: the box is
-                        // a lower bound, and the record says so rather than
-                        // rounding the uncertainty away.
-                        let prefix = if bounds.complete { "" } else { "\u{2265} " };
-                        format!("{prefix}{x:.2} \u{d7} {y:.2} \u{d7} {z:.2} m")
-                    }
-                    None => "size unknown \u{b7} no bounds recorded".into(),
-                };
+                let (text, colour) = size_line(bounds);
                 pane.spawn((
-                    Text::new(size_line),
+                    Text::new(text),
                     style::mono(&fonts, ui.font_size_s),
-                    TextColor(if bounds.is_some_and(|b| b.complete) {
-                        style::color::TEXT_KEYS
-                    } else {
-                        style::color::TEXT_DIM
-                    }),
+                    TextColor(colour),
                 ));
                 if let Some(bounds) = bounds {
                     pane.spawn((
@@ -1804,5 +1828,50 @@ mod section_tests {
         assert_eq!(PaletteGroup::from_id("transform.drop"), PaletteGroup::EDIT);
         assert_eq!(PaletteGroup::from_id("view.top"), PaletteGroup::VIEW);
         assert_eq!(PaletteGroup::from_id("scene.save"), PaletteGroup::SCENE);
+    }
+
+    /// The size line is the only place a designer sees the Process stage's
+    /// measurement, and the browser shows the same one. Its three states are
+    /// three different claims and must not blur together.
+    #[test]
+    fn a_measured_box_reads_exactly() {
+        let bounds = editor_assets::ModelBounds {
+            min: [0.0, 0.0, 0.0],
+            max: [4.0, 3.0, 0.25],
+            triangles: 12,
+            complete: true,
+        };
+        let (text, colour) = size_line(Some(bounds));
+        assert_eq!(text, "4.00 \u{d7} 3.00 \u{d7} 0.25 m");
+        assert_eq!(colour, style::color::TEXT_KEYS);
+        assert!(
+            !text.contains('\u{2265}'),
+            "a complete box claimed uncertainty"
+        );
+    }
+
+    #[test]
+    fn an_incomplete_box_says_at_least() {
+        let bounds = editor_assets::ModelBounds {
+            min: [0.0, 0.0, 0.0],
+            max: [4.0, 3.0, 0.25],
+            triangles: 12,
+            complete: false,
+        };
+        let (text, colour) = size_line(Some(bounds));
+        // A number the editor is not sure about must not look like one it is.
+        assert!(text.starts_with('\u{2265}'), "{text}");
+        assert_eq!(colour, style::color::TEXT_DIM);
+    }
+
+    #[test]
+    fn no_box_says_so_rather_than_showing_zero() {
+        let (text, colour) = size_line(None);
+        assert!(
+            !text.contains("0.00"),
+            "an unmeasured model read as zero-sized"
+        );
+        assert!(text.contains("unknown"), "{text}");
+        assert_eq!(colour, style::color::TEXT_DIM);
     }
 }

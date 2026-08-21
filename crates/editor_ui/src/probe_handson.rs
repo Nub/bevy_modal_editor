@@ -919,7 +919,7 @@ pub(crate) fn probe_handson(world: &mut World) {
             let row = world
                 .query::<(Entity, &crate::problems::ProblemRow)>()
                 .iter(world)
-                .find(|(_, row)| row.0.is_some())
+                .find(|(_, row)| matches!(row.0, crate::problems::ProblemTarget::Entity(_)))
                 .map(|(e, _)| e);
             match row.and_then(|r| ui_center(world, r)) {
                 Some(center) => move_cursor(world, center),
