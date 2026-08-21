@@ -33,6 +33,8 @@ pub mod glyph {
     pub const ERROR: &str = "\u{f00d}";
     pub const WARNING: &str = "\u{f071}";
     pub const INFO: &str = "\u{f05a}";
+    /// Locked object badge (fa-lock).
+    pub const LOCK: &str = "\u{f023}";
 }
 
 /// THE chrome palette — one disciplined set, never ad-hoc RGB.

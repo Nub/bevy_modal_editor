@@ -323,12 +323,11 @@ impl Default for SceneFile {
 #[derive(Resource, Default)]
 pub struct SceneDirty(pub bool);
 
-/// UI-facing result of a save/load — logging is not user feedback (design bar).
-#[derive(Message, Debug)]
-pub struct SceneIoFeedback {
-    pub message: String,
-    pub success: bool,
-}
+/// The editor's feedback channel, now defined in `editor_api` so every layer
+/// can speak through it (the kernel refuses locked edits; ingest reports what
+/// it cooked). Re-exported here because save/load is where it started and
+/// `editor_scene::SceneIoFeedback` is the name the whole editor already uses.
+pub use editor_api::feedback::SceneIoFeedback;
 
 #[derive(Resource, Default)]
 struct SceneIoRequests {

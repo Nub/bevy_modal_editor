@@ -57,6 +57,10 @@ pub(crate) struct Row {
     /// identical here — and whether a model is flattened decides what you can
     /// select, shade, and hang colliders on.
     pub linked_model: bool,
+    /// Locked: this object refuses edits. The hierarchy is where you scan a
+    /// level, so it is where "why won't this move?" is answered without
+    /// clicking anything.
+    pub locked: bool,
 }
 
 #[derive(Component)]
@@ -75,6 +79,7 @@ pub(crate) fn build_rows(
         Option<&ChildOf>,
         Option<&Name>,
         Has<editor_scene::models::MeshRef>,
+        Has<editor_core::lock::Locked>,
     )>,
     scene_ids: &Query<&SceneId>,
     collapsed: &HashSet<SceneId>,
@@ -82,7 +87,8 @@ pub(crate) fn build_rows(
     let mut label_of: HashMap<SceneId, String> = HashMap::new();
     let mut children: HashMap<Option<SceneId>, Vec<SceneId>> = HashMap::new();
     let mut linked: HashSet<SceneId> = HashSet::new();
-    for (_, id, child_of, name, linked_model) in entities.iter() {
+    let mut locked: HashSet<SceneId> = HashSet::new();
+    for (_, id, child_of, name, linked_model, is_locked) in entities.iter() {
         let parent = child_of
             .and_then(|c| scene_ids.get(c.parent()).ok())
             .copied();
@@ -92,6 +98,9 @@ pub(crate) fn build_rows(
         label_of.insert(*id, label);
         if linked_model {
             linked.insert(*id);
+        }
+        if is_locked {
+            locked.insert(*id);
         }
         children.entry(parent).or_default().push(*id);
     }
@@ -106,6 +115,7 @@ pub(crate) fn build_rows(
         children: &HashMap<Option<SceneId>, Vec<SceneId>>,
         label_of: &HashMap<SceneId, String>,
         linked: &HashSet<SceneId>,
+        locked: &HashSet<SceneId>,
         collapsed: &HashSet<SceneId>,
         rows: &mut Vec<Row>,
     ) {
@@ -121,6 +131,7 @@ pub(crate) fn build_rows(
                 has_children,
                 label: label_of.get(id).cloned().unwrap_or_default(),
                 linked_model: linked.contains(id),
+                locked: locked.contains(id),
             });
             if has_children && !collapsed.contains(id) {
                 walk(
@@ -129,13 +140,16 @@ pub(crate) fn build_rows(
                     children,
                     label_of,
                     linked,
+                    locked,
                     collapsed,
                     rows,
                 );
             }
         }
     }
-    walk(None, 0, &children, &label_of, &linked, collapsed, &mut rows);
+    walk(
+        None, 0, &children, &label_of, &linked, &locked, collapsed, &mut rows,
+    );
     rows
 }
 
@@ -167,6 +181,7 @@ pub(crate) fn handle_hierarchy_actions(
         Option<&ChildOf>,
         Option<&Name>,
         Has<editor_scene::models::MeshRef>,
+        Has<editor_core::lock::Locked>,
     )>,
     scene_ids: Query<&SceneId>,
     index: Res<SceneIndex>,
@@ -306,6 +321,7 @@ pub(crate) fn watch_hierarchy_inputs(
         Option<&ChildOf>,
         Option<&Name>,
         Has<editor_scene::models::MeshRef>,
+        Has<editor_core::lock::Locked>,
     )>,
     scene_ids: Query<&SceneId>,
     selected: Query<&SceneId, With<Selected>>,
@@ -339,6 +355,7 @@ pub(crate) fn rebuild_hierarchy(
         Option<&ChildOf>,
         Option<&Name>,
         Has<editor_scene::models::MeshRef>,
+        Has<editor_core::lock::Locked>,
     )>,
     scene_ids: Query<&SceneId>,
     selected: Query<&SceneId, With<Selected>>,
@@ -485,6 +502,21 @@ pub(crate) fn rebuild_hierarchy(
                                 style::color::TEXT_KEYS
                             }),
                         ));
+                        // The padlock rides with the NAME rather than in a
+                        // far column: it is the answer to "why did nothing
+                        // happen when I moved that?", and that question is
+                        // asked while looking at the object, not the margin.
+                        if row.locked {
+                            row_node.spawn((
+                                Text::new(style::glyph::LOCK),
+                                style::mono(&fonts, ui.font_size_xs),
+                                TextColor(style::color::TEXT_WARN),
+                                Node {
+                                    margin: UiRect::left(px(style::space::XS)),
+                                    ..default()
+                                },
+                            ));
+                        }
                         // A linked model reads as an empty entity otherwise —
                         // its geometry is in the derived subtree, which has no
                         // rows. The badge is how you tell "not flattened yet".
@@ -537,6 +569,7 @@ pub(crate) fn watch_hierarchy_window(
         Option<&ChildOf>,
         Option<&Name>,
         Has<editor_scene::models::MeshRef>,
+        Has<editor_core::lock::Locked>,
     )>,
     scene_ids: Query<&SceneId>,
     body: Query<(&ComputedNode, &ScrollPosition, &PanelBody)>,

@@ -11,6 +11,7 @@ pub mod actions;
 pub mod bake;
 pub mod edits;
 pub mod feature;
+pub mod feedback;
 pub mod gizmos;
 pub mod ids;
 pub mod keymap;
@@ -34,6 +35,7 @@ pub mod prelude {
         EditorAppExt, EditorFeature, FeatureManifest, FeatureRegistry, ModeDef, PendingFeatures,
         RegistryError, ValidatedFeatures,
     };
+    pub use crate::feedback::SceneIoFeedback;
     pub use crate::ids::{
         ActionId, BakerId, ContextId, EntityKindId, FeatureId, GLOBAL_CONTEXT, ModeId, PanelId,
         ProcessorId, SceneId, ValidatorId,

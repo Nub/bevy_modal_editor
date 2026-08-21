@@ -1014,6 +1014,54 @@ correct, and it kept doing so across a SELECTION CHANGE. A dead text field
 stayed focused forever, `KeyCapture` follows focus, and every key after that
 went to a text box nobody could see instead of to the resolver. Restoration is
 now conditional on the inspector still showing the same object.
+
+**Locking, and edits that mean the selection (2026-08-21, owner direction).**
+Three asks, one shape: "I want to be able to lock objects to prevent further
+editing", "batch lock / batch edit components", "and batch insert components".
+
+- **`Locked` is enforced at `apply_edits`, and nowhere else.** There is no side
+  door to the scene (§8), so a guard on the queue covers move, rotate, scale,
+  delete, reparent, patch, socket mating, drop, painting — and every verb
+  written after this one, with no per-verb check to forget. Refusal is PER OP:
+  a transaction touching a locked object and an unlocked one moves the unlocked
+  one, because a lock that cancelled the batch would make locking a floor mean
+  "you can never box-select again". A transaction refused in full records no
+  history entry — a phantom step would make the next undo unwind the edit
+  before it. Removing `Locked` is the one edit a locked object accepts;
+  refusing it would make the lock a trap rather than a tool.
+- **It persists with the level.** `Locked` is a registered editor component, so
+  a floor you locked is still locked when the file is reopened, which is the
+  point of locking a floor.
+- **It is visible in both places you look.** The hierarchy row carries a
+  padlock, and a locked selection silhouettes in the warn tone
+  (`viewport.locked_outline_color`) instead of the selection blue — "selected"
+  and "selected but frozen" are different states and must not look the same.
+  The refusal also SPEAKS ("2 locked objects · ␣l to unlock"): a verb that
+  silently does nothing reads as a broken editor.
+- **`Space l` locks the whole selection in one transaction**, and a mixed selection
+  LOCKS rather than inverting each object — with some locked and some not, the
+  intent of pressing lock is to end up with everything locked. It is on the
+  LEADER, not bare `l`: the keymap design reserves `h j k l` for selection
+  motion, and a rapid-layout verb is not worth spending a motion key on.
+- **An inspector field edit means the SELECTION.** The panel shows the first
+  selected object, but with several selected, "set roughness to 0.4" honestly
+  means all of them; the alternative is selecting ten crates and editing one,
+  which is the tedium selection exists to remove. Each target is recomputed
+  from its OWN current value — sending the shown object's finished component to
+  everyone would batch every other field with it, so nudging one crate's
+  rotation would teleport nine crates onto it. Renames never batch: names are
+  identities, and ten objects called "Barrel" is silently destructive. Editing
+  something that is not selected (a pinned row) means exactly that one thing.
+- **Batch insert/remove of components already worked**, one transaction across
+  the selection, and stays as it was.
+
+**The feedback channel moved to `editor_api` (2026-08-21).** `SceneIoFeedback`
+lived in `editor_scene` because save/load was the first thing with something to
+say. The kernel now refuses edits, and a crate cannot speak through a channel
+defined above it. It is defined in `editor_api::feedback`, registered by
+`EditorCorePlugin`, and re-exported from `editor_scene` under the name the
+whole editor already uses.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

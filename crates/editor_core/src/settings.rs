@@ -108,6 +108,10 @@ pub struct ViewportSettings {
     /// the old origin-to-socket reach of 2m was unreachable for a piece bigger
     /// than itself, and meaningless for a small one.
     pub socket_reach: f32,
+    /// Outline colour for a LOCKED selection (linear RGBA). The warn tone,
+    /// not the selection blue: "selected" and "selected but frozen" are
+    /// different states and must not look the same.
+    pub locked_outline_color: [f32; 4],
 }
 
 impl Default for ViewportSettings {
@@ -119,6 +123,7 @@ impl Default for ViewportSettings {
             grid_step: 1.0,
             angle_step: 15.0,
             socket_reach: 1.5,
+            locked_outline_color: [0.82, 0.42, 0.16, 1.0],
         }
     }
 }

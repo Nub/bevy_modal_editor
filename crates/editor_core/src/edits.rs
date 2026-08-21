@@ -356,7 +356,43 @@ pub fn apply_edits(world: &mut World) {
     let mut touched: Vec<SceneId> = Vec::new();
     let depth_before_queue = world.resource::<History>().undo.len();
 
-    for transaction in queue {
+    for mut transaction in queue {
+        // THE LOCK, enforced once. Every mutation in this editor arrives here,
+        // so a guard on the queue covers every verb — including the ones written
+        // after it — instead of a check each verb has to remember. Refused ops
+        // are dropped from the transaction; the rest of it still applies, so
+        // moving ten objects with two locked moves the eight.
+        let refused = {
+            let index = world.resource::<SceneIndex>();
+            let locked: std::collections::HashSet<SceneId> = index
+                .iter()
+                .filter(|(_, entity)| world.get::<crate::lock::Locked>(**entity).is_some())
+                .map(|(id, _)| *id)
+                .collect();
+            if locked.is_empty() {
+                0
+            } else {
+                let before = transaction.ops.len();
+                transaction
+                    .ops
+                    .retain(|op| !crate::lock::op_is_refused(op, |id| locked.contains(&id)));
+                before - transaction.ops.len()
+            }
+        };
+        if refused > 0 && transaction.ops.is_empty() {
+            // Say so, in the statusbar and not the log: a verb that silently
+            // does nothing reads as a broken editor, and "it is locked" is the
+            // whole answer. Every frame of a drag re-says it, which is right —
+            // the message should stay lit for as long as you keep trying.
+            world.write_message(editor_api::feedback::SceneIoFeedback {
+                message: format!(
+                    "{refused} locked object{} \u{00b7} \u{2423}l to unlock",
+                    if refused == 1 { "" } else { "s" }
+                ),
+                success: false,
+            });
+            continue;
+        }
         let inverse = apply_ops(
             world,
             &registry,
@@ -924,5 +960,135 @@ mod tests {
         let world = app.world_mut();
         let child_entity = world.resource::<SceneIndex>().get(&child).unwrap();
         assert!(world.get::<ChildOf>(child_entity).is_none());
+    }
+
+    /// THE LOCK, end to end (owner: "lock objects to prevent further editing").
+    ///
+    /// The point is not that a predicate returns true — it is that the ONE
+    /// place mutations happen honours it, and honours it PER OP: a transaction
+    /// that touches a locked object and an unlocked one moves the unlocked one
+    /// rather than failing whole. A lock that cancelled the batch would make
+    /// locking a floor mean "you can never box-select again".
+    #[test]
+    fn locked_objects_refuse_edits_while_their_neighbours_move() {
+        let mut app = test_app();
+        let (free, held) = (SceneId::random(), SceneId::random());
+        for id in [free, held] {
+            edit(&mut app, |q| {
+                q.0.push(Transaction {
+                    label: "spawn".into(),
+                    gesture: None,
+                    ops: vec![Op::Spawn {
+                        id,
+                        components: vec![Box::new(Transform::default()).into_partial_reflect()],
+                    }],
+                });
+            });
+        }
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "lock".into(),
+                gesture: None,
+                ops: vec![Op::Set {
+                    target: held,
+                    value: Box::new(crate::lock::Locked).into_partial_reflect(),
+                }],
+            });
+        });
+
+        let moved = Transform::from_xyz(5.0, 0.0, 0.0);
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "move both".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Set {
+                        target: free,
+                        value: Box::new(moved).into_partial_reflect(),
+                    },
+                    Op::Set {
+                        target: held,
+                        value: Box::new(moved).into_partial_reflect(),
+                    },
+                ],
+            });
+        });
+        let at = |app: &mut App, id: SceneId| {
+            let world = app.world_mut();
+            let entity = world.resource::<SceneIndex>().get(&id).unwrap();
+            world.get::<Transform>(entity).unwrap().translation
+        };
+        assert_eq!(at(&mut app, free), Vec3::new(5.0, 0.0, 0.0));
+        assert_eq!(at(&mut app, held), Vec3::ZERO, "a locked object moved");
+
+        // Despawn is refused too — the delete key is the edit locking exists for.
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: held }],
+            });
+        });
+        assert!(app.world().resource::<SceneIndex>().get(&held).is_some());
+
+        // And unlocking releases it, in the same one place.
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "unlock".into(),
+                gesture: None,
+                ops: vec![Op::Remove {
+                    target: held,
+                    type_path: <crate::lock::Locked as bevy::reflect::TypePath>::type_path().into(),
+                }],
+            });
+        });
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "move".into(),
+                gesture: None,
+                ops: vec![Op::Set {
+                    target: held,
+                    value: Box::new(moved).into_partial_reflect(),
+                }],
+            });
+        });
+        assert_eq!(at(&mut app, held), Vec3::new(5.0, 0.0, 0.0));
+    }
+
+    /// A refused transaction must not leave a phantom undo entry: pressing undo
+    /// after "nothing happened" would then unwind the edit BEFORE it.
+    #[test]
+    fn a_wholly_refused_transaction_records_no_history() {
+        let mut app = test_app();
+        let held = SceneId::random();
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: held,
+                    components: vec![
+                        Box::new(crate::lock::Locked).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        });
+        let depth = app.world().resource::<History>().undo_depth();
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "move".into(),
+                gesture: None,
+                ops: vec![Op::Set {
+                    target: held,
+                    value: Box::new(Transform::from_xyz(1.0, 2.0, 3.0)).into_partial_reflect(),
+                }],
+            });
+        });
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth,
+            "a refused edit put an empty step on the undo stack"
+        );
     }
 }

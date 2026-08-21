@@ -1669,8 +1669,50 @@ fn display_f32(v: f32) -> f32 {
     (v * 1.0e4).round() / 1.0e4
 }
 
-/// Queue one `Set` through the EditQueue: full component with the edited field
-/// applied, inverse captured by the kernel. `gesture` makes drag frames coalesce.
+/// Which objects one inspector edit reaches (owner: "I want to be able to
+/// batch edit components").
+///
+/// The inspector shows the FIRST selected object, but with several selected the
+/// honest reading of "set roughness to 0.4" is that it applies to what you
+/// selected — the alternative is selecting ten crates and editing one, which is
+/// the tedium selection exists to remove. So a field edit fans out to every
+/// selected object that carries the same component.
+///
+/// Two exclusions, both deliberate:
+/// - `NameText`, because names are identities. Giving ten objects one name is
+///   never what "batch edit" means, and it would be silently destructive.
+/// - anything the row is not reading off a component at all (material library
+///   params already target the asset, not the selection).
+fn batch_targets(world: &mut World, field: &InspectorField) -> Vec<SceneId> {
+    if matches!(
+        field.kind,
+        FieldKind::NameText | FieldKind::MaterialName | FieldKind::MaterialParam(_)
+    ) {
+        return vec![field.target];
+    }
+    let mut targets: Vec<SceneId> = world
+        .query_filtered::<&SceneId, With<Selected>>()
+        .iter(world)
+        .copied()
+        .collect();
+    if !targets.contains(&field.target) {
+        // Editing something that is NOT selected (a pinned inspector, a prefab
+        // row) means exactly that one thing.
+        return vec![field.target];
+    }
+    // Deterministic, and the shown object first so its op leads the transaction.
+    targets.sort_by_key(|id| (*id != field.target, id.0));
+    targets
+}
+
+/// Queue the edit through the EditQueue: for each target, that target's OWN
+/// current value with the edited field applied — inverses captured by the
+/// kernel, all of it in ONE transaction so a batch is one undo step.
+///
+/// Per-target recomputation is the whole trick. Sending the shown object's
+/// finished component to everyone would batch every OTHER field with it —
+/// nudging one crate's rotation would teleport nine crates onto it.
+/// `gesture` makes drag frames coalesce.
 fn queue_set(
     commands: &mut Commands,
     field: InspectorField,
@@ -1706,9 +1748,7 @@ fn queue_set(
             }
             _ => {}
         }
-        let Some(entity) = world.resource::<SceneIndex>().get(&field.target) else {
-            return;
-        };
+        let targets = batch_targets(world, &field);
         let registry = world.resource::<AppTypeRegistry>().clone();
         let registry = registry.read();
         let Some(registration) = registry.get_with_type_path(field.type_path) else {
@@ -1718,156 +1758,134 @@ fn queue_set(
         else {
             return;
         };
-        // NameText INSERTS when absent — every other kind edits an existing value.
-        let current = reflect_component.reflect(world.entity(entity));
-        if current.is_none() && !matches!(field.kind, FieldKind::NameText) {
-            return;
-        }
 
-        // A number or a bool IS a leaf, so it goes through Op::Patch — the
-        // delta an inspector edit actually is. The history entry then holds an
-        // f32 rather than a whole Transform per frame of a drag, and a prefab
-        // override can be read straight off the op instead of diffed back out
-        // of the component afterwards (spec §5: patches are the one delta
-        // language). The kinds below this are genuinely component-granular:
-        // Name rebuilds through its constructor because its hash is derived,
-        // and a Euler degree is one of three fields feeding one quaternion.
-        let leaf: Option<Box<dyn PartialReflect>> = match (field.kind, &new_value) {
-            (FieldKind::Direct, FieldNewValue::F32(value)) => Some(Box::new(*value)),
-            (FieldKind::Bool, FieldNewValue::Bool(value)) => Some(Box::new(*value)),
-            _ => None,
-        };
-        if let Some(value) = leaf {
-            drop(registry);
-            world.resource_mut::<EditQueue>().0.push(Transaction {
-                label: format!(
-                    "Edit {}",
-                    field.type_path.rsplit("::").next().unwrap_or("field")
-                ),
-                gesture,
-                ops: vec![Op::Patch {
-                    target: field.target,
-                    type_path: field.type_path.to_string(),
-                    path: field.path.to_string(),
-                    value,
-                }],
-            });
-            return;
+        let mut ops: Vec<Op> = Vec::new();
+        for target in targets {
+            let Some(entity) = world.resource::<SceneIndex>().get(&target) else {
+                continue;
+            };
+            // NameText INSERTS when absent — every other kind edits an existing
+            // value, and a selected object that simply hasn't got this
+            // component is skipped rather than grown one.
+            let current = reflect_component.reflect(world.entity(entity));
+            if current.is_none() && !matches!(field.kind, FieldKind::NameText) {
+                continue;
+            }
+            if let Some(op) = op_for_target(
+                target,
+                &field,
+                &new_value,
+                current.map(|c| c.as_partial_reflect()),
+                &registry,
+            ) {
+                ops.push(op);
+            }
         }
-
-        let boxed: Box<dyn PartialReflect> = match (field.kind, new_value) {
-            (FieldKind::Direct, FieldNewValue::F32(new_value)) => {
-                let Some(current) = current else { return };
-                let mut dynamic = current.as_partial_reflect().to_dynamic();
-                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else {
-                    return;
-                };
-                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else {
-                    return;
-                };
-                match element.try_downcast_mut::<f32>() {
-                    Some(slot) => *slot = new_value,
-                    None => return,
-                }
-                dynamic
-            }
-            (FieldKind::Bool, FieldNewValue::Bool(new_value)) => {
-                let Some(current) = current else { return };
-                let mut dynamic = current.as_partial_reflect().to_dynamic();
-                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else {
-                    return;
-                };
-                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else {
-                    return;
-                };
-                match element.try_downcast_mut::<bool>() {
-                    Some(slot) => *slot = new_value,
-                    None => return,
-                }
-                dynamic
-            }
-            (FieldKind::Str, FieldNewValue::Text(new_value)) => {
-                let Some(current) = current else { return };
-                let mut dynamic = current.as_partial_reflect().to_dynamic();
-                let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else {
-                    return;
-                };
-                let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else {
-                    return;
-                };
-                match element.try_downcast_mut::<String>() {
-                    Some(slot) => *slot = new_value,
-                    None => return,
-                }
-                dynamic
-            }
-            // Advance to the next constructible variant, in place.
-            (FieldKind::Variant, _) => {
-                let Some(current) = current else { return };
-                let mut dynamic = current.as_partial_reflect().to_dynamic();
-                // The component itself may BE the enum (empty path).
-                let element: &mut dyn PartialReflect = if field.path.is_empty() {
-                    dynamic.as_mut()
-                } else {
-                    let Ok(parsed) = ParsedPath::parse(field.path.as_str()) else {
-                        return;
-                    };
-                    let Ok(element) = parsed.reflect_element_mut(dynamic.as_mut()) else {
-                        return;
-                    };
-                    element
-                };
-                let ReflectRef::Enum(active) = element.reflect_ref() else {
-                    return;
-                };
-                let variant = active.variant_name().to_string();
-                let Some(bevy::reflect::TypeInfo::Enum(info)) = element.get_represented_type_info()
-                else {
-                    return;
-                };
-                let Some(next) = next_variant(info, &variant, &registry) else {
-                    return;
-                };
-                if element.try_apply(next.as_partial_reflect()).is_err() {
-                    return;
-                }
-                dynamic
-            }
-            // Name's hash is derived — always rebuild through the constructor.
-            (FieldKind::NameText, FieldNewValue::Text(new_value)) => Box::new(Name::new(new_value)),
-            (FieldKind::EulerDeg(axis), FieldNewValue::F32(new_value)) => {
-                let Some(current) = current else { return };
-                let Some(transform) = current.as_partial_reflect().try_downcast_ref::<Transform>()
-                else {
-                    return;
-                };
-                let (x, y, z) = transform.rotation.to_euler(EulerRot::XYZ);
-                let mut degrees = Vec3::new(x.to_degrees(), y.to_degrees(), z.to_degrees());
-                degrees[axis] = new_value;
-                let mut next = *transform;
-                next.rotation = Quat::from_euler(
-                    EulerRot::XYZ,
-                    degrees.x.to_radians(),
-                    degrees.y.to_radians(),
-                    degrees.z.to_radians(),
-                );
-                Box::new(next)
-            }
-            _ => return,
-        };
         drop(registry);
+        if ops.is_empty() {
+            return;
+        }
+        let count = ops.len();
         world.resource_mut::<EditQueue>().0.push(Transaction {
             label: format!(
-                "Edit {}",
-                field.type_path.rsplit("::").next().unwrap_or("field")
+                "Edit {}{}",
+                field.type_path.rsplit("::").next().unwrap_or("field"),
+                if count > 1 {
+                    format!(" \u{d7}{count}")
+                } else {
+                    String::new()
+                }
             ),
             gesture,
-            ops: vec![Op::Set {
-                target: field.target,
-                value: boxed,
-            }],
+            ops,
         });
     });
+}
+
+/// One target's op for this edit, computed from THAT target's current value.
+fn op_for_target(
+    target: SceneId,
+    field: &InspectorField,
+    new_value: &FieldNewValue,
+    current: Option<&dyn PartialReflect>,
+    registry: &bevy::reflect::TypeRegistry,
+) -> Option<Op> {
+    // A number or a bool IS a leaf, so it goes through Op::Patch — the delta an
+    // inspector edit actually is. The history entry then holds an f32 rather
+    // than a whole Transform per frame of a drag, and a prefab override can be
+    // read straight off the op instead of diffed back out of the component
+    // afterwards (spec §5: patches are the one delta language). The kinds below
+    // this are genuinely component-granular: Name rebuilds through its
+    // constructor because its hash is derived, and a Euler degree is one of
+    // three fields feeding one quaternion.
+    let leaf: Option<Box<dyn PartialReflect>> = match (field.kind, new_value) {
+        (FieldKind::Direct, FieldNewValue::F32(value)) => Some(Box::new(*value)),
+        (FieldKind::Bool, FieldNewValue::Bool(value)) => Some(Box::new(*value)),
+        _ => None,
+    };
+    if let Some(value) = leaf {
+        return Some(Op::Patch {
+            target,
+            type_path: field.type_path.to_string(),
+            path: field.path.to_string(),
+            value,
+        });
+    }
+
+    let boxed: Box<dyn PartialReflect> = match (field.kind, new_value) {
+        (FieldKind::Str, FieldNewValue::Text(new_value)) => {
+            let mut dynamic = current?.to_dynamic();
+            let parsed = ParsedPath::parse(field.path.as_str()).ok()?;
+            let element = parsed.reflect_element_mut(dynamic.as_mut()).ok()?;
+            *element.try_downcast_mut::<String>()? = new_value.clone();
+            dynamic
+        }
+        // Advance to the next constructible variant, in place.
+        (FieldKind::Variant, _) => {
+            let mut dynamic = current?.to_dynamic();
+            // The component itself may BE the enum (empty path).
+            let element: &mut dyn PartialReflect = if field.path.is_empty() {
+                dynamic.as_mut()
+            } else {
+                let parsed = ParsedPath::parse(field.path.as_str()).ok()?;
+                parsed.reflect_element_mut(dynamic.as_mut()).ok()?
+            };
+            let ReflectRef::Enum(active) = element.reflect_ref() else {
+                return None;
+            };
+            let variant = active.variant_name().to_string();
+            let Some(bevy::reflect::TypeInfo::Enum(info)) = element.get_represented_type_info()
+            else {
+                return None;
+            };
+            let next = next_variant(info, &variant, registry)?;
+            element.try_apply(next.as_partial_reflect()).ok()?;
+            dynamic
+        }
+        // Name's hash is derived — always rebuild through the constructor.
+        (FieldKind::NameText, FieldNewValue::Text(new_value)) => {
+            Box::new(Name::new(new_value.clone()))
+        }
+        (FieldKind::EulerDeg(axis), FieldNewValue::F32(new_value)) => {
+            let transform = current?.try_downcast_ref::<Transform>()?;
+            let (x, y, z) = transform.rotation.to_euler(EulerRot::XYZ);
+            let mut degrees = Vec3::new(x.to_degrees(), y.to_degrees(), z.to_degrees());
+            degrees[axis] = *new_value;
+            let mut next = *transform;
+            next.rotation = Quat::from_euler(
+                EulerRot::XYZ,
+                degrees.x.to_radians(),
+                degrees.y.to_radians(),
+                degrees.z.to_radians(),
+            );
+            Box::new(next)
+        }
+        _ => return None,
+    };
+    Some(Op::Set {
+        target,
+        value: boxed,
+    })
 }
 
 /// A COMPLETED typed edit (`is_final` — Enter or focus loss) commits one undo
@@ -2271,6 +2289,193 @@ mod tests {
             0.0,
             "undo restores pre-drag value"
         );
+    }
+
+    const TRANSFORM: &str = "bevy_transform::components::transform::Transform";
+
+    fn select(app: &mut App, ids: &[SceneId]) {
+        for id in ids {
+            let entity = app.world().resource::<SceneIndex>().get(id).unwrap();
+            app.world_mut().entity_mut(entity).insert(Selected);
+        }
+    }
+
+    fn at(app: &mut App, id: SceneId) -> Transform {
+        let world = app.world_mut();
+        let entity = world.resource::<SceneIndex>().get(&id).unwrap();
+        *world.get::<Transform>(entity).unwrap()
+    }
+
+    fn edit_field(app: &mut App, field: InspectorField, value: FieldNewValue) {
+        let mut commands = app.world_mut().commands();
+        queue_set(&mut commands, field, value, None);
+        app.world_mut().flush();
+        app.update();
+    }
+
+    /// Owner: "I want to be able to batch edit components."
+    ///
+    /// Two objects selected, ONE field edited: both take the new value, each
+    /// keeps its own other fields, and the whole thing is ONE undo step.
+    #[test]
+    fn a_field_edit_reaches_the_whole_selection() {
+        let mut app = test_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        spawn_transform(&mut app, a, Transform::from_xyz(1.0, 0.0, 0.0));
+        spawn_transform(&mut app, b, Transform::from_xyz(9.0, 0.0, 0.0));
+        select(&mut app, &[a, b]);
+
+        let depth = app.world().resource::<History>().undo_depth();
+        edit_field(
+            &mut app,
+            InspectorField {
+                target: a,
+                type_path: TRANSFORM,
+                path: "translation.y".into(),
+                kind: FieldKind::Direct,
+            },
+            FieldNewValue::F32(5.0),
+        );
+
+        assert_eq!(at(&mut app, a).translation, Vec3::new(1.0, 5.0, 0.0));
+        assert_eq!(
+            at(&mut app, b).translation,
+            Vec3::new(9.0, 5.0, 0.0),
+            "the second selected object did not take the edit"
+        );
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth + 1,
+            "a batch edit must be ONE undo step, not one per object"
+        );
+
+        // And it unwinds as one.
+        app.world_mut().resource_mut::<HistoryRequests>().undo = 1;
+        app.update();
+        assert_eq!(at(&mut app, a).translation, Vec3::new(1.0, 0.0, 0.0));
+        assert_eq!(at(&mut app, b).translation, Vec3::new(9.0, 0.0, 0.0));
+    }
+
+    /// The trap this guards: sending the SHOWN object's finished component to
+    /// everyone would batch every other field with it. Rotating one crate would
+    /// teleport the rest onto it.
+    #[test]
+    fn a_batched_rotation_does_not_move_anything() {
+        let mut app = test_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        spawn_transform(&mut app, a, Transform::from_xyz(1.0, 0.0, 0.0));
+        spawn_transform(&mut app, b, Transform::from_xyz(9.0, 2.0, 0.0));
+        select(&mut app, &[a, b]);
+
+        edit_field(
+            &mut app,
+            InspectorField {
+                target: a,
+                type_path: TRANSFORM,
+                path: String::new(),
+                kind: FieldKind::EulerDeg(1),
+            },
+            FieldNewValue::F32(90.0),
+        );
+
+        for (id, origin) in [(a, Vec3::new(1.0, 0.0, 0.0)), (b, Vec3::new(9.0, 2.0, 0.0))] {
+            let transform = at(&mut app, id);
+            assert_eq!(
+                transform.translation, origin,
+                "a batched rotate moved {id:?}"
+            );
+            assert!(
+                (transform.rotation.to_euler(EulerRot::XYZ).1.to_degrees() - 90.0).abs() < 1e-3,
+                "{id:?} did not rotate"
+            );
+        }
+    }
+
+    /// Names are identities. Batch-editing one into ten objects is never what
+    /// the user meant, so the rename stays on the object the inspector shows.
+    #[test]
+    fn renaming_never_batches() {
+        let mut app = test_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        spawn_transform(&mut app, a, Transform::default());
+        spawn_transform(&mut app, b, Transform::default());
+        select(&mut app, &[a, b]);
+
+        edit_field(
+            &mut app,
+            InspectorField {
+                target: a,
+                type_path: "bevy_ecs::name::Name",
+                path: String::new(),
+                kind: FieldKind::NameText,
+            },
+            FieldNewValue::Text("Barrel".into()),
+        );
+
+        let world = app.world_mut();
+        let (ea, eb) = (
+            world.resource::<SceneIndex>().get(&a).unwrap(),
+            world.resource::<SceneIndex>().get(&b).unwrap(),
+        );
+        assert_eq!(world.get::<Name>(ea).unwrap().as_str(), "Barrel");
+        assert_ne!(
+            world.get::<Name>(eb).map(|n| n.as_str()),
+            Some("Barrel"),
+            "a rename escaped onto the rest of the selection"
+        );
+    }
+
+    /// An unselected target (a pinned row, a prefab field) means exactly that
+    /// one object — the selection is not a silent second target.
+    #[test]
+    fn editing_something_unselected_reaches_only_it() {
+        let mut app = test_app();
+        let (shown, other) = (SceneId::random(), SceneId::random());
+        spawn_transform(&mut app, shown, Transform::default());
+        spawn_transform(&mut app, other, Transform::default());
+        select(&mut app, &[other]);
+
+        edit_field(
+            &mut app,
+            InspectorField {
+                target: shown,
+                type_path: TRANSFORM,
+                path: "translation.y".into(),
+                kind: FieldKind::Direct,
+            },
+            FieldNewValue::F32(4.0),
+        );
+        assert_eq!(at(&mut app, shown).translation.y, 4.0);
+        assert_eq!(at(&mut app, other).translation.y, 0.0);
+    }
+
+    /// The lock outranks the batch: selecting ten and locking one means the
+    /// nine move. Enforced once, at the queue — this proves the inspector rides
+    /// on that rather than needing its own check.
+    #[test]
+    fn a_locked_member_of_the_selection_keeps_its_value() {
+        let mut app = test_app();
+        let (free, held) = (SceneId::random(), SceneId::random());
+        spawn_transform(&mut app, free, Transform::default());
+        spawn_transform(&mut app, held, Transform::default());
+        select(&mut app, &[free, held]);
+        let entity = app.world().resource::<SceneIndex>().get(&held).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(editor_core::lock::Locked);
+
+        edit_field(
+            &mut app,
+            InspectorField {
+                target: free,
+                type_path: TRANSFORM,
+                path: "translation.y".into(),
+                kind: FieldKind::Direct,
+            },
+            FieldNewValue::F32(7.0),
+        );
+        assert_eq!(at(&mut app, free).translation.y, 7.0);
+        assert_eq!(at(&mut app, held).translation.y, 0.0);
     }
 }
 

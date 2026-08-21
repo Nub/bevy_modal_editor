@@ -31,6 +31,8 @@ pub(crate) struct HandsonProbe {
     /// The entity an inspector field addresses, and its transform before the
     /// edit — a patched leaf must leave every sibling field untouched.
     patched: Option<(Entity, Transform)>,
+    /// Where the locked objects were before an edit was aimed at them.
+    locked_before: Vec<Vec3>,
 }
 
 fn check(world: &mut World, ok: bool, what: &str) {
@@ -833,15 +835,159 @@ pub(crate) fn probe_handson(world: &mut World) {
             let drums = drum_roots(world).len();
             check(world, drums == 3, "authored instances survive play/reset");
         }
+        // ── Lock: refuse edits, in batch, and say so ──────────────────────
+        2620 => {
+            let roots = drum_roots(world);
+            // Through the kernel's own selection API, so the panels hear about
+            // it the way they hear about a click.
+            for (i, entity) in roots.iter().take(2).enumerate() {
+                editor_core::selection::select_entity(world, *entity, i > 0);
+            }
+            let held: Vec<Vec3> = roots
+                .iter()
+                .take(2)
+                .map(|e| world.get::<Transform>(*e).unwrap().translation)
+                .collect();
+            world.resource_mut::<HandsonProbe>().locked_before = held;
+        }
+        2630 => tap_named(world, KeyCode::Space, bevy::input::keyboard::Key::Space),
+        2636 => tap(world, KeyCode::KeyL, "l"),
+        2660 => {
+            let roots = drum_roots(world);
+            let locked = roots
+                .iter()
+                .take(2)
+                .all(|e| world.get::<editor_core::lock::Locked>(*e).is_some());
+            check(world, locked, "Space l locks the WHOLE selection at once");
+            let third = roots.get(2).copied();
+            check(
+                world,
+                third.is_some_and(|e| world.get::<editor_core::lock::Locked>(e).is_none()),
+                "locking the selection leaves the rest of the level alone",
+            );
+        }
+        // The real delete verb, refused at the one choke point.
+        2670 => invoke(world, "select.delete"),
+        2700 => {
+            let roots = drum_roots(world);
+            let spoke = world
+                .resource::<crate::statusbar::StatusFlash>()
+                .text
+                .contains("locked");
+            check(
+                world,
+                roots.len() == 3,
+                "a locked object refuses the delete verb",
+            );
+            // Refusing SILENTLY is the real failure here: an editor where the
+            // delete key does nothing and says nothing reads as broken.
+            check(world, spoke, "the refusal says why, in the statusbar");
+            let before = world.resource::<HandsonProbe>().locked_before.clone();
+            let now: Vec<Vec3> = roots
+                .iter()
+                .take(2)
+                .map(|e| world.get::<Transform>(*e).unwrap().translation)
+                .collect();
+            check(world, before == now, "locked objects did not move");
+        }
+        // Unlocking is the one edit a locked object must accept.
+        // The leader sequence, tapped as a sequence.
+        2710 => tap_named(world, KeyCode::Space, bevy::input::keyboard::Key::Space),
+        2716 => tap(world, KeyCode::KeyL, "l"),
+        2740 => {
+            let roots = drum_roots(world);
+            let free = roots
+                .iter()
+                .take(2)
+                .all(|e| world.get::<editor_core::lock::Locked>(*e).is_none());
+            check(world, free, "Space l again unlocks the selection");
+        }
+        // ...and then it deletes like anything else.
+        2750 => invoke(world, "select.delete"),
+        2790 => {
+            let remaining = drum_roots(world).len();
+
+            check(world, remaining == 1, "an unlocked object deletes normally");
+            world.resource_mut::<HistoryRequests>().undo = 1;
+        }
+        2830 => {
+            let restored = drum_roots(world).len();
+            check(
+                world,
+                restored == 3,
+                "undo brings the deleted instances back",
+            );
+        }
+        // ── Batch edit: one field, the whole selection ────────────────────
+        2840 => {
+            let roots = drum_roots(world);
+            // Through the kernel's own selection API, so the panels hear about
+            // it the way they hear about a click.
+            for (i, entity) in roots.iter().take(2).enumerate() {
+                editor_core::selection::select_entity(world, *entity, i > 0);
+            }
+            world.resource_mut::<HandsonProbe>().locked_before = roots
+                .iter()
+                .take(2)
+                .map(|e| world.get::<Transform>(*e).unwrap().translation)
+                .collect();
+        }
+        // The REAL inspector row, which shows the first selected object only.
+        2880 => {
+            let field = world
+                .query::<(Entity, &crate::inspector::InspectorField)>()
+                .iter(world)
+                .find(|(_, f)| f.path == "translation.y")
+                .map(|(entity, _)| entity);
+            match field {
+                Some(source) => world.trigger(bevy::ui_widgets::ValueChange {
+                    source,
+                    value: 4.0f32,
+                    is_final: true,
+                }),
+                None => check(world, false, "inspector Y field present for the batch"),
+            }
+        }
+        2920 => {
+            let roots = drum_roots(world);
+            let before = world.resource::<HandsonProbe>().locked_before.clone();
+            let now: Vec<Vec3> = roots
+                .iter()
+                .take(2)
+                .map(|e| world.get::<Transform>(*e).unwrap().translation)
+                .collect();
+            check(
+                world,
+                now.len() == 2 && now.iter().all(|p| (p.y - 4.0).abs() < 1e-4),
+                "one inspector field edit reached BOTH selected objects",
+            );
+            // The trap: the shown object's whole component going to everyone.
+            check(
+                world,
+                before.len() == 2
+                    && before[0].x == now[0].x
+                    && before[1].x == now[1].x
+                    && before[0].x != before[1].x,
+                "a batch edit left every OTHER field of each object alone",
+            );
+            let third_moved = roots.get(2).is_some_and(|e| {
+                world
+                    .get::<Transform>(*e)
+                    .map(|t| t.translation.y)
+                    .unwrap_or(0.0)
+                    > 3.9
+            });
+            check(world, !third_moved, "the batch stopped at the selection");
+        }
         // ── Cleanup: nothing probe-owned outlives the run ──────────────────
-        2550 => {
+        2960 => {
             if let Some(id) = world.resource::<HandsonProbe>().material {
                 let mut library = world.resource_mut::<MaterialLibrary>();
                 library.materials.retain(|d| d.id != id);
                 library.generation += 1;
             }
         }
-        2610 => {
+        3000 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();
             if failures.is_empty() {
                 info!("HANDSON-PROBE PASS: the owner hands-on checklist end-to-end");

@@ -12,6 +12,7 @@ pub mod edits;
 pub mod gesture;
 pub mod insert;
 pub mod keymap_data;
+pub mod lock;
 pub mod modes;
 pub mod panels;
 pub mod resolver;
@@ -239,6 +240,15 @@ impl EditorFeature for CoreFeature {
                 .bind("p")
                 .edit(),
         );
+        reg.action(
+            ActionDef::new("object.lock", "Lock / Unlock Selection")
+                .describe(
+                    "Locked objects refuse every edit — move, delete, reparent, mate — \
+                     until unlocked. Applies to the whole selection",
+                )
+                .context("normal")
+                .bind("space l"),
+        );
         // Selection.
         reg.action(
             ActionDef::new("select.all", "Select All")
@@ -388,6 +398,9 @@ impl EditorFeature for CoreFeature {
                 .bind("escape")
                 .hidden(),
         );
+        // Locking persists WITH the level: a floor you locked is still locked
+        // when you reopen the file, which is the entire point of locking it.
+        reg.component::<lock::Locked>();
     }
 }
 
@@ -398,6 +411,10 @@ impl Plugin for EditorCorePlugin {
         app.add_message::<ActionInvoked>()
             .add_message::<modes::ModeChanged>()
             .add_message::<resolver::KeysUnresolved>()
+            // The kernel refuses edits (a locked object) and must be able to
+            // SAY so — the channel is registered here, not by whichever
+            // feature crate happened to define it first.
+            .add_message::<editor_api::feedback::SceneIoFeedback>()
             .add_message::<Edited>()
             .init_resource::<resolver::EditorState>()
             .init_resource::<resolver::PendingKeys>()
@@ -411,6 +428,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<edits::HistoryScope>()
             .init_resource::<resolver::OverlayContext>()
             .init_resource::<resolver::EscapeFromCapture>()
+            .init_resource::<lock::LockRequests>()
             .init_resource::<resolver::PointerOverChrome>()
             // Headless worlds have no `InputPlugin`, so the wheel message would
             // not exist and every system reading it would fail validation. The
@@ -488,6 +506,7 @@ impl Plugin for EditorCorePlugin {
                     // Nested: the gesture pipeline is one ordered unit, and the
                     // outer tuple is at bevy's system-tuple limit.
                     (
+                        lock::collect_lock_actions,
                         gesture::handle_gesture_actions,
                         gesture::motion_from_cursor,
                         gesture::push_pull_gesture,
@@ -505,7 +524,9 @@ impl Plugin for EditorCorePlugin {
                 )
                     .chain()
                     .in_set(EditorSet::Tools),
-                edits::apply_edits.in_set(EditorSet::Mutate),
+                (lock::perform_lock, edits::apply_edits)
+                    .chain()
+                    .in_set(EditorSet::Mutate),
                 edits::ensure_entity_names.in_set(EditorSet::Sync),
                 (clipboard::select_pasted, clipboard::grab_duplicate)
                     .chain()
