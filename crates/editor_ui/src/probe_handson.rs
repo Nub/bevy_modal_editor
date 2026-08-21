@@ -36,6 +36,10 @@ pub(crate) struct HandsonProbe {
     before_hide: Option<(usize, bool)>,
     /// Undo depth, drum count and the source pose before an array.
     array_before: Option<(usize, usize, Transform)>,
+    /// The parent and children a delete is about to take, plus their scene ids
+    /// (undo hands back NEW entities for the same ids).
+    delete_subject: Option<(Entity, Vec<Entity>)>,
+    delete_ids: Vec<SceneId>,
     /// Which drums existed before an array, so the copies can be identified by
     /// difference rather than by guessing at the level's own spacing.
     array_roots_before: Vec<Entity>,
@@ -171,6 +175,32 @@ pub(crate) fn screen_position_of(world: &mut World, target: Vec3) -> Option<Vec2
     camera.world_to_viewport(&camera_transform, target).ok()
 }
 
+/// A scene root that really has scene children — the flattened model. Prefab
+/// instances do not count: their members are DERIVED and deliberately outside
+/// the capture, so deleting one would prove nothing about subtree restore.
+fn scene_root_with_scene_children(world: &mut World) -> Option<(Entity, Vec<Entity>)> {
+    let roots: Vec<Entity> = world
+        .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+        .iter(world)
+        .collect();
+    for root in roots {
+        let children: Vec<Entity> = world
+            .get::<Children>(root)
+            .map(|kids| {
+                kids.iter()
+                    .filter(|child| {
+                        world.get::<SceneId>(*child).is_some()
+                            && world.get::<PrefabStamped>(*child).is_none()
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if children.len() >= 2 {
+            return Some((root, children));
+        }
+    }
+    None
+}
 /// The current selection, as a set to test membership against.
 fn selected_entities(world: &mut World) -> Vec<Entity> {
     world
@@ -1613,7 +1643,93 @@ pub(crate) fn probe_handson(world: &mut World) {
         }
         4360 => tap_named(world, KeyCode::Space, Key::Space),
         4366 => tap(world, KeyCode::KeyL, "l"),
-        4400 => {
+        // ── Deleting a group and undoing it restores the WHOLE subtree ────
+        // The subject is the flattened barrel: `model.flatten` (frame 1810)
+        // turns an import into real `MeshNode` children with their own
+        // `SceneId`s, which is the only genuine parent/child scene content the
+        // level has. A prefab instance would not do — its members are DERIVED
+        // and deliberately not captured.
+        4410 => invoke(world, "select.clear"),
+        4420 => {
+            let subject = scene_root_with_scene_children(world);
+            match subject {
+                Some((root, children)) => {
+                    editor_core::selection::select_entity(world, root, false);
+                    let mut ids = vec![*world.get::<SceneId>(root).unwrap()];
+                    ids.extend(
+                        children
+                            .iter()
+                            .filter_map(|c| world.get::<SceneId>(*c).copied()),
+                    );
+                    world.resource_mut::<HandsonProbe>().delete_subject =
+                        Some((root, children.clone()));
+                    world.resource_mut::<HandsonProbe>().delete_ids = ids;
+                    check(
+                        world,
+                        children.len() >= 2,
+                        &format!("a real parent with children to delete ({})", children.len()),
+                    );
+                }
+                None => check(world, false, "a real parent with children to delete"),
+            }
+        }
+        4430 => {
+            let selected = selected_entities(world).len();
+            check(
+                world,
+                selected == 1,
+                &format!("the parent is selected ({selected})"),
+            );
+        }
+        4436 => tap(world, KeyCode::KeyD, "d"),
+        4470 => {
+            let (root, children) = world
+                .resource::<HandsonProbe>()
+                .delete_subject
+                .clone()
+                .unwrap_or((Entity::PLACEHOLDER, Vec::new()));
+            let gone = world.get_entity(root).is_err()
+                && children.iter().all(|c| world.get_entity(*c).is_err());
+            check(world, gone, "d took the parent and its children");
+            // Record the ids, because undo hands back NEW entities for the same
+            // scene ids — an Entity-keyed assertion would fail for the wrong
+            // reason.
+            let _ = root;
+        }
+        4480 => invoke(world, "core.undo"),
+        4530 => {
+            let ids = world.resource::<HandsonProbe>().delete_ids.clone();
+            let index = world.resource::<SceneIndex>();
+            let back: Vec<Option<Entity>> = ids.iter().map(|id| index.get(id)).collect();
+            let all_back = back.iter().all(|e| e.is_some());
+            check(
+                world,
+                all_back,
+                &format!(
+                    "undo brought the whole subtree back ({}/{})",
+                    back.iter().filter(|e| e.is_some()).count(),
+                    ids.len()
+                ),
+            );
+            // And the SHAPE, not just the entities: this is the half that used
+            // to come back silently wrong.
+            let root_id = ids.first().copied();
+            let reparented = ids.iter().skip(1).all(|id| {
+                world
+                    .resource::<SceneIndex>()
+                    .get(id)
+                    .and_then(|e| world.get::<ChildOf>(e))
+                    .map(|c| c.parent())
+                    .and_then(|p| world.get::<SceneId>(p).copied())
+                    == root_id
+            });
+            check(
+                world,
+                reparented,
+                "every child came back under its own parent",
+            );
+        }
+        4600 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();
             if failures.is_empty() {
                 info!("HANDSON-PROBE PASS: the owner hands-on checklist end-to-end");

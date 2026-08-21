@@ -89,8 +89,11 @@ pub struct SceneIoLock(pub bool);
 /// Entities STAMPED from a prefab template (M4-D4): they exist for editing
 /// (selection, gizmos) but are DERIVED state — scene capture excludes them, so
 /// an instance can never serialize as its expanded tree (the v1 prefab sin).
-#[derive(Component, Default, Clone)]
-pub struct PrefabStamped;
+///
+/// It IS the kernel's `Derived` marker, not a second one meaning the same
+/// thing: the edit engine has to know not to capture these into an undo, and
+/// two markers for one concept is how they drift apart.
+pub use editor_api::edits::Derived as PrefabStamped;
 
 /// Build a snapshot from parts (prefab authoring, create-from-selection).
 pub fn snapshot_from_parts(

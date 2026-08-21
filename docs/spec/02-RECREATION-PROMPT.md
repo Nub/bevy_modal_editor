@@ -1171,6 +1171,53 @@ parametric form stays deferred with a named follow-on.
   two copies of "what does this selection name" is how `space h` and `*` start
   disagreeing.
 
+
+**Undo used to eat children (2026-08-21).** Two bugs in one place, both silent,
+both in the two most-used verbs any editor has.
+
+`world.entity_mut(e).despawn()` is RECURSIVE, but `Op::Despawn`'s inverse
+captured only the root's components. So deleting a group and pressing undo
+handed back a childless parent while its children were gone for good — no
+message, no trace, and the undo stack looked like it had worked. And because
+`Op::Spawn` always lands at the world ROOT (parentage is a separate axis, not a
+component), undoing the deletion of a CHILD returned it unparented: the object
+was back, in the wrong place in the tree, again silently.
+
+The fix is one rule: a despawn captures its whole SUBTREE — every descendant's
+registered components, each one's parent, and the deleted root's OWN parent —
+and its inverse is that subtree rebuilt, all spawns before any reparent so every
+link resolves.
+
+- **`apply_op` returns a LIST of inverse ops.** Value ops still return one; only
+  despawn returns many. `apply_ops` reverses the OUTER list and keeps each op's
+  own inverse in order. Flattening first and reversing once is the trap: it puts
+  the reparent before the spawns, the reparent resolves nothing, and undo hands
+  back a detached child — the same symptom, reintroduced by the fix.
+- **`Derived` is now a kernel concept** (`editor_api::edits::Derived`), and
+  `editor_scene::PrefabStamped` IS it rather than a second marker meaning the
+  same thing. The capture never descends past a derived entity and never names
+  one as a parent: its producer rebuilds it, so capturing would make undo
+  DUPLICATE the subtree, and a stamp mints fresh ids every run, so the reparent
+  would dangle. An imported model's gltf subtree carries the marker too.
+- **A transaction may delete a parent and its child**, which a cut of a
+  multi-selection produces. The engine remembers what it removed within the
+  transaction, so the second despawn is a quiet no-op instead of a warning, and
+  the child comes back exactly once.
+- Two hazards in `Op::Spawn` closed while it became load-bearing: it no longer
+  returns early after spawning (which left a live `SceneId` with no inverse —
+  the exact ghost this work is about), and it refuses to spawn onto an id
+  already in the scene, which would have orphaned the original.
+
+**Copies stay single-entity, and array still refuses.** Duplicate, paste and
+array reproduce one entity, so a group copies as a childless root. That is the
+same family of bug, but the fix is not engine work: it needs a parent/child fold
+for selections (`folded_selection` folds only to prefab seals, so a parent and
+its child arrive as two subjects and would be copied twice), a
+copied-roots-only hand-off to the move gesture (duplicate's auto-grab drags
+children at double speed today), and a paste decision about parents that no
+longer exist. `array`'s `copy_safe` refusal is the only thing in the editor
+currently telling the truth about copies, and it stays standing until that lands.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

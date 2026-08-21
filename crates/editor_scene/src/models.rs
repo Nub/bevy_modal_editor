@@ -636,6 +636,10 @@ pub(crate) fn resolve_mesh_refs(
         let child = commands
             .spawn((
                 MeshRefDerived,
+                // Also the kernel's DERIVED marker, so the edit engine stops
+                // its capture walk at this boundary instead of relying on
+                // "no SceneId below here" staying true.
+                editor_api::edits::Derived,
                 WorldAssetRoot(
                     assets.load(GltfAssetLabel::Scene(0).from_asset(entry.asset_path.clone())),
                 ),

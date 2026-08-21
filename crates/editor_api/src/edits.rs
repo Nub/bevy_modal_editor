@@ -61,6 +61,20 @@ pub struct Transaction {
     pub ops: Vec<Op>,
 }
 
+/// An entity the editor GENERATES and re-generates: a prefab instance's stamped
+/// members, an import's gltf subtree.
+///
+/// The edit engine never captures one into an inverse and never descends past
+/// one, because its producer will rebuild it — capturing it would make undo
+/// DUPLICATE the subtree, and naming one as a parent would dangle, since a
+/// stamp mints fresh ids every time it runs.
+///
+/// Deliberately NOT `Reflect`: derived state must never round-trip through a
+/// capture or a save file. An instance that serializes as its expanded tree is
+/// the v1 prefab sin.
+#[derive(Component, Default, Clone, Copy)]
+pub struct Derived;
+
 /// Queue drained by the kernel each frame at `EditorSet::Mutate`.
 #[derive(Resource, Default)]
 pub struct EditQueue(pub Vec<Transaction>);

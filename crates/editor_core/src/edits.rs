@@ -7,6 +7,7 @@ use bevy::ecs::lifecycle::{Add, Remove};
 use bevy::ecs::relationship::RelationshipHookMode;
 use bevy::prelude::*;
 use bevy::reflect::{PartialReflect, TypeRegistry};
+use editor_api::edits::Derived;
 use editor_api::feature::ComponentReg;
 use editor_api::prelude::*;
 
@@ -195,11 +196,13 @@ fn clone_component(
     Some(reflect_component.reflect(entity_ref)?.to_dynamic())
 }
 
-/// Apply one op, returning its inverse (None if the op degenerated to a no-op).
-fn apply_op(
+/// Apply one VALUE op — everything that touches a single entity's components or
+/// its parentage. Returns its inverse, or `None` when the op degenerated to a
+/// no-op. Despawn is deliberately NOT here: it is the one op whose inverse is a
+/// whole subtree, and it lives in `apply_op`.
+fn apply_value_op(
     world: &mut World,
     registry: &TypeRegistry,
-    editor_components: &EditorComponents,
     op: Op,
     touched: &mut Vec<SceneId>,
 ) -> Option<Op> {
@@ -272,13 +275,25 @@ fn apply_op(
             Some(Op::Set { target, value: old })
         }
         Op::Spawn { id, components } => {
+            // Spawning onto a live id would orphan the original: `index_on_add`
+            // overwrites the entry and nothing points at the old entity again.
+            if world.resource::<SceneIndex>().get(&id).is_some() {
+                warn!("Op::Spawn id {id:?} is already in the scene — skipped");
+                return None;
+            }
             let entity = world.spawn(id).id();
             for value in components {
                 let Some((reflect_component, _)) = reflect_component_for(registry, value.as_ref())
                 else {
                     continue;
                 };
-                let mut entity_mut = world.get_entity_mut(entity).ok()?;
+                // `continue`, never `?`: the entity is already spawned and
+                // indexed above, so returning here would leave a live SceneId
+                // with no inverse — exactly the ghost this slice exists to
+                // stop, inside the op every restore is built from.
+                let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+                    continue;
+                };
                 reflect_component.apply_or_insert_mapped(
                     &mut entity_mut,
                     value.as_ref(),
@@ -290,29 +305,8 @@ fn apply_op(
             touched.push(id);
             Some(Op::Despawn { id })
         }
-        Op::Despawn { id } => {
-            let entity = match resolve(world, &id) {
-                Some(entity) => entity,
-                None => {
-                    // A despawn that silently no-ops leaves ghosts behind —
-                    // this is always a caller bug worth hearing about.
-                    warn!("Op::Despawn target {id:?} not in SceneIndex — skipped");
-                    return None;
-                }
-            };
-            let mut captured = Vec::new();
-            for reg in &editor_components.types {
-                if let Some(value) = clone_component(world, registry, entity, reg.type_id) {
-                    captured.push(value);
-                }
-            }
-            world.entity_mut(entity).despawn();
-            touched.push(id);
-            Some(Op::Spawn {
-                id,
-                components: captured,
-            })
-        }
+        // Handled by `apply_op`: its inverse is a whole subtree, not one op.
+        Op::Despawn { .. } => None,
         Op::Reparent { target, parent } => {
             let entity = resolve(world, &target)?;
             let old_parent = world
@@ -337,6 +331,126 @@ fn apply_op(
     }
 }
 
+/// One captured entity: its id, the id of the nearest RECORDED ancestor, and
+/// its registered components.
+type SubtreeRecord = (SceneId, Option<SceneId>, Vec<Box<dyn PartialReflect>>);
+
+/// Everything a despawn is about to destroy, in an order that can rebuild it.
+///
+/// `world.entity_mut(e).despawn()` is RECURSIVE, so deleting a group deletes its
+/// children too — but the inverse used to capture only the root, and undo handed
+/// back a childless parent while the children were gone for good. It also
+/// captures the ROOT's own parentage, because `Op::Spawn` always lands at the
+/// world root: without it, undoing the deletion of a child returned that child
+/// unparented.
+///
+/// `editor_components` is a PARAMETER and never read from the world: `apply_edits`
+/// takes the resource out for the duration, so a `world.resource()` here would
+/// capture nothing and undo would restore bare husks.
+fn capture_subtree(
+    world: &World,
+    registry: &TypeRegistry,
+    editor_components: &EditorComponents,
+    root: Entity,
+) -> Vec<SubtreeRecord> {
+    // A DERIVED parent is never named: a stamp mints a fresh `SceneId` every
+    // time it runs, so the reparent would dangle at the next restamp — and
+    // adopting a restored entity into an instance would leak an expanded
+    // instance into the level file.
+    let root_parent = world
+        .get::<ChildOf>(root)
+        .map(|c| c.parent())
+        .filter(|parent| world.get::<Derived>(*parent).is_none())
+        .and_then(|parent| world.get::<SceneId>(parent).copied());
+
+    let mut out: Vec<SubtreeRecord> = Vec::new();
+    let mut stack: Vec<(Entity, Option<SceneId>)> = vec![(root, root_parent)];
+    while let Some((entity, parent_id)) = stack.pop() {
+        // Derived subtrees rebuild themselves, so capturing one would make undo
+        // DUPLICATE it. The root is exempt: deleting a stamped member directly
+        // behaves exactly as it did before, rather than gaining a new leak.
+        if entity != root && world.get::<Derived>(entity).is_some() {
+            continue;
+        }
+        let own = world.get::<SceneId>(entity).copied();
+        if let Some(id) = own {
+            let components = editor_components
+                .types
+                .iter()
+                .filter_map(|reg| clone_component(world, registry, entity, reg.type_id))
+                .collect();
+            out.push((id, parent_id, components));
+        }
+        // Descend THROUGH entities the scene cannot name, carrying the nearest
+        // recorded ancestor down: a scene child hanging under a plain bevy node
+        // still belongs to the recorded grandparent.
+        let child_link = own.or(parent_id);
+        if let Some(children) = world.get::<Children>(entity) {
+            let kids: Vec<Entity> = children.iter().collect();
+            for child in kids.into_iter().rev() {
+                stack.push((child, child_link));
+            }
+        }
+    }
+    out
+}
+
+/// Rebuild a captured subtree: every entity spawned before any of them is hung,
+/// so a reparent always resolves.
+fn restore_ops(records: Vec<SubtreeRecord>) -> Vec<Op> {
+    let mut spawns = Vec::with_capacity(records.len());
+    let mut reparents = Vec::new();
+    for (id, parent, components) in records {
+        spawns.push(Op::Spawn { id, components });
+        if let Some(parent) = parent {
+            // No op when the parent is None: `Op::Spawn` already lands at the root.
+            reparents.push(Op::Reparent {
+                target: id,
+                parent: Some(parent),
+            });
+        }
+    }
+    spawns.extend(reparents);
+    spawns
+}
+
+/// Apply one op, returning its inverse as a LIST — empty for a no-op.
+///
+/// Only despawn produces more than one, and that is the whole point: its
+/// inverse has to respawn a subtree and then re-hang it.
+fn apply_op(
+    world: &mut World,
+    registry: &TypeRegistry,
+    editor_components: &EditorComponents,
+    op: Op,
+    touched: &mut Vec<SceneId>,
+    removed_here: &mut std::collections::HashSet<SceneId>,
+) -> Vec<Op> {
+    let Op::Despawn { id } = op else {
+        return apply_value_op(world, registry, op, touched)
+            .into_iter()
+            .collect();
+    };
+    let Some(entity) = world.resource::<SceneIndex>().get(&id) else {
+        // A despawn that silently no-ops leaves ghosts behind and is worth
+        // hearing about — EXCEPT when an earlier op in this same transaction
+        // already took it, which is what a children-first delete list does.
+        if !removed_here.contains(&id) {
+            warn!("Op::Despawn target {id:?} not in SceneIndex — skipped");
+        }
+        return Vec::new();
+    };
+    let records = capture_subtree(world, registry, editor_components, entity);
+    for (captured, _, _) in &records {
+        // `Edited` must name the WHOLE subtree: a listener that only heard about
+        // the root would keep stale state for everything under it.
+        touched.push(*captured);
+        removed_here.insert(*captured);
+    }
+    world.entity_mut(entity).despawn();
+    restore_ops(records)
+}
+
 fn apply_ops(
     world: &mut World,
     registry: &TypeRegistry,
@@ -344,14 +458,28 @@ fn apply_ops(
     ops: Vec<Op>,
     touched: &mut Vec<SceneId>,
 ) -> Vec<Op> {
-    let mut inverse = Vec::with_capacity(ops.len());
+    let mut removed_here: std::collections::HashSet<SceneId> = Default::default();
+    let mut inverse: Vec<Vec<Op>> = Vec::with_capacity(ops.len());
     for op in ops {
-        if let Some(inv) = apply_op(world, registry, editor_components, op, touched) {
+        let inv = apply_op(
+            world,
+            registry,
+            editor_components,
+            op,
+            touched,
+            &mut removed_here,
+        );
+        if !inv.is_empty() {
             inverse.push(inv);
         }
     }
+    // The OUTER list reverses; each op's own inverse keeps its internal order.
+    // Flattening first and reversing once would turn [Spawn(g), Spawn(a),
+    // Reparent(a→g)] into [Reparent(a→g), Spawn(a), Spawn(g)] — the reparent
+    // resolves nothing, drops its own inverse, and undo hands back a detached
+    // child. That is the very symptom this function exists to fix.
     inverse.reverse();
-    inverse
+    inverse.into_iter().flatten().collect()
 }
 
 /// THE mutation point (`EditorSet::Mutate`, exclusive).
@@ -1128,5 +1256,208 @@ mod tests {
             <Health as bevy::reflect::TypePath>::type_path(),
         );
         assert_eq!(components.types.len(), 1);
+    }
+
+    fn spawn_tree(app: &mut App, ids: &[(SceneId, Option<SceneId>, f32)]) {
+        let mut ops = Vec::new();
+        for (id, _, health) in ids {
+            ops.push(Op::Spawn {
+                id: *id,
+                components: vec![
+                    Box::new(Health {
+                        current: *health,
+                        max: 10.0,
+                    })
+                    .into_partial_reflect(),
+                    Box::new(Transform::default()).into_partial_reflect(),
+                ],
+            });
+        }
+        for (id, parent, _) in ids {
+            if let Some(parent) = parent {
+                ops.push(Op::Reparent {
+                    target: *id,
+                    parent: Some(*parent),
+                });
+            }
+        }
+        edit(app, |q| {
+            q.0.push(Transaction {
+                label: "spawn tree".into(),
+                gesture: None,
+                ops,
+            });
+        });
+    }
+
+    fn entity_of(app: &mut App, id: SceneId) -> Option<Entity> {
+        app.world().resource::<SceneIndex>().get(&id)
+    }
+
+    fn parent_of(app: &mut App, id: SceneId) -> Option<SceneId> {
+        let entity = entity_of(app, id)?;
+        let world = app.world_mut();
+        let parent = world.get::<ChildOf>(entity)?.parent();
+        world.get::<SceneId>(parent).copied()
+    }
+
+    /// THE bug. `despawn()` is recursive but the inverse captured only the root,
+    /// so deleting a group and pressing undo handed back a childless parent
+    /// while the children were gone for good — silent, permanent data loss in
+    /// the two most-used verbs in any editor.
+    #[test]
+    fn undoing_a_delete_restores_the_whole_subtree() {
+        let mut app = test_app();
+        let (root, mid, leaf) = (SceneId::random(), SceneId::random(), SceneId::random());
+        spawn_tree(
+            &mut app,
+            &[
+                (root, None, 1.0),
+                (mid, Some(root), 2.0),
+                (leaf, Some(mid), 3.0),
+            ],
+        );
+
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: root }],
+            });
+        });
+        for id in [root, mid, leaf] {
+            assert!(
+                entity_of(&mut app, id).is_none(),
+                "{id:?} survived a delete"
+            );
+        }
+
+        undo(&mut app, 1);
+        for (id, health) in [(root, 1.0), (mid, 2.0), (leaf, 3.0)] {
+            let entity =
+                entity_of(&mut app, id).unwrap_or_else(|| panic!("{id:?} did not come back"));
+            assert_eq!(
+                app.world_mut().get::<Health>(entity).unwrap().current,
+                health,
+                "{id:?} came back with the wrong values"
+            );
+        }
+        // And the SHAPE comes back, not just the entities.
+        assert_eq!(parent_of(&mut app, mid), Some(root));
+        assert_eq!(parent_of(&mut app, leaf), Some(mid));
+    }
+
+    /// The second half of the same bug: `Op::Spawn` always lands at the world
+    /// root, so undoing the deletion of a CHILD used to return it unparented —
+    /// the object was back, in the wrong place in the tree, with nothing said.
+    #[test]
+    fn undoing_a_deleted_child_puts_it_back_under_its_parent() {
+        let mut app = test_app();
+        let (root, child) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(root, None, 1.0), (child, Some(root), 2.0)]);
+
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete child".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: child }],
+            });
+        });
+        assert!(entity_of(&mut app, child).is_none());
+        assert!(entity_of(&mut app, root).is_some(), "the parent went too");
+
+        undo(&mut app, 1);
+        assert_eq!(
+            parent_of(&mut app, child),
+            Some(root),
+            "the child came back at the world root"
+        );
+    }
+
+    /// Redo has to destroy exactly what undo restored, or the second undo
+    /// resurrects a subtree that should have stayed deleted.
+    #[test]
+    fn delete_undo_redo_round_trips() {
+        let mut app = test_app();
+        let (root, child) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(root, None, 1.0), (child, Some(root), 2.0)]);
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: root }],
+            });
+        });
+        undo(&mut app, 1);
+        redo(&mut app, 1);
+        for id in [root, child] {
+            assert!(
+                entity_of(&mut app, id).is_none(),
+                "{id:?} survived the redo"
+            );
+        }
+        undo(&mut app, 1);
+        assert_eq!(
+            parent_of(&mut app, child),
+            Some(root),
+            "the second undo lost the shape"
+        );
+    }
+
+    /// A transaction that deletes a parent AND one of its children — which a cut
+    /// of a multi-selection produces — must not warn, must not double-restore,
+    /// and must come back once.
+    #[test]
+    fn deleting_a_parent_and_its_child_in_one_transaction_restores_once() {
+        let mut app = test_app();
+        let (root, child) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(root, None, 1.0), (child, Some(root), 2.0)]);
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete both".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: root }, Op::Despawn { id: child }],
+            });
+        });
+        undo(&mut app, 1);
+        let count = app
+            .world_mut()
+            .query_filtered::<&SceneId, ()>()
+            .iter(app.world())
+            .filter(|id| **id == child)
+            .count();
+        assert_eq!(count, 1, "the child came back {count} times");
+        assert_eq!(parent_of(&mut app, child), Some(root));
+    }
+
+    /// DERIVED children rebuild themselves, so capturing them would make undo
+    /// duplicate the subtree — and naming one as a parent would dangle, because
+    /// a stamp mints fresh ids every time it runs.
+    #[test]
+    fn a_derived_child_is_not_captured() {
+        let mut app = test_app();
+        let (root, derived) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(root, None, 1.0), (derived, Some(root), 2.0)]);
+        let entity = entity_of(&mut app, derived).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(editor_api::edits::Derived);
+
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: root }],
+            });
+        });
+        undo(&mut app, 1);
+        assert!(
+            entity_of(&mut app, root).is_some(),
+            "the root did not come back"
+        );
+        assert!(
+            entity_of(&mut app, derived).is_none(),
+            "undo restored a derived child its producer will rebuild — now there are two"
+        );
     }
 }
