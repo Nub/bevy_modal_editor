@@ -399,6 +399,46 @@ pub(crate) fn outermost_seal(world: &World, entity: Entity) -> Entity {
     )
 }
 
+/// How far a fold walks before deciding the hierarchy is malformed. Bailing
+/// returns "not carried", i.e. the entity keeps its own op — the pre-fold
+/// behaviour, which is the safe direction to fail in.
+const MAX_ANCESTOR_WALK: usize = 256;
+
+/// Is `entity` already being moved by something else this verb is moving?
+///
+/// A verb that writes a DELTA, or a recomputed pose, onto an existing
+/// `Transform` has to ask this. Bevy already carries a child when its ancestor's
+/// transform changes, so a child that ALSO writes the delta itself moves twice —
+/// and `ctrl+a` then `w` is all it takes to reach that, because select-all takes
+/// children too.
+///
+/// `is_carrier` is deliberately narrower than "is selected": it has to mean
+/// "this entity's own edit will actually LAND". A locked operand's op is refused
+/// at the queue, so it moves nothing and carries nothing — its selected
+/// descendants must still move themselves, or "moving ten objects with two
+/// locked moves the eight" (spec §9) quietly stops being true.
+///
+/// A predicate rather than a set, so a query-side caller and a `&World` caller
+/// share one implementation without either owning a collection. It walks
+/// `ChildOf` to the root unconditionally: the question is "will propagation move
+/// this", and propagation follows `ChildOf` alone — an ancestor the scene cannot
+/// name is simply never a carrier, and the walk passes through it.
+pub fn carried_by(
+    entity: Entity,
+    is_carrier: impl Fn(Entity) -> bool,
+    parent_of: impl Fn(Entity) -> Option<Entity>,
+) -> bool {
+    let mut current = entity;
+    for _ in 0..MAX_ANCESTOR_WALK {
+        match parent_of(current) {
+            Some(parent) if is_carrier(parent) => return true,
+            Some(parent) => current = parent,
+            None => return false,
+        }
+    }
+    false
+}
+
 /// Select this entity once its spawn transaction has applied (placement,
 /// grouping, paste — anything that creates and should hand the user the result).
 #[derive(Resource, Default)]

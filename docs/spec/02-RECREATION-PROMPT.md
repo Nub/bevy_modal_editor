@@ -1218,6 +1218,54 @@ children at double speed today), and a paste decision about parents that no
 longer exist. `array`'s `copy_safe` refusal is the only thing in the editor
 currently telling the truth about copies, and it stays standing until that lands.
 
+
+**A selected child used to move twice (2026-08-21).** The move gesture took its
+operands as every `Selected` entity, unfolded, and wrote the delta onto each
+one's LOCAL transform. Bevy already carries a child when its parent's transform
+changes — so with a parent and its child both selected, the child gained the
+delta itself AND rode its parent, and moved at double speed. Rotate and scale
+had the same shape, and a squared scale on a nested mesh is the kind of damage
+that survives a session as geometry nobody can recover.
+
+It needed no exotic setup: `ctrl+a` takes children too, so select-all then `w`
+double-moved every child in the level.
+
+THE RULE: **a verb that writes a delta, or a recomputed pose, onto an existing
+`Transform` must not act on an operand that another EFFECTIVE operand already
+carries.** One predicate (`selection::carried_by`) walking `ChildOf` to the
+root, because the question is "will propagation move this" and propagation
+follows `ChildOf` alone.
+
+- **"Effective" is the whole subtlety.** A locked operand's op is refused at the
+  queue, so it moves nothing and carries nothing: a locked parent's selected
+  child must still move itself, or "moving ten objects with two locked moves the
+  eight" quietly becomes "moves none". A fold without that clause passes every
+  other test and regresses a written decision.
+- **Fold before the pivot is derived.** `pivot_of` averages the operands, so the
+  operand set IS the pivot's definition, and a rotate is only rigid when it
+  turns about the centre of what actually turns. This is a visible change for
+  any multi-selection that contained a carried child.
+- **The fold is by ANCESTRY, never by seal or by handle.** A socket selected
+  with its piece rides it welded, which matters because mating is re-derived
+  from world positions every frame — a drifted socket silently stops snapping.
+  A socket selected ALONE still nudges, because re-placing one is real
+  authoring.
+- **Applied to three verbs and deliberately not the rest**: the move/rotate/
+  scale gesture, `transform.drop`, and mirror. Array keeps the unfolded set —
+  it SPAWNS, and a parent and a child are two independent things to copy, so
+  nothing compounds; folding there would be a capability loss wearing a
+  bugfix's clothes. Keying an animation track, locking, hiding, the inspector's
+  field fan-out and every highlight reader all stay unfolded: their writes are
+  absolute and per-entity, and a carried child IS still selected — `d` deletes
+  it, `␣l` locks it, the inspector edits it. The only thing it is not is a
+  separate mover, and it never was.
+
+Still owed from the copy half: duplicate, cut and paste do not carry parentage,
+so a copied group still lands as loose pieces. A fold cannot fix that — it would
+make the child copy vanish instead of landing misplaced, which is worse. The fix
+is capture-with-parent records emitting `Spawn` + `Reparent`, which the engine
+now supports. Array's `copy_safe` refusal stays standing until it lands.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

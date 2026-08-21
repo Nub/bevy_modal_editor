@@ -72,6 +72,30 @@ pub fn subjects(world: &mut World) -> Subjects {
     out
 }
 
+/// `subjects`, minus the ones another subject already carries.
+///
+/// For verbs that write a POSE onto an EXISTING transform — mirror, drop. Verbs
+/// that SPAWN keep using `subjects`: a parent and a child are two independent
+/// things to copy, and copies do not compound the way a delta does.
+///
+/// AFTER the locked/hidden split, never before. `subjects` has already dropped
+/// locked entities, so a locked parent is not in the carrier set and its
+/// unlocked selected child correctly stays a subject — otherwise "moving ten
+/// objects with two locked moves the eight" would silently become "moves none".
+pub fn transform_subjects(world: &mut World) -> Subjects {
+    let mut found = subjects(world);
+    let carriers: Vec<Entity> = found.subject.iter().map(|(_, entity)| *entity).collect();
+    let read: &World = world;
+    found.subject.retain(|(_, entity)| {
+        !crate::selection::carried_by(
+            *entity,
+            |ancestor| carriers.contains(&ancestor),
+            |e| read.get::<ChildOf>(e).map(|c| c.parent()),
+        )
+    });
+    found
+}
+
 /// What a verb owes the user when it has nothing left to act on. Every refusal
 /// names the way OUT, not just the problem.
 pub fn refusal(subjects: &Subjects, verb: &str) -> Option<String> {

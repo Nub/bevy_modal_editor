@@ -483,4 +483,66 @@ mod tests {
             .count();
         assert_eq!(count, 1, "the cap did not hold");
     }
+
+    /// Array must NOT fold a carried child away, and this pins that.
+    ///
+    /// The move gesture folds because a delta compounds through propagation.
+    /// Array SPAWNS: a parent and a child are two independent things to copy,
+    /// and nothing compounds. Folding here would turn "arrays the child, and
+    /// says it skipped the parent" into "arrays nothing" — a capability loss
+    /// wearing a bugfix's clothes.
+    #[test]
+    fn arraying_a_parent_and_its_child_still_copies_the_child() {
+        let mut app = crate::tests::test_app();
+        let (parent, child) = (SceneId::random(), SceneId::random());
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: parent,
+                        components: vec![Box::new(Transform::default()).into_partial_reflect()],
+                    },
+                    Op::Spawn {
+                        id: child,
+                        components: vec![
+                            Box::new(Transform::from_xyz(1.0, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Reparent {
+                        target: child,
+                        parent: Some(parent),
+                    },
+                ],
+            });
+        app.update();
+        for id in [parent, child] {
+            let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+            app.world_mut().entity_mut(entity).insert(Selected);
+        }
+
+        let before = app
+            .world_mut()
+            .query_filtered::<(), With<SceneId>>()
+            .iter(app.world())
+            .count();
+        perform_array(app.world_mut(), 0, 2);
+        app.update();
+        let after = app
+            .world_mut()
+            .query_filtered::<(), With<SceneId>>()
+            .iter(app.world())
+            .count();
+        // The parent is refused (it has real child content a single-entity copy
+        // would drop); the child is copied twice.
+        assert_eq!(
+            after - before,
+            2,
+            "array laid {} copies, expected the child twice",
+            after - before
+        );
+    }
 }

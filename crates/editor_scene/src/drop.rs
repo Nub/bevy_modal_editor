@@ -106,6 +106,21 @@ pub(crate) fn perform_drop(world: &mut World) {
         .iter(world)
         .map(|(entity, id)| (entity, *id))
         .collect();
+    // Drop writes a recomputed pose onto an existing transform, so it has the
+    // same double-apply hazard the move gesture had: a selected child of a
+    // selected parent would be lifted once by its own op and again by its
+    // parent's. Its own doc already says "every selected ROOT".
+    let carriers: Vec<Entity> = selected.iter().map(|(entity, _)| *entity).collect();
+    let selected: Vec<(Entity, SceneId)> = selected
+        .into_iter()
+        .filter(|(entity, _)| {
+            !editor_core::selection::carried_by(
+                *entity,
+                |ancestor| carriers.contains(&ancestor),
+                |e| world.get::<ChildOf>(e).map(|c| c.parent()),
+            )
+        })
+        .collect();
     if selected.is_empty() {
         world.write_message(crate::SceneIoFeedback {
             message: "select something to drop".into(),

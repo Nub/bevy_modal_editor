@@ -14,7 +14,7 @@
 //! every single time. A tool that quietly does the wrong thing to one piece in
 //! twenty is worse than one that tells you its limits.
 
-use crate::layout::{AXIS_NAMES, refusal, skipped_note, subjects};
+use crate::layout::{AXIS_NAMES, refusal, skipped_note, transform_subjects};
 
 use bevy::math::Affine3A;
 use bevy::prelude::*;
@@ -77,7 +77,7 @@ pub(crate) fn perform_mirror(world: &mut World) {
         return;
     }
     let normal = Vec3::AXES[plane];
-    let found = subjects(world);
+    let found = transform_subjects(world);
     if let Some(message) = refusal(&found, "mirror") {
         say(world, message, false);
         return;
@@ -226,5 +226,63 @@ mod tests {
         let (_, r2, t2) = mirror_world(s1, r1, t1, Vec3::Z, origin);
         assert!((t2 - at).length() < 1e-5);
         assert!(r2.dot(rotation).abs() > 0.9999);
+    }
+
+    /// Mirror writes a POSE onto an existing transform, computed from the
+    /// pre-mirror parent frame — so a parent and its selected child would each
+    /// reflect, and the parent's own op would then invalidate the frame the
+    /// child's was built in. The parent alone is the operand.
+    #[test]
+    fn mirroring_a_parent_and_its_child_mirrors_the_parent_alone() {
+        let mut app = App::new();
+        app.add_plugins(crate::EditorCorePlugin);
+        app.init_resource::<bevy::input::ButtonInput<KeyCode>>();
+        app.finish();
+        app.update();
+        app.world_mut()
+            .resource_mut::<crate::resolver::EditorState>()
+            .active = true;
+
+        let (parent, child) = (SceneId::random(), SceneId::random());
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: parent,
+                        components: vec![Box::new(Transform::default()).into_partial_reflect()],
+                    },
+                    Op::Spawn {
+                        id: child,
+                        components: vec![
+                            Box::new(Transform::from_xyz(1.0, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Reparent {
+                        target: child,
+                        parent: Some(parent),
+                    },
+                ],
+            });
+        app.update();
+        for id in [parent, child] {
+            let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+            app.world_mut()
+                .entity_mut(entity)
+                .insert(crate::selection::Selected);
+        }
+
+        app.world_mut().resource_mut::<MirrorRequests>().plane = Some(0);
+        perform_mirror(app.world_mut());
+        let queued = &app.world().resource::<EditQueue>().0;
+        let ops: Vec<&Op> = queued.iter().flat_map(|t| t.ops.iter()).collect();
+        assert_eq!(ops.len(), 1, "the carried child was mirrored too");
+        assert!(
+            matches!(ops[0], Op::Set { target, .. } if *target == parent),
+            "the surviving operand was not the parent"
+        );
     }
 }

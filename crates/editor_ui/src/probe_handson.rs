@@ -36,6 +36,8 @@ pub(crate) struct HandsonProbe {
     before_hide: Option<(usize, bool)>,
     /// Undo depth, drum count and the source pose before an array.
     array_before: Option<(usize, usize, Transform)>,
+    /// Poses before a move, to prove a carried child did not move itself.
+    move_before: Vec<(Entity, Transform)>,
     /// The parent and children a delete is about to take, plus their scene ids
     /// (undo hands back NEW entities for the same ids).
     delete_subject: Option<(Entity, Vec<Entity>)>,
@@ -1727,6 +1729,77 @@ pub(crate) fn probe_handson(world: &mut World) {
                 world,
                 reparented,
                 "every child came back under its own parent",
+            );
+        }
+        // ── A parent and its child, selected together, move ONCE ──────────
+        // The subject is the flattened barrel again — the only real
+        // parent/child scene content the level has. `select.all` is invoked as
+        // data rather than tapped: the binding is covered elsewhere, and this
+        // removes every modifier-timing risk from the assertion that matters.
+        4540 => {
+            let subject = scene_root_with_scene_children(world);
+            match subject {
+                Some((root, children)) => {
+                    let poses = std::iter::once(root)
+                        .chain(children.iter().copied())
+                        .filter_map(|e| world.get::<Transform>(e).map(|t| (e, *t)))
+                        .collect::<Vec<_>>();
+                    world.resource_mut::<HandsonProbe>().move_before = poses;
+                }
+                None => check(world, false, "a real parent with children to move"),
+            }
+        }
+        4546 => invoke(world, "select.all"),
+        4552 => {
+            let before = world.resource::<HandsonProbe>().move_before.clone();
+            let selected = selected_entities(world);
+            // The gate: select.all must actually have taken the children, or
+            // the fold has nothing to fold and every assertion below is vacuous.
+            let took_children = before
+                .iter()
+                .skip(1)
+                .all(|(entity, _)| selected.contains(entity));
+            check(
+                world,
+                took_children && before.len() >= 3,
+                &format!(
+                    "select.all took the parent AND its children ({} rows)",
+                    before.len()
+                ),
+            );
+        }
+        4560 => invoke(world, "transform.move"),
+        4566 => invoke(world, "transform.axis-x"),
+        4572 => invoke(world, "transform.digit-2"),
+        4578 => invoke(world, "transform.commit"),
+        4596 => {
+            let before = world.resource::<HandsonProbe>().move_before.clone();
+            let mut parent_moved = false;
+            let mut children_still = true;
+            for (index, (entity, was)) in before.iter().enumerate() {
+                let Some(now) = world.get::<Transform>(*entity).copied() else {
+                    children_still = false;
+                    continue;
+                };
+                if index == 0 {
+                    parent_moved = (now.translation.x - was.translation.x - 2.0).abs() < 1e-3;
+                } else if (now.translation - was.translation).length() > 1e-4 {
+                    // A carried child's LOCAL transform must come out
+                    // bit-identical: it rides its parent, it does not also move
+                    // itself. Before the fold each child gained the delta too,
+                    // so its world position moved twice as far.
+                    children_still = false;
+                }
+            }
+            check(
+                world,
+                parent_moved,
+                "the parent moved by exactly the typed amount",
+            );
+            check(
+                world,
+                children_still,
+                "its children rode along instead of moving themselves as well",
             );
         }
         4600 => {

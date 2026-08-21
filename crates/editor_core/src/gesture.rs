@@ -249,7 +249,8 @@ pub(crate) fn handle_gesture_actions(
     mut motion: ResMut<GestureMotion>,
     mut requests: ResMut<HistoryRequests>,
     mut edits: EditScope,
-    selected: Query<(&SceneId, &Transform), With<Selected>>,
+    selected: Query<(Entity, &SceneId, &Transform, Has<crate::lock::Locked>), With<Selected>>,
+    parents: Query<&ChildOf>,
     scene: Query<(&SceneId, &Transform)>,
     pin: Res<GesturePivot>,
 ) {
@@ -276,10 +277,38 @@ pub(crate) fn handle_gesture_actions(
                         });
                     let (originals, pivot) = match pinned {
                         Some((originals, at)) => (originals, Some(at)),
-                        None => (
-                            selected.iter().map(|(id, t)| (*id, *t)).collect::<Vec<_>>(),
-                            None,
-                        ),
+                        None => {
+                            let all: Vec<(Entity, SceneId, Transform, bool)> = selected
+                                .iter()
+                                .map(|(entity, id, transform, locked)| {
+                                    (entity, *id, *transform, locked)
+                                })
+                                .collect();
+                            // Fold BEFORE the pivot is derived: `pivot_of`
+                            // averages the operands, so the operand set IS the
+                            // pivot's definition, and a rotate is only rigid
+                            // when it turns about the centre of what turns.
+                            //
+                            // Folded ONCE, here at capture: the drag path and
+                            // the typed path both re-apply from `originals`,
+                            // so neither pays for this per frame.
+                            let originals = all
+                                .iter()
+                                .filter(|(entity, ..)| {
+                                    !crate::selection::carried_by(
+                                        *entity,
+                                        |ancestor| {
+                                            all.iter().any(|(candidate, _, _, locked)| {
+                                                *candidate == ancestor && !*locked
+                                            })
+                                        },
+                                        |e| parents.get(e).ok().map(|p| p.parent()),
+                                    )
+                                })
+                                .map(|(_, id, transform, _)| (*id, *transform))
+                                .collect::<Vec<_>>();
+                            (originals, None)
+                        }
                     };
                     if originals.is_empty() {
                         continue;
@@ -1237,6 +1266,217 @@ mod tests {
         let halved = scale_of(&mut app, id).x;
         assert!((halved - 0.5).abs() < 0.01, "400px back halves: {halved}");
         invoke(&mut app, "transform.cancel");
+    }
+
+    fn spawn_child(app: &mut App, parent: SceneId, at: Vec3) -> SceneId {
+        let id = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn child".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id,
+                        components: vec![
+                            Box::new(Transform::from_translation(at)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Reparent {
+                        target: id,
+                        parent: Some(parent),
+                    },
+                ],
+            });
+        app.update();
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        app.world_mut().entity_mut(entity).insert(Selected);
+        id
+    }
+
+    fn local(app: &mut App, id: SceneId) -> Transform {
+        let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
+        *app.world().get::<Transform>(entity).unwrap()
+    }
+
+    fn move_x_by_one(app: &mut App) {
+        invoke(app, "transform.move");
+        invoke(app, "transform.axis-x");
+        invoke(app, "transform.digit-1");
+        invoke(app, "transform.commit");
+        app.update();
+    }
+
+    // These assert on LOCAL `Transform` on purpose: `editor_core` has no
+    // `TransformPlugin` (its whole dependency list is bevy + editor_api + serde
+    // + ron), so `GlobalTransform` is never propagated here and any world-space
+    // assertion would be vacuously green. The fix's signature IS local — a
+    // carried child's local transform must come out bit-identical.
+
+    /// THE bug. Both selected, so the child gained the delta itself AND rode
+    /// its parent — double speed. Reachable with `ctrl+a` then `w`, because
+    /// select-all takes children too.
+    #[test]
+    fn a_selected_child_of_a_selected_parent_is_not_moved_twice() {
+        let mut app = test_app();
+        let parent = spawn_selected(&mut app, Vec3::ZERO);
+        let child = spawn_child(&mut app, parent, Vec3::new(1.0, 0.0, 0.0));
+        move_x_by_one(&mut app);
+        assert_eq!(translation(&mut app, parent), Vec3::new(1.0, 0.0, 0.0));
+        assert_eq!(
+            local(&mut app, child).translation,
+            Vec3::new(1.0, 0.0, 0.0),
+            "the child moved itself as well as riding its parent"
+        );
+    }
+
+    /// Catches a fix that drops direct children only instead of walking the
+    /// whole chain.
+    #[test]
+    fn a_three_deep_chain_moves_once() {
+        let mut app = test_app();
+        let root = spawn_selected(&mut app, Vec3::ZERO);
+        let child = spawn_child(&mut app, root, Vec3::new(1.0, 0.0, 0.0));
+        let grandchild = spawn_child(&mut app, child, Vec3::new(1.0, 0.0, 0.0));
+        move_x_by_one(&mut app);
+        assert_eq!(translation(&mut app, root), Vec3::new(1.0, 0.0, 0.0));
+        assert_eq!(local(&mut app, child).translation, Vec3::new(1.0, 0.0, 0.0));
+        assert_eq!(
+            local(&mut app, grandchild).translation,
+            Vec3::new(1.0, 0.0, 0.0),
+            "the grandchild moved itself under a moving chain"
+        );
+    }
+
+    /// A squared scale on a nested mesh is the failure that survives a session
+    /// as geometry nobody can recover.
+    #[test]
+    fn a_folded_scale_does_not_square_on_the_child() {
+        let mut app = test_app();
+        let parent = spawn_selected(&mut app, Vec3::ZERO);
+        let child = spawn_child(&mut app, parent, Vec3::new(1.0, 0.0, 0.0));
+        invoke(&mut app, "transform.scale");
+        invoke(&mut app, "transform.digit-3");
+        invoke(&mut app, "transform.commit");
+        app.update();
+        assert_eq!(local(&mut app, child).scale, Vec3::ONE, "the child squared");
+        assert_eq!(local(&mut app, child).translation, Vec3::new(1.0, 0.0, 0.0));
+    }
+
+    /// A rotate turns about the centre of what actually turns, so the fold has
+    /// to happen before the pivot is derived.
+    #[test]
+    fn a_folded_rotate_pivots_about_the_surviving_root() {
+        let mut app = test_app();
+        let parent = spawn_selected(&mut app, Vec3::new(2.0, 0.0, 0.0));
+        let child = spawn_child(&mut app, parent, Vec3::new(1.0, 0.0, 0.0));
+        invoke(&mut app, "transform.rotate");
+        invoke(&mut app, "transform.axis-y");
+        invoke(&mut app, "transform.digit-9");
+        invoke(&mut app, "transform.digit-0");
+        invoke(&mut app, "transform.commit");
+        app.update();
+        let after = local(&mut app, child);
+        assert_eq!(after.translation, Vec3::new(1.0, 0.0, 0.0));
+        assert!(
+            after.rotation.dot(Quat::IDENTITY).abs() > 0.9999,
+            "the child turned itself as well as riding its parent"
+        );
+        // One operand means the pivot is its own origin: it turns in place.
+        assert_eq!(
+            translation(&mut app, parent),
+            Vec3::new(2.0, 0.0, 0.0),
+            "the pivot came from a set the parent was not alone in"
+        );
+    }
+
+    /// THE lock clause. A locked operand's op is refused at the queue, so it
+    /// moves nothing and carries nothing — its selected child must still move
+    /// itself, or "moving ten objects with two locked moves the eight" (spec §9)
+    /// quietly stops being true. A fold that ignores this passes every other
+    /// test here and regresses a written decision.
+    #[test]
+    fn a_locked_parent_still_lets_its_selected_child_move() {
+        let mut app = test_app();
+        let parent = spawn_selected(&mut app, Vec3::ZERO);
+        let child = spawn_child(&mut app, parent, Vec3::new(1.0, 0.0, 0.0));
+        let entity = app.world().resource::<SceneIndex>().get(&parent).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::lock::Locked);
+        move_x_by_one(&mut app);
+        assert_eq!(
+            translation(&mut app, parent),
+            Vec3::ZERO,
+            "the lock did not hold"
+        );
+        assert_eq!(
+            local(&mut app, child).translation,
+            Vec3::new(2.0, 0.0, 0.0),
+            "a locked parent carried nothing, so the child had to move itself"
+        );
+    }
+
+    /// A socket is a child that clicks as itself. Selected together with its
+    /// piece it must ride, welded — and it double-moved before, which is not
+    /// cosmetic: mating is re-derived from world positions every frame, so a
+    /// drifted socket silently stops snapping.
+    #[test]
+    fn a_selected_handle_rides_its_selected_piece() {
+        let mut app = test_app();
+        let piece = spawn_selected(&mut app, Vec3::ZERO);
+        let handle = spawn_child(&mut app, piece, Vec3::new(0.5, 0.0, 0.0));
+        let entity = app.world().resource::<SceneIndex>().get(&handle).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::selection::SelectionHandle);
+        move_x_by_one(&mut app);
+        assert_eq!(
+            local(&mut app, handle).translation,
+            Vec3::new(0.5, 0.0, 0.0),
+            "the handle drifted off its piece"
+        );
+    }
+
+    /// Over-fitting guard: re-placing a socket on its piece is real authoring,
+    /// so a handle selected ALONE still nudges.
+    #[test]
+    fn a_handle_selected_alone_still_moves_by_itself() {
+        let mut app = test_app();
+        let piece = spawn_selected(&mut app, Vec3::ZERO);
+        let handle = spawn_child(&mut app, piece, Vec3::new(0.5, 0.0, 0.0));
+        let piece_entity = app.world().resource::<SceneIndex>().get(&piece).unwrap();
+        app.world_mut()
+            .entity_mut(piece_entity)
+            .remove::<Selected>();
+        let entity = app.world().resource::<SceneIndex>().get(&handle).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::selection::SelectionHandle);
+        move_x_by_one(&mut app);
+        assert_eq!(
+            local(&mut app, handle).translation,
+            Vec3::new(1.5, 0.0, 0.0),
+            "the fold dropped a child nothing was carrying"
+        );
+    }
+
+    /// Second over-fitting guard, and the hierarchy-panel path: a child whose
+    /// parent is NOT selected moves on its own.
+    #[test]
+    fn a_child_whose_parent_is_not_selected_still_moves() {
+        let mut app = test_app();
+        let parent = spawn_selected(&mut app, Vec3::ZERO);
+        let child = spawn_child(&mut app, parent, Vec3::new(1.0, 0.0, 0.0));
+        let entity = app.world().resource::<SceneIndex>().get(&parent).unwrap();
+        app.world_mut().entity_mut(entity).remove::<Selected>();
+        move_x_by_one(&mut app);
+        assert_eq!(
+            local(&mut app, child).translation,
+            Vec3::new(2.0, 0.0, 0.0),
+            "a child with no selected ancestor was folded away"
+        );
     }
 }
 
