@@ -10,11 +10,15 @@ use crate::edits::EditorComponents;
 use crate::resolver::EditorState;
 use crate::selection::{Selected, SelectionChanged};
 
-/// Captured component sets (registered components only — the same capture set as
-/// despawn inverses and serialization).
+/// The yank register: whole SUBTREES, not loose entities.
+///
+/// It holds the captured shape, not live entities, so it outlives the world it
+/// was taken from — cut a group, work for ten minutes, paste it back. Ids are
+/// re-minted at PASTE time (`copy_ops`), which is what makes pasting twice give
+/// two independent groups rather than one fought over.
 #[derive(Resource, Default)]
 pub struct EditorClipboard {
-    pub entries: Vec<Vec<Box<dyn PartialReflect>>>,
+    pub entries: Vec<crate::edits::CopySubtree>,
 }
 
 #[derive(Resource, Default)]
@@ -115,36 +119,6 @@ pub(crate) fn capture_copy_set(
     drop(registry);
     (found, subtrees, derived, lossy)
 }
-fn capture_selected(world: &mut World) -> Vec<(SceneId, Vec<Box<dyn PartialReflect>>)> {
-    let registry = world.resource::<AppTypeRegistry>().clone();
-    let registry = registry.read();
-    let components = world.resource::<EditorComponents>().types.clone();
-    let mut selected: Vec<(Entity, SceneId)> = {
-        let mut query = world.query_filtered::<(Entity, &SceneId), With<Selected>>();
-        query.iter(world).map(|(e, id)| (e, *id)).collect()
-    };
-    selected.sort_by_key(|(_, id)| id.0);
-    selected
-        .into_iter()
-        .map(|(entity, id)| {
-            let mut captured = Vec::new();
-            for reg in &components {
-                let Some(registration) = registry.get(reg.type_id) else {
-                    continue;
-                };
-                let Some(reflect_component) =
-                    registration.data::<bevy::ecs::reflect::ReflectComponent>()
-                else {
-                    continue;
-                };
-                if let Some(value) = reflect_component.reflect(world.entity(entity)) {
-                    captured.push(value.as_partial_reflect().to_dynamic());
-                }
-            }
-            (id, captured)
-        })
-        .collect()
-}
 
 pub(crate) fn perform_clipboard(world: &mut World) {
     let requests = std::mem::take(&mut *world.resource_mut::<ClipboardRequests>());
@@ -191,56 +165,136 @@ pub(crate) fn perform_clipboard(world: &mut World) {
     }
 
     if requests.yank || requests.cut {
-        let captured = capture_selected(world);
-        if !captured.is_empty() {
-            world.resource_mut::<EditorClipboard>().entries = captured
-                .iter()
-                .map(|(_, c)| c.iter().map(|v| v.to_dynamic()).collect())
-                .collect();
-        }
-        if requests.cut {
-            let ids: Vec<SceneId> = captured.iter().map(|(id, _)| *id).collect();
-            if !ids.is_empty() {
-                let ops = ids
-                    .into_iter()
-                    .map(|id| Op::Despawn { id })
-                    .collect::<Vec<_>>();
-                let label = format!("Delete {}", ops.len());
+        let verb = if requests.cut { "cut" } else { "yank" };
+        let (found, subtrees, derived, lossy) = capture_copy_set(world);
+        if let Some(message) = crate::layout::refusal(&found, verb) {
+            say(world, message, false);
+        } else if subtrees.is_empty() {
+            say(world, copy_refusal_message(verb, derived, lossy), false);
+        } else if requests.cut {
+            // A cut must take exactly what it captured, or the register and the
+            // scene disagree. A subtree holding a locked part refuses its
+            // despawn at the queue, so it is dropped from BOTH here rather than
+            // quietly becoming a yank.
+            let (removable, held): (Vec<_>, Vec<_>) = subtrees.into_iter().partition(|subtree| {
+                world
+                    .resource::<SceneIndex>()
+                    .get(&subtree.root)
+                    .is_some_and(|entity| !crate::lock::subtree_holds_a_lock(world, entity))
+            });
+            if removable.is_empty() {
+                say(
+                    world,
+                    format!(
+                        "{} object{} hold{} a locked part \u{b7} \u{2423}l to unlock it",
+                        held.len(),
+                        if held.len() == 1 { "" } else { "s" },
+                        if held.len() == 1 { "s" } else { "" }
+                    ),
+                    false,
+                );
+            } else {
+                let ops: Vec<Op> = removable
+                    .iter()
+                    .map(|subtree| Op::Despawn { id: subtree.root })
+                    .collect();
                 world.resource_mut::<EditQueue>().0.push(Transaction {
-                    label,
+                    label: format!("Delete {}", ops.len()),
                     gesture: None,
                     ops,
                 });
+                let taken = removable.len();
+                world.resource_mut::<EditorClipboard>().entries = removable;
+                let note = crate::layout::skipped_note(&found);
+                say(
+                    world,
+                    format!(
+                        "cut {taken} object{} \u{b7} p pastes it back{note}",
+                        if taken == 1 { "" } else { "s" }
+                    ),
+                    true,
+                );
             }
+        } else {
+            let taken = subtrees.len();
+            world.resource_mut::<EditorClipboard>().entries = subtrees;
+            let note = crate::layout::skipped_note(&found);
+            say(
+                world,
+                format!(
+                    "yanked {taken} object{}{note}",
+                    if taken == 1 { "" } else { "s" }
+                ),
+                true,
+            );
         }
     }
 
     if requests.paste {
-        let entries: Vec<Vec<Box<dyn PartialReflect>>> = {
+        let entries: Vec<crate::edits::CopySubtree> = {
             let clipboard = world.resource::<EditorClipboard>();
             clipboard
                 .entries
                 .iter()
-                .map(|entry| entry.iter().map(|v| v.to_dynamic()).collect())
+                .map(|entry| entry.cloned())
                 .collect()
         };
-        if !entries.is_empty() {
-            let mut new_ids = Vec::new();
-            let ops = entries
-                .into_iter()
-                .map(|components| {
-                    let id = SceneId::random();
-                    new_ids.push(id);
-                    Op::Spawn { id, components }
-                })
-                .collect::<Vec<_>>();
-            let label = format!("Paste {}", ops.len());
+        if entries.is_empty() {
+            say(
+                world,
+                "nothing in the register \u{b7} y yanks the selection".into(),
+                false,
+            );
+        } else {
+            let mut ops: Vec<Op> = Vec::new();
+            let mut roots: Vec<SceneId> = Vec::new();
+            let mut orphaned = 0usize;
+            for entry in &entries {
+                // The register outlives the world it came from, so the parent a
+                // subtree hung under may be gone — or may since have become
+                // GENERATED, whose ids are re-minted on every stamp. Resolve it
+                // HERE rather than let `Op::Reparent` fail: that op drops an
+                // unresolvable parent silently, which is how a paste ends up
+                // somewhere nobody chose without a word about it.
+                let parent = entry.external_parent.and_then(|id| {
+                    let entity = world.resource::<SceneIndex>().get(&id)?;
+                    world
+                        .get::<editor_api::edits::Derived>(entity)
+                        .is_none()
+                        .then_some(id)
+                });
+                if entry.external_parent.is_some() && parent.is_none() {
+                    orphaned += 1;
+                }
+                let (mut made, root) = crate::edits::copy_ops(entry, parent);
+                ops.append(&mut made);
+                roots.push(root);
+            }
             world.resource_mut::<EditQueue>().0.push(Transaction {
-                label,
+                label: format!("Paste {}", roots.len()),
                 gesture: None,
                 ops,
             });
-            world.resource_mut::<PendingPasteSelect>().0 = new_ids;
+            // ROOTS only, for the same reason duplicate hands over roots: a
+            // pasted group is one thing.
+            world.resource_mut::<PendingPasteSelect>().0 = roots.clone();
+            let mut message = format!(
+                "pasted {} object{}",
+                roots.len(),
+                if roots.len() == 1 { "" } else { "s" }
+            );
+            if orphaned > 0 {
+                // AND it moved. The captured transform is LOCAL, so dropping the
+                // parent link reinterprets it as a world pose — a child sitting
+                // 5 units inside a group at x=100 lands at x=5. Recording a
+                // world pose at capture is the real fix and its own slice; a
+                // message that mentioned only parentage would leave someone to
+                // find the teleport themselves.
+                message.push_str(&format!(
+                    " \u{b7} {orphaned} lost its parent, so it landed at the top level and moved",
+                ));
+            }
+            say(world, message, true);
         }
     }
 }
@@ -461,7 +515,9 @@ mod tests {
                 .iter()
                 .filter_map(|entry| {
                     entry
+                        .records
                         .iter()
+                        .flat_map(|record| record.components.iter())
                         .find_map(|value| Payload::from_reflect(value.as_ref()))
                 })
                 .map(|payload| payload.0)
@@ -713,5 +769,178 @@ mod tests {
             .iter(app.world())
             .count();
         assert_eq!(selected, 1, "the copied children were selected too");
+    }
+
+    /// THE bug. A cut takes the whole subtree — despawn is recursive — but the
+    /// register only held the selected root, so pasting a three-entity group
+    /// brought back one and lost two, permanently.
+    #[test]
+    fn cutting_a_group_and_pasting_it_returns_the_group() {
+        let mut app = duplicate_app();
+        let (a, _, _) = spawn_selected_group(&mut app);
+        invoke(&mut app, "select.delete");
+        app.update();
+        assert_eq!(scene_count(&mut app), 0, "the cut left something behind");
+        assert!(app.world().resource::<SceneIndex>().get(&a).is_none());
+
+        invoke(&mut app, "select.paste");
+        app.update();
+        assert_eq!(scene_count(&mut app), 3, "the paste came back short");
+
+        // And the SHAPE, not just the count.
+        let root = app
+            .world_mut()
+            .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+            .iter(app.world())
+            .next()
+            .expect("no pasted root");
+        let child = app
+            .world()
+            .get::<Children>(root)
+            .and_then(|kids| kids.iter().next())
+            .expect("the pasted root has no child");
+        assert!(
+            app.world().get::<Children>(child).is_some(),
+            "the pasted group is only one level deep"
+        );
+    }
+
+    /// Pasting twice gives two independent groups, because ids are minted at
+    /// paste time rather than stored in the register.
+    #[test]
+    fn pasting_twice_gives_two_independent_groups() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        invoke(&mut app, "select.delete");
+        app.update();
+        invoke(&mut app, "select.paste");
+        app.update();
+        invoke(&mut app, "select.paste");
+        app.update();
+        assert_eq!(scene_count(&mut app), 6, "the second paste collided");
+        let roots = app
+            .world_mut()
+            .query_filtered::<(), (With<SceneId>, Without<ChildOf>)>()
+            .iter(app.world())
+            .count();
+        assert_eq!(roots, 2);
+    }
+
+    /// A yank leaves the scene alone, and its paste is still a full group.
+    #[test]
+    fn yanking_a_group_leaves_it_in_place() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        invoke(&mut app, "select.yank");
+        app.update();
+        assert_eq!(scene_count(&mut app), 3, "a yank removed something");
+        invoke(&mut app, "select.paste");
+        app.update();
+        assert_eq!(scene_count(&mut app), 6);
+    }
+
+    /// Cut is one undoable step, and undo puts the whole group back — the
+    /// engine's subtree inverse doing the work.
+    #[test]
+    fn undoing_a_cut_restores_the_group() {
+        let mut app = duplicate_app();
+        spawn_selected_group(&mut app);
+        invoke(&mut app, "select.delete");
+        app.update();
+        app.world_mut().resource_mut::<HistoryRequests>().undo = 1;
+        app.update();
+        assert_eq!(scene_count(&mut app), 3, "undo did not restore the cut");
+    }
+
+    /// The register outlives the world it was taken from. When the parent a
+    /// yanked child hung under is gone, the paste lands at the top level and
+    /// SAYS so — `Op::Reparent` would otherwise drop the link without a word.
+    #[test]
+    fn pasting_an_orphaned_clip_lands_at_the_top_and_says_so() {
+        let mut app = duplicate_app();
+        let (a, b, _) = spawn_selected_group(&mut app);
+        // Yank the CHILD, which hangs under `a`.
+        let a_entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        app.world_mut().entity_mut(a_entity).remove::<Selected>();
+        let b_entity = app.world().resource::<SceneIndex>().get(&b).unwrap();
+        app.world_mut().entity_mut(b_entity).insert(Selected);
+        invoke(&mut app, "select.yank");
+        app.update();
+
+        // Delete the parent it remembers — directly, because `d` is a CUT and
+        // would overwrite the very register this test is about.
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "delete the parent".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: a }],
+            });
+        app.update();
+        let _ = drain_feedback(&mut app);
+
+        invoke(&mut app, "select.paste");
+        app.update();
+        let rootless = app
+            .world_mut()
+            .query_filtered::<(), (With<SceneId>, Without<ChildOf>)>()
+            .iter(app.world())
+            .count();
+        assert!(rootless > 0, "the paste vanished");
+        let said = drain_feedback(&mut app);
+        assert!(
+            said.iter().any(|m| m.contains("lost its parent")),
+            "the paste moved something and said nothing: {said:?}"
+        );
+    }
+
+    /// A yanked child whose parent is STILL there goes back under it.
+    #[test]
+    fn pasting_a_child_goes_back_under_its_parent() {
+        let mut app = duplicate_app();
+        let (a, b, _) = spawn_selected_group(&mut app);
+        let a_entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        app.world_mut().entity_mut(a_entity).remove::<Selected>();
+        let b_entity = app.world().resource::<SceneIndex>().get(&b).unwrap();
+        app.world_mut().entity_mut(b_entity).insert(Selected);
+        invoke(&mut app, "select.yank");
+        app.update();
+        invoke(&mut app, "select.paste");
+        app.update();
+
+        let under_a = app
+            .world_mut()
+            .query_filtered::<&ChildOf, With<SceneId>>()
+            .iter(app.world())
+            .filter(|c| c.parent() == a_entity)
+            .count();
+        assert_eq!(under_a, 2, "the pasted child did not rejoin its parent");
+    }
+
+    /// A cut must take exactly what it captured. A subtree holding a locked
+    /// part refuses its despawn at the queue, so it is kept out of the register
+    /// too — otherwise the register and the scene quietly disagree.
+    #[test]
+    fn cutting_a_group_with_a_locked_part_refuses_and_keeps_the_register_clean() {
+        let mut app = duplicate_app();
+        let (_, b, _) = spawn_selected_group(&mut app);
+        let b_entity = app.world().resource::<SceneIndex>().get(&b).unwrap();
+        app.world_mut()
+            .entity_mut(b_entity)
+            .insert(crate::lock::Locked);
+        invoke(&mut app, "select.delete");
+        app.update();
+
+        assert_eq!(scene_count(&mut app), 3, "a locked part was cut away");
+        assert!(
+            app.world().resource::<EditorClipboard>().entries.is_empty(),
+            "the register took what the scene refused to give up"
+        );
+        let said = drain_feedback(&mut app);
+        assert!(
+            said.iter().any(|m| m.contains("locked part")),
+            "the refusal did not name the problem: {said:?}"
+        );
     }
 }

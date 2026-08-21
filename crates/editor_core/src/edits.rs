@@ -315,7 +315,18 @@ fn apply_value_op(
                 .copied();
             match parent {
                 Some(parent_id) => {
-                    let parent_entity = resolve(world, &parent_id)?;
+                    // A parent that no longer resolves would otherwise take the
+                    // whole op down with it — no reparent, no inverse, and no
+                    // word — which is how something lands somewhere nobody
+                    // chose. Paste resolves its parent before building the op;
+                    // this is the backstop for the next verb that does not.
+                    let Some(parent_entity) = resolve(world, &parent_id) else {
+                        warn!(
+                            "Op::Reparent parent {parent_id:?} not in SceneIndex — \
+                             {target:?} stays where it is"
+                        );
+                        return None;
+                    };
                     world.entity_mut(entity).insert(ChildOf(parent_entity));
                 }
                 None => {

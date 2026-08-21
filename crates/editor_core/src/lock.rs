@@ -55,6 +55,25 @@ pub fn op_is_refused(
     }
 }
 
+/// Does `root`, or anything under it, refuse edits?
+///
+/// The queue guard builds this UPWARDS from the locked entities, because it has
+/// to answer for every op in a transaction and locks are rarer than ops. A
+/// caller checking a handful of roots walks DOWN instead — same question, and
+/// the cheaper direction for that shape.
+pub fn subtree_holds_a_lock(world: &World, root: Entity) -> bool {
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if world.get::<Locked>(entity).is_some() {
+            return true;
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    false
+}
+
 #[derive(Resource, Default)]
 pub(crate) struct LockRequests {
     pub toggle: bool,

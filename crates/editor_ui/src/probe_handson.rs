@@ -2005,7 +2005,86 @@ pub(crate) fn probe_handson(world: &mut World) {
             );
         }
         4940 => invoke(world, "core.undo"),
-        5000 => {
+        // ── Cut a group and paste it back ─────────────────────────────────
+        // LAST, because a pasted group becomes a second candidate for
+        // `scene_root_with_scene_children` and would confuse anything after it.
+        4960 => invoke(world, "select.clear"),
+        4970 => {
+            let roots_before: Vec<Entity> = world
+                .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+                .iter(world)
+                .collect();
+            world.resource_mut::<HandsonProbe>().roots_before = roots_before;
+            match scene_root_with_scene_children(world) {
+                Some((root, children)) => {
+                    editor_core::selection::select_entity(world, root, false);
+                    check(
+                        world,
+                        children.len() >= 2,
+                        &format!("a real group to cut ({} children)", children.len()),
+                    );
+                    world.resource_mut::<HandsonProbe>().copy_subject = Some((root, children));
+                }
+                None => check(world, false, "a real group to cut"),
+            }
+        }
+        4980 => tap(world, KeyCode::KeyD, "d"),
+        5020 => {
+            let subject = world.resource::<HandsonProbe>().copy_subject.clone();
+            let (root, children) = subject.unwrap_or((Entity::PLACEHOLDER, Vec::new()));
+            let gone = world.get_entity(root).is_err()
+                && children.iter().all(|c| world.get_entity(*c).is_err());
+            check(world, gone, "the cut took the whole group");
+        }
+        5030 => tap(world, KeyCode::KeyP, "p"),
+        5080 => {
+            let before = world.resource::<HandsonProbe>().roots_before.clone();
+            let wanted = world
+                .resource::<HandsonProbe>()
+                .copy_subject
+                .as_ref()
+                .map(|(_, kids)| kids.len())
+                .unwrap_or(0);
+            // By set difference: the level ships four identical `Box` roots, so
+            // naming or position would both be unsound here.
+            let fresh: Vec<Entity> = world
+                .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+                .iter(world)
+                .filter(|e| !before.contains(e))
+                .collect();
+            check(
+                world,
+                fresh.len() == 1,
+                &format!("the paste came back as one group ({})", fresh.len()),
+            );
+            let got = fresh
+                .first()
+                .and_then(|root| world.get::<Children>(*root))
+                .map(|kids| {
+                    kids.iter()
+                        .filter(|child| {
+                            world.get::<SceneId>(*child).is_some()
+                                && world.get::<PrefabStamped>(*child).is_none()
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            // This read 1-of-N before: the cut destroyed the subtree and the
+            // register only ever held the root.
+            check(
+                world,
+                got == wanted && wanted > 0,
+                &format!("the paste brought the children back ({got} of {wanted})"),
+            );
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.contains("pasted"),
+                &format!("the paste says what it did [{flash}]"),
+            );
+            shot(world, "46-cut-paste-group");
+        }
+        5200 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();
             if failures.is_empty() {
                 info!("HANDSON-PROBE PASS: the owner hands-on checklist end-to-end");

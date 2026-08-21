@@ -1303,11 +1303,7 @@ capture, deliberately not the same function.
   carrying it forward would give a copy a side effect outside history that undo
   could not follow.
 
-Still owed: cut, yank and paste. They are materially riskier — the register
-outlives the world it was taken from, so paste has to decide what to do when a
-copied entity's original parent is gone. `Op::Reparent` currently drops such a
-link silently, which is exactly the failure mode that needs a message rather
-than a shrug.
+Cut, yank and paste followed in the next commit — see below.
 
 
 **A lock has to hold against the delete that does not name it (2026-08-21).**
@@ -1330,6 +1326,43 @@ every op: locks are rare and ops are not.
 And the refusal names the right problem. "That is locked" and "that contains
 something locked" have different fixes, and a message that says the first when
 it means the second sends you looking at the wrong object.
+
+
+**Cut and paste kept the root and dropped the rest (2026-08-21).** Cutting a
+three-entity group and pasting it back returned ONE entity. The despawn was
+subtree-aware, so all three went; the register held only the selected root, so
+two were gone for good. It is the same shape as the delete/undo bug, one layer
+out: the thing that removes knows about subtrees and the thing that remembers
+did not.
+
+The register holds whole SUBTREES now — the same capture duplicate and array
+use — and ids are minted at PASTE time, which is what makes pasting twice give
+two independent groups rather than one fought over.
+
+- **A cut takes exactly what it captured.** A subtree holding a locked part
+  refuses its despawn at the queue, so it is kept out of the register too. The
+  alternative is a register and a scene that quietly disagree — a "cut" that was
+  really a yank, discovered later.
+- **Paste resolves the parent itself.** `Op::Reparent` drops an unresolvable
+  parent with no inverse and no message, so paste checks before it builds the
+  op: the parent must still exist AND not have become generated (whose ids are
+  re-minted every stamp). The op now warns as a backstop for the next verb that
+  builds a reparent from a stale id.
+- **A paste that lost its parent SAYS SO — including that it moved.** The
+  captured transform is LOCAL, so dropping the parent link reinterprets it as a
+  world pose: a child sitting 5 units inside a group at x=100 lands at x=5. That
+  cannot be fixed at paste time, because the parent's world pose is gone by
+  then; it needs the capture to record a world pose, which changes the capture's
+  shape and touches duplicate and array too. Its own slice. Until then the
+  message tells the truth rather than leaving someone to find the teleport.
+- **Cut and yank speak on success**, which they never did.
+
+Deferred and named, not silently dropped: the orphan teleport above; that
+`open_mode` adopts pastes into the open prefab, which makes "landed at the top
+level" the wrong words there; and — wider than this slice — that the UNDO
+capture does not descend below a generated boundary while `despawn` destroys
+recursively, so named content under a generated member is lost on every despawn
+path, not just cut.
 
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
