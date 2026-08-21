@@ -448,6 +448,8 @@ impl EditorFeature for PrefabsFeature {
         reg.context(paint::PAINT_CONTEXT);
         reg.context(crate::sockets::SOCKET_CONTEXT);
         reg.context(editor_api::prelude::ContextId::new_static("template"));
+        // An instance of a prefab IS that prefab, whatever else it carries.
+        reg.identity::<PrefabInstance>(editor_api::identity::priority::PREFAB, "", "same prefab");
         reg.component::<PrefabInstance>()
             .component::<PrefabOverrides>()
             .component::<sockets::Socket>()

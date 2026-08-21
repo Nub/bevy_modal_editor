@@ -520,4 +520,44 @@ mod tests {
         let normal = &defaults.by_context[&ContextId::new_static("normal")];
         assert_eq!(normal[0].0, "u".parse().unwrap());
     }
+
+    /// The kernel's OWN bindings have to be reachable, and a probe run is a
+    /// slow way to learn they are not. This pins the four selection verbs to
+    /// the keys the keymap doc promises.
+    #[test]
+    fn the_selection_verbs_are_bound_where_the_doc_says() {
+        let mut app = App::new();
+        app.add_plugins(crate::EditorCorePlugin);
+        app.init_resource::<ButtonInput<KeyCode>>();
+        app.finish();
+        app.update();
+        app.world_mut().resource_mut::<EditorState>().active = true;
+
+        let keymap = app
+            .world()
+            .resource::<crate::keymap_data::ResolvedKeymapData>();
+        let normal = editor_api::prelude::ContextId::new_static("normal");
+        for (action, spelling) in [
+            ("select.similar", "shift+8"),
+            ("select.hide", "space h"),
+            ("select.isolate", "space shift+h"),
+            ("select.unhide-all", "space u"),
+        ] {
+            let binding: editor_api::keymap::Binding = spelling.parse().expect("parses");
+            let rows = keymap
+                .by_context
+                .get(&normal)
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            let found = rows
+                .iter()
+                .find(|(b, _)| b.0 == binding.0)
+                .map(|(_, id)| id.as_str().to_string());
+            assert_eq!(
+                found,
+                Some(action.to_string()),
+                "{action} is not on {spelling}"
+            );
+        }
+    }
 }

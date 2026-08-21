@@ -380,6 +380,14 @@ impl EditorFeature for ModelsFeature {
         // this is the one kind of processing that is honest under a cache key
         // that hashes a single file (spec §6 Process, M4-D3).
         reg.processor(editor_assets::bounds::processor());
+        // A placed import: same source asset. A materialized node below it is
+        // the same NODE of the same model, which is a narrower family.
+        reg.identity::<MeshRef>(editor_api::identity::priority::MODEL, "", "same model");
+        reg.identity::<MeshNode>(
+            editor_api::identity::priority::MESH_NODE,
+            "mesh",
+            "same mesh",
+        );
         reg.component::<MeshRef>()
             .component::<MeshNode>()
             .action(

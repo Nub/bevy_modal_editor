@@ -221,6 +221,21 @@ impl EditorFeature for GameFeature {
             Some(editor_api::gizmos::PickProxy::UnitBox),
             draw_trigger_volume,
         );
+        // A game declares its own families. `kind` and not the whole value:
+        // two cubes of different sizes are both cubes, which is what a person
+        // means by "select every cube".
+        reg.identity::<Primitive>(
+            editor_api::identity::priority::GAME,
+            "kind",
+            "same primitive",
+        );
+        reg.identity::<game_framework::TriggerVolume>(
+            editor_api::identity::priority::GAME + 1,
+            // Presence: two trigger volumes are the same kind of thing even
+            // though one is named "lift" and the other "pit".
+            "*",
+            "trigger volume",
+        );
         reg.component::<Transform>()
             .component::<Primitive>()
             .component::<Spinner>()

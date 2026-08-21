@@ -16,7 +16,7 @@ use editor_scene::models::{EntryKind, MeshRef, ModelLibrary};
 use uuid::Uuid;
 
 use crate::material_editor::{Field, MaterialPreviewRig};
-use crate::probe_user::{click, move_cursor, shot, tap, tap_named};
+use crate::probe_user::{click, key, move_cursor, shot, tap, tap_named};
 
 #[derive(Resource, Default)]
 pub(crate) struct HandsonProbe {
@@ -31,6 +31,9 @@ pub(crate) struct HandsonProbe {
     /// The entity an inspector field addresses, and its transform before the
     /// edit — a patched leaf must leave every sibling field untouched.
     patched: Option<(Entity, Transform)>,
+    /// Undo depth and dirty flag before a hide, so the probe can prove hide is
+    /// not an edit.
+    before_hide: Option<(usize, bool)>,
     /// Where the locked objects were before an edit was aimed at them.
     locked_before: Vec<Vec3>,
 }
@@ -161,6 +164,86 @@ pub(crate) fn screen_position_of(world: &mut World, target: Vec3) -> Option<Vec2
     camera.world_to_viewport(&camera_transform, target).ok()
 }
 
+/// The current selection, as a set to test membership against.
+fn selected_entities(world: &mut World) -> Vec<Entity> {
+    world
+        .query_filtered::<Entity, With<Selected>>()
+        .iter(world)
+        .collect()
+}
+
+fn flash_text(world: &mut World) -> String {
+    world
+        .resource::<crate::statusbar::StatusFlash>()
+        .text
+        .clone()
+}
+
+/// Scene roots with this `Name` — the fixture primitives.
+fn named_roots(world: &mut World, name: &str) -> Vec<Entity> {
+    let wanted = name.to_string();
+    let mut rows: Vec<(Entity, Vec3)> = world
+        .query_filtered::<(Entity, &Name, &Transform), (With<SceneId>, Without<ChildOf>)>()
+        .iter(world)
+        .filter(|(_, n, _)| n.as_str() == wanted)
+        .map(|(e, _, t)| (e, t.translation))
+        .collect();
+    rows.sort_by(|a, b| a.1.x.total_cmp(&b.1.x).then(a.1.z.total_cmp(&b.1.z)));
+    rows.into_iter().map(|(e, _)| e).collect()
+}
+
+/// Is a mesh-bearing descendant of `root` actually being drawn?
+///
+/// Asked of the SUBTREE, never the root: a prefab instance root carries no
+/// `Mesh3d` at all, so "is the root hidden" would pass with nothing hidden.
+/// `None` = no mesh under there to judge.
+fn mesh_descendant_visible(world: &mut World, root: Entity) -> Option<bool> {
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if world.get::<Mesh3d>(entity).is_some()
+            && let Some(inherited) = world.get::<InheritedVisibility>(entity)
+        {
+            return Some(inherited.get());
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    None
+}
+
+fn subtree_is_outlined(world: &mut World, root: Entity) -> bool {
+    let mut stack = vec![root];
+    while let Some(entity) = stack.pop() {
+        if world
+            .get::<bevy_outliner::prelude::MeshOutline>(entity)
+            .is_some()
+        {
+            return true;
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    false
+}
+
+/// Where an object sits on screen, for a real click.
+fn screen_of(world: &mut World, entity: Entity) -> Option<Vec2> {
+    let at = world.get::<GlobalTransform>(entity)?.translation();
+    let (camera, transform) = world
+        .query::<(
+            &Camera,
+            &GlobalTransform,
+            Option<&bevy::camera::RenderTarget>,
+        )>()
+        .iter(world)
+        .find(|(camera, _, target)| editor_core::camera::is_viewport_camera(camera, *target))
+        .map(|(c, t, _)| (c.clone(), *t))?;
+    camera.world_to_viewport(&transform, at).ok()
+}
+
+/// The drum prefab instances, left to right.
 fn drum_roots(world: &mut World) -> Vec<Entity> {
     let mut roots: Vec<(Entity, Vec3)> = world
         .query_filtered::<(Entity, &Transform, &Name), (With<PrefabInstance>, Without<PrefabStamped>)>()
@@ -987,7 +1070,302 @@ pub(crate) fn probe_handson(world: &mut World) {
                 library.generation += 1;
             }
         }
-        3000 => {
+        // ── `*` on a plain object: the GAME's own kind rung ───────────────
+        // No fixture is built. The level already ships four "Box" roots, all
+        // `Primitive { kind: Cube }` — a probe that placed its own cubes and
+        // then asserted "exactly the cubes I placed" would have been asserting
+        // something untrue about the level it was running in.
+        3010 => invoke(world, "select.clear"),
+        3020 => {
+            if let Some(first) = named_roots(world, "Box").first().copied() {
+                editor_core::selection::select_entity(world, first, false);
+            }
+        }
+        // `*` is physically shift+8, and the shift has to land in an EARLIER
+        // frame: injected keys only reach `ButtonInput` on the next frame, so a
+        // same-frame shift leaves the resolver seeing a bare 8 — which is the
+        // count prefix, not a verb.
+        3026 => key(world, KeyCode::ShiftLeft, Key::Shift, None, true),
+        3030 => tap(world, KeyCode::Digit8, "8"),
+        3034 => key(world, KeyCode::ShiftLeft, Key::Shift, None, false),
+        3070 => {
+            let boxes = named_roots(world, "Box");
+            let selected = selected_entities(world);
+            check(
+                world,
+                boxes.len() > 1 && boxes.iter().all(|e| selected.contains(e)),
+                &format!(
+                    "* selected every object of the same kind ({} of {})",
+                    selected.len(),
+                    boxes.len()
+                ),
+            );
+            let crossed = drum_roots(world).iter().any(|e| selected.contains(e));
+            check(world, !crossed, "* did not cross into another rung");
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.contains("same primitive"),
+                &format!("* names the family it matched [{flash}]"),
+            );
+        }
+        // ── `*` on a prefab instance: the PREFAB rung and the seal rule ───
+        3090 => {
+            if let Some(first) = drum_roots(world).first().copied() {
+                editor_core::selection::select_entity(world, first, false);
+            }
+        }
+        3096 => key(world, KeyCode::ShiftLeft, Key::Shift, None, true),
+        3100 => tap(world, KeyCode::Digit8, "8"),
+        3104 => key(world, KeyCode::ShiftLeft, Key::Shift, None, false),
+        3140 => {
+            let drums = drum_roots(world);
+            let selected = selected_entities(world);
+            check(
+                world,
+                drums.iter().all(|e| selected.contains(e)) && selected.len() == drums.len(),
+                &format!("* selected exactly the drum instances ({})", selected.len()),
+            );
+            // The likely bug is copying select.all's flat With<SceneId> sweep,
+            // which returns prefab MEMBERS unlike a click or a box.
+            let members = world
+                .query_filtered::<Entity, With<PrefabStamped>>()
+                .iter(world)
+                .filter(|e| selected.contains(e))
+                .count();
+            check(world, members == 0, "* stopped at the prefab seal");
+            let boxes_left = named_roots(world, "Box")
+                .iter()
+                .filter(|e| selected.contains(e))
+                .count();
+            check(world, boxes_left == 0, "* replaced the previous selection");
+        }
+        // ── space h ───────────────────────────────────────────────────────
+        3160 => {
+            if let Some(first) = drum_roots(world).first().copied() {
+                editor_core::selection::select_entity(world, first, false);
+            }
+            let depth = world.resource::<History>().undo_depth();
+            let dirty = world.resource::<editor_scene::SceneDirty>().0;
+            world.resource_mut::<HandsonProbe>().before_hide = Some((depth, dirty));
+        }
+        3170 => tap_named(world, KeyCode::Space, Key::Space),
+        3176 => tap(world, KeyCode::KeyH, "h"),
+        3210 => {
+            let drum = drum_roots(world).first().copied();
+            // NOT the root: a prefab instance root carries no Mesh3d at all, so
+            // asserting on it would pass with nothing hidden.
+            let dark = drum.is_some_and(|root| mesh_descendant_visible(world, root) == Some(false));
+            check(world, dark, "space h took the object out of the view");
+            check(
+                world,
+                drum.is_some(),
+                "the hidden object is still in the level",
+            );
+            check(
+                world,
+                drum.is_some_and(|e| world.get::<Selected>(e).is_none()),
+                "hide deselects, so the next verb cannot land blind",
+            );
+            let (depth, dirty) = world
+                .resource::<HandsonProbe>()
+                .before_hide
+                .unwrap_or_default();
+            check(
+                world,
+                world.resource::<History>().undo_depth() == depth,
+                "hide spent no undo step — it is a view, not an edit",
+            );
+            check(
+                world,
+                world.resource::<editor_scene::SceneDirty>().0 == dirty,
+                "hide did not dirty the scene",
+            );
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.contains("\u{2423}u"),
+                &format!("hide names its own way back [{flash}]"),
+            );
+        }
+        // ── the hidden-but-selected outline leak ──────────────────────────
+        3220 => {
+            if let Some(drum) = drum_roots(world).first().copied() {
+                editor_core::selection::select_entity(world, drum, false);
+            }
+        }
+        3250 => {
+            // The JFA silhouette is an unparented root at the source's world
+            // transform, so Visibility on the object never reaches it.
+            let drum = drum_roots(world).first().copied();
+            let outlined = drum.is_some_and(|root| subtree_is_outlined(world, root));
+            check(
+                world,
+                !outlined,
+                "a hidden object draws no outline around empty space",
+            );
+            invoke(world, "select.clear");
+        }
+        // ── a hidden object does not eat the click ────────────────────────
+        3270 => {
+            if let Some(drum) = drum_roots(world).first().copied()
+                && let Some(at) = screen_of(world, drum)
+            {
+                move_cursor(world, at);
+            }
+        }
+        3276 => click(world, true),
+        3278 => click(world, false),
+        3300 => {
+            let drum = drum_roots(world).first().copied();
+            check(
+                world,
+                drum.is_some_and(|e| world.get::<Selected>(e).is_none()),
+                "hide the roof and the click reaches the floor",
+            );
+        }
+        // ── `*` skips hidden ──────────────────────────────────────────────
+        3320 => {
+            if let Some(last) = named_roots(world, "Box").last().copied() {
+                editor_core::selection::select_entity(world, last, false);
+            }
+        }
+        3326 => tap_named(world, KeyCode::Space, Key::Space),
+        3332 => tap(world, KeyCode::KeyH, "h"),
+        3360 => {
+            if let Some(first) = named_roots(world, "Box").first().copied() {
+                editor_core::selection::select_entity(world, first, false);
+            }
+        }
+        3366 => key(world, KeyCode::ShiftLeft, Key::Shift, None, true),
+        3370 => tap(world, KeyCode::Digit8, "8"),
+        3374 => key(world, KeyCode::ShiftLeft, Key::Shift, None, false),
+        3410 => {
+            let boxes = named_roots(world, "Box");
+            let selected = selected_entities(world);
+            check(
+                world,
+                selected.len() == boxes.len() - 1,
+                &format!(
+                    "* skipped the hidden one ({} of {})",
+                    selected.len(),
+                    boxes.len()
+                ),
+            );
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.contains("hidden skipped"),
+                &format!("* said what it left out [{flash}]"),
+            );
+        }
+        // ── isolate, and that it RESTORES rather than reveals ─────────────
+        3430 => {
+            if let Some(first) = named_roots(world, "Box").first().copied() {
+                editor_core::selection::select_entity(world, first, false);
+            }
+        }
+        3436 => tap_named(world, KeyCode::Space, Key::Space),
+        3442 => key(world, KeyCode::ShiftLeft, Key::Shift, None, true),
+        3446 => tap(world, KeyCode::KeyH, "h"),
+        3450 => key(world, KeyCode::ShiftLeft, Key::Shift, None, false),
+        3490 => {
+            let boxes = named_roots(world, "Box");
+            let focus_lit = boxes
+                .first()
+                .is_some_and(|e| mesh_descendant_visible(world, *e) != Some(false));
+            check(world, focus_lit, "isolate left its own focus lit");
+            let neighbour_dark = boxes
+                .get(1)
+                .is_some_and(|e| mesh_descendant_visible(world, *e) == Some(false));
+            check(world, neighbour_dark, "isolate hid everything else");
+            check(
+                world,
+                world.resource::<editor_core::hide::Hidden>().is_isolated(),
+                "isolate is a state you can leave",
+            );
+        }
+        3510 => tap_named(world, KeyCode::Space, Key::Space),
+        3516 => key(world, KeyCode::ShiftLeft, Key::Shift, None, true),
+        3520 => tap(world, KeyCode::KeyH, "h"),
+        3524 => key(world, KeyCode::ShiftLeft, Key::Shift, None, false),
+        3560 => {
+            // THE sharp one: a naive "isolate exits by unhiding everything"
+            // passes every other arm here and fails only this.
+            let drum_still_hidden = drum_roots(world)
+                .first()
+                .is_some_and(|e| mesh_descendant_visible(world, *e) == Some(false));
+            let box_still_hidden = named_roots(world, "Box")
+                .last()
+                .is_some_and(|e| mesh_descendant_visible(world, *e) == Some(false));
+            check(
+                world,
+                drum_still_hidden && box_still_hidden,
+                "leaving isolate RESTORED what was hidden before it",
+            );
+            let neighbour_back = named_roots(world, "Box")
+                .get(1)
+                .is_some_and(|e| mesh_descendant_visible(world, *e) != Some(false));
+            check(
+                world,
+                neighbour_back,
+                "leaving isolate brought the rest back",
+            );
+            check(
+                world,
+                !world.resource::<editor_core::hide::Hidden>().is_isolated(),
+                "isolate is off again",
+            );
+        }
+        // ── space u ───────────────────────────────────────────────────────
+        3580 => tap_named(world, KeyCode::Space, Key::Space),
+        3586 => tap(world, KeyCode::KeyU, "u"),
+        3620 => {
+            check(
+                world,
+                world.resource::<editor_core::hide::Hidden>().is_empty(),
+                "space u brought everything back",
+            );
+        }
+        // ── play lifts hide; reset brings it back through the respawn ─────
+        3640 => {
+            if let Some(drum) = drum_roots(world).first().copied() {
+                editor_core::selection::select_entity(world, drum, false);
+            }
+        }
+        3646 => tap_named(world, KeyCode::Space, Key::Space),
+        3652 => tap(world, KeyCode::KeyH, "h"),
+        3680 => {
+            let dark = drum_roots(world)
+                .first()
+                .is_some_and(|e| mesh_descendant_visible(world, *e) == Some(false));
+            check(world, dark, "hide is on before play");
+            invoke(world, "editor.play");
+        }
+        3720 => {
+            // F5 shows the REAL level. Nobody playtests against a level that is
+            // secretly missing its floor.
+            let lit = drum_roots(world)
+                .first()
+                .is_some_and(|e| mesh_descendant_visible(world, *e) != Some(false));
+            check(
+                world,
+                !world.resource::<EditorState>().active && lit,
+                "play lifts hide",
+            );
+        }
+        3730 => invoke(world, "editor.reset"),
+        3770 => {
+            // Same SceneId, brand-new Entity: this is what keying by SceneId buys.
+            let dark = drum_roots(world)
+                .first()
+                .is_some_and(|e| mesh_descendant_visible(world, *e) == Some(false));
+            check(world, dark, "hide survives the play/reset respawn");
+        }
+        // Nothing probe-owned outlives the run.
+        3780 => tap_named(world, KeyCode::Space, Key::Space),
+        3786 => tap(world, KeyCode::KeyU, "u"),
+        3800 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();
             if failures.is_empty() {
                 info!("HANDSON-PROBE PASS: the owner hands-on checklist end-to-end");

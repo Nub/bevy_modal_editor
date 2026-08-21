@@ -23,10 +23,26 @@ impl EditorComponents {
     pub fn contains(&self, type_id: std::any::TypeId) -> bool {
         self.types.iter().any(|r| r.type_id == type_id)
     }
+    /// Types the editor OWNS and must never save, whatever a level file says.
+    ///
+    /// `apply_scene` adopts any type it finds in a file, which is the door a
+    /// source-level fitness test cannot watch: a hand-edited or foreign
+    /// `level.ron` naming `Visibility` would pull it into the save set at load
+    /// and start persisting hidden-ness into published levels. Hidden is a view
+    /// on the level, never part of it (see `editor_core::hide`).
+    pub const NEVER_SAVED: &'static [&'static str] = &[
+        "bevy_camera::visibility::Visibility",
+        "bevy_camera::visibility::InheritedVisibility",
+        "bevy_camera::visibility::ViewVisibility",
+    ];
+
     /// Adopt a type into the save allow-list at runtime (owner rule: anything
     /// a user INSERTS must persist; only system-derived state stays out).
     /// The type must already live in the `AppTypeRegistry`.
     pub fn adopt(&mut self, type_id: std::any::TypeId, type_path: &'static str) {
+        if Self::NEVER_SAVED.contains(&type_path) {
+            return;
+        }
         if !self.contains(type_id) {
             self.types.push(editor_api::feature::ComponentReg {
                 type_id,
@@ -1090,5 +1106,27 @@ mod tests {
             depth,
             "a refused edit put an empty step on the undo stack"
         );
+    }
+
+    /// `apply_scene` adopts any type a level file names, which is the door the
+    /// source-level fitness test cannot watch: a hand-edited or foreign
+    /// `level.ron` carrying a `Visibility` record would pull the type into the
+    /// save set at load and start persisting hidden-ness into published levels.
+    #[test]
+    fn the_save_set_refuses_editor_owned_visibility() {
+        let mut components = EditorComponents::default();
+        for type_path in EditorComponents::NEVER_SAVED {
+            components.adopt(std::any::TypeId::of::<Visibility>(), type_path);
+        }
+        assert!(
+            components.types.is_empty(),
+            "a level file talked the editor into saving visibility"
+        );
+        // Anything else still adopts — this is a deny-list, not a freeze.
+        components.adopt(
+            std::any::TypeId::of::<Health>(),
+            <Health as bevy::reflect::TypePath>::type_path(),
+        );
+        assert_eq!(components.types.len(), 1);
     }
 }

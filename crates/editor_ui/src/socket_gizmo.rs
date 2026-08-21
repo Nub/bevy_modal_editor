@@ -70,7 +70,10 @@ pub(crate) fn sync_socket_gizmos(
 ) {
     for mut visibility in &mut gizmos {
         let target = if state.active {
-            Visibility::Visible
+            // INHERITED, not Visible: `Visibility::Visible` is unconditional,
+            // so a cone on a hidden piece would keep drawing while its piece
+            // was gone. Inherited makes the cone follow what it belongs to.
+            Visibility::Inherited
         } else {
             Visibility::Hidden
         };

@@ -472,6 +472,12 @@ pub(crate) fn collect_inspector(world: &mut World) {
             "ChildOf",
             "Children",
             "TabOrdered",
+            // EDITOR-OWNED (editor_core::hide): the row was editable and never
+            // saved, so every flip spent an undo step and dirtied the scene to
+            // set a value the file would not keep. `space h` does this now.
+            "Visibility",
+            "InheritedVisibility",
+            "ViewVisibility",
         ];
         const READ_ONLY: &[&str] = &[
             "GlobalTransform",

@@ -13,6 +13,7 @@ pub mod edits;
 pub mod feature;
 pub mod feedback;
 pub mod gizmos;
+pub mod identity;
 pub mod ids;
 pub mod keymap;
 pub mod kinds;
@@ -36,6 +37,7 @@ pub mod prelude {
         RegistryError, ValidatedFeatures,
     };
     pub use crate::feedback::SceneIoFeedback;
+    pub use crate::identity::IdentityDef;
     pub use crate::ids::{
         ActionId, BakerId, ContextId, EntityKindId, FeatureId, GLOBAL_CONTEXT, ModeId, PanelId,
         ProcessorId, SceneId, ValidatorId,

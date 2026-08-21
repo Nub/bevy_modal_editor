@@ -53,6 +53,9 @@ pub(crate) fn sync_selection_outlines(
     settings: Res<EditorSettings>,
     mut commands: Commands,
     selected: Query<(Entity, Has<editor_core::lock::Locked>), With<Selected>>,
+    hidden: Res<editor_core::hide::Hidden>,
+    scene_ids: Query<&editor_api::prelude::SceneId>,
+    parents: Query<&ChildOf>,
     children_query: Query<&Children>,
     meshes: Query<(), With<Mesh3d>>,
     outlined: Query<(Entity, &MeshOutline)>,
@@ -65,6 +68,13 @@ pub(crate) fn sync_selection_outlines(
     }
     let mut desired: bevy::platform::collections::HashMap<Entity, bool> = Default::default();
     for (root, locked) in &selected {
+        // The JFA silhouette is an UNPARENTED root at the source's world
+        // transform, so `Visibility::Hidden` on the object does not reach it:
+        // a hidden object selected from its hierarchy row would draw an
+        // outline around empty space.
+        if editor_core::hide::is_hidden(root, &hidden, &scene_ids, &parents) {
+            continue;
+        }
         let mut stack = vec![root];
         while let Some(entity) = stack.pop() {
             if meshes.contains(entity) {

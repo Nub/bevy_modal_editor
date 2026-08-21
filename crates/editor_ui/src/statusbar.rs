@@ -173,6 +173,7 @@ pub(crate) struct StatusData<'w> {
     timeline: Res<'w, editor_scene::anim::Timeline>,
     playhead: Res<'w, editor_scene::anim::Playhead>,
     settings: Res<'w, EditorSettings>,
+    hidden: Res<'w, editor_core::hide::Hidden>,
 }
 
 #[allow(clippy::type_complexity)]
@@ -318,6 +319,14 @@ pub(crate) fn update_statusbar(
         }
         if data.angle_snap.enabled {
             parts.push(format!("snap {}\u{b0}", data.settings.viewport.angle_step));
+            // THE piece that makes hide safe. A flash is gone by the time you come
+            // back from lunch; a count is not, and hiding is the one verb here that
+            // undo cannot reach.
+            if data.hidden.is_isolated() {
+                parts.push(format!("isolated \u{00b7} {} hidden", data.hidden.len()));
+            } else if !data.hidden.is_empty() {
+                parts.push(format!("{} hidden", data.hidden.len()));
+            }
         }
         // Where time is. Scrubbing and playback had no on-screen presence at
         // all, so a playhead parked mid-animation looked like a scene someone

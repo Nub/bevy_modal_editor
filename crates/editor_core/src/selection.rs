@@ -308,6 +308,8 @@ pub(crate) fn select_projected(
         .map(|(entity, transform)| (entity, transform.translation()))
         .collect();
     let scope = world.resource::<SelectionScope>().0.clone();
+    // Cloned, not borrowed: the loop below needs &World for the seal walk.
+    let hidden = world.resource::<crate::hide::Hidden>().clone();
     let mut covered: Vec<Entity> = Vec::new();
     for (entity, at) in candidates {
         let Some(screen) = project(at) else {
@@ -317,6 +319,13 @@ pub(crate) fn select_projected(
             continue;
         }
         let resolved = outermost_seal(world, entity);
+        // A hidden object is out of the conversation. Without this,
+        // `space h` then a box-drag then `d` deletes geometry nobody can see.
+        // The test is on the RESOLVED root: a stamped member is not itself in
+        // the hidden set, it hangs under something that is.
+        if crate::hide::is_hidden_world(world, resolved, &hidden) {
+            continue;
+        }
         if let Some(scope) = &scope
             && !scope.contains(&resolved)
         {
@@ -381,7 +390,7 @@ pub(crate) fn click_target(
 }
 
 /// The outermost sealed ancestor of `entity`, or the entity itself.
-fn outermost_seal(world: &World, entity: Entity) -> Entity {
+pub(crate) fn outermost_seal(world: &World, entity: Entity) -> Entity {
     click_target(
         entity,
         |e| world.get::<SelectionHandle>(e).is_some(),
@@ -418,6 +427,9 @@ pub(crate) fn handle_selection_actions(
     mut reader: MessageReader<ActionInvoked>,
     selected: Query<Entity, With<Selected>>,
     scene_entities: Query<Entity, With<SceneId>>,
+    scene_ids: Query<&SceneId>,
+    parents: Query<&ChildOf>,
+    hidden: Res<crate::hide::Hidden>,
     scope: Res<SelectionScope>,
     escape_from_capture: Res<crate::resolver::EscapeFromCapture>,
     mut commands: Commands,
@@ -434,6 +446,14 @@ pub(crate) fn handle_selection_actions(
             }
             "select.all" => {
                 for entity in &scene_entities {
+                    // Ctrl+A does not reach what you hid. `space h` then
+                    // ctrl+a then `d` is the silent-destruction path the
+                    // lock work exists to prevent. The ancestor walk covers
+                    // this sweep's seal-blindness: a stamped member is not
+                    // itself hidden, its instance root is.
+                    if crate::hide::is_hidden(entity, &hidden, &scene_ids, &parents) {
+                        continue;
+                    }
                     if scope.0.as_ref().is_none_or(|s| s.contains(&entity)) {
                         commands.entity(entity).insert(Selected);
                     }

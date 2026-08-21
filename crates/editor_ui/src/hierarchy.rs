@@ -61,6 +61,10 @@ pub(crate) struct Row {
     /// level, so it is where "why won't this move?" is answered without
     /// clicking anything.
     pub locked: bool,
+    /// Hidden: taken out of the view, still in the level. The hierarchy is
+    /// the ONLY way back to a hidden object, so its row stays fully clickable
+    /// and only its rendering changes.
+    pub hidden: bool,
 }
 
 #[derive(Component)]
@@ -82,6 +86,7 @@ pub(crate) fn build_rows(
         Has<editor_core::lock::Locked>,
     )>,
     scene_ids: &Query<&SceneId>,
+    hidden: &editor_core::hide::Hidden,
     collapsed: &HashSet<SceneId>,
 ) -> Vec<Row> {
     let mut label_of: HashMap<SceneId, String> = HashMap::new();
@@ -107,15 +112,17 @@ pub(crate) fn build_rows(
     for list in children.values_mut() {
         list.sort_by_key(|id| id.0);
     }
-
     let mut rows = Vec::new();
+    #[allow(clippy::too_many_arguments)]
     fn walk(
         parent: Option<SceneId>,
+        parent_hidden: bool,
         depth: usize,
         children: &HashMap<Option<SceneId>, Vec<SceneId>>,
         label_of: &HashMap<SceneId, String>,
         linked: &HashSet<SceneId>,
         locked: &HashSet<SceneId>,
+        hidden: &editor_core::hide::Hidden,
         collapsed: &HashSet<SceneId>,
         rows: &mut Vec<Row>,
     ) {
@@ -124,6 +131,10 @@ pub(crate) fn build_rows(
         };
         for id in list {
             let has_children = children.contains_key(&Some(*id));
+            // Hidden-ness INHERITS down the row tree, the way visibility does in
+            // the viewport: the children of a hidden group are not in the hidden
+            // set themselves, and would otherwise read as visible.
+            let row_hidden = parent_hidden || hidden.contains(*id);
             rows.push(Row {
                 id: *id,
                 parent,
@@ -132,15 +143,18 @@ pub(crate) fn build_rows(
                 label: label_of.get(id).cloned().unwrap_or_default(),
                 linked_model: linked.contains(id),
                 locked: locked.contains(id),
+                hidden: row_hidden,
             });
             if has_children && !collapsed.contains(id) {
                 walk(
                     Some(*id),
+                    row_hidden,
                     depth + 1,
                     children,
                     label_of,
                     linked,
                     locked,
+                    hidden,
                     collapsed,
                     rows,
                 );
@@ -148,7 +162,7 @@ pub(crate) fn build_rows(
         }
     }
     walk(
-        None, 0, &children, &label_of, &linked, &locked, collapsed, &mut rows,
+        None, false, 0, &children, &label_of, &linked, &locked, hidden, collapsed, &mut rows,
     );
     rows
 }
@@ -184,6 +198,7 @@ pub(crate) fn handle_hierarchy_actions(
         Has<editor_core::lock::Locked>,
     )>,
     scene_ids: Query<&SceneId>,
+    hidden: Res<editor_core::hide::Hidden>,
     index: Res<SceneIndex>,
     globals: Query<&GlobalTransform>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
@@ -199,7 +214,7 @@ pub(crate) fn handle_hierarchy_actions(
             continue;
         }
         acted = true;
-        let rows = build_rows(&entities, &scene_ids, &state.collapsed);
+        let rows = build_rows(&entities, &scene_ids, &hidden, &state.collapsed);
         if rows.is_empty() {
             state.cursor = 0;
             continue;
@@ -324,6 +339,7 @@ pub(crate) fn watch_hierarchy_inputs(
         Has<editor_core::lock::Locked>,
     )>,
     scene_ids: Query<&SceneId>,
+    hidden: Res<editor_core::hide::Hidden>,
     selected: Query<&SceneId, With<Selected>>,
     focus: Res<PanelFocus>,
     state_res: Res<EditorState>,
@@ -334,12 +350,14 @@ pub(crate) fn watch_hierarchy_inputs(
         || selection_changed
         || focus.is_changed()
         || state_res.is_changed()
+        // Hiding changes what every row looks like, and nothing else fires.
+        || hidden.is_changed()
     {
         state.dirty = true;
     }
     // Viewport -> hierarchy sync: cursor jumps to the (first) selected row.
     if selection_changed && let Some(first) = selected.iter().next() {
-        let rows = build_rows(&entities, &scene_ids, &state.collapsed);
+        let rows = build_rows(&entities, &scene_ids, &hidden, &state.collapsed);
         if let Some(index) = rows.iter().position(|r| r.id == *first) {
             state.cursor = index;
         }
@@ -358,6 +376,7 @@ pub(crate) fn rebuild_hierarchy(
         Has<editor_core::lock::Locked>,
     )>,
     scene_ids: Query<&SceneId>,
+    hidden: Res<editor_core::hide::Hidden>,
     selected: Query<&SceneId, With<Selected>>,
     instances: Query<&SceneId, With<editor_prefabs::PrefabInstance>>,
     stamped: Query<&SceneId, With<editor_scene::PrefabStamped>>,
@@ -375,7 +394,7 @@ pub(crate) fn rebuild_hierarchy(
         return;
     };
     let ui = settings.ui.clone();
-    let rows = build_rows(&entities, &scene_ids, &state.collapsed);
+    let rows = build_rows(&entities, &scene_ids, &hidden, &state.collapsed);
     state.cursor = state.cursor.min(rows.len().saturating_sub(1));
     let cursor = state.cursor;
     let panel_focused = focus
@@ -492,7 +511,12 @@ pub(crate) fn rebuild_hierarchy(
                         row_node.spawn((
                             Text::new(row.label.clone()),
                             style::sans(&fonts, ui.font_size_s),
-                            TextColor(if is_instance {
+                            TextColor(if row.hidden {
+                                // Hidden outranks every other tier: the row is
+                                // the only way back to the object, so it has to
+                                // read as absent from the viewport at a glance.
+                                style::color::TEXT_DIM.with_alpha(0.6)
+                            } else if is_instance {
                                 style::color::accent()
                             } else if is_selected {
                                 style::color::TEXT_BRIGHT
@@ -502,6 +526,17 @@ pub(crate) fn rebuild_hierarchy(
                                 style::color::TEXT_KEYS
                             }),
                         ));
+                        if row.hidden {
+                            row_node.spawn((
+                                Text::new(style::glyph::EYE_SLASH),
+                                style::mono(&fonts, ui.font_size_xs),
+                                TextColor(style::color::TEXT_DIM),
+                                Node {
+                                    margin: UiRect::left(px(style::space::XS)),
+                                    ..default()
+                                },
+                            ));
+                        }
                         // The padlock rides with the NAME rather than in a
                         // far column: it is the answer to "why did nothing
                         // happen when I moved that?", and that question is
@@ -572,6 +607,7 @@ pub(crate) fn watch_hierarchy_window(
         Has<editor_core::lock::Locked>,
     )>,
     scene_ids: Query<&SceneId>,
+    hidden: Res<editor_core::hide::Hidden>,
     body: Query<(&ComputedNode, &ScrollPosition, &PanelBody)>,
     mut state: ResMut<HierarchyState>,
 ) {
@@ -580,7 +616,7 @@ pub(crate) fn watch_hierarchy_window(
             continue;
         }
         let view_height = node.size().y * node.inverse_scale_factor();
-        let total = build_rows(&entities, &scene_ids, &state.collapsed).len();
+        let total = build_rows(&entities, &scene_ids, &hidden, &state.collapsed).len();
         let window = visible_window(scroll.0.y, view_height, total);
         if window != state.window {
             state.window = window;

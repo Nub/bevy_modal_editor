@@ -85,6 +85,16 @@ pub(crate) fn draw_feature_gizmos(
         let Some(global) = entity.get::<GlobalTransform>().copied() else {
             continue;
         };
+        // Immediate-mode gizmos are invisible to visibility propagation by
+        // construction: without this, hiding a trigger volume takes away its
+        // pick proxy and leaves the wire box drawing — a gizmo you can see
+        // and cannot click, which is strictly worse than either half.
+        if entity
+            .get::<InheritedVisibility>()
+            .is_some_and(|inherited| !inherited.get())
+        {
+            continue;
+        }
         let selected = entity.contains::<Selected>();
         for def in &catalog.gizmos {
             let Some(registration) = registry.get(def.component) else {

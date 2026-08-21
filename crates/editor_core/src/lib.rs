@@ -10,6 +10,7 @@ pub mod camera;
 pub mod clipboard;
 pub mod edits;
 pub mod gesture;
+pub mod hide;
 pub mod insert;
 pub mod keymap_data;
 pub mod lock;
@@ -18,6 +19,7 @@ pub mod panels;
 pub mod resolver;
 pub mod selection;
 pub mod settings;
+pub mod similar;
 
 use bevy::prelude::*;
 use editor_api::prelude::*;
@@ -260,6 +262,39 @@ impl EditorFeature for CoreFeature {
             ActionDef::new("select.clear", "Clear Selection")
                 .describe("Deselect everything")
                 .context("normal"),
+        )
+        .action(
+            ActionDef::new("select.similar", "Select Similar")
+                .describe("Select every object like this one — same prefab, model or kind")
+                .context("normal")
+                // `*`, spelled physically. `KeyCode` is a PHYSICAL key, so there
+                // is no "*" token to parse; same convention as shift+semicolon
+                // for `:`.
+                .bind("shift+8"),
+        )
+        .action(
+            ActionDef::new("select.hide", "Hide Selection")
+                .describe(
+                    "Take the selection out of the view — it stays in the level \
+                     and in the hierarchy. Not undoable: unhide with space u",
+                )
+                .context("normal")
+                .bind("space h"),
+        )
+        .action(
+            ActionDef::new("select.isolate", "Isolate Selection")
+                .describe(
+                    "Hide everything but the selection; press again to restore \
+                     exactly what was hidden before",
+                )
+                .context("normal")
+                .bind("space shift+h"),
+        )
+        .action(
+            ActionDef::new("select.unhide-all", "Unhide All")
+                .describe("Bring back everything hidden")
+                .context("normal")
+                .bind("space u"),
         );
         // Move gesture: its overlay keymap layer + actions.
         reg.context(gesture::GESTURE_MOVE_CONTEXT);
@@ -429,6 +464,9 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<resolver::OverlayContext>()
             .init_resource::<resolver::EscapeFromCapture>()
             .init_resource::<lock::LockRequests>()
+            .init_resource::<hide::Hidden>()
+            .init_resource::<hide::HideRequests>()
+            .init_resource::<similar::IdentityCatalog>()
             .init_resource::<resolver::PointerOverChrome>()
             // Headless worlds have no `InputPlugin`, so the wheel message would
             // not exist and every system reading it would fail validation. The
@@ -480,6 +518,14 @@ impl Plugin for EditorCorePlugin {
         // Registration happens in a Startup system so features added after the plugin
         // (the normal case: game main composes plugins in any order) are included.
         app.add_systems(PreStartup, host_features);
+        // The ONE writer of `Visibility`, in PostUpdate because the system that
+        // hands the world to the game lives inside editor_scene's own chain and
+        // the kernel must not depend on editor_scene to order against it.
+        app.add_systems(
+            PostUpdate,
+            hide::sync_hidden_visibility
+                .before(bevy::camera::visibility::VisibilitySystems::VisibilityPropagate),
+        );
         app.add_systems(
             Update,
             (
@@ -507,6 +553,9 @@ impl Plugin for EditorCorePlugin {
                     // outer tuple is at bevy's system-tuple limit.
                     (
                         lock::collect_lock_actions,
+                        hide::collect_hide_actions,
+                        hide::perform_hide,
+                        similar::perform_select_similar,
                         gesture::handle_gesture_actions,
                         gesture::motion_from_cursor,
                         gesture::push_pull_gesture,
@@ -628,6 +677,68 @@ fn host_features(world: &mut World) {
                 .map(|(_, r)| r.clone())
                 .collect(),
         });
+    }
+
+    // The identity ladder for `*` (spec §9). Built AFTER component
+    // registration, because a rung is validated against the type registry and
+    // nothing is in it before that loop runs.
+    //
+    // A bad rung is a STARTUP PANIC, never a verb that quietly does nothing: a
+    // key that stops resolving is a `*` that stops working, and silence is how
+    // that ships.
+    {
+        let mut rungs: Vec<editor_api::identity::IdentityDef> = validated
+            .identities
+            .iter()
+            .map(|(_, def)| def.clone())
+            .collect();
+        rungs.sort_by_key(|def| def.priority);
+        let registry_arc = world.resource::<AppTypeRegistry>().clone();
+        let registry = registry_arc.read();
+        let mut seen = std::collections::HashSet::new();
+        let mut errors: Vec<String> = Vec::new();
+        for def in &rungs {
+            if !seen.insert((def.type_path, def.key)) {
+                errors.push(format!(
+                    "duplicate identity rung {}#{}",
+                    def.type_path, def.key
+                ));
+            }
+            let Some(registration) = registry.get(def.component) else {
+                errors.push(format!(
+                    "identity rung {}: not in the AppTypeRegistry",
+                    def.type_path
+                ));
+                continue;
+            };
+            if registration
+                .data::<bevy::ecs::reflect::ReflectComponent>()
+                .is_none()
+            {
+                errors.push(format!(
+                    "identity rung {}: not #[reflect(Component)]",
+                    def.type_path
+                ));
+            }
+            if !def.key.is_empty() && def.key != "*" {
+                let resolves = registration
+                    .type_info()
+                    .as_struct()
+                    .ok()
+                    .is_some_and(|info| info.field(def.key).is_some());
+                if !resolves {
+                    errors.push(format!(
+                        "identity rung {}: no field {:?}",
+                        def.type_path, def.key
+                    ));
+                }
+            }
+        }
+        if !errors.is_empty() {
+            panic!("identity registration failed:\n  {}", errors.join("\n  "));
+        }
+        drop(registry);
+        world.insert_resource(similar::IdentityCatalog { rungs });
     }
 
     world.insert_resource(insert::KindCatalog {

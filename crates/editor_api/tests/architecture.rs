@@ -184,3 +184,54 @@ fn no_probe_has_two_arms_for_the_same_frame() {
         "a shadowed probe arm silently stops testing something: {offenders:#?}"
     );
 }
+
+/// `Visibility` belongs to the EDITOR, not to the level (spec §9,
+/// `editor_core::hide`).
+///
+/// Hiding is a view on the level, not part of it: it has one writer, it lifts
+/// whenever the editor is inactive, and it must never reach `level.ron` — or a
+/// game ships missing its floor because someone hid it on a Friday. Registering
+/// the type as an editor component would quietly put it in the save set, and it
+/// is exactly the sort of registration that looks harmless in a diff.
+///
+/// Every workspace crate, not just `editor_*`: a GAME registers components too,
+/// including bevy's own types.
+#[test]
+fn nothing_registers_visibility_as_a_saved_component() {
+    let root = workspace_root();
+    let mut offenders = Vec::new();
+    let Ok(entries) = std::fs::read_dir(root.join("crates")) else {
+        panic!("no crates directory");
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let mut files = Vec::new();
+        rust_files(&path.join("src"), &mut files);
+        for file in files {
+            let Ok(text) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            for (number, line) in text.lines().enumerate() {
+                if line.trim_start().starts_with("//") {
+                    continue;
+                }
+                for banned in [
+                    "component::<Visibility>",
+                    "component::<InheritedVisibility>",
+                    "component::<ViewVisibility>",
+                ] {
+                    if line.contains(banned) {
+                        offenders.push(format!("{}:{}", file.display(), number + 1));
+                    }
+                }
+            }
+        }
+    }
+    assert!(
+        offenders.is_empty(),
+        "visibility is editor-owned and must never be saved: {offenders:#?}"
+    );
+}

@@ -147,15 +147,20 @@ pub(crate) fn probe_socket(world: &mut World) {
             let socket = world.resource::<SocketProbe>().socket;
             let entity =
                 socket.and_then(|id| world.resource::<editor_api::edits::SceneIndex>().get(&id));
+            // Whether it DRAWS, not which enum variant it holds. The cone used
+            // to be `Visibility::Visible`, which is unconditional and kept it
+            // drawing over a hidden piece; it is `Inherited` now, so the real
+            // question is what propagation computed.
             let visible_gizmo = entity.is_some_and(|entity| {
                 world
                     .get::<Children>(entity)
                     .map(|children| {
-                        children.iter().any(|child| {
+                        let kids: Vec<Entity> = children.iter().collect();
+                        kids.into_iter().any(|child| {
                             world.get::<Mesh3d>(child).is_some()
                                 && world
-                                    .get::<Visibility>(child)
-                                    .is_some_and(|v| *v == Visibility::Visible)
+                                    .get::<InheritedVisibility>(child)
+                                    .is_some_and(|v| v.get())
                         })
                     })
                     .unwrap_or(false)

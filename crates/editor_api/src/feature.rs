@@ -93,6 +93,7 @@ pub struct FeatureRegistry {
     pub processors: Vec<(FeatureId, ProcessorDef)>,
     pub bakers: Vec<(FeatureId, BakerDef)>,
     pub gizmos: Vec<(FeatureId, crate::gizmos::GizmoDef)>,
+    pub identities: Vec<(FeatureId, crate::identity::IdentityDef)>,
     current_feature: Option<FeatureId>,
 }
 
@@ -137,6 +138,29 @@ impl FeatureRegistry {
     pub fn baker(&mut self, def: BakerDef) -> &mut Self {
         let feature = self.current().clone();
         self.bakers.push((feature, def));
+        self
+    }
+    /// Declare what makes two objects "the same thing" for the `*` verb
+    /// (spec §9). `key` is `""` for the whole value, `"*"` for presence, or one
+    /// struct field name; `noun` is what a refusal calls the family.
+    ///
+    /// The owning crate declares it, because the kernel cannot name a prefab or
+    /// a game type — see `editor_api::identity`.
+    pub fn identity<T>(&mut self, priority: u32, key: &'static str, noun: &'static str) -> &mut Self
+    where
+        T: Component + bevy::reflect::Reflect + bevy::reflect::TypePath,
+    {
+        let feature = self.current().clone();
+        self.identities.push((
+            feature,
+            crate::identity::IdentityDef {
+                priority,
+                component: std::any::TypeId::of::<T>(),
+                type_path: <T as bevy::reflect::TypePath>::type_path(),
+                key,
+                noun,
+            },
+        ));
         self
     }
 
@@ -319,6 +343,7 @@ pub struct ValidatedFeatures {
     pub processors: Vec<(FeatureId, ProcessorDef)>,
     pub bakers: Vec<(FeatureId, BakerDef)>,
     pub gizmos: Vec<(FeatureId, crate::gizmos::GizmoDef)>,
+    pub identities: Vec<(FeatureId, crate::identity::IdentityDef)>,
 }
 
 impl FeatureRegistry {
@@ -484,6 +509,7 @@ impl FeatureRegistry {
                 processors: self.processors,
                 bakers: self.bakers,
                 gizmos: self.gizmos,
+                identities: self.identities,
             })
         } else {
             Err(errors)

@@ -1062,6 +1062,69 @@ defined above it. It is defined in `editor_api::feedback`, registered by
 `EditorCorePlugin`, and re-exported from `editor_scene` under the name the
 whole editor already uses.
 
+
+**Hide, isolate, and `*` (2026-08-21).** The two verbs that make a big level
+workable, and they are deliberately opposite in kind.
+
+- **Hidden is a VIEW on the level, never part of it.** `Locked` is a serialized
+  component enforced inside `apply_edits`, because it changes what the scene
+  allows. Hidden changes what you are looking at: it never enters a
+  `Transaction`, never touches `History`, never marks the scene dirty, and never
+  reaches `level.ron`. `u` will not bring an object back, which is why every
+  message names `␣u` and why the statusbar carries a persistent count — a flash
+  is gone by the time you come back from lunch.
+- **It lifts whenever the editor is inactive.** F5 shows the real level. Nobody
+  should playtest against a level that is secretly missing its floor, and a game
+  animating visibility during play must not have a second writer.
+- **It is keyed by `SceneId`, not `Entity`.** Play/reset despawns and respawns
+  every scene entity, so an entity-keyed set would evaporate on F7.
+- **It drives the whole SUBTREE rather than setting a root and trusting
+  inheritance.** An imported model's content is a spawned asset subtree that
+  bevy's visibility propagation treats as its own root: hiding a prefab instance
+  set the instance hidden and left its meshes lit, which is precisely "the
+  editor says it worked and the viewport disagrees". Immediate-mode gizmos are
+  invisible to propagation by construction and carry their own filter, so
+  hiding a trigger volume does not leave a wire box you can see and cannot
+  click.
+- **`Visibility`, `InheritedVisibility` and `ViewVisibility` are EDITOR-OWNED**:
+  denied from the save set by `EditorComponents::adopt` (the door a source-level
+  check cannot watch, since `apply_scene` adopts whatever a file names), banned
+  from registration by a fitness test over every workspace crate, and removed
+  from the inspector. That last one closed a live bug: the `Visibility` row was
+  editable, fanned across the selection, spent an undo step and dirtied the
+  scene to set a value the file never kept.
+- **Isolate EXITS by restoring, not by revealing.** Hides made before isolating
+  survive it; unhide-all drops the restore set, or leaving isolate later would
+  resurrect exactly what the user asked to see.
+- **Hide deselects, and hidden objects are out of every selection path** — box
+  select and `ctrl+a` both skip them. `space h` then `ctrl+a` then `d` deleting
+  invisible geometry is the silent destruction the lock work exists to prevent.
+
+**`*` is a registered ladder, not a hardcoded list.** The kernel cannot name a
+prefab, a model or a game type — `editor_core` depends on `bevy`, `editor_api`,
+`serde` and `ron`, and nothing else — so "what makes two objects the same thing"
+is declared as data by the crate that owns the component
+(`editor_api::identity`), and the kernel compares reflected values. A rung names
+the whole component, one field, or mere presence: `Primitive` matches on `kind`,
+because two cubes of different sizes are both cubes; a trigger volume matches on
+presence, because one named "lift" and one named "pit" are still the same kind
+of thing. First rung present wins, so a barrel that is both a prefab instance
+and a mesh is a barrel. A bad rung is a startup panic — a key that stops
+resolving is a `*` that stops working, and silence is how that ships.
+
+`*` replaces the selection and unions the sources, which makes repeated presses
+additive for free; it stops at the prefab seal, refuses on sockets (a handle
+clicks as itself, so every socket in the file would be one family), skips
+hidden, and says what it matched and what it left out.
+
+Physically the binding is `shift+8`: `KeyCode` is a physical key, so there is no
+`*` token to parse, exactly as `:` is `shift+semicolon`. The chrome renders both
+back as `*` and `:` — a narrow, deliberate alias table, because a blanket
+US-layout mapping would render the ortho-view bindings `shift+1/2/3` as `!@#`.
+
+Hide, isolate and unhide-all sit on the LEADER (`␣h`, `␣⇧h`, `␣u`) for the same
+reason lock does: the keymap design reserves `h j k l` for selection motion.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

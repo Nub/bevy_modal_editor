@@ -46,7 +46,7 @@
 | `/` | **Contextual search** (see per-context tables) | search |
 | `n` / `N` | Next / previous search result | same |
 | `?` | Cheat sheet / keymap browser for current context | (help) |
-| `Space` | Leader menu (which-key): `Space f` find, `Space p` play controls, `Space t` toggles (grid, gizmos, physics debug, shading), `Space w` window/panel ops, `Space l` lock/unlock the selection | leader |
+| `Space` | Leader menu (which-key): `Space f` find, `Space p` play controls, `Space t` toggles (grid, gizmos, physics debug, shading), `Space w` window/panel ops, `Space l` lock/unlock the selection, `Space h` / `Space H` hide / isolate the selection, `Space u` unhide all | leader |
 | `m{a-z}` / `'{a-z}` | Set / jump camera mark (marks store position + orientation) | marks |
 | `''` | Jump back to previous camera position (auto-stack) | `''` |
 | `'x` `'y` `'z` / `'X` `'Y` `'Z` | Ortho view down ±axis (orthographic toggle included) | mark-like |
@@ -66,7 +66,7 @@ jump-back, and `'x/'y/'z` reads as "go to the X view."
 | `h` `j` `k` `l` | Selection motion: `h`/`l` prev/next sibling, `k` parent, `j` first child | Spatial-ish tree walking without leaving the viewport; matches hierarchy keys |
 | `v` | Visual mode: subsequent clicks/motions extend selection | visual mode |
 | `V` | Box-select (drag) | visual-block flavor |
-| `*` | Select all instances of the selected thing (same prefab / same kind) | vim `*` = "find this word everywhere" |
+| `*` (physically `shift+8`) | Select all instances of the selected thing (same prefab / same kind). `KeyCode` is a PHYSICAL key, so there is no `*` token to bind — the same convention as `shift+semicolon` for `:`; the chrome renders both back | vim `*` = "find this word everywhere" |
 | `gv` | Reselect previous selection | same |
 | `gp` | Select parent group/prefab root | — |
 | `gd` | Go to definition: open source prefab / asset of selection | vim `gd` |

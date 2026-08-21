@@ -20,14 +20,31 @@ fn tint(color: Color, selected: bool) -> Color {
 pub(crate) fn draw_light_gizmos(
     state: Res<EditorState>,
     mut gizmos: Gizmos,
-    points: Query<(&GlobalTransform, &PointLight, Has<Selected>)>,
-    spots: Query<(&GlobalTransform, &SpotLight, Has<Selected>)>,
+    // `InheritedVisibility` because these are immediate-mode: hiding a light
+    // removes its mesh, never its gizmo, and a range sphere floating over a
+    // hidden lamp is worse than no gizmo at all. Both light types
+    // `#[require(Visibility)]`, so the term is always present and true.
+    points: Query<(
+        &GlobalTransform,
+        &PointLight,
+        Has<Selected>,
+        &InheritedVisibility,
+    )>,
+    spots: Query<(
+        &GlobalTransform,
+        &SpotLight,
+        Has<Selected>,
+        &InheritedVisibility,
+    )>,
     directionals: Query<(&GlobalTransform, &DirectionalLight, Has<Selected>)>,
 ) {
     if !state.active {
         return;
     }
-    for (global, light, selected) in &points {
+    for (global, light, selected, visible) in &points {
+        if !visible.get() {
+            continue;
+        }
         let at = global.translation();
         let color = tint(light.color, selected);
         // Range is the falloff cutoff — the volume the light can affect.
@@ -38,7 +55,10 @@ pub(crate) fn draw_light_gizmos(
             gizmos.line(at - axis * 0.15, at + axis * 0.15, color);
         }
     }
-    for (global, light, selected) in &spots {
+    for (global, light, selected, visible) in &spots {
+        if !visible.get() {
+            continue;
+        }
         let at = global.translation();
         let color = tint(light.color, selected);
         // Bevy spot lights shine down -Z.

@@ -35,6 +35,8 @@ pub mod glyph {
     pub const INFO: &str = "\u{f05a}";
     /// Locked object badge (fa-lock).
     pub const LOCK: &str = "\u{f023}";
+    /// Hidden object badge (fa-eye-slash).
+    pub const EYE_SLASH: &str = "\u{f070}";
 }
 
 /// THE chrome palette — one disciplined set, never ad-hoc RGB.
@@ -187,6 +189,22 @@ pub fn sans_medium(fonts: &UiFonts, size: f32) -> TextFont {
 /// spelling for anything without an established glyph.
 pub fn pretty_chord(chord: &Chord) -> String {
     let mut out = String::new();
+    // A few chords are SPELLED physically because `KeyCode` is physical, and
+    // showing a newcomer "⇧8" for the key marked `*` teaches the wrong thing.
+    // Deliberately narrow: a blanket US-layout table would render shift+1/2/3
+    // — bound as the ortho views — as "!@#", which is actively wrong.
+    use bevy::input::keyboard::KeyCode as Physical;
+    if chord.modifiers.shift
+        && !chord.modifiers.ctrl
+        && !chord.modifiers.alt
+        && !chord.modifiers.cmd
+    {
+        match chord.key {
+            Physical::Digit8 => return "*".into(),
+            Physical::Semicolon => return ":".into(),
+            _ => {}
+        }
+    }
     if chord.modifiers.ctrl {
         out.push('⌃');
     }
