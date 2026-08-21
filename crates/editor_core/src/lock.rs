@@ -28,7 +28,17 @@ pub struct Locked;
 ///
 /// Unlocking is the exception that has to exist: removing the lock is an edit
 /// to a locked object, and refusing it would make the lock permanent.
-pub fn op_is_refused(op: &editor_api::edits::Op, is_locked: impl Fn(SceneId) -> bool) -> bool {
+/// `holds_a_lock(id)` means "id, or anything in its subtree, is locked".
+///
+/// Only DESPAWN needs it, and that is the whole rule: despawn is the one op
+/// that destroys things it does not name. Every other op edits exactly the
+/// target it names, so a locked CHILD is untouched when its parent moves — it
+/// rides, and riding is not an edit (spec §9, the carried-operand fold).
+pub fn op_is_refused(
+    op: &editor_api::edits::Op,
+    is_locked: impl Fn(SceneId) -> bool,
+    holds_a_lock: impl Fn(SceneId) -> bool,
+) -> bool {
     use editor_api::edits::Op;
     match op {
         // Spawning is not an edit TO anything.
@@ -37,7 +47,10 @@ pub fn op_is_refused(op: &editor_api::edits::Op, is_locked: impl Fn(SceneId) -> 
             type_path != <Locked as bevy::reflect::TypePath>::type_path() && is_locked(*target)
         }
         Op::Set { target, .. } | Op::Patch { target, .. } => is_locked(*target),
-        Op::Despawn { id } => is_locked(*id),
+        // A recursive despawn takes the whole subtree, so deleting an unlocked
+        // group would quietly destroy the locked piece inside it — and the
+        // lock promises to refuse EVERY edit until it is lifted.
+        Op::Despawn { id } => holds_a_lock(*id),
         Op::Reparent { target, .. } => is_locked(*target),
     }
 }
@@ -141,7 +154,8 @@ mod tests {
                 target,
                 value: Box::new(Transform::default()).into_partial_reflect()
             },
-            is_locked
+            is_locked,
+            is_locked,
         ));
         assert!(op_is_refused(
             &Op::Patch {
@@ -150,15 +164,21 @@ mod tests {
                 path: "x".into(),
                 value: Box::new(1.0f32)
             },
+            is_locked,
+            is_locked,
+        ));
+        assert!(op_is_refused(
+            &Op::Despawn { id: target },
+            is_locked,
             is_locked
         ));
-        assert!(op_is_refused(&Op::Despawn { id: target }, is_locked));
         assert!(op_is_refused(
             &Op::Reparent {
                 target,
                 parent: None
             },
-            is_locked
+            is_locked,
+            is_locked,
         ));
     }
 
@@ -173,7 +193,8 @@ mod tests {
                 target: locked[0],
                 type_path: <Locked as bevy::reflect::TypePath>::type_path().into(),
             },
-            is_locked
+            is_locked,
+            is_locked,
         ));
         // But removing anything ELSE from it is still refused.
         assert!(op_is_refused(
@@ -181,7 +202,8 @@ mod tests {
                 target: locked[0],
                 type_path: "some::other::Component".into(),
             },
-            is_locked
+            is_locked,
+            is_locked,
         ));
     }
 
@@ -191,6 +213,10 @@ mod tests {
         let locked = locked_set();
         let other = SceneId::random();
         let is_locked = |id: SceneId| locked.contains(&id);
-        assert!(!op_is_refused(&Op::Despawn { id: other }, is_locked));
+        assert!(!op_is_refused(
+            &Op::Despawn { id: other },
+            is_locked,
+            is_locked
+        ));
     }
 }

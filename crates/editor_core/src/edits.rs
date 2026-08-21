@@ -709,7 +709,7 @@ pub fn apply_edits(world: &mut World) {
         // after it — instead of a check each verb has to remember. Refused ops
         // are dropped from the transaction; the rest of it still applies, so
         // moving ten objects with two locked moves the eight.
-        let refused = {
+        let (refused, subtree_refusal) = {
             let index = world.resource::<SceneIndex>();
             let locked: std::collections::HashSet<SceneId> = index
                 .iter()
@@ -717,13 +717,46 @@ pub fn apply_edits(world: &mut World) {
                 .map(|(id, _)| *id)
                 .collect();
             if locked.is_empty() {
-                0
+                (0, false)
             } else {
+                // Every id whose SUBTREE contains a lock, so a recursive
+                // despawn cannot quietly take a locked piece with it. Built
+                // from the locked entities upwards, which is cheap because
+                // locks are rare — walking down from every op would not be.
+                let mut holds: std::collections::HashSet<SceneId> = locked.clone();
+                for id in &locked {
+                    let Some(entity) = world.resource::<SceneIndex>().get(id) else {
+                        continue;
+                    };
+                    let mut current = entity;
+                    while let Some(parent) = world.get::<ChildOf>(current).map(|c| c.parent()) {
+                        if let Some(ancestor) = world.get::<SceneId>(parent) {
+                            holds.insert(*ancestor);
+                        }
+                        current = parent;
+                    }
+                }
                 let before = transaction.ops.len();
-                transaction
-                    .ops
-                    .retain(|op| !crate::lock::op_is_refused(op, |id| locked.contains(&id)));
-                before - transaction.ops.len()
+                let mut only_a_part = false;
+                transaction.ops.retain(|op| {
+                    let refused = crate::lock::op_is_refused(
+                        op,
+                        |id| locked.contains(&id),
+                        |id| holds.contains(&id),
+                    );
+                    // Remember WHY, so the message can tell the difference
+                    // between "that is locked" and "that contains something
+                    // locked" — which are different problems with different
+                    // fixes.
+                    if refused
+                        && let editor_api::edits::Op::Despawn { id } = op
+                        && !locked.contains(id)
+                    {
+                        only_a_part = true;
+                    }
+                    !refused
+                });
+                (before - transaction.ops.len(), only_a_part)
             }
         };
         if refused > 0 && transaction.ops.is_empty() {
@@ -732,10 +765,18 @@ pub fn apply_edits(world: &mut World) {
             // whole answer. Every frame of a drag re-says it, which is right —
             // the message should stay lit for as long as you keep trying.
             world.write_message(editor_api::feedback::SceneIoFeedback {
-                message: format!(
-                    "{refused} locked object{} \u{00b7} \u{2423}l to unlock",
-                    if refused == 1 { "" } else { "s" }
-                ),
+                message: if subtree_refusal {
+                    format!(
+                        "{refused} object{} hold{} a locked part \u{00b7} \u{2423}l to unlock it",
+                        if refused == 1 { "" } else { "s" },
+                        if refused == 1 { "s" } else { "" }
+                    )
+                } else {
+                    format!(
+                        "{refused} locked object{} \u{00b7} \u{2423}l to unlock",
+                        if refused == 1 { "" } else { "s" }
+                    )
+                },
                 success: false,
             });
             continue;
@@ -1833,5 +1874,101 @@ mod tests {
             assert_eq!(record.id, *id);
             assert_eq!(record.parent, *parent);
         }
+    }
+
+    /// A lock has to hold against the delete that does not name it.
+    ///
+    /// `despawn()` is recursive, and `op_is_refused` matched the target id
+    /// only — so locking a crate protected it from `d`, and did nothing at all
+    /// if someone deleted the group it sat in. The lock promises to refuse
+    /// EVERY edit until it is lifted; "unless you delete its parent" was not
+    /// part of the promise.
+    #[test]
+    fn a_locked_child_refuses_its_parents_delete() {
+        let mut app = test_app();
+        let (parent, child) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(parent, None, 1.0), (child, Some(parent), 2.0)]);
+        let entity = app.world().resource::<SceneIndex>().get(&child).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::lock::Locked);
+
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete the group".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: parent }],
+            });
+        });
+        assert!(
+            app.world().resource::<SceneIndex>().get(&child).is_some(),
+            "a locked child was destroyed by its parent's delete"
+        );
+        assert!(
+            app.world().resource::<SceneIndex>().get(&parent).is_some(),
+            "the parent went, orphaning the locked child it was refused for"
+        );
+    }
+
+    /// The refusal names the RIGHT problem: "that is locked" and "that contains
+    /// something locked" have different fixes, and a message that says the
+    /// first when it means the second sends you looking at the wrong object.
+    #[test]
+    fn holding_a_locked_part_says_which_problem_it_is() {
+        let mut app = test_app();
+        let (parent, child) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(parent, None, 1.0), (child, Some(parent), 2.0)]);
+        let entity = app.world().resource::<SceneIndex>().get(&child).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::lock::Locked);
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete the group".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: parent }],
+            });
+        });
+
+        let messages = app
+            .world()
+            .resource::<bevy::ecs::message::Messages<editor_api::feedback::SceneIoFeedback>>();
+        let mut cursor = messages.get_cursor();
+        let said: Vec<String> = cursor.read(messages).map(|m| m.message.clone()).collect();
+        assert!(
+            said.iter().any(|m| m.contains("locked part")),
+            "the refusal blamed the wrong object: {said:?}"
+        );
+    }
+
+    /// The rule is DESPAWN-only. Every other op edits exactly what it names, so
+    /// a locked child rides its parent's move the way any child does — riding
+    /// is not an edit, and refusing it would freeze the parent too.
+    #[test]
+    fn a_locked_child_does_not_freeze_its_parents_move() {
+        let mut app = test_app();
+        let (parent, child) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(parent, None, 1.0), (child, Some(parent), 2.0)]);
+        let entity = app.world().resource::<SceneIndex>().get(&child).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::lock::Locked);
+
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "move the group".into(),
+                gesture: None,
+                ops: vec![Op::Set {
+                    target: parent,
+                    value: Box::new(Transform::from_xyz(5.0, 0.0, 0.0)).into_partial_reflect(),
+                }],
+            });
+        });
+        let moved = app.world().resource::<SceneIndex>().get(&parent).unwrap();
+        assert_eq!(
+            app.world_mut().get::<Transform>(moved).unwrap().translation,
+            Vec3::new(5.0, 0.0, 0.0),
+            "a locked child froze the parent it merely hangs under"
+        );
     }
 }

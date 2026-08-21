@@ -1941,6 +1941,70 @@ pub(crate) fn probe_handson(world: &mut World) {
                 ),
             );
         }
+        // ── A locked PART refuses its whole group's delete ────────────────
+        // `despawn` is recursive, so deleting a group used to destroy a locked
+        // piece inside it without a word. The lock promises to refuse every
+        // edit until it is lifted.
+        4800 => invoke(world, "select.clear"),
+        4810 => {
+            match scene_root_with_scene_children(world) {
+                Some((root, children)) => {
+                    // Lock ONE child, then act on the ROOT — the delete never
+                    // names the locked thing it would destroy.
+                    if let Some(child) = children.first().copied() {
+                        world.entity_mut(child).insert(editor_core::lock::Locked);
+                    }
+                    editor_core::selection::select_entity(world, root, false);
+                    world.resource_mut::<HandsonProbe>().copy_subject = Some((root, children));
+                }
+                None => check(world, false, "a group with a part to lock"),
+            }
+        }
+        4820 => {
+            let selected = selected_entities(world).len();
+            check(world, selected == 1, "the group is selected, not the part");
+        }
+        4830 => tap(world, KeyCode::KeyD, "d"),
+        4870 => {
+            let subject = world.resource::<HandsonProbe>().copy_subject.clone();
+            let (root, children) = subject.unwrap_or((Entity::PLACEHOLDER, Vec::new()));
+            let survived = world.get_entity(root).is_ok()
+                && children.iter().all(|c| world.get_entity(*c).is_ok());
+            check(
+                world,
+                survived,
+                "a locked part refused the delete of the group holding it",
+            );
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.contains("locked part"),
+                &format!("the refusal names the right problem [{flash}]"),
+            );
+        }
+        // Unlock, and confirm the group deletes normally afterwards — the lock
+        // is a lock, not a permanent seal.
+        4880 => {
+            let subject = world.resource::<HandsonProbe>().copy_subject.clone();
+            if let Some((_, children)) = subject
+                && let Some(child) = children.first().copied()
+            {
+                world
+                    .entity_mut(child)
+                    .remove::<editor_core::lock::Locked>();
+            }
+        }
+        4890 => tap(world, KeyCode::KeyD, "d"),
+        4930 => {
+            let subject = world.resource::<HandsonProbe>().copy_subject.clone();
+            let (root, _) = subject.unwrap_or((Entity::PLACEHOLDER, Vec::new()));
+            check(
+                world,
+                world.get_entity(root).is_err(),
+                "unlocking the part lets the group delete",
+            );
+        }
+        4940 => invoke(world, "core.undo"),
         5000 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();
             if failures.is_empty() {

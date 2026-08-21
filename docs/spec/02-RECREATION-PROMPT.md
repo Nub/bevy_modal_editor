@@ -1309,6 +1309,28 @@ copied entity's original parent is gone. `Op::Reparent` currently drops such a
 link silently, which is exactly the failure mode that needs a message rather
 than a shrug.
 
+
+**A lock has to hold against the delete that does not name it (2026-08-21).**
+`op_is_refused` matched the target id only, and `despawn()` is recursive — so
+locking a crate protected it from `d`, and did nothing at all if someone deleted
+the group it sat in. The whole subtree went, silently. "Refuses every edit until
+unlocked" did not survive contact with a parent.
+
+THE RULE: **an op that destroys what it does not name must answer for what it
+would destroy.** Despawn is the only such op, so it is the only one that asks
+whether the subtree holds a lock; every other op edits exactly the target it
+names. That distinction is load-bearing in both directions — a locked child must
+NOT freeze its parent's move, because riding a parent is not an edit to the
+child (the same reasoning as the carried-operand fold), and there is a test for
+each direction.
+
+The set is built from the locked entities UPWARDS, not by walking down from
+every op: locks are rare and ops are not.
+
+And the refusal names the right problem. "That is locked" and "that contains
+something locked" have different fixes, and a message that says the first when
+it means the second sends you looking at the wrong object.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly
