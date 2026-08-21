@@ -377,13 +377,25 @@ fn capture_subtree(
     let mut out: Vec<SubtreeRecord> = Vec::new();
     let mut stack: Vec<(Entity, Option<SceneId>)> = vec![(root, root_parent)];
     while let Some((entity, parent_id)) = stack.pop() {
-        // Derived subtrees rebuild themselves, so capturing one would make undo
-        // DUPLICATE it. The root is exempt: deleting a stamped member directly
-        // behaves exactly as it did before, rather than gaining a new leak.
-        if entity != root && world.get::<Derived>(entity).is_some() {
-            continue;
-        }
-        let own = world.get::<SceneId>(entity).copied();
+        // A DERIVED entity is not recorded — its producer rebuilds it, and
+        // capturing it would make undo duplicate the subtree. But the walk does
+        // not STOP here: `despawn` is recursive, so anything real hanging below
+        // it is destroyed too, and a capture that turned back at this boundary
+        // lost it for good. Treat it exactly like an entity the scene cannot
+        // name: skip the record, keep descending, carry the nearest recorded
+        // ancestor down.
+        //
+        // Real content DOES end up here — generating sockets on a member inside
+        // an open prefab puts it there, and open mode captures it into the
+        // template on close. It comes back under the nearest real ancestor
+        // rather than under the member, because a stamp mints a fresh id every
+        // run and there would be nothing valid to name.
+        let derived = entity != root && world.get::<Derived>(entity).is_some();
+        let own = if derived {
+            None
+        } else {
+            world.get::<SceneId>(entity).copied()
+        };
         if let Some(id) = own {
             let components = editor_components
                 .types
@@ -2027,6 +2039,78 @@ mod tests {
             app.world_mut().get::<Transform>(moved).unwrap().translation,
             Vec3::new(5.0, 0.0, 0.0),
             "a locked child froze the parent it merely hangs under"
+        );
+    }
+
+    /// Real content hanging BELOW a generated member is destroyed by the
+    /// recursive despawn, so the capture cannot turn back at that boundary —
+    /// it did, and the content was gone for good on every despawn path, not
+    /// just cut.
+    ///
+    /// It comes back under the nearest REAL ancestor, not under the member: a
+    /// stamp mints a fresh id every run, so there would be nothing valid to
+    /// name. Losing the shape one level is recoverable; losing the object is
+    /// not.
+    #[test]
+    fn undo_rescues_real_content_from_under_a_generated_member() {
+        let mut app = test_app();
+        let (root, member, real) = (SceneId::random(), SceneId::random(), SceneId::random());
+        spawn_tree(
+            &mut app,
+            &[
+                (root, None, 1.0),
+                (member, Some(root), 2.0),
+                (real, Some(member), 3.0),
+            ],
+        );
+        let member_entity = app.world().resource::<SceneIndex>().get(&member).unwrap();
+        app.world_mut().entity_mut(member_entity).insert(Derived);
+
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: root }],
+            });
+        });
+        undo(&mut app, 1);
+
+        let back = app.world().resource::<SceneIndex>().get(&real);
+        assert!(back.is_some(), "real content under a member was lost");
+        assert_eq!(
+            parent_of(&mut app, real),
+            Some(root),
+            "it came back somewhere other than its nearest real ancestor"
+        );
+        // The member itself is still NOT restored — its producer rebuilds it,
+        // and a captured copy would leave two.
+        assert!(
+            app.world().resource::<SceneIndex>().get(&member).is_none(),
+            "the generated member was captured and will now exist twice"
+        );
+    }
+
+    /// The narrower half of the same rule, kept honest: a generated member with
+    /// nothing real under it is still skipped entirely.
+    #[test]
+    fn a_bare_generated_member_is_still_not_captured() {
+        let mut app = test_app();
+        let (root, member) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(root, None, 1.0), (member, Some(root), 2.0)]);
+        let member_entity = app.world().resource::<SceneIndex>().get(&member).unwrap();
+        app.world_mut().entity_mut(member_entity).insert(Derived);
+        edit(&mut app, |q| {
+            q.0.push(Transaction {
+                label: "delete".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: root }],
+            });
+        });
+        undo(&mut app, 1);
+        assert!(app.world().resource::<SceneIndex>().get(&root).is_some());
+        assert!(
+            app.world().resource::<SceneIndex>().get(&member).is_none(),
+            "undo restored a member its producer will rebuild"
         );
     }
 }

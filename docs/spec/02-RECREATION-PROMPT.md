@@ -1364,12 +1364,31 @@ global, and a capture taken then would record the wrong place. Composing the
 locals is correct whenever it is asked — and it makes the rule testable in a
 kernel that has no `TransformPlugin`.
 
-Deferred and named, not silently dropped: that
-`open_mode` adopts pastes into the open prefab, which makes "landed at the top
-level" the wrong words there; and — wider than this slice — that the UNDO
-capture does not descend below a generated boundary while `despawn` destroys
-recursively, so named content under a generated member is lost on every despawn
-path, not just cut.
+Deferred and named, not silently dropped: that `open_mode` adopts pastes into
+the open prefab, which makes "landed at the top level" the wrong words there.
+
+
+**The undo capture turned back at a generated boundary (2026-08-21).** It
+skipped a derived entity and stopped descending — correct for the entity itself,
+whose producer rebuilds it, and wrong for everything below it. `despawn` is
+recursive, so real content hanging under a stamped member was destroyed and
+never recorded: gone for good, on EVERY despawn path, not just cut.
+
+Real content does end up there. Generating sockets on a member inside an open
+prefab puts it there, and open mode captures it into the template on close —
+which is also why refusing to parent onto a generated member is not the fix:
+it would break an authoring flow the editor supports.
+
+So the walk treats a derived entity exactly like one the scene cannot name:
+skip the record, keep descending, carry the nearest recorded ancestor down.
+Restored content comes back under that ancestor rather than under the member,
+because a stamp mints a fresh id every run and there would be nothing valid to
+name. Losing one level of shape is recoverable; losing the object is not.
+
+The COPY walk keeps REFUSING this case rather than rescuing it, and the
+asymmetry is deliberate: a copy can be declined and restructured, so silently
+changing the copied shape would be the worse answer. An undo cannot be
+declined — the delete already happened.
 
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
