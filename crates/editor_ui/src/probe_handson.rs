@@ -36,6 +36,8 @@ pub(crate) struct HandsonProbe {
     before_hide: Option<(usize, bool)>,
     /// Undo depth, drum count and the source pose before an array.
     array_before: Option<(usize, usize, Transform)>,
+    /// The parent a yanked child hung under, and where that child was.
+    orphan_before: Option<(Entity, Vec3)>,
     /// The group a duplicate is about to copy, the roots that existed first,
     /// and the copy's local poses before it is dragged.
     copy_subject: Option<(Entity, Vec<Entity>)>,
@@ -2083,6 +2085,76 @@ pub(crate) fn probe_handson(world: &mut World) {
                 &format!("the paste says what it did [{flash}]"),
             );
             shot(world, "46-cut-paste-group");
+        }
+        // ── An orphaned paste keeps its place ─────────────────────────────
+        // Here `GlobalTransform` really propagates (the kernel's own tests have
+        // no TransformPlugin), so this is the one place the world position can
+        // be asserted rather than reasoned about.
+        5100 => invoke(world, "select.clear"),
+        5110 => match scene_root_with_scene_children(world) {
+            Some((root, children)) => {
+                let child = children[0];
+                let at = world
+                    .get::<GlobalTransform>(child)
+                    .map(|g| g.translation())
+                    .unwrap_or_default();
+                editor_core::selection::select_entity(world, child, false);
+                world.resource_mut::<HandsonProbe>().orphan_before = Some((root, at));
+                check(
+                    world,
+                    at.length() > 0.01,
+                    &format!("the child sits somewhere non-trivial ({at:?})"),
+                );
+            }
+            None => check(world, false, "a group whose child can be orphaned"),
+        },
+        5120 => tap(world, KeyCode::KeyY, "y"),
+        5150 => {
+            // SETUP, not the verb under test: the parent is despawned through
+            // the queue because `d` is a CUT, and cutting would overwrite the
+            // very register this segment is about. `y` and `p` below are real.
+            let root_id = world
+                .resource::<HandsonProbe>()
+                .orphan_before
+                .and_then(|(root, _)| world.get::<SceneId>(root).copied());
+            if let Some(id) = root_id {
+                world.resource_mut::<EditQueue>().0.push(Transaction {
+                    label: "probe: orphan the clip".into(),
+                    gesture: None,
+                    ops: vec![Op::Despawn { id }],
+                });
+            }
+            let roots: Vec<Entity> = world
+                .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+                .iter(world)
+                .collect();
+            world.resource_mut::<HandsonProbe>().roots_before = roots;
+        }
+        5170 => tap(world, KeyCode::KeyP, "p"),
+        5195 => {
+            let before = world.resource::<HandsonProbe>().orphan_before;
+            let want = before.map(|(_, at)| at).unwrap_or_default();
+            // Only among roots that did NOT exist before the paste — otherwise
+            // an unrelated object standing nearby would satisfy this.
+            let existing = world.resource::<HandsonProbe>().roots_before.clone();
+            let closest = world
+                .query_filtered::<(Entity, &GlobalTransform), (With<SceneId>, Without<ChildOf>)>()
+                .iter(world)
+                .filter(|(entity, _)| !existing.contains(entity))
+                .map(|(_, global)| (global.translation() - want).length())
+                .min_by(f32::total_cmp)
+                .unwrap_or(f32::MAX);
+            check(
+                world,
+                closest < 0.01,
+                &format!("the orphaned paste kept its place (off by {closest:.3}m)"),
+            );
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.contains("in place"),
+                &format!("the paste says it kept its place [{flash}]"),
+            );
         }
         5200 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();

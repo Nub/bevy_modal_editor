@@ -441,6 +441,13 @@ pub struct CopySubtree {
     /// A hint: the caller decides whether to honour it.
     pub external_parent: Option<SceneId>,
     pub records: Vec<CopyRecord>,
+    /// The root's pose in WORLD space at capture.
+    ///
+    /// A captured `Transform` is LOCAL, so a paste that cannot rejoin its
+    /// parent would reinterpret it as a world pose and silently teleport — a
+    /// child sitting 5 units inside a group at x=100 landing at x=5. This is
+    /// what lets it keep its place instead.
+    pub root_world: Transform,
 }
 
 impl CopySubtree {
@@ -449,6 +456,7 @@ impl CopySubtree {
     pub fn cloned(&self) -> CopySubtree {
         CopySubtree {
             root: self.root,
+            root_world: self.root_world,
             external_parent: self.external_parent,
             records: self
                 .records
@@ -505,6 +513,28 @@ pub enum CopyRefusal {
     LosesContentUnderDerived,
     /// The scene cannot name this entity.
     Unnamed,
+}
+
+/// A world pose composed from LOCAL transforms up the ancestor chain.
+///
+/// Deliberately not `GlobalTransform`: propagation runs once a frame, so an
+/// entity spawned or reparented in THIS frame still carries a stale global —
+/// and a capture taken then would record the wrong place. Composing the locals
+/// is correct whenever it is asked, which also makes it testable in a kernel
+/// that has no `TransformPlugin`.
+fn world_pose(world: &World, entity: Entity) -> Transform {
+    let mut affine = bevy::math::Affine3A::IDENTITY;
+    let mut current = entity;
+    loop {
+        if let Some(local) = world.get::<Transform>(current) {
+            affine = local.compute_affine() * affine;
+        }
+        match world.get::<ChildOf>(current) {
+            Some(parent) => current = parent.parent(),
+            None => break,
+        }
+    }
+    Transform::from_matrix(affine.into())
 }
 
 fn has_named_content_below(world: &World, root: Entity) -> bool {
@@ -585,6 +615,7 @@ pub fn copy_subtree(
         }
     }
     Ok(CopySubtree {
+        root_world: world_pose(world, root),
         root: root_id,
         external_parent,
         records,
@@ -607,10 +638,26 @@ pub fn copy_ops(subtree: &CopySubtree, external: Option<SceneId>) -> (Vec<Op>, S
     };
     let mut spawns = Vec::with_capacity(subtree.records.len());
     let mut reparents = Vec::new();
+    // A root that had a parent and is not getting one back is about to become
+    // a top-level object, so its captured LOCAL transform would be read as a
+    // world pose and teleport it. Hand it the world pose it actually had.
+    let orphaned = subtree.external_parent.is_some() && external.is_none();
     for (index, record) in subtree.records.iter().enumerate() {
+        let mut components: Vec<Box<dyn PartialReflect>> =
+            record.components.iter().map(|c| c.to_dynamic()).collect();
+        if orphaned && index == 0 {
+            for value in &mut components {
+                if value.get_represented_type_info().map(|info| info.type_id())
+                    == Some(std::any::TypeId::of::<Transform>())
+                {
+                    *value = Box::new(subtree.root_world).into_partial_reflect();
+                    break;
+                }
+            }
+        }
         spawns.push(Op::Spawn {
             id: fresh[index],
-            components: record.components.iter().map(|c| c.to_dynamic()).collect(),
+            components,
         });
         let parent = match record.parent {
             Some(old) => remap(old),

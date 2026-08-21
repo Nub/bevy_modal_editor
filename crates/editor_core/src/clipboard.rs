@@ -284,14 +284,14 @@ pub(crate) fn perform_clipboard(world: &mut World) {
                 if roots.len() == 1 { "" } else { "s" }
             );
             if orphaned > 0 {
-                // AND it moved. The captured transform is LOCAL, so dropping the
-                // parent link reinterprets it as a world pose — a child sitting
-                // 5 units inside a group at x=100 lands at x=5. Recording a
-                // world pose at capture is the real fix and its own slice; a
-                // message that mentioned only parentage would leave someone to
-                // find the teleport themselves.
+                // It KEEPS ITS PLACE: the capture recorded the root's world pose,
+                // so a paste that cannot rejoin its parent stays where it was
+                // instead of reinterpreting a local transform as a world one and
+                // teleporting. The message still names the change, because the
+                // object's place in the hierarchy did change even though its place
+                // in the world did not.
                 message.push_str(&format!(
-                    " \u{b7} {orphaned} lost its parent, so it landed at the top level and moved",
+                    " \u{b7} {orphaned} lost its parent and landed at the top level, in place",
                 ));
             }
             say(world, message, true);
@@ -941,6 +941,128 @@ mod tests {
         assert!(
             said.iter().any(|m| m.contains("locked part")),
             "the refusal did not name the problem: {said:?}"
+        );
+    }
+
+    /// A paste that cannot rejoin its parent KEEPS ITS PLACE.
+    ///
+    /// The captured transform is local, so reading it as a world pose sent a
+    /// child sitting 5 units inside a group at x=100 to x=5 — a hundred-unit
+    /// teleport, silently. The capture records the root's world pose for
+    /// exactly this.
+    #[test]
+    fn an_orphaned_paste_keeps_its_place() {
+        let mut app = duplicate_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: a,
+                        components: vec![
+                            Box::new(Transform::from_xyz(100.0, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Spawn {
+                        id: b,
+                        components: vec![
+                            Box::new(Transform::from_xyz(5.0, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Reparent {
+                        target: b,
+                        parent: Some(a),
+                    },
+                ],
+            });
+        app.update();
+        let b_entity = app.world().resource::<SceneIndex>().get(&b).unwrap();
+        app.world_mut().entity_mut(b_entity).insert(Selected);
+        invoke(&mut app, "select.yank");
+        app.update();
+
+        // The parent goes; the register still remembers where the child WAS.
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "delete the parent".into(),
+                gesture: None,
+                ops: vec![Op::Despawn { id: a }],
+            });
+        app.update();
+        invoke(&mut app, "select.paste");
+        app.update();
+
+        let xs: Vec<f32> = app
+            .world_mut()
+            .query_filtered::<&Transform, With<SceneId>>()
+            .iter(app.world())
+            .map(|t| t.translation.x)
+            .collect();
+        assert_eq!(
+            xs,
+            vec![105.0],
+            "the orphan teleported: it was at world x=105"
+        );
+    }
+
+    /// And a paste that DOES rejoin its parent keeps its local placement — the
+    /// world pose must not be applied there, or it would double up the parent's
+    /// offset.
+    #[test]
+    fn a_paste_that_rejoins_its_parent_keeps_its_local_place() {
+        let mut app = duplicate_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: a,
+                        components: vec![
+                            Box::new(Transform::from_xyz(100.0, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Spawn {
+                        id: b,
+                        components: vec![
+                            Box::new(Transform::from_xyz(5.0, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Reparent {
+                        target: b,
+                        parent: Some(a),
+                    },
+                ],
+            });
+        app.update();
+        let b_entity = app.world().resource::<SceneIndex>().get(&b).unwrap();
+        app.world_mut().entity_mut(b_entity).insert(Selected);
+        invoke(&mut app, "select.yank");
+        app.update();
+        invoke(&mut app, "select.paste");
+        app.update();
+
+        let a_entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        let under_a: Vec<f32> = app
+            .world_mut()
+            .query_filtered::<(&Transform, &ChildOf), With<SceneId>>()
+            .iter(app.world())
+            .filter(|(_, parent)| parent.parent() == a_entity)
+            .map(|(t, _)| t.translation.x)
+            .collect();
+        assert_eq!(
+            under_a,
+            vec![5.0, 5.0],
+            "a rejoined paste took the world pose and doubled its parent's offset"
         );
     }
 }

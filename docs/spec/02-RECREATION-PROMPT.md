@@ -1348,16 +1348,23 @@ two independent groups rather than one fought over.
   op: the parent must still exist AND not have become generated (whose ids are
   re-minted every stamp). The op now warns as a backstop for the next verb that
   builds a reparent from a stale id.
-- **A paste that lost its parent SAYS SO — including that it moved.** The
-  captured transform is LOCAL, so dropping the parent link reinterprets it as a
-  world pose: a child sitting 5 units inside a group at x=100 lands at x=5. That
-  cannot be fixed at paste time, because the parent's world pose is gone by
-  then; it needs the capture to record a world pose, which changes the capture's
-  shape and touches duplicate and array too. Its own slice. Until then the
-  message tells the truth rather than leaving someone to find the teleport.
+- **A paste that lost its parent KEEPS ITS PLACE, and says so.** The captured
+  transform is LOCAL, so dropping the parent link used to reinterpret it as a
+  world pose: a child sitting 5 units inside a group at x=100 landed at x=5, a
+  hundred-unit teleport with nothing said. The capture records the root.s world
+  pose for exactly this, and the message still names the change, because the
+  object.s place in the HIERARCHY did change even though its place in the world
+  did not.
 - **Cut and yank speak on success**, which they never did.
 
-Deferred and named, not silently dropped: the orphan teleport above; that
+The world pose is composed from LOCAL transforms up the ancestor chain rather
+than read from `GlobalTransform`, deliberately: propagation runs once a frame,
+so an entity spawned or reparented in the same frame still carries a stale
+global, and a capture taken then would record the wrong place. Composing the
+locals is correct whenever it is asked — and it makes the rule testable in a
+kernel that has no `TransformPlugin`.
+
+Deferred and named, not silently dropped: that
 `open_mode` adopts pastes into the open prefab, which makes "landed at the top
 level" the wrong words there; and — wider than this slice — that the UNDO
 capture does not descend below a generated boundary while `despawn` destroys
