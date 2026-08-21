@@ -13,6 +13,7 @@
 use bevy::gltf::GltfAssetLabel;
 use bevy::prelude::*;
 use bevy::world_serialization::{WorldAsset, WorldAssetRoot};
+use editor_api::validate::{AssetProblem, ProblemSource, Severity, Stage};
 use editor_core::ValidatorCatalog;
 use editor_core::prelude::*;
 use std::path::PathBuf;
@@ -144,7 +145,11 @@ pub struct ProcessedOutput {
 #[derive(Default)]
 pub struct IngestReport {
     pub entries: Vec<ModelEntry>,
-    pub problems: Vec<String>,
+    pub problems: Vec<AssetProblem>,
+    /// How many files the walk actually looked at. "0 problems" with no
+    /// denominator is the sentence this module was written to kill — it reads
+    /// identically whether the tree is clean or the scan never found it.
+    pub scanned: usize,
     pub outputs: Vec<ProcessedOutput>,
 }
 
@@ -179,8 +184,14 @@ pub fn ingest(fs_root: &std::path::Path, config: &IngestConfig) -> IngestReport 
         // Recursive: a purchased pack arrives as `models/dungeon/walls/*.glb`,
         // which is the shape every marketplace ships. A flat scan finds the
         // directory, cannot make an asset of it, and says nothing at all.
-        collect_sources(&fs_root.join(dir_name), &mut sources, &mut report.problems);
+        collect_sources(
+            fs_root,
+            &fs_root.join(dir_name),
+            &mut sources,
+            &mut report.problems,
+        );
         sources.sort(); // deterministic order
+        report.scanned += sources.len();
         for source in sources {
             let extension = extension_of(&source);
             let kind = kind_of(&source);
@@ -188,18 +199,37 @@ pub fn ingest(fs_root: &std::path::Path, config: &IngestConfig) -> IngestReport 
                 .processors
                 .iter()
                 .any(|def| processor_claims(def, &extension));
+            let relative = display_relative(fs_root, &source);
             if kind.is_none() && !claimed {
-                report.problems.push(format!(
-                    "{}: nothing imports or processes .{extension} — ignored",
-                    display_relative(fs_root, &source)
-                ));
+                // INFO, not warning. A pack shipping `.fbx` and `.blend`
+                // alongside its `.glb` is a fact about the pack, not a defect
+                // in it — and a warning you are meant to ignore teaches you to
+                // ignore warnings.
+                report.problems.push(AssetProblem {
+                    stage: Stage::Import,
+                    source: ProblemSource::Ingest,
+                    severity: Severity::Info,
+                    path: relative.clone(),
+                    uuid: None,
+                    message: format!("nothing imports or processes .{extension}"),
+                });
                 continue;
             }
             let mut bounds = None;
             let identity = match editor_assets::import_file(&source) {
                 Ok(identity) => identity,
                 Err(e) => {
-                    report.problems.push(format!("{}: {e}", source.display()));
+                    // ERROR: the `continue` below drops this file from the
+                    // library entirely, so every reference to it dangles.
+                    // There is no uuid to name yet — that is what failed.
+                    report.problems.push(AssetProblem {
+                        stage: Stage::Import,
+                        source: ProblemSource::Ingest,
+                        severity: Severity::Error,
+                        path: relative.clone(),
+                        uuid: None,
+                        message: format!("{e}"),
+                    });
                     continue;
                 }
             };
@@ -207,21 +237,34 @@ pub fn ingest(fs_root: &std::path::Path, config: &IngestConfig) -> IngestReport 
                 Ok(bytes) => {
                     for problem in editor_assets::run_validators(&source, &bytes, config.validators)
                     {
-                        report
-                            .problems
-                            .push(format!("{:?}: {}", problem.severity, problem.message));
+                        // The severity comes through UNCHANGED. It used to be
+                        // stringified into the message, which is why a stray
+                        // `.fbx` and a corrupt mesh looked identical.
+                        report.problems.push(AssetProblem::from_validator(
+                            problem,
+                            relative.clone(),
+                            Some(identity.uuid),
+                        ));
                     }
                     process_one(
                         &source,
                         &bytes,
                         &extension,
                         identity.uuid,
+                        &relative,
                         config,
                         &mut report,
                     );
                     bounds = read_bounds(&report, identity.uuid);
                 }
-                Err(e) => report.problems.push(format!("{}: {e}", source.display())),
+                Err(e) => report.problems.push(AssetProblem {
+                    stage: Stage::Import,
+                    source: ProblemSource::Ingest,
+                    severity: Severity::Error,
+                    path: relative.clone(),
+                    uuid: Some(identity.uuid),
+                    message: format!("{e}"),
+                }),
             }
             // A source only a processor claims (a `.tif` waiting on a
             // converter) is a real asset of the pipeline and NOT a member of
@@ -237,12 +280,17 @@ pub fn ingest(fs_root: &std::path::Path, config: &IngestConfig) -> IngestReport 
                 uuid: identity.uuid,
                 kind,
                 name,
-                asset_path: display_relative(fs_root, &source),
+                asset_path: relative,
                 content_hash: identity.content_hash,
                 bounds,
             });
         }
     }
+    // A broken `.glb` produces the SAME parse error twice, because both gltf
+    // validators parse the file and both report the failure. The string list
+    // hid it; typed records with `PartialEq` do not, and the pair is always
+    // adjacent, so consecutive dedup is enough.
+    report.problems.dedup();
     report
 }
 
@@ -264,13 +312,25 @@ fn read_bounds(report: &IngestReport, uuid: Uuid) -> Option<editor_assets::Model
 }
 /// Every file under `dir`, depth-first. Unreadable subtrees are problems, not
 /// silence — a permissions error that hides half a pack has to be loud.
-fn collect_sources(dir: &std::path::Path, out: &mut Vec<PathBuf>, problems: &mut Vec<String>) {
+fn collect_sources(
+    fs_root: &std::path::Path,
+    dir: &std::path::Path,
+    out: &mut Vec<PathBuf>,
+    problems: &mut Vec<AssetProblem>,
+) {
     let read = match std::fs::read_dir(dir) {
         Ok(read) => read,
         // Absent is normal: a project may have no textures at all.
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
         Err(e) => {
-            problems.push(format!("{}: {e}", dir.display()));
+            problems.push(AssetProblem {
+                stage: Stage::Import,
+                source: ProblemSource::Ingest,
+                severity: Severity::Error,
+                path: display_relative(fs_root, dir),
+                uuid: None,
+                message: format!("{e}"),
+            });
             return;
         }
     };
@@ -278,7 +338,7 @@ fn collect_sources(dir: &std::path::Path, out: &mut Vec<PathBuf>, problems: &mut
     children.sort();
     for child in children {
         if child.is_dir() {
-            collect_sources(&child, out, problems);
+            collect_sources(fs_root, &child, out, problems);
         } else if !is_sidecar(&child) {
             out.push(child);
         }
@@ -338,6 +398,7 @@ fn process_one(
     bytes: &[u8],
     extension: &str,
     uuid: Uuid,
+    relative: &str,
     config: &IngestConfig,
     report: &mut IngestReport,
 ) {
@@ -355,7 +416,23 @@ fn process_one(
             // A processor that fails is a PROBLEM, not an import failure: the
             // asset is still in the project, and the designer needs to know
             // which stage refused it rather than watching it disappear.
-            Err(e) => report.problems.push(format!("{}: {e}", source.display())),
+            // A refusing processor keeps the asset (the comment above says
+            // why) so it is a WARNING. An Io failure is different in kind: the
+            // cache itself is broken, and every asset is about to hit it.
+            Err(e) => {
+                let severity = match e {
+                    editor_assets::ProcessError::Io(_) => Severity::Error,
+                    editor_assets::ProcessError::Processor { .. } => Severity::Warning,
+                };
+                report.problems.push(AssetProblem {
+                    stage: Stage::Process,
+                    source: ProblemSource::Processor(def.id.to_string()),
+                    severity,
+                    path: relative.to_string(),
+                    uuid: Some(uuid),
+                    message: format!("{e}"),
+                });
+            }
         }
     }
 }
@@ -423,6 +500,53 @@ impl ProcessedAssets {
         self.outputs.iter().filter(move |o| o.uuid == uuid)
     }
 }
+
+/// What the last import found, kept rather than logged and dropped.
+///
+/// It is NOT a field on `ModelLibrary`, for two reasons. `library.generation`
+/// bumps only when the ENTRIES changed and it drives mesh-ref resolution — a
+/// rescan that fixes a warning must not respawn every model in the level. And
+/// half these problems are about files that are not library members at all: an
+/// unclaimed `.fbx` and a source whose identity could not be written both have
+/// no entry to hang off.
+///
+/// Empty means "no problems OR the import never ran" — `perform_import` stands
+/// down entirely in a headless world with no AssetServer. `scanned` is the
+/// denominator that tells those two apart.
+#[derive(Resource, Default)]
+pub struct AssetProblems {
+    pub problems: Vec<AssetProblem>,
+    /// Bumped only when the set actually changed (compared by value, never by
+    /// serializing) — a `ResMut` deref alone marks a resource changed, which is
+    /// exactly why `LevelValidation` carries its own counter too.
+    pub generation: u64,
+    pub scanned: usize,
+}
+
+impl AssetProblems {
+    pub fn count(&self, severity: Severity) -> usize {
+        self.problems
+            .iter()
+            .filter(|p| p.severity == severity)
+            .count()
+    }
+
+    /// Everything said about one asset.
+    pub fn for_asset(&self, uuid: Uuid) -> impl Iterator<Item = &AssetProblem> {
+        self.problems.iter().filter(move |p| p.uuid == Some(uuid))
+    }
+
+    /// The worst thing said about one asset, which is what a row shows.
+    pub fn worst_for(&self, uuid: Uuid) -> Option<Severity> {
+        self.for_asset(uuid)
+            .map(|p| p.severity)
+            .max_by_key(|s| match s {
+                Severity::Info => 0,
+                Severity::Warning => 1,
+                Severity::Error => 2,
+            })
+    }
+}
 #[derive(Resource, Default)]
 pub(crate) struct ImportRequested(pub bool);
 
@@ -462,6 +586,7 @@ pub(crate) fn perform_import(
     assets: Option<Res<AssetServer>>,
     mut handles: ResMut<ModelHandles>,
     mut processed: ResMut<ProcessedAssets>,
+    mut asset_problems: ResMut<AssetProblems>,
     mut feedback: MessageWriter<super::SceneIoFeedback>,
 ) {
     // Headless test worlds have no AssetServer — imports stand down there.
@@ -485,9 +610,27 @@ pub(crate) fn perform_import(
             cache_dir: &cache_dir,
         },
     );
-    let (entries, problems, report_outputs) = (report.entries, report.problems, report.outputs);
+    let (entries, problems, report_outputs, scanned) = (
+        report.entries,
+        report.problems,
+        report.outputs,
+        report.scanned,
+    );
+    // Routed by severity, mirroring how level validation logs. A flat `warn!`
+    // for everything is why an ignored `.fbx` used to read exactly like a
+    // corrupt mesh.
     for problem in &problems {
-        warn!("asset import: {problem}");
+        let line = format!(
+            "asset {}: {}: {}",
+            problem.stage.label(),
+            problem.path,
+            problem.message
+        );
+        match problem.severity {
+            Severity::Error => error!("{line}"),
+            Severity::Warning => warn!("{line}"),
+            Severity::Info => info!("{line}"),
+        }
     }
     // Reload sources whose bytes changed — cached handles would otherwise
     // serve the stale content forever. Keyed by PATH, not uuid: a re-minted
@@ -539,15 +682,33 @@ pub(crate) fn perform_import(
     let ran = report_outputs.iter().filter(|o| !o.cache_hit).count();
     let cached = report_outputs.len() - ran;
     processed.outputs = report_outputs;
+    // Compared by VALUE, so an unchanged rescan does not bump the generation
+    // and the panels do not rebuild. `is_changed()` would be useless here: the
+    // `ResMut` deref above already marks it changed every import.
+    let errors = problems
+        .iter()
+        .filter(|p| p.severity == Severity::Error)
+        .count();
+    let warnings = problems
+        .iter()
+        .filter(|p| p.severity == Severity::Warning)
+        .count();
+    if asset_problems.problems != problems {
+        asset_problems.problems = problems;
+        asset_problems.generation += 1;
+    }
+    asset_problems.scanned = scanned;
     feedback.write(super::SceneIoFeedback {
         message: format!(
-            "imported {} model{} \u{b7} processed {ran} ({cached} cached) \u{b7} {} problem{}",
+            "imported {} of {scanned} file{} \u{b7} processed {ran} ({cached} cached) \u{b7} {errors} error{}, {warnings} warning{}",
             library.entries.len(),
-            if library.entries.len() == 1 { "" } else { "s" },
-            problems.len(),
-            if problems.len() == 1 { "" } else { "s" },
+            if scanned == 1 { "" } else { "s" },
+            if errors == 1 { "" } else { "s" },
+            if warnings == 1 { "" } else { "s" },
         ),
-        success: problems.is_empty(),
+        // An ignored `.fbx` used to paint a clean import red. Only an ERROR
+        // means something did not arrive.
+        success: errors == 0,
     });
 }
 
@@ -885,7 +1046,11 @@ mod tests {
         let report = ingest(&root, &validate_only(&validators, &cache));
         assert_eq!(report.entries.len(), 2, "broken source still gets identity");
         assert!(
-            report.problems.iter().any(|p| p.contains("broken.glb")),
+            report.problems.iter().any(|p| {
+                p.path.contains("broken.glb")
+                    && p.severity == Severity::Error
+                    && p.stage == Stage::Validate
+            }),
             "{:?}",
             report.problems
         );
@@ -957,7 +1122,11 @@ mod tests {
         );
         assert_eq!(report.entries.len(), 1, "the asset survived");
         assert!(
-            report.problems.iter().any(|p| p.contains("test.refuses")),
+            report.problems.iter().any(|p| {
+                matches!(&p.source, ProblemSource::Processor(id) if id == "test.refuses")
+                    && p.severity == Severity::Warning
+                    && p.stage == Stage::Process
+            }),
             "and said which processor refused it: {:?}",
             report.problems
         );
@@ -1008,16 +1177,17 @@ mod tests {
     #[test]
     fn a_file_nothing_claims_is_a_problem_not_a_silence() {
         let (dir, root) = corpus();
-        let cache = dir.path().join("cache");
         std::fs::write(root.join(MODELS_DIR).join("chair.fbx"), b"fbx bytes").unwrap();
+        let cache = dir.path().join("cache");
 
         let validators = editor_assets::builtin_validators();
         let report = ingest(&root, &validate_only(&validators, &cache));
         assert!(
-            report
-                .problems
-                .iter()
-                .any(|p| p.contains("chair.fbx") && p.contains("ignored")),
+            report.problems.iter().any(|p| {
+                p.path.contains("chair.fbx")
+                    && p.severity == Severity::Info
+                    && p.source == ProblemSource::Ingest
+            }),
             "{:?}",
             report.problems
         );
@@ -1032,8 +1202,8 @@ mod tests {
         let (dir, root) = corpus();
         let cache = dir.path().join("cache");
         std::fs::write(root.join(MODELS_DIR).join("metal.tif"), b"tif bytes").unwrap();
-
         let validators = editor_assets::builtin_validators();
+
         let processors = vec![counting_processor(&["tif"])];
         let report = ingest(
             &root,
@@ -1045,7 +1215,7 @@ mod tests {
         );
         assert_eq!(report.outputs.len(), 1, "the converter saw it");
         assert!(
-            !report.problems.iter().any(|p| p.contains("metal.tif")),
+            !report.problems.iter().any(|p| p.path.contains("metal.tif")),
             "and it is no longer an ignored file: {:?}",
             report.problems
         );
@@ -1073,7 +1243,6 @@ mod tests {
         );
         assert_eq!(report.outputs.len(), 1, "an any-asset processor ran");
     }
-
     /// Its own book-keeping is not source content.
     #[test]
     fn sidecars_are_not_imported_as_assets() {
@@ -1085,7 +1254,7 @@ mod tests {
         let again = ingest(&root, &validate_only(&validators, &cache));
         assert_eq!(again.entries.len(), report.entries.len(), "no new entries");
         assert!(
-            !again.problems.iter().any(|p| p.contains("import.ron")),
+            !again.problems.iter().any(|p| p.path.contains("import.ron")),
             "and the sidecar is not an ignored file: {:?}",
             again.problems
         );
@@ -1150,5 +1319,113 @@ mod tests {
         for axis in 0..3 {
             assert!(large[axis] > small[axis] * 2.0, "{small:?} -> {large:?}");
         }
+    }
+
+    // Typed problems (spec §6 "Asset browser"): the pipeline's findings are
+    // state the editor can show, not a line in a log nobody reads.
+
+    #[test]
+    fn severity_survives_the_walk() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        std::fs::write(root.join(MODELS_DIR).join("chair.fbx"), b"fbx bytes").unwrap();
+        std::fs::write(root.join(MODELS_DIR).join("empty.glb"), b"").unwrap();
+        let validators = editor_assets::builtin_validators();
+        let report = ingest(&root, &validate_only(&validators, &cache));
+
+        // An unclaimed extension is INFO. A pack that ships .fbx beside its
+        // .glb is a fact about the pack, and a warning nobody can act on
+        // teaches people to ignore warnings.
+        let fbx = report
+            .problems
+            .iter()
+            .find(|p| p.path.contains("chair.fbx"))
+            .expect("the ignored file said nothing");
+        assert_eq!(fbx.severity, Severity::Info);
+        assert_eq!(fbx.stage, Stage::Import);
+
+        // An empty source is an ERROR, and it names the validator that said so.
+        let empty = report
+            .problems
+            .iter()
+            .find(|p| {
+                p.path.contains("empty.glb")
+                    && matches!(&p.source, ProblemSource::Validator(id) if id.as_str() == "asset.nonempty")
+            })
+            .expect("an empty glb passed validation");
+        assert_eq!(empty.severity, Severity::Error);
+        assert_eq!(empty.stage, Stage::Validate);
+        // Before this change both of these stringified into one flat list and
+        // an ignored file was indistinguishable from a broken one.
+        assert_ne!(fbx.severity, empty.severity);
+    }
+
+    #[test]
+    fn a_problem_names_the_asset_it_is_about() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        std::fs::write(root.join(MODELS_DIR).join("empty.glb"), b"").unwrap();
+        let validators = editor_assets::builtin_validators();
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        let entry = report
+            .entries
+            .iter()
+            .find(|e| e.name == "empty")
+            .expect("a source that fails validation still gets an entry");
+        // The uuid is the join. A problem that only carried a path could not
+        // be shown against the row the browser already draws.
+        assert!(
+            report
+                .problems
+                .iter()
+                .any(|p| p.uuid == Some(entry.uuid) && p.severity == Severity::Error),
+            "{:?}",
+            report.problems
+        );
+        // And the path spelling matches the entry's, so the join works either
+        // way round — no second path convention.
+        assert!(
+            report.problems.iter().any(|p| p.path == entry.asset_path),
+            "problem path {:?} does not match entry path {:?}",
+            report.problems.iter().map(|p| &p.path).collect::<Vec<_>>(),
+            entry.asset_path
+        );
+    }
+
+    /// Both gltf validators parse the file, so both report the same parse
+    /// failure. As strings that was invisible; as records it would be two
+    /// identical rows in the browser for one broken file.
+    #[test]
+    fn one_broken_file_is_one_problem_not_two() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        std::fs::write(root.join(MODELS_DIR).join("broken.glb"), b"not a glb").unwrap();
+        let validators = editor_assets::builtin_validators();
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        let about_broken: Vec<_> = report
+            .problems
+            .iter()
+            .filter(|p| p.path.contains("broken.glb"))
+            .collect();
+        assert_eq!(
+            about_broken.len(),
+            1,
+            "the same parse failure was reported twice: {about_broken:?}"
+        );
+    }
+
+    /// "0 problems" reads identically whether the tree is clean or the scan
+    /// never found it. The denominator is what tells those apart.
+    #[test]
+    fn the_walk_reports_what_it_looked_at() {
+        let (dir, root) = corpus();
+        let cache = dir.path().join("cache");
+        std::fs::write(root.join(MODELS_DIR).join("chair.fbx"), b"fbx bytes").unwrap();
+        let validators = editor_assets::builtin_validators();
+        let report = ingest(&root, &validate_only(&validators, &cache));
+        // barrel.glb + chair.fbx — the ignored file is still a file the walk
+        // looked at, which is the whole point of counting.
+        assert_eq!(report.scanned, 2);
+        assert_eq!(report.entries.len(), 1, "and only one became an asset");
     }
 }

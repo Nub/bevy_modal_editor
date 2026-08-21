@@ -43,10 +43,20 @@ impl EditorSettings {
     /// and a newcomer browsing it could not see that the rest existed. Nobody
     /// chose 50 — the editor wrote it — so it is migrated rather than
     /// respected.
+    ///
+    /// `dock_bottom_height` was 200, chosen when nothing was ever placed in the
+    /// bottom dock — it is a tray, about five rows once the card chrome is
+    /// paid for. Same reasoning: nobody picked it, the editor wrote it into an
+    /// empty dock, and the asset browser is the first panel to live there.
     fn migrate(&mut self) {
         const OLD_PALETTE_CAP: usize = 50;
+        const OLD_BOTTOM_HEIGHT: f32 = 200.0;
         if self.ui.palette_max_results == OLD_PALETTE_CAP {
             self.ui.palette_max_results = UiSettings::default().palette_max_results;
+        }
+        #[allow(clippy::float_cmp)]
+        if self.ui.dock_bottom_height == OLD_BOTTOM_HEIGHT {
+            self.ui.dock_bottom_height = UiSettings::default().dock_bottom_height;
         }
     }
     /// Persist the full settings (v1 discipline: saved on every change).
@@ -166,7 +176,7 @@ impl Default for UiSettings {
             palette_max_results: 200,
             dock_left_width: 280.0,
             dock_right_width: 320.0,
-            dock_bottom_height: 200.0,
+            dock_bottom_height: 260.0,
         }
     }
 }
@@ -197,6 +207,31 @@ mod tests {
         settings.ui.palette_max_results = 12;
         settings.migrate();
         assert_eq!(settings.ui.palette_max_results, 12);
+    }
+
+    /// Same reasoning for the bottom dock: 200 was written into a dock nothing
+    /// was ever placed in, and it is about five rows once the card chrome is
+    /// paid for. The asset browser is the first panel to live there.
+    #[test]
+    fn the_empty_dock_height_is_migrated_not_respected() {
+        let mut settings = EditorSettings::default();
+        settings.ui.dock_bottom_height = 200.0;
+        settings.migrate();
+        assert_eq!(
+            settings.ui.dock_bottom_height,
+            UiSettings::default().dock_bottom_height,
+            "a height chosen for an empty dock is not a preference"
+        );
+        assert!(settings.ui.dock_bottom_height > 200.0);
+    }
+
+    /// A height the user dragged to is theirs.
+    #[test]
+    fn a_deliberate_dock_height_survives() {
+        let mut settings = EditorSettings::default();
+        settings.ui.dock_bottom_height = 340.0;
+        settings.migrate();
+        assert_eq!(settings.ui.dock_bottom_height, 340.0);
     }
 
     // The future editor-settings.ron contract: a PARTIAL file layers over defaults

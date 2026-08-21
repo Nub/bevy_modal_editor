@@ -188,6 +188,7 @@ mod tests {
                 context: ContextId::new_static("hierarchy-test"),
                 content: PanelContent::Custom,
                 default_open: true,
+                toggle_binding: None,
             })
             .panel(PanelDecl {
                 id: PanelId::new_static("inspector-test"),
@@ -196,6 +197,7 @@ mod tests {
                 context: ContextId::new_static("inspector-test"),
                 content: PanelContent::Properties(PropertySource::Selection),
                 default_open: true,
+                toggle_binding: None,
             });
         }
     }

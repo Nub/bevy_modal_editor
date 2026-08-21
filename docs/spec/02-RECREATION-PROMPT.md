@@ -468,6 +468,91 @@ eviction and no clear verb; processing is synchronous on the main thread, which
 is why the first processor had to be a cheap one; and Cook — the manifest from
 UUID to cooked path — remains owed, with `ProcessedAssets` recording exactly
 what it will need.
+
+### Asset browser (`editor_ui::assets`) — the pipeline made visible
+
+Every stage above records something careful — a stable uuid that survives a
+rename, a content hash, a measured bounding box, a validator's objection — and
+until now the only place any of it surfaced was one line of a toast and a
+`warn!` into a log nobody reads. The editor knew how big the barrel was, that
+the chair was an `.fbx` nothing could import, and that the wall's units looked
+like centimetres, and it told you none of it. **A pipeline whose findings are
+invisible is indistinguishable from one that never ran** — which is exactly how
+the Process stage came to sit dead for a milestone.
+
+The browser is a docked panel in the **bottom** dock, the position every DCC
+puts it in, listing what ingest found: models and textures, grouped the way the
+filesystem groups them, each row carrying what the pipeline recorded about it.
+
+**Problems are typed, and they belong to assets.** `IngestReport.problems` was
+`Vec<String>`, which meant severity was destroyed at the boundary — an ignored
+`.fbx` and a corrupt mesh rendered as the same grey line, and the summary toast
+painted a perfectly good import red because a pack shipped source files beside
+its exports. Each finding is now an `AssetProblem`: which stage found it, who
+said so, how bad it is, which file, and which uuid when one exists. The record
+is deliberately FLAT rather than a wrapper around a validator's `Problem`,
+because a validator knows its own id and severity and nothing else — not the
+stage, not the uuid, not whether the file was assigned one. The walk knows
+those, so the walk builds the record.
+
+Severities are assigned once, on purpose:
+- an extension nothing claims is **Info** — a pack shipping `.fbx` beside its
+  `.glb` is a fact about the pack, and a warning you are meant to ignore trains
+  you to ignore warnings;
+- a processor that refuses is **Warning** — the asset is still in the project,
+  which is the rule the Process stage already held;
+- an identity that cannot be written, a source that cannot be read, and an
+  unreadable directory are **Error** — each of them means something did not
+  arrive;
+- a validator's severity passes through **unchanged**, which is the whole point.
+
+The same walk now reports a **denominator**. "0 problems" reads identically
+whether the tree is clean or the scan never found it, so the toast counts what
+it looked at: `imported 3 of 7 files · 0 errors, 1 warning`.
+
+**The browser is where things ARE; the palette is what things are CALLED.**
+Searching stays in the palette — §7's one-palette-engine rule is not negotiable
+and a second fuzzy matcher is the drift it exists to prevent — so `/` in the
+panel opens the palette rather than growing a second search field. Placing goes
+through the same `EditQueue` transaction the palette uses, called from one
+extracted function, so a row can never place something the palette could not.
+
+**Pictures are owed, and the reason is worth recording.** A browser wants
+thumbnails, and the obvious implementation is the one that corrupts the
+project: Bevy keys asset handles by PATH, the first loader of a path decides its
+settings, and material slots load each map in its own colour space
+(`is_srgb` per slot). A grid that eagerly loads source textures would win that
+race and gamma-decode every normal and ORM map in the level. So a thumbnail may
+never be an AssetServer path load of the source. It has to be a **Process-stage
+output** — hash-keyed like everything else — read from the cache and uploaded
+pathless into `Assets<Image>`, where no path-keyed handle exists to poison. That
+is scheduled, not shipped; this cut adds **zero** new texture loads.
+
+That boundary has a hard edge: a **model** thumbnail can never be a processor
+output at all, because a GPU render is not reproducible across drivers and
+machines and determinism is the Process stage's contract. Model rows therefore
+show the numbers the Process stage already measured — size in metres and
+triangle count, `≥` when the box is a lower bound — which is the same treatment
+the palette's preview pane gives them, from one shared function so the two
+renderings of one recorded number cannot disagree (§11).
+
+**Known defect, recorded 2026-08-21, unfixed here.** The palette's texture
+preview already loses this race twice for the highlighted row: it loads the
+source path with default settings, and the same row drives a preview material
+whose base-colour slot loads it sRGB again. A half-fix that patched one of them
+would leave the bug alive behind a passing test, so both move when thumbnails
+land. Residual beyond either: two materials using one image in different slots
+already race each other through the same per-slot loader — an engine-level
+limit no design here removes.
+
+Out of scope for this cut, and named rather than implied: thumbnails; drag from
+the panel into the viewport (Enter places, and matches the editor's grain);
+rename, move and delete, which need §9's dependency graph first because a delete
+key with no reference check is a level-corruption tool; favourites and tags,
+which need a per-asset user-metadata store the identity sidecar deliberately is
+not; filesystem watching, which stays the explicit `asset.import` verb; and
+scene open/save-as, whose real blocker is that `scene.open`/`scene.save` take no
+argument — parameterized actions, not a browser.
 ### Prefabs (`editor_prefabs`) — the unit of game-ready
 The pipeline's terminal product and the primary authoring workflow:
 - A **prefab** = versioned asset: entity hierarchy of registered components + references (by

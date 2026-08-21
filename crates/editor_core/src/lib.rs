@@ -686,7 +686,10 @@ fn host_features(world: &mut World) {
                 name: format!("Toggle Panel: {}", panel.title).into(),
                 description: std::borrow::Cow::Borrowed("Show or hide this panel"),
                 contexts: Vec::new(), // global: panels toggle from anywhere
-                default_bindings: Vec::new(),
+                default_bindings: panel
+                    .toggle_binding
+                    .map(|chord| vec![chord.into()])
+                    .unwrap_or_default(),
                 group: Some(editor_api::actions::PaletteGroup::VIEW),
                 flags: editor_api::actions::ActionFlags::default(),
             };

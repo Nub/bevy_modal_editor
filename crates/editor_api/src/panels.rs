@@ -41,4 +41,9 @@ pub struct PanelDecl {
     pub content: PanelContent,
     /// Whether the panel starts open.
     pub default_open: bool,
+    /// A key for the synthesized `panel.toggle.<id>` action. `None` leaves the
+    /// toggle palette-only — which is the right default for a panel that is
+    /// open anyway, and the wrong one for a panel that starts closed, since a
+    /// closed panel with no key is a panel nobody finds.
+    pub toggle_binding: Option<&'static str>,
 }

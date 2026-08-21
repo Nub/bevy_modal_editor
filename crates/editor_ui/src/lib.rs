@@ -73,6 +73,7 @@ impl EditorFeature for EditorUiFeature {
             context: ContextId::new_static("hierarchy"),
             content: PanelContent::Custom,
             default_open: true,
+            toggle_binding: None,
         });
         // Hierarchy focus-context actions (keymap doc): hidden from the palette
         // (panel-scoped keys, discoverable via which-key while focused).
@@ -118,6 +119,7 @@ impl EditorFeature for EditorUiFeature {
             context: ContextId::new_static("inspector"),
             content: PanelContent::Properties(PropertySource::Selection),
             default_open: true,
+            toggle_binding: None,
         });
     }
 }

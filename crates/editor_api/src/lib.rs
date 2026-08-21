@@ -46,5 +46,8 @@ pub mod prelude {
     pub use crate::kinds::{EntityKindDef, InsertPreview};
     pub use crate::panels::{PanelContent, PanelDecl, Placement, PropertySource};
     pub use crate::pipeline::{ProcessCx, ProcessorDef};
-    pub use crate::validate::{Problem, Severity, ValidateCx, ValidatorDef};
+    pub use crate::validate::Problem;
+    pub use crate::validate::{
+        AssetProblem, ProblemSource, Severity, Stage, ValidateCx, ValidatorDef,
+    };
 }
