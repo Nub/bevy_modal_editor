@@ -158,6 +158,7 @@ pub(crate) struct StatusData<'w> {
     // A keyboard LAYER is a mode by any other name: while one is live, most keys
     // mean something else, and a mode you cannot see is a trap.
     overlay: Res<'w, editor_core::prelude::OverlayContext>,
+    template: Res<'w, editor_prefabs::template_mode::TemplateEdit>,
     insert: Res<'w, InsertState>,
     kinds: Res<'w, KindCatalog>,
     flash: Res<'w, StatusFlash>,
@@ -241,6 +242,7 @@ pub(crate) fn update_statusbar(
         .as_ref()
         .map(|context| context.as_str().to_uppercase());
     let at_rest = !gesture_active
+        && !data.template.active()
         && open_prefab.is_none()
         && focused_panel.is_none()
         && inserting.is_none()
@@ -282,6 +284,10 @@ pub(crate) fn update_statusbar(
                 }
                 MoveGesture::Idle => "MOVE".to_string(),
             }
+        } else if data.template.active() {
+            // Never ambiguous about WHICH thing you are editing — the confusion
+            // that killed v1's prefab UX.
+            format!("PREFAB \u{25c6} {}", data.template.name.to_uppercase())
         } else if let Some(overlay) = &overlay {
             format!("{overlay} MODE")
         } else if let Some(prefab) = &open_prefab {

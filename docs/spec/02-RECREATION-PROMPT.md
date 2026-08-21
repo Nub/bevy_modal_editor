@@ -487,6 +487,34 @@ The pipeline's terminal product and the primary authoring workflow:
   Cycle detection required.
 - **Prefab edit mode**: open a prefab in an isolated edit context (own undo scope), modal
   and keyboard-driven like everything else; save propagates.
+
+**Editing a prefab is not editing an instance (2026-08-20, owner direction).**
+Two verbs, deliberately different keys, because conflating them is what made v1's
+prefab UX "not clear when editing a prefab or a scene":
+
+- **`Enter` on an instance** opens it IN PLACE. You are editing THIS copy: the
+  level stays around it, dimmed, and edits become overrides. Unchanged from the
+  2026-08-02 decision that replaced v1's world swap.
+- **`space e`** opens the PREFAB in a scene of its own, at its own origin, with
+  the level parked. Changes here are the prefab, so every instance follows.
+
+The level is CAPTURED and restored through the same snapshot machinery scene
+save/load uses — it exists as one value the whole time, so coming back is
+applying it rather than rebuilding it. That is the difference between this and
+the world swap the owner rejected: the failure mode there was losing the level,
+and a snapshot cannot half-restore.
+
+While the template is open, **save, open, play and reset are refused out loud**.
+Each would operate on the wrong world — saving a prefab over your level is
+precisely the corruption a swap invites — and a refusal that says why is the
+whole mitigation.
+
+The status bar names which of the two you are in (`PREFAB ◆ BARREL` against
+`EDITING ◆ BARREL` for an in-place instance), and `escape` is bound in the
+`template` layer to come back. The layer is LAYERED rather than exclusive:
+editing a prefab is ordinary editing, so move, rotate, the palette and undo all
+keep their meaning; the layer exists only to give Escape a different job than
+"clear the selection".
 - **Baking: precompute heavy derived data into the prefab.** When load-time computation gets
   too heavy, a prefab can *bake* it at author/cook time and ship the result.
   **Invariant: bakes are caches, never source of truth.** A prefab's source data (entity

@@ -613,7 +613,65 @@ pub(crate) fn probe_kit(world: &mut World) {
             );
             shot(world, "k7-socket-mode");
         }
-        1560 => {
+        // ── Editing the PREFAB is not editing an instance (owner) ──────────
+        // `space e` opens the template in its own scene at its own origin; the
+        // LEVEL is parked as a value and must come back exactly.
+        1520 => {
+            let walls = instance_roots_named(world, "Wall");
+            world.resource_mut::<KitProbe>().walls_before_paint = walls.len();
+            let Some((entity, _)) = walls.first().copied() else {
+                return;
+            };
+            let selected: Vec<Entity> = world
+                .query_filtered::<Entity, With<editor_core::selection::Selected>>()
+                .iter(world)
+                .collect();
+            for previous in selected {
+                world
+                    .entity_mut(previous)
+                    .remove::<editor_core::selection::Selected>();
+            }
+            world
+                .entity_mut(entity)
+                .insert(editor_core::selection::Selected);
+            world.write_message(editor_core::selection::SelectionChanged);
+        }
+        1526 => {
+            world.write_message(editor_core::prelude::ActionInvoked {
+                action: editor_core::prelude::ActionId::new_static("prefab.edit-template"),
+                args: None,
+                source: editor_core::prelude::InvocationSource::Test,
+            });
+        }
+        1534 => {
+            let open = world
+                .resource::<editor_prefabs::template_mode::TemplateEdit>()
+                .active();
+            check(world, open, "space e opens the PREFAB, not the instance");
+            let walls = instance_roots_named(world, "Wall").len();
+            check(
+                world,
+                walls == 0,
+                &format!("and the level steps aside while it is open ({walls} walls)"),
+            );
+            shot(world, "k8-prefab-scene");
+        }
+        // Escape belongs to the template layer here: back to the level.
+        1540 => tap_named(world, KeyCode::Escape, Key::Escape),
+        1552 => {
+            let closed = !world
+                .resource::<editor_prefabs::template_mode::TemplateEdit>()
+                .active();
+            check(world, closed, "escape comes back to the level");
+            let before = world.resource::<KitProbe>().walls_before_paint;
+            let walls = instance_roots_named(world, "Wall").len();
+            check(
+                world,
+                walls == before,
+                &format!("with every instance intact ({before} -> {walls})"),
+            );
+        }
+        1600 => {
             let failures = world.resource::<KitProbe>().failures.clone();
             if failures.is_empty() {
                 info!("KIT-PROBE PASS: sockets, chaining, snap, painting");

@@ -27,6 +27,7 @@ pub mod open_mode;
 pub mod overrides;
 pub mod paint;
 pub mod sockets;
+pub mod template_mode;
 pub use overrides::{StampedFrom, sync_overrides};
 
 pub const PREFAB_FORMAT_VERSION: u32 = 1;
@@ -388,6 +389,12 @@ impl Plugin for EditorPrefabsPlugin {
         app.init_resource::<bake::BakeRequests>();
         app.init_resource::<paint::PaintState>();
         app.init_resource::<paint::PaintRequests>();
+        // The feedback channel belongs to editor_scene, and a headless prefab
+        // test world does not add that plugin — a system taking a writer for an
+        // unregistered message fails param validation and takes the app down.
+        app.add_message::<editor_scene::SceneIoFeedback>();
+        app.init_resource::<template_mode::TemplateEdit>();
+        app.init_resource::<template_mode::TemplateRequests>();
         app.init_resource::<bake::BakeDir>();
         app.init_resource::<bake::LastBakeCheck>();
         app.add_editor_feature(PrefabsFeature);
@@ -398,6 +405,8 @@ impl Plugin for EditorPrefabsPlugin {
             (
                 authoring::collect_prefab_actions,
                 paint::collect_paint_actions,
+                template_mode::collect_template_actions,
+                template_mode::guard_scene_io_while_editing_template,
             )
                 .before(editor_core::resolver::apply_action_conventions)
                 .in_set(editor_core::EditorSet::Tools),
@@ -405,6 +414,7 @@ impl Plugin for EditorPrefabsPlugin {
         app.add_systems(
             Update,
             (
+                template_mode::perform_template_actions,
                 authoring::perform_prefab_actions,
                 open_mode::maintain_open_instance,
                 authoring::restamp_on_library_change,
@@ -419,6 +429,7 @@ impl Plugin for EditorPrefabsPlugin {
                 open_mode::seal_closed_instances,
                 authoring::snap_during_drag,
                 authoring::pin_pivot_to_selected_socket,
+                template_mode::hold_template_layer,
             )
                 .chain()
                 .in_set(editor_core::EditorSet::Sync),
@@ -436,6 +447,7 @@ impl EditorFeature for PrefabsFeature {
         // The instance root's serialized shape: {prefab_id, transform, overrides}.
         reg.context(paint::PAINT_CONTEXT);
         reg.context(crate::sockets::SOCKET_CONTEXT);
+        reg.context(editor_api::prelude::ContextId::new_static("template"));
         reg.component::<PrefabInstance>()
             .component::<PrefabOverrides>()
             .component::<sockets::Socket>()
@@ -451,11 +463,25 @@ impl EditorFeature for PrefabsFeature {
                     .bind("g"),
             )
             .action(
+                ActionDef::new("prefab.edit-template", "Edit Prefab (its own scene)")
+                    .describe(
+                        "Open the PREFAB itself at its own origin — changes reach every \
+                         instance. Enter edits THIS instance instead",
+                    )
+                    .context("normal")
+                    .bind("space e"),
+            )
+            .action(
+                ActionDef::new("prefab.close-template", "Back To The Level")
+                    .describe("Save the prefab and return to the level")
+                    .context("template")
+                    .bind("escape"),
+            )
+            .action(
                 ActionDef::new("prefab.open", "Open Prefab Instance")
                     .describe("Edit the selected instance in place — Escape closes and saves")
                     .context("normal")
-                    .bind("enter")
-                    .bind("space e"),
+                    .bind("enter"),
             )
             .action(
                 ActionDef::new("prefab.revert-overrides", "Revert Prefab Overrides")
@@ -2425,4 +2451,215 @@ mod repeat_tests {
         // Opening can persist the prefab — never leave one behind.
         crate::tests::cleanup_prefab_file("socketed");
     }
+}
+
+#[cfg(test)]
+mod template_tests {
+    use super::*;
+    use crate::template_mode::{TemplateEdit, TemplateRequests};
+    use crate::tests::{barrel_prefab, test_app};
+
+    fn invoke(app: &mut App, action: &'static str) {
+        app.world_mut().write_message(ActionInvoked {
+            action: ActionId::new_static(action),
+            args: None,
+            source: InvocationSource::Test,
+        });
+        app.update();
+        app.update();
+    }
+
+    /// The level is PARKED, not rebuilt: editing a prefab and coming back must
+    /// leave the level exactly as it was, or a world swap is a way to lose work
+    /// — which is what killed v1's prefab UX.
+    #[test]
+    fn the_level_survives_a_trip_into_the_prefab() {
+        let mut app = test_app();
+        let prefab = barrel_prefab();
+        let prefab_id = prefab.id;
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
+
+        // A level: one instance and one plain entity beside it.
+        let instance = SceneId::random();
+        let bystander = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "level".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: instance,
+                        components: vec![
+                            Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                            Box::new(Transform::from_xyz(5.0, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Spawn {
+                        id: bystander,
+                        components: vec![
+                            Box::new(Transform::from_xyz(-3.0, 1.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                ],
+            });
+        app.update();
+        app.update();
+
+        let entity = app.world().resource::<SceneIndex>().get(&instance).unwrap();
+        app.world_mut().entity_mut(entity).insert(Selected);
+
+        invoke(&mut app, "prefab.edit-template");
+        assert!(
+            app.world().resource::<TemplateEdit>().active(),
+            "the prefab opened"
+        );
+        // The LEVEL is not in the world any more — the bystander is parked with it.
+        assert!(
+            app.world()
+                .resource::<SceneIndex>()
+                .get(&bystander)
+                .is_none(),
+            "the level stepped aside"
+        );
+
+        invoke(&mut app, "prefab.close-template");
+        assert!(!app.world().resource::<TemplateEdit>().active());
+        assert!(
+            app.world()
+                .resource::<SceneIndex>()
+                .get(&bystander)
+                .is_some(),
+            "and came back whole"
+        );
+        let restored = app.world().resource::<SceneIndex>().get(&instance).unwrap();
+        assert_eq!(
+            app.world().get::<Transform>(restored).unwrap().translation,
+            Vec3::new(5.0, 0.0, 0.0),
+            "with the instance where it was"
+        );
+    }
+
+    /// Editing the TEMPLATE changes the prefab — that is the whole difference
+    /// from editing an instance, which would only have made an override.
+    #[test]
+    fn editing_the_template_changes_the_prefab() {
+        let mut app = test_app();
+        let prefab = barrel_prefab();
+        let prefab_id = prefab.id;
+        let before = prefab.template.records().count();
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
+        let instance = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: instance,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+        let entity = app.world().resource::<SceneIndex>().get(&instance).unwrap();
+        app.world_mut().entity_mut(entity).insert(Selected);
+
+        invoke(&mut app, "prefab.edit-template");
+        // Add a part to the PREFAB while its own scene is open.
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "add a part".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: SceneId::random(),
+                    components: vec![
+                        Box::new(Transform::from_xyz(0.0, 2.0, 0.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+        invoke(&mut app, "prefab.close-template");
+
+        let after = app
+            .world()
+            .resource::<PrefabLibrary>()
+            .prefabs
+            .get(&prefab_id)
+            .unwrap()
+            .template
+            .records()
+            .count();
+        assert_eq!(after, before + 1, "the prefab itself grew a part");
+    }
+
+    /// Saving while the level is parked would write the PREFAB over it. The
+    /// refusal is the feature.
+    #[test]
+    fn scene_io_is_refused_while_the_prefab_is_open() {
+        let mut app = test_app();
+        let prefab = barrel_prefab();
+        let prefab_id = prefab.id;
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
+        let instance = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: instance,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+        let entity = app.world().resource::<SceneIndex>().get(&instance).unwrap();
+        app.world_mut().entity_mut(entity).insert(Selected);
+        invoke(&mut app, "prefab.edit-template");
+
+        app.world_mut().write_message(ActionInvoked {
+            action: ActionId::new_static("scene.save"),
+            args: None,
+            source: InvocationSource::Test,
+        });
+        app.update();
+        let refused = app
+            .world_mut()
+            .resource_mut::<bevy::ecs::message::Messages<editor_scene::SceneIoFeedback>>()
+            .drain()
+            .any(|message| !message.success && message.message.contains("back to the level"));
+        assert!(refused, "saving was refused, out loud");
+    }
+
+    /// Nothing selected is not a prefab: say so rather than opening something.
+    #[test]
+    fn it_needs_to_know_which_prefab() {
+        let mut app = test_app();
+        invoke(&mut app, "prefab.edit-template");
+        assert!(!app.world().resource::<TemplateEdit>().active());
+    }
+
+    fn _unused(_: &TemplateRequests) {}
 }
