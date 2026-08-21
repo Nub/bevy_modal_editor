@@ -414,6 +414,209 @@ fn restore_ops(records: Vec<SubtreeRecord>) -> Vec<Op> {
     spawns
 }
 
+/// One entity in a COPY capture: its live id, the live id of the nearest
+/// ancestor RECORDED IN THIS CAPTURE, and its registered components.
+pub struct CopyRecord {
+    pub id: SceneId,
+    pub parent: Option<SceneId>,
+    pub components: Vec<Box<dyn PartialReflect>>,
+}
+
+/// A whole subtree, ready to be stamped out any number of times.
+pub struct CopySubtree {
+    /// Always `records[0].id` — the walk records the root first.
+    pub root: SceneId,
+    /// What the ROOT hung under at capture, with derived parents filtered out.
+    /// A hint: the caller decides whether to honour it.
+    pub external_parent: Option<SceneId>,
+    pub records: Vec<CopyRecord>,
+}
+
+impl CopySubtree {
+    /// A deep copy of the values, because one capture is stamped N times and
+    /// `PartialReflect` is not `Clone`.
+    pub fn cloned(&self) -> CopySubtree {
+        CopySubtree {
+            root: self.root,
+            external_parent: self.external_parent,
+            records: self
+                .records
+                .iter()
+                .map(|record| CopyRecord {
+                    id: record.id,
+                    parent: record.parent,
+                    components: record.components.iter().map(|c| c.to_dynamic()).collect(),
+                })
+                .collect(),
+        }
+    }
+
+    /// Rewrite the ROOT's `Transform` — an array's step, a paste's offset.
+    ///
+    /// Only the root: descendants are LOCAL to it and already ride along, so
+    /// stepping them too would shear the copy apart.
+    pub fn map_root_transform(&mut self, f: impl FnOnce(Transform) -> Transform) {
+        let Some(record) = self.records.first_mut() else {
+            return;
+        };
+        for value in &mut record.components {
+            // The captured values are DYNAMIC, so a downcast never matches —
+            // they have to be rebuilt through `FromReflect`. Getting this wrong
+            // is silent: the step simply never applies and every copy lands on
+            // its original.
+            if value.get_represented_type_info().map(|info| info.type_id())
+                != Some(std::any::TypeId::of::<Transform>())
+            {
+                continue;
+            }
+            let Some(transform) =
+                <Transform as bevy::reflect::FromReflect>::from_reflect(value.as_ref())
+            else {
+                continue;
+            };
+            *value = Box::new(f(transform)).into_partial_reflect();
+            return;
+        }
+    }
+}
+
+/// Why a root cannot be copied by value.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CopyRefusal {
+    /// The root is DERIVED: the editor regenerates it, so a copy is an orphan
+    /// its producer will never own — and one that scene capture would
+    /// serialize while restamping never cleans it up.
+    DerivedRoot,
+    /// Real scene content hangs BELOW a derived boundary. The walk cannot cross
+    /// it — a stamp re-mints those ids every run — so a copy would silently
+    /// drop whatever is under there. This is the one case the old blanket
+    /// refusal was right about, and it is all that is left of it.
+    LosesContentUnderDerived,
+    /// The scene cannot name this entity.
+    Unnamed,
+}
+
+fn has_named_content_below(world: &World, root: Entity) -> bool {
+    let mut stack: Vec<Entity> = world
+        .get::<Children>(root)
+        .map(|kids| kids.iter().collect())
+        .unwrap_or_default();
+    while let Some(entity) = stack.pop() {
+        if world.get::<SceneId>(entity).is_some() && world.get::<Derived>(entity).is_none() {
+            return true;
+        }
+        if let Some(children) = world.get::<Children>(entity) {
+            stack.extend(children.iter());
+        }
+    }
+    false
+}
+
+/// Capture `root`'s whole subtree for COPYING.
+///
+/// This is deliberately NOT `capture_subtree`. That one serves undo, where ids
+/// are preserved and a derived subtree is skipped because its producer will
+/// rebuild it verbatim. A copy needs fresh ids, and skipping a derived subtree
+/// would silently drop any real content hanging under it — so this walk probes
+/// that case and REFUSES instead.
+///
+/// `editor_components` is a parameter and never read from the world, for the
+/// same reason `capture_subtree` says so.
+pub fn copy_subtree(
+    world: &World,
+    registry: &TypeRegistry,
+    editor_components: &EditorComponents,
+    root: Entity,
+) -> Result<CopySubtree, CopyRefusal> {
+    if world.get::<Derived>(root).is_some() {
+        return Err(CopyRefusal::DerivedRoot);
+    }
+    let Some(root_id) = world.get::<SceneId>(root).copied() else {
+        return Err(CopyRefusal::Unnamed);
+    };
+    // Same rule and reason as the undo capture: a derived parent is re-minted
+    // every stamp, so naming one would dangle.
+    let external_parent = world
+        .get::<ChildOf>(root)
+        .map(|c| c.parent())
+        .filter(|parent| world.get::<Derived>(*parent).is_none())
+        .and_then(|parent| world.get::<SceneId>(parent).copied());
+
+    let mut records: Vec<CopyRecord> = Vec::new();
+    let mut stack: Vec<(Entity, Option<SceneId>)> = vec![(root, None)];
+    while let Some((entity, parent_id)) = stack.pop() {
+        if entity != root && world.get::<Derived>(entity).is_some() {
+            if has_named_content_below(world, entity) {
+                return Err(CopyRefusal::LosesContentUnderDerived);
+            }
+            continue;
+        }
+        let own = world.get::<SceneId>(entity).copied();
+        if let Some(id) = own {
+            records.push(CopyRecord {
+                id,
+                parent: parent_id,
+                components: editor_components
+                    .types
+                    .iter()
+                    .filter_map(|reg| clone_component(world, registry, entity, reg.type_id))
+                    .collect(),
+            });
+        }
+        // Descend THROUGH entities the scene cannot name, carrying the nearest
+        // recorded ancestor down.
+        let child_link = own.or(parent_id);
+        if let Some(children) = world.get::<Children>(entity) {
+            let kids: Vec<Entity> = children.iter().collect();
+            for child in kids.into_iter().rev() {
+                stack.push((child, child_link));
+            }
+        }
+    }
+    Ok(CopySubtree {
+        root: root_id,
+        external_parent,
+        records,
+    })
+}
+
+/// Stamp one captured subtree out under FRESH ids.
+///
+/// Internal parent links are remapped to the new ids; `external` is what the
+/// copy's ROOT hangs under, or `None` to leave it where `Op::Spawn` puts it.
+/// Every `Spawn` precedes every `Reparent`, so a reparent always resolves.
+pub fn copy_ops(subtree: &CopySubtree, external: Option<SceneId>) -> (Vec<Op>, SceneId) {
+    let fresh: Vec<SceneId> = subtree.records.iter().map(|_| SceneId::random()).collect();
+    let remap = |old: SceneId| -> Option<SceneId> {
+        subtree
+            .records
+            .iter()
+            .position(|record| record.id == old)
+            .map(|index| fresh[index])
+    };
+    let mut spawns = Vec::with_capacity(subtree.records.len());
+    let mut reparents = Vec::new();
+    for (index, record) in subtree.records.iter().enumerate() {
+        spawns.push(Op::Spawn {
+            id: fresh[index],
+            components: record.components.iter().map(|c| c.to_dynamic()).collect(),
+        });
+        let parent = match record.parent {
+            Some(old) => remap(old),
+            None => external,
+        };
+        if let Some(parent) = parent {
+            reparents.push(Op::Reparent {
+                target: fresh[index],
+                parent: Some(parent),
+            });
+        }
+    }
+    let root = fresh.first().copied().unwrap_or_else(SceneId::random);
+    spawns.extend(reparents);
+    (spawns, root)
+}
+
 /// Apply one op, returning its inverse as a LIST — empty for a no-op.
 ///
 /// Only despawn produces more than one, and that is the whole point: its
@@ -1459,5 +1662,176 @@ mod tests {
             entity_of(&mut app, derived).is_none(),
             "undo restored a derived child its producer will rebuild — now there are two"
         );
+    }
+
+    fn copy_of(app: &mut App, root: SceneId) -> Result<CopySubtree, CopyRefusal> {
+        let entity = app.world().resource::<SceneIndex>().get(&root).unwrap();
+        let registry_arc = app.world().resource::<AppTypeRegistry>().clone();
+        let owned = EditorComponents {
+            types: app.world().resource::<EditorComponents>().types.clone(),
+        };
+        let registry = registry_arc.read();
+        copy_subtree(app.world(), &registry, &owned, entity)
+    }
+
+    /// Every copy is a fresh id, and the internal links point at the COPIES.
+    /// A childless-root regression passes a count test and fails this.
+    #[test]
+    fn copy_ops_hangs_the_copy_under_its_own_root() {
+        let mut app = test_app();
+        let (a, b, c) = (SceneId::random(), SceneId::random(), SceneId::random());
+        spawn_tree(
+            &mut app,
+            &[(a, None, 1.0), (b, Some(a), 2.0), (c, Some(b), 3.0)],
+        );
+        let subtree = copy_of(&mut app, a).expect("a plain tree is copyable");
+        let (ops, root) = copy_ops(&subtree, None);
+
+        let spawned: Vec<SceneId> = ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Spawn { id, .. } => Some(*id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(spawned.len(), 3);
+        assert!(
+            spawned.iter().all(|id| ![a, b, c].contains(id)),
+            "a copy reused a live id"
+        );
+        // Every spawn precedes every reparent, or a reparent resolves nothing.
+        let first_reparent = ops
+            .iter()
+            .position(|op| matches!(op, Op::Reparent { .. }))
+            .unwrap();
+        assert!(
+            ops[..first_reparent]
+                .iter()
+                .all(|op| matches!(op, Op::Spawn { .. })),
+            "a reparent came before a spawn"
+        );
+        let reparents: Vec<(SceneId, Option<SceneId>)> = ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Reparent { target, parent } => Some((*target, *parent)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reparents.len(), 2);
+        assert!(
+            reparents
+                .iter()
+                .all(|(_, parent)| parent.is_some_and(|p| spawned.contains(&p))),
+            "a copy was hung under an ORIGINAL instead of its own copy"
+        );
+        assert_eq!(root, spawned[0]);
+    }
+
+    /// The root is recorded first and is the ONLY record with no in-capture
+    /// parent — which is what makes the external hook root-only.
+    #[test]
+    fn a_copy_capture_records_its_root_first() {
+        let mut app = test_app();
+        let (a, b) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(a, None, 1.0), (b, Some(a), 2.0)]);
+        let subtree = copy_of(&mut app, a).unwrap();
+        assert_eq!(subtree.records[0].id, a);
+        assert_eq!(
+            subtree
+                .records
+                .iter()
+                .filter(|r| r.parent.is_none())
+                .count(),
+            1
+        );
+    }
+
+    /// The walk descends THROUGH entities the scene cannot name, carrying the
+    /// nearest recorded ancestor down — easy to lose when ids are re-minted.
+    #[test]
+    fn the_copy_walk_descends_through_an_unnamed_entity() {
+        let mut app = test_app();
+        let (a, c) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(a, None, 1.0), (c, None, 3.0)]);
+        let a_entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        let c_entity = app.world().resource::<SceneIndex>().get(&c).unwrap();
+        let bridge = app.world_mut().spawn(ChildOf(a_entity)).id();
+        app.world_mut().entity_mut(c_entity).insert(ChildOf(bridge));
+
+        let subtree = copy_of(&mut app, a).unwrap();
+        let record = subtree.records.iter().find(|r| r.id == c).unwrap();
+        assert_eq!(
+            record.parent,
+            Some(a),
+            "the unnamed bridge broke the parent link"
+        );
+    }
+
+    /// A generated root is refused: the editor rebuilds it, so a copy is an
+    /// orphan its producer will never own.
+    #[test]
+    fn copying_a_derived_root_is_refused() {
+        let mut app = test_app();
+        let a = SceneId::random();
+        spawn_tree(&mut app, &[(a, None, 1.0)]);
+        let entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        app.world_mut().entity_mut(entity).insert(Derived);
+        assert_eq!(copy_of(&mut app, a).err(), Some(CopyRefusal::DerivedRoot));
+    }
+
+    /// THE narrow gate. Real content under a generated member cannot be reached
+    /// by the walk, so a copy would silently drop it — refuse instead.
+    #[test]
+    fn a_copy_refuses_when_real_content_hides_under_a_derived_member() {
+        let mut app = test_app();
+        let (a, m, g) = (SceneId::random(), SceneId::random(), SceneId::random());
+        spawn_tree(
+            &mut app,
+            &[(a, None, 1.0), (m, Some(a), 2.0), (g, Some(m), 3.0)],
+        );
+        let member = app.world().resource::<SceneIndex>().get(&m).unwrap();
+        app.world_mut().entity_mut(member).insert(Derived);
+        assert_eq!(
+            copy_of(&mut app, a).err(),
+            Some(CopyRefusal::LosesContentUnderDerived)
+        );
+    }
+
+    /// A generated member with nothing real under it is simply skipped — the
+    /// copy's own producer will rebuild it.
+    #[test]
+    fn a_derived_member_with_nothing_under_it_is_copied_around() {
+        let mut app = test_app();
+        let (a, m) = (SceneId::random(), SceneId::random());
+        spawn_tree(&mut app, &[(a, None, 1.0), (m, Some(a), 2.0)]);
+        let member = app.world().resource::<SceneIndex>().get(&m).unwrap();
+        app.world_mut().entity_mut(member).insert(Derived);
+        let subtree = copy_of(&mut app, a).unwrap();
+        assert_eq!(subtree.records.len(), 1, "the generated member was copied");
+    }
+
+    /// Two walkers, one shape: the copy walk and the undo capture must agree on
+    /// a plain tree, or they will drift apart the first time one is changed.
+    #[test]
+    fn copy_and_restore_agree_on_a_derived_free_tree() {
+        let mut app = test_app();
+        let (a, b, c) = (SceneId::random(), SceneId::random(), SceneId::random());
+        spawn_tree(
+            &mut app,
+            &[(a, None, 1.0), (b, Some(a), 2.0), (c, Some(b), 3.0)],
+        );
+        let entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        let registry_arc = app.world().resource::<AppTypeRegistry>().clone();
+        let owned = EditorComponents {
+            types: app.world().resource::<EditorComponents>().types.clone(),
+        };
+        let registry = registry_arc.read();
+        let undo = capture_subtree(app.world(), &registry, &owned, entity);
+        let copy = copy_subtree(app.world(), &registry, &owned, entity).unwrap();
+        assert_eq!(undo.len(), copy.records.len());
+        for (record, (id, parent, _)) in copy.records.iter().zip(undo.iter()) {
+            assert_eq!(record.id, *id);
+            assert_eq!(record.parent, *parent);
+        }
     }
 }

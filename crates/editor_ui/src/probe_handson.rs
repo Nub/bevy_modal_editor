@@ -36,6 +36,11 @@ pub(crate) struct HandsonProbe {
     before_hide: Option<(usize, bool)>,
     /// Undo depth, drum count and the source pose before an array.
     array_before: Option<(usize, usize, Transform)>,
+    /// The group a duplicate is about to copy, the roots that existed first,
+    /// and the copy's local poses before it is dragged.
+    copy_subject: Option<(Entity, Vec<Entity>)>,
+    roots_before: Vec<Entity>,
+    copy_poses: Vec<(Entity, Transform)>,
     /// Poses before a move, to prove a carried child did not move itself.
     move_before: Vec<(Entity, Transform)>,
     /// The parent and children a delete is about to take, plus their scene ids
@@ -1802,7 +1807,141 @@ pub(crate) fn probe_handson(world: &mut World) {
                 "its children rode along instead of moving themselves as well",
             );
         }
-        4600 => {
+        // ── shift+D on a GROUP copies the group ───────────────────────────
+        // One level only, honestly: `model.flatten` reparents every node
+        // directly to the root, so the flattened barrel is the deepest real
+        // hierarchy the level has. Multi-level depth is covered by the unit
+        // tests, which can build one.
+        4610 => invoke(world, "select.clear"),
+        4620 => {
+            let roots_before: Vec<Entity> = world
+                .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+                .iter(world)
+                .collect();
+            world.resource_mut::<HandsonProbe>().roots_before = roots_before;
+            match scene_root_with_scene_children(world) {
+                Some((root, children)) => {
+                    editor_core::selection::select_entity(world, root, false);
+                    // THE GATE: without a real group, everything below is vacuous.
+                    check(
+                        world,
+                        children.len() >= 2,
+                        &format!("a real group to duplicate ({} children)", children.len()),
+                    );
+                    world.resource_mut::<HandsonProbe>().copy_subject = Some((root, children));
+                }
+                None => check(world, false, "a real group to duplicate"),
+            }
+        }
+        4626 => invoke(world, "select.duplicate"),
+        4660 => {
+            let before = world.resource::<HandsonProbe>().roots_before.clone();
+            let subject = world.resource::<HandsonProbe>().copy_subject.clone();
+            let roots_now: Vec<Entity> = world
+                .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+                .iter(world)
+                .collect();
+            let fresh: Vec<Entity> = roots_now
+                .into_iter()
+                .filter(|e| !before.contains(e))
+                .collect();
+            check(
+                world,
+                fresh.len() == 1,
+                &format!("one new group, not {} loose pieces", fresh.len()),
+            );
+            // THE assertion this slice exists for: it read zero before.
+            let wanted = subject.as_ref().map(|(_, kids)| kids.len()).unwrap_or(0);
+            let got = fresh
+                .first()
+                .and_then(|root| world.get::<Children>(*root))
+                .map(|kids| {
+                    kids.iter()
+                        .filter(|child| {
+                            world.get::<SceneId>(*child).is_some()
+                                && world.get::<PrefabStamped>(*child).is_none()
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            check(
+                world,
+                got == wanted && wanted > 0,
+                &format!("the copy came with its children ({got} of {wanted})"),
+            );
+            // Recorded as LOCAL transforms: the copy is about to be dragged,
+            // and its children must ride rather than move themselves too.
+            let poses: Vec<(Entity, Transform)> = fresh
+                .first()
+                .map(|root| {
+                    let mut out = vec![];
+                    let mut stack = vec![*root];
+                    while let Some(entity) = stack.pop() {
+                        if let Some(transform) = world.get::<Transform>(entity) {
+                            out.push((entity, *transform));
+                        }
+                        if let Some(kids) = world.get::<Children>(entity) {
+                            stack.extend(kids.iter());
+                        }
+                    }
+                    out
+                })
+                .unwrap_or_default();
+            world.resource_mut::<HandsonProbe>().copy_poses = poses;
+        }
+        4666 => invoke(world, "transform.axis-x"),
+        4672 => invoke(world, "transform.digit-4"),
+        4678 => invoke(world, "transform.commit"),
+        4700 => {
+            let poses = world.resource::<HandsonProbe>().copy_poses.clone();
+            let subject = world.resource::<HandsonProbe>().copy_subject.clone();
+            let mut root_moved = false;
+            let mut children_rode = true;
+            for (index, (entity, was)) in poses.iter().enumerate() {
+                let Some(now) = world.get::<Transform>(*entity).copied() else {
+                    children_rode = false;
+                    continue;
+                };
+                if index == 0 {
+                    root_moved = (now.translation.x - was.translation.x - 4.0).abs() < 1e-3;
+                } else if (now.translation - was.translation).length() > 1e-4 {
+                    children_rode = false;
+                }
+            }
+            check(world, root_moved, "the copied group moved as one");
+            check(
+                world,
+                children_rode,
+                "the copied children rode the group instead of moving themselves too",
+            );
+            // And the ORIGINAL stayed put.
+            let original_put = subject
+                .as_ref()
+                .and_then(|(root, _)| world.get::<Transform>(*root))
+                .is_some();
+            check(world, original_put, "the original survived the duplicate");
+            shot(world, "45-duplicate-group");
+        }
+        // Two undos: the drag committed its own transaction, and the duplicate
+        // is the one under it.
+        4720 => invoke(world, "core.undo"),
+        4750 => invoke(world, "core.undo"),
+        4780 => {
+            let before = world.resource::<HandsonProbe>().roots_before.clone();
+            let roots_now = world
+                .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+                .iter(world)
+                .count();
+            check(
+                world,
+                roots_now == before.len(),
+                &format!(
+                    "one undo takes back the whole duplicated group ({roots_now} vs {})",
+                    before.len()
+                ),
+            );
+        }
+        5000 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();
             if failures.is_empty() {
                 info!("HANDSON-PROBE PASS: the owner hands-on checklist end-to-end");

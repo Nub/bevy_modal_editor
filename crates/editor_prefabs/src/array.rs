@@ -18,9 +18,9 @@
 //! (a socket's gizmo is a real mesh cone, and counting it would inflate the
 //! step of every kit piece).
 
-use crate::PrefabStamped;
 use bevy::prelude::*;
-use editor_core::layout::{AXIS_NAMES, refusal, skipped_note, subjects};
+use editor_core::edits::{CopyRefusal, CopySubtree, EditorComponents, copy_ops, copy_subtree};
+use editor_core::layout::{AXIS_NAMES, copy_subjects, refusal, skipped_note};
 use editor_core::prelude::*;
 use editor_scene::SceneIoFeedback;
 
@@ -28,6 +28,10 @@ use editor_scene::SceneIoFeedback;
 /// editor, and a run that quietly lays half of what was asked is worse than one
 /// that explains itself.
 pub const MAX_ARRAY_COPIES: usize = crate::paint::MAX_PIECES_PER_SEGMENT;
+
+/// And a bound on the total, because a copy is a SUBTREE now: 128 copies of a
+/// forty-part group is five thousand spawns in one transaction.
+pub const MAX_ARRAY_ENTITIES: usize = 2048;
 
 fn say(world: &mut World, message: String, success: bool) {
     world.write_message(SceneIoFeedback { message, success });
@@ -72,35 +76,6 @@ pub fn world_bounds_no_sockets(world: &World, root: Entity) -> Option<(Vec3, Vec
     found.then_some((min, max))
 }
 
-/// Can this root be copied by value without losing anything?
-///
-/// `Op::Spawn` carries components and no parentage, so a copy is ONE entity.
-/// That is lossless only when everything below the root regenerates: a prefab
-/// instance's members are re-stamped, an import's gltf subtree is re-derived
-/// and carries no `SceneId` at all. Any other `SceneId`-bearing descendant is
-/// real scene content a copy would silently drop — a flattened model's mesh
-/// nodes, a loose piece's generated sockets, a hand-built parent/child pair.
-///
-/// So array REFUSES those, loudly, instead of laying twenty husks somewhere the
-/// designer will not look until much later. Copying a subtree properly needs
-/// one inverse op per spawned entity, which the edit engine cannot express
-/// yet — see the deferred note in the spec.
-pub fn copy_safe(world: &World, root: Entity) -> bool {
-    let mut stack: Vec<Entity> = world
-        .get::<Children>(root)
-        .map(|c| c.iter().collect())
-        .unwrap_or_default();
-    while let Some(entity) = stack.pop() {
-        if world.get::<SceneId>(entity).is_some() && world.get::<PrefabStamped>(entity).is_none() {
-            return false;
-        }
-        if let Some(children) = world.get::<Children>(entity) {
-            stack.extend(children.iter());
-        }
-    }
-    true
-}
-
 /// The step for one array instruction: the subjects' own extent along the axis,
 /// falling back to the grid when nothing has geometry (a light, a spawn point,
 /// a trigger volume).
@@ -118,32 +93,61 @@ pub(crate) fn perform_array(world: &mut World, axis: usize, count: i32) {
         );
         return;
     }
-    let found = subjects(world);
+    let found = copy_subjects(world);
     if let Some(message) = refusal(&found, "array") {
         say(world, message, false);
         return;
     }
-    // Copy-safety is a THIRD refusal reason, checked after locked and hidden so
-    // its message only appears when it is the actual problem.
-    let (safe, unsafe_count): (Vec<(SceneId, Entity)>, usize) = {
+    // Capture ONCE per subject, then stamp it N times. What cannot be copied
+    // is counted so the message can name it: a generated part has no business
+    // being copied at all, and a root with real content under a generated
+    // member would lose it silently — the one case the old blanket refusal
+    // was right about, and all that is left of it.
+    let (safe, derived, lossy): (Vec<(SceneId, Entity, CopySubtree)>, usize, usize) = {
+        let registry_arc = world.resource::<AppTypeRegistry>().clone();
+        let owned = EditorComponents {
+            types: world.resource::<EditorComponents>().types.clone(),
+        };
+        let registry = registry_arc.read();
         let mut safe = Vec::new();
-        let mut refused = 0usize;
+        let (mut derived, mut lossy) = (0usize, 0usize);
         for (id, entity) in &found.subject {
-            if copy_safe(world, *entity) {
-                safe.push((*id, *entity));
-            } else {
-                refused += 1;
+            match copy_subtree(world, &registry, &owned, *entity) {
+                Ok(subtree) => safe.push((*id, *entity, subtree)),
+                Err(CopyRefusal::DerivedRoot) => derived += 1,
+                Err(CopyRefusal::LosesContentUnderDerived) => lossy += 1,
+                Err(CopyRefusal::Unnamed) => {}
             }
         }
-        (safe, refused)
+        drop(registry);
+        (safe, derived, lossy)
     };
     if safe.is_empty() {
+        let plural = if derived + lossy == 1 { "" } else { "s" };
+        let message = if lossy == 0 {
+            format!(
+                "cannot array {derived} generated part{plural} \u{b7} select the object it belongs to"
+            )
+        } else {
+            format!(
+                "cannot array {} object{plural} with parts inside a generated subtree",
+                derived + lossy
+            )
+        };
+        say(world, message, false);
+        return;
+    }
+    // The cap bounds ENTITIES, not roots: it was written when a copy was one
+    // entity, and 128 copies of a forty-part group is five thousand spawns in
+    // one transaction — against the cap's own reason for existing.
+    let per_copy: usize = safe.iter().map(|(_, _, s)| s.records.len()).sum();
+    if per_copy * wanted > MAX_ARRAY_ENTITIES {
         say(
             world,
             format!(
-                "cannot array {} object{} with child objects \u{b7} g groups them into a prefab first",
-                unsafe_count,
-                if unsafe_count == 1 { "" } else { "s" }
+                "array is capped at {MAX_ARRAY_ENTITIES} entities \u{b7} {wanted} copies of this \
+                 would lay {}",
+                per_copy * wanted
             ),
             false,
         );
@@ -153,7 +157,7 @@ pub(crate) fn perform_array(world: &mut World, axis: usize, count: i32) {
     let mut min = Vec3::MAX;
     let mut max = Vec3::MIN;
     let mut measured = false;
-    for (_, entity) in &safe {
+    for (_, entity, _) in &safe {
         if let Some((lo, hi)) = world_bounds_no_sockets(world, *entity) {
             min = min.min(lo);
             max = max.max(hi);
@@ -165,71 +169,36 @@ pub(crate) fn perform_array(world: &mut World, axis: usize, count: i32) {
     let spacing = spacing_for(extent, grid_step);
     let step = Vec3::AXES[axis] * spacing * (count.signum() as f32);
 
-    let registry_arc = world.resource::<AppTypeRegistry>().clone();
-    let components = world
-        .resource::<editor_core::edits::EditorComponents>()
-        .types
-        .clone();
     let mut ops: Vec<Op> = Vec::new();
-    let mut new_ids: Vec<SceneId> = Vec::new();
-    {
-        let registry = registry_arc.read();
-        for k in 1..=wanted {
-            for (_, entity) in &safe {
-                // The step is a WORLD offset, applied in the entity's own parent
-                // frame — a copy of a parented piece has to land where the
-                // arithmetic says, not where the same numbers land at the root.
-                let parent_inverse = world
-                    .get::<ChildOf>(*entity)
-                    .and_then(|c| world.get::<GlobalTransform>(c.parent()))
-                    .map(|g| g.affine().inverse())
-                    .unwrap_or(bevy::math::Affine3A::IDENTITY);
-                let local_step = parent_inverse.transform_vector3(step) * k as f32;
-                let values: Vec<Box<dyn bevy::reflect::PartialReflect>> = components
-                    .iter()
-                    .filter_map(|reg| {
-                        let reflect_component = registry
-                            .get(reg.type_id)?
-                            .data::<bevy::ecs::reflect::ReflectComponent>()?;
-                        let entity_ref = world.get_entity(*entity).ok()?;
-                        let value = reflect_component.reflect(entity_ref)?;
-                        if let Some(transform) =
-                            value.as_partial_reflect().try_downcast_ref::<Transform>()
-                        {
-                            let mut stepped = *transform;
-                            stepped.translation += local_step;
-                            return Some(Box::new(stepped).into_partial_reflect());
-                        }
-                        Some(value.to_dynamic())
-                    })
-                    .collect();
-                let new_id = SceneId::random();
-                ops.push(Op::Spawn {
-                    id: new_id,
-                    components: values,
-                });
-                // `Op::Spawn` always spawns at the ROOT, so a copy of a child
-                // has to be re-hung. The index observer fires synchronously
-                // inside the op, so the id resolves within this same list.
-                if let Some(parent_id) = world
-                    .get::<ChildOf>(*entity)
-                    .and_then(|c| world.get::<SceneId>(c.parent()))
-                    .copied()
-                {
-                    ops.push(Op::Reparent {
-                        target: new_id,
-                        parent: Some(parent_id),
-                    });
-                }
-                new_ids.push(new_id);
-            }
+    let mut new_roots: Vec<SceneId> = Vec::new();
+    for k in 1..=wanted {
+        for (_, entity, subtree) in &safe {
+            // The step is a WORLD offset applied in the entity's own parent
+            // frame — a copy of a parented piece has to land where the
+            // arithmetic says, not where the same numbers land at the root.
+            // Only the ROOT is stepped: descendants are local to it and ride
+            // along, so stepping them too would shear the copy apart.
+            let parent_inverse = world
+                .get::<ChildOf>(*entity)
+                .and_then(|c| world.get::<GlobalTransform>(c.parent()))
+                .map(|g| g.affine().inverse())
+                .unwrap_or(bevy::math::Affine3A::IDENTITY);
+            let local_step = parent_inverse.transform_vector3(step) * k as f32;
+            let mut stamp = subtree.cloned();
+            stamp.map_root_transform(|transform| Transform {
+                translation: transform.translation + local_step,
+                ..transform
+            });
+            let (mut made, root) = copy_ops(&stamp, stamp.external_parent);
+            ops.append(&mut made);
+            new_roots.push(root);
         }
     }
     if ops.is_empty() {
         say(world, "array needs a count".into(), false);
         return;
     }
-    let laid = new_ids.len();
+    let laid = new_roots.len();
     world.resource_mut::<EditQueue>().0.push(Transaction {
         label: format!("Array {laid}"),
         gesture: None,
@@ -240,7 +209,7 @@ pub(crate) fn perform_array(world: &mut World, axis: usize, count: i32) {
     // exactly where it was aimed, and a move would immediately un-space it.
     world
         .resource_mut::<editor_core::clipboard::PendingPasteSelect>()
-        .0 = new_ids;
+        .0 = new_roots;
     let measured_note = if measured {
         format!("{spacing:.2}m, its own width")
     } else {
@@ -251,9 +220,27 @@ pub(crate) fn perform_array(world: &mut World, axis: usize, count: i32) {
         AXIS_NAMES[axis],
         skipped_note(&found)
     );
-    if unsafe_count > 0 {
+    if derived > 0 {
+        message.push_str(&format!(" \u{b7} {derived} skipped (generated parts)"));
+    }
+    if lossy > 0 {
         message.push_str(&format!(
-            " \u{b7} {unsafe_count} skipped (has child objects)"
+            " \u{b7} {lossy} skipped (parts inside a generated subtree)"
+        ));
+    }
+    // Hidden-ness is a view, not a component, so fresh ids come back VISIBLE.
+    // Say so rather than let a run quietly reveal what someone hid.
+    let hidden_inside = {
+        let hidden = world.resource::<editor_core::hide::Hidden>();
+        safe.iter()
+            .flat_map(|(_, _, subtree)| subtree.records.iter())
+            .filter(|record| hidden.contains(record.id))
+            .count()
+    };
+    if hidden_inside > 0 {
+        message.push_str(&format!(
+            " \u{b7} {hidden_inside} hidden part{} came back visible",
+            if hidden_inside == 1 { "" } else { "s" }
         ));
     }
     say(world, message, true);
@@ -307,52 +294,6 @@ mod tests {
                 "{action} is not on {spelling}"
             );
         }
-    }
-
-    /// A copy is ONE entity, so it is lossless only where everything below the
-    /// root regenerates. Real child content would be silently dropped, and
-    /// arraying it would drop it N times somewhere nobody looks.
-    #[test]
-    fn copy_safety_admits_regenerating_children_and_refuses_real_ones() {
-        let mut world = World::new();
-        let lone = world.spawn(SceneId::random()).id();
-        assert!(copy_safe(&world, lone), "a lone root is copyable");
-
-        let instance = world.spawn(SceneId::random()).id();
-        world.spawn((SceneId::random(), PrefabStamped, ChildOf(instance)));
-        assert!(
-            copy_safe(&world, instance),
-            "a stamped member is rebuilt by the stamper, not copied"
-        );
-
-        let derived = world.spawn(SceneId::random()).id();
-        world.spawn(ChildOf(derived)); // a gltf node: no SceneId at all
-        assert!(
-            copy_safe(&world, derived),
-            "a derived subtree carries no SceneId and is re-derived"
-        );
-
-        let group = world.spawn(SceneId::random()).id();
-        world.spawn((SceneId::random(), ChildOf(group)));
-        assert!(
-            !copy_safe(&world, group),
-            "real child content would be dropped by a single-entity copy"
-        );
-    }
-
-    /// Nesting: the real content can be a grandchild.
-    #[test]
-    fn copy_safety_looks_all_the_way_down() {
-        let mut world = World::new();
-        let root = world.spawn(SceneId::random()).id();
-        let member = world
-            .spawn((SceneId::random(), PrefabStamped, ChildOf(root)))
-            .id();
-        world.spawn((SceneId::random(), ChildOf(member)));
-        assert!(
-            !copy_safe(&world, root),
-            "a nested real child slipped past the gate"
-        );
     }
 
     /// End to end through the queue: N copies, stepped, in ONE undo entry.
@@ -484,15 +425,15 @@ mod tests {
         assert_eq!(count, 1, "the cap did not hold");
     }
 
-    /// Array must NOT fold a carried child away, and this pins that.
+    /// A group arrays as a GROUP.
     ///
-    /// The move gesture folds because a delta compounds through propagation.
-    /// Array SPAWNS: a parent and a child are two independent things to copy,
-    /// and nothing compounds. Folding here would turn "arrays the child, and
-    /// says it skipped the parent" into "arrays nothing" — a capability loss
-    /// wearing a bugfix's clothes.
+    /// This replaces the test that pinned the opposite: array used to copy one
+    /// entity, so it folded nothing and refused any root with real children.
+    /// Selecting a parent AND its child now folds to the parent, and each copy
+    /// is the whole subtree — two entities per copy, not one, and not four
+    /// loose pieces.
     #[test]
-    fn arraying_a_parent_and_its_child_still_copies_the_child() {
+    fn a_group_arrays_as_a_group() {
         let mut app = crate::tests::test_app();
         let (parent, child) = (SceneId::random(), SceneId::random());
         app.world_mut()
@@ -509,7 +450,7 @@ mod tests {
                     Op::Spawn {
                         id: child,
                         components: vec![
-                            Box::new(Transform::from_xyz(1.0, 0.0, 0.0)).into_partial_reflect(),
+                            Box::new(Transform::from_xyz(0.5, 0.0, 0.0)).into_partial_reflect(),
                         ],
                     },
                     Op::Reparent {
@@ -523,6 +464,140 @@ mod tests {
             let entity = app.world().resource::<SceneIndex>().get(&id).unwrap();
             app.world_mut().entity_mut(entity).insert(Selected);
         }
+        let before = app
+            .world_mut()
+            .query_filtered::<(), With<SceneId>>()
+            .iter(app.world())
+            .count();
+        perform_array(app.world_mut(), 0, 2);
+        app.update();
+        let after = app
+            .world_mut()
+            .query_filtered::<(), With<SceneId>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(
+            after - before,
+            4,
+            "two copies of a two-entity group, and the child copied ONCE"
+        );
+
+        // Every copied child hangs under its OWN copy root, not the original.
+        let original = app.world().resource::<SceneIndex>().get(&parent).unwrap();
+        let roots: Vec<Entity> = app
+            .world_mut()
+            .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+            .iter(app.world())
+            .filter(|e| *e != original)
+            .collect();
+        assert_eq!(roots.len(), 2, "the copies did not land as roots");
+        for root in roots {
+            let kids = app
+                .world()
+                .get::<Children>(root)
+                .map(|c| c.iter().count())
+                .unwrap_or(0);
+            assert_eq!(kids, 1, "a copy came out without its child");
+        }
+    }
+
+    /// Only the ROOT steps. Descendants are local to it and ride along, so a
+    /// walker that stepped them too would shear every copy apart — and with no
+    /// `TransformPlugin` in the test app, the LOCAL assertion is the one that
+    /// can see it.
+    #[test]
+    fn arraying_a_group_steps_only_the_root() {
+        let mut app = crate::tests::test_app();
+        let (parent, child) = (SceneId::random(), SceneId::random());
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: parent,
+                        components: vec![
+                            Box::new(Transform::from_xyz(1.0, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Spawn {
+                        id: child,
+                        components: vec![
+                            Box::new(Transform::from_xyz(0.5, 0.0, 0.0)).into_partial_reflect(),
+                        ],
+                    },
+                    Op::Reparent {
+                        target: child,
+                        parent: Some(parent),
+                    },
+                ],
+            });
+        app.update();
+        let entity = app.world().resource::<SceneIndex>().get(&parent).unwrap();
+        app.world_mut().entity_mut(entity).insert(Selected);
+        perform_array(app.world_mut(), 0, 2);
+        app.update();
+
+        let grid = app.world().resource::<EditorSettings>().viewport.grid_step;
+        let mut root_xs: Vec<f32> = app
+            .world_mut()
+            .query_filtered::<&Transform, (With<SceneId>, Without<ChildOf>)>()
+            .iter(app.world())
+            .map(|t| t.translation.x)
+            .collect();
+        root_xs.sort_by(f32::total_cmp);
+        assert_eq!(root_xs.len(), 3);
+        for (k, x) in root_xs.iter().enumerate() {
+            let want = 1.0 + grid * k as f32;
+            assert!((x - want).abs() < 1e-4, "root {k} at {x}, wanted {want}");
+        }
+        let child_xs: Vec<f32> = app
+            .world_mut()
+            .query_filtered::<&Transform, (With<SceneId>, With<ChildOf>)>()
+            .iter(app.world())
+            .map(|t| t.translation.x)
+            .collect();
+        assert_eq!(child_xs.len(), 3);
+        assert!(
+            child_xs.iter().all(|x| (x - 0.5).abs() < 1e-4),
+            "a child was stepped as well as riding its root: {child_xs:?}"
+        );
+    }
+
+    /// The narrow gate that is all that survives of the old blanket refusal:
+    /// real content under a GENERATED member cannot be reached by the walk (a
+    /// stamp re-mints those ids every run), so a copy would silently drop it.
+    /// Deleting the gate without keeping this test is exactly how the hole
+    /// comes back.
+    #[test]
+    fn arraying_refuses_a_root_with_real_content_under_a_stamped_member() {
+        let mut app = crate::tests::test_app();
+        let root = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root,
+                    components: vec![Box::new(Transform::default()).into_partial_reflect()],
+                }],
+            });
+        app.update();
+        let root_entity = app.world().resource::<SceneIndex>().get(&root).unwrap();
+        let member = app
+            .world_mut()
+            .spawn((
+                SceneId::random(),
+                crate::PrefabStamped,
+                ChildOf(root_entity),
+            ))
+            .id();
+        app.world_mut().spawn((SceneId::random(), ChildOf(member)));
+        app.world_mut().entity_mut(root_entity).insert(Selected);
 
         let before = app
             .world_mut()
@@ -536,13 +611,51 @@ mod tests {
             .query_filtered::<(), With<SceneId>>()
             .iter(app.world())
             .count();
-        // The parent is refused (it has real child content a single-entity copy
-        // would drop); the child is copied twice.
+        assert_eq!(after, before, "array copied a root it would have gutted");
+    }
+
+    /// A prefab instance copies as ONE entity: its members are generated, and
+    /// the copy's own stamp rebuilds them.
+    #[test]
+    fn arraying_a_prefab_instance_lays_one_entity_per_copy() {
+        let mut app = crate::tests::test_app();
+        let root = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: root,
+                    components: vec![Box::new(Transform::default()).into_partial_reflect()],
+                }],
+            });
+        app.update();
+        let root_entity = app.world().resource::<SceneIndex>().get(&root).unwrap();
+        app.world_mut().spawn((
+            SceneId::random(),
+            crate::PrefabStamped,
+            ChildOf(root_entity),
+        ));
+        app.world_mut().entity_mut(root_entity).insert(Selected);
+
+        let before = app
+            .world_mut()
+            .query_filtered::<(), With<SceneId>>()
+            .iter(app.world())
+            .count();
+        perform_array(app.world_mut(), 0, 2);
+        app.update();
+        let after = app
+            .world_mut()
+            .query_filtered::<(), With<SceneId>>()
+            .iter(app.world())
+            .count();
         assert_eq!(
             after - before,
             2,
-            "array laid {} copies, expected the child twice",
-            after - before
+            "the generated member was copied instead of being left to regenerate"
         );
     }
 }

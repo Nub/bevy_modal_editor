@@ -1266,6 +1266,49 @@ make the child copy vanish instead of landing misplaced, which is worse. The fix
 is capture-with-parent records emitting `Spawn` + `Reparent`, which the engine
 now supports. Array's `copy_safe` refusal stays standing until it lands.
 
+
+**Copies carry their children (2026-08-21).** `shift+D` on a group produced a
+childless root: the copy walked one entity, and `Op::Spawn` carries components
+but no parentage. Array refused those cases outright rather than multiply the
+loss. Both are fixed by a COPY capture in the kernel — a sibling of the undo
+capture, deliberately not the same function.
+
+- **Why two walkers.** The undo capture preserves ids and SKIPS derived
+  subtrees, because their producer rebuilds them verbatim. A copy needs fresh
+  ids, and skipping a derived subtree would silently drop any real content
+  hanging under it. So the copy walk probes that case and REFUSES — which is all
+  that survives of array's old blanket refusal, and it keeps the one thing that
+  refusal was right about. A test asserts the two walkers agree on a tree with
+  nothing derived in it, so they cannot drift apart.
+- **Fresh ids, remapped links.** Internal parent links point at the COPIES;
+  every `Spawn` precedes every `Reparent`, so a reparent always resolves. A copy
+  of a child hangs under the original's parent rather than silently detaching to
+  the world root.
+- **`copy_subjects` folds in the OTHER order from `transform_subjects`** — to
+  roots first, then the locked/hidden split. A transform verb splits first
+  because a locked parent's op is refused at the queue and so carries nothing.
+  A copy is the mirror image: a copied parent DOES carry its children, so
+  testing a carried child would report it "skipped (locked)" in the same breath
+  the copy took it.
+- **Only the ROOT is stepped or offset.** Descendants are local and ride along;
+  stepping them too would shear every copy apart.
+- **Duplicate hands the gesture the copied ROOTS only.** A group is one thing to
+  place. It also refuses a locked selection now, instead of spawning a locked
+  copy sitting invisibly on its original that could never be moved.
+- **Array's cap now bounds ENTITIES, not roots** (2048). 128 was written when a
+  copy was one entity; 128 copies of a forty-part group is five thousand spawns
+  in one transaction, against the cap's own reason for existing.
+- **Hidden parts come back VISIBLE**, and array says so. Hidden-ness is a view
+  keyed by `SceneId`, not a component, so fresh ids are visible for free —
+  carrying it forward would give a copy a side effect outside history that undo
+  could not follow.
+
+Still owed: cut, yank and paste. They are materially riskier — the register
+outlives the world it was taken from, so paste has to decide what to do when a
+copied entity's original parent is gone. `Op::Reparent` currently drops such a
+link silently, which is exactly the failure mode that needs a message rather
+than a shrug.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

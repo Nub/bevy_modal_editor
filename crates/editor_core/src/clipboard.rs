@@ -58,6 +58,63 @@ pub(crate) fn collect_clipboard_actions(
     }
 }
 
+fn say(world: &mut World, message: String, success: bool) {
+    world.write_message(editor_api::feedback::SceneIoFeedback { message, success });
+}
+
+/// A refusal that names what it could not take and why, in the house style.
+fn copy_refusal_message(verb: &str, derived: usize, lossy: usize) -> String {
+    let plural = |n: usize| if n == 1 { "" } else { "s" };
+    match (derived, lossy) {
+        (d, 0) if d > 0 => format!(
+            "cannot {verb} {d} generated part{} \u{b7} select the object it belongs to",
+            plural(d)
+        ),
+        (0, l) if l > 0 => format!(
+            "cannot {verb} {l} object{} with parts inside a generated subtree",
+            plural(l)
+        ),
+        (d, l) if d > 0 && l > 0 => format!(
+            "cannot {verb} {} object{} \u{b7} they are generated, or have parts inside \
+             something generated",
+            d + l,
+            plural(d + l)
+        ),
+        _ => format!("select something to {verb}"),
+    }
+}
+
+/// Fold the selection to copyable roots and capture each one's subtree.
+///
+/// The one entry point for every copy verb in the kernel: returns the folded
+/// subjects (so the caller can speak the locked/hidden refusal), the captures
+/// that succeeded, and a count of each kind that did not.
+pub(crate) fn capture_copy_set(
+    world: &mut World,
+) -> (
+    crate::layout::Subjects,
+    Vec<crate::edits::CopySubtree>,
+    usize,
+    usize,
+) {
+    let found = crate::layout::copy_subjects(world);
+    let registry_arc = world.resource::<AppTypeRegistry>().clone();
+    let components = world.resource::<EditorComponents>().types.clone();
+    let owned = EditorComponents { types: components };
+    let registry = registry_arc.read();
+    let mut subtrees = Vec::new();
+    let (mut derived, mut lossy) = (0usize, 0usize);
+    for (_, entity) in &found.subject {
+        match crate::edits::copy_subtree(world, &registry, &owned, *entity) {
+            Ok(subtree) => subtrees.push(subtree),
+            Err(crate::edits::CopyRefusal::DerivedRoot) => derived += 1,
+            Err(crate::edits::CopyRefusal::LosesContentUnderDerived) => lossy += 1,
+            Err(crate::edits::CopyRefusal::Unnamed) => {}
+        }
+    }
+    drop(registry);
+    (found, subtrees, derived, lossy)
+}
 fn capture_selected(world: &mut World) -> Vec<(SceneId, Vec<Box<dyn PartialReflect>>)> {
     let registry = world.resource::<AppTypeRegistry>().clone();
     let registry = registry.read();
@@ -99,24 +156,32 @@ pub(crate) fn perform_clipboard(world: &mut World) {
     // designer yanks a piece, lays a run of duplicates, and still expects `p`
     // to paste what they yanked.
     if requests.duplicate {
-        let captured = capture_selected(world);
-        if !captured.is_empty() {
-            let mut new_ids = Vec::new();
-            let ops = captured
-                .into_iter()
-                .map(|(_, components)| {
-                    let id = SceneId::random();
-                    new_ids.push(id);
-                    Op::Spawn { id, components }
-                })
-                .collect::<Vec<_>>();
-            let label = format!("Duplicate {}", ops.len());
+        let (found, subtrees, derived, lossy) = capture_copy_set(world);
+        if let Some(message) = crate::layout::refusal(&found, "duplicate") {
+            say(world, message, false);
+        } else if subtrees.is_empty() {
+            say(
+                world,
+                copy_refusal_message("duplicate", derived, lossy),
+                false,
+            );
+        } else {
+            let mut ops: Vec<Op> = Vec::new();
+            let mut roots: Vec<SceneId> = Vec::new();
+            for subtree in &subtrees {
+                let (mut made, root) = crate::edits::copy_ops(subtree, subtree.external_parent);
+                ops.append(&mut made);
+                roots.push(root);
+            }
             world.resource_mut::<EditQueue>().0.push(Transaction {
-                label,
+                label: format!("Duplicate {}", subtrees.len()),
                 gesture: None,
                 ops,
             });
-            world.resource_mut::<PendingPasteSelect>().0 = new_ids;
+            // ROOTS only: a copied group is ONE thing to place, and handing
+            // the gesture its children too would ask them to move themselves
+            // as well as riding the root.
+            world.resource_mut::<PendingPasteSelect>().0 = roots;
             // The copies land exactly on their originals, so handing them to a
             // move gesture is the difference between "something happened" and a
             // duplicate that looks like nothing at all. Esc leaves them in
@@ -465,5 +530,188 @@ mod tests {
             .iter(world)
             .count();
         assert_eq!(selected, 2, "pasted entities are the new selection");
+    }
+
+    /// a → b → c, with only `a` selected.
+    fn spawn_selected_group(app: &mut App) -> (SceneId, SceneId, SceneId) {
+        let (a, b, c) = (SceneId::random(), SceneId::random(), SceneId::random());
+        let payload = |v: f32| vec![Box::new(Payload(v)).into_partial_reflect()];
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "spawn group".into(),
+                gesture: None,
+                ops: vec![
+                    Op::Spawn {
+                        id: a,
+                        components: payload(1.0),
+                    },
+                    Op::Spawn {
+                        id: b,
+                        components: payload(2.0),
+                    },
+                    Op::Spawn {
+                        id: c,
+                        components: payload(3.0),
+                    },
+                    Op::Reparent {
+                        target: b,
+                        parent: Some(a),
+                    },
+                    Op::Reparent {
+                        target: c,
+                        parent: Some(b),
+                    },
+                ],
+            });
+        app.update();
+        let entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        app.world_mut().entity_mut(entity).insert(Selected);
+        (a, b, c)
+    }
+
+    fn scene_count(app: &mut App) -> usize {
+        app.world_mut()
+            .query_filtered::<(), With<SceneId>>()
+            .iter(app.world())
+            .count()
+    }
+
+    fn drain_feedback(app: &mut App) -> Vec<String> {
+        let messages = app
+            .world()
+            .resource::<bevy::ecs::message::Messages<editor_api::feedback::SceneIoFeedback>>();
+        let mut cursor = messages.get_cursor();
+        cursor.read(messages).map(|m| m.message.clone()).collect()
+    }
+
+    /// A copied group lands as a GROUP. Before this it landed as a childless
+    /// root and the children were simply not there.
+    #[test]
+    fn duplicating_a_two_level_group_lands_as_a_group() {
+        let mut app = duplicate_app();
+        let (a, _, _) = spawn_selected_group(&mut app);
+        let depth = app.world().resource::<History>().undo_depth();
+        invoke(&mut app, "select.duplicate");
+        app.update();
+
+        assert_eq!(scene_count(&mut app), 6, "the copy came without its family");
+        let original = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        let copy = app
+            .world_mut()
+            .query_filtered::<Entity, (With<SceneId>, Without<ChildOf>)>()
+            .iter(app.world())
+            .find(|e| *e != original)
+            .expect("no copied root");
+        let child = app
+            .world()
+            .get::<Children>(copy)
+            .expect("the copy has no children")
+            .iter()
+            .next()
+            .unwrap();
+        let grandchild = app
+            .world()
+            .get::<Children>(child)
+            .expect("the copy is only one level deep")
+            .iter()
+            .next()
+            .unwrap();
+        // The grandchild hangs under the COPY's child, not the original's.
+        assert_eq!(
+            app.world().get::<ChildOf>(grandchild).unwrap().parent(),
+            child
+        );
+        assert_eq!(
+            app.world().resource::<History>().undo_depth(),
+            depth + 1,
+            "a duplicated group must be ONE undo entry"
+        );
+        app.world_mut().resource_mut::<HistoryRequests>().undo = 1;
+        app.update();
+        assert_eq!(scene_count(&mut app), 3, "undo left husks behind");
+    }
+
+    /// Selecting a parent AND its child copies the child ONCE. Without the fold
+    /// it is copied twice — once inside the subtree and once on its own.
+    #[test]
+    fn duplicating_a_parent_and_its_selected_child_copies_the_child_once() {
+        let mut app = duplicate_app();
+        let (_, b, _) = spawn_selected_group(&mut app);
+        let entity = app.world().resource::<SceneIndex>().get(&b).unwrap();
+        app.world_mut().entity_mut(entity).insert(Selected);
+        invoke(&mut app, "select.duplicate");
+        app.update();
+        assert_eq!(scene_count(&mut app), 6, "the child was copied twice");
+    }
+
+    /// A copy of a child stays inside its own parent, rather than silently
+    /// detaching to the world root.
+    #[test]
+    fn a_duplicate_stays_inside_its_own_parent() {
+        let mut app = duplicate_app();
+        let (a, b, _) = spawn_selected_group(&mut app);
+        let a_entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        app.world_mut().entity_mut(a_entity).remove::<Selected>();
+        let b_entity = app.world().resource::<SceneIndex>().get(&b).unwrap();
+        app.world_mut().entity_mut(b_entity).insert(Selected);
+        invoke(&mut app, "select.duplicate");
+        app.update();
+
+        let copies: Vec<Entity> = app
+            .world_mut()
+            .query_filtered::<Entity, With<SceneId>>()
+            .iter(app.world())
+            .collect();
+        let new_child = copies
+            .into_iter()
+            .filter(|e| *e != b_entity)
+            .find(|e| {
+                app.world()
+                    .get::<ChildOf>(*e)
+                    .is_some_and(|c| c.parent() == a_entity)
+            })
+            .expect("the copy detached from its parent");
+        assert_ne!(new_child, b_entity);
+    }
+
+    /// Duplicating a locked object used to spawn a locked copy sitting
+    /// invisibly on its original that could never be moved. It refuses now,
+    /// and says how to proceed.
+    #[test]
+    fn duplicating_a_locked_object_refuses_and_says_so() {
+        let mut app = duplicate_app();
+        let (a, _, _) = spawn_selected_group(&mut app);
+        let entity = app.world().resource::<SceneIndex>().get(&a).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(crate::lock::Locked);
+        invoke(&mut app, "select.duplicate");
+        app.update();
+        assert_eq!(scene_count(&mut app), 3, "a locked object was duplicated");
+        let said = drain_feedback(&mut app);
+        assert!(
+            said.iter().any(|m| m.contains("\u{2423}l")),
+            "the refusal did not name the way out: {said:?}"
+        );
+    }
+
+    /// The copies are handed to a move gesture, and a group is ONE thing to
+    /// place — handing it its children too would ask them to move themselves
+    /// as well as riding the root.
+    #[test]
+    fn duplicate_selects_only_the_copied_roots() {
+        let mut app = duplicate_app();
+        let (_a, _, _) = spawn_selected_group(&mut app);
+        invoke(&mut app, "select.duplicate");
+        app.update();
+        app.update();
+        let selected = app
+            .world_mut()
+            .query_filtered::<(), With<Selected>>()
+            .iter(app.world())
+            .count();
+        assert_eq!(selected, 1, "the copied children were selected too");
     }
 }

@@ -74,9 +74,9 @@ pub fn subjects(world: &mut World) -> Subjects {
 
 /// `subjects`, minus the ones another subject already carries.
 ///
-/// For verbs that write a POSE onto an EXISTING transform — mirror, drop. Verbs
-/// that SPAWN keep using `subjects`: a parent and a child are two independent
-/// things to copy, and copies do not compound the way a delta does.
+/// For verbs that write a POSE onto an EXISTING transform — mirror, drop.
+/// Verbs that SPAWN copies want `copy_subjects` instead: it folds in the other
+/// order, because a copied parent DOES carry its children.
 ///
 /// AFTER the locked/hidden split, never before. `subjects` has already dropped
 /// locked entities, so a locked parent is not in the carrier set and its
@@ -94,6 +94,50 @@ pub fn transform_subjects(world: &mut World) -> Subjects {
         )
     });
     found
+}
+
+/// What a verb that SPAWNS COPIES may act on.
+///
+/// The same three questions as `subjects`, in the OTHER order: fold to roots
+/// FIRST, then apply the locked/hidden test to the survivors.
+///
+/// `transform_subjects` splits before it folds, because a locked parent's op is
+/// refused at the queue and so carries nothing — its selected child must still
+/// move itself. A copy is the mirror image: a copied parent DOES carry its
+/// children, because they ride inside its capture. Testing a carried child here
+/// would report it "skipped (locked)" in the same breath the copy took it.
+pub fn copy_subjects(world: &mut World) -> Subjects {
+    let mut roots = folded_selection(world);
+    // Deterministic order: the label, the register and the selection handed
+    // back are all user-visible, and archetype order is not stable.
+    roots.sort_by_key(|(id, _)| id.0);
+    let carriers: Vec<Entity> = roots.iter().map(|(_, entity)| *entity).collect();
+    {
+        let read: &World = world;
+        roots.retain(|(_, entity)| {
+            !crate::selection::carried_by(
+                *entity,
+                |ancestor| carriers.contains(&ancestor),
+                |e| read.get::<ChildOf>(e).map(|c| c.parent()),
+            )
+        });
+    }
+    let hidden_set = world.resource::<Hidden>().clone();
+    let mut out = Subjects {
+        subject: Vec::new(),
+        locked: 0,
+        hidden: 0,
+    };
+    for (id, entity) in roots {
+        if world.get::<Locked>(entity).is_some() {
+            out.locked += 1;
+        } else if is_hidden_world(world, entity, &hidden_set) {
+            out.hidden += 1;
+        } else {
+            out.subject.push((id, entity));
+        }
+    }
+    out
 }
 
 /// What a verb owes the user when it has nothing left to act on. Every refusal
