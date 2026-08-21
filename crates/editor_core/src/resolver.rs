@@ -545,6 +545,7 @@ mod tests {
             ("transform.mirror-x", "space x shift+x"),
             ("transform.mirror-y", "space x shift+y"),
             ("transform.mirror-z", "space x shift+z"),
+            ("camera.frame", "5"),
         ] {
             let binding: editor_api::keymap::Binding = spelling.parse().expect("parses");
             let rows = keymap

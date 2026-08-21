@@ -72,7 +72,7 @@ jump-back, and `'x/'y/'z` reads as "go to the X view."
 | `gd` | Go to definition: open source prefab / asset of selection | vim `gd` |
 | `gi` | Jump to last insert location and re-enter Insert | vim `gi` |
 | `gg` / `G` | Select first / last root entity (hierarchy order) | same |
-| `zz` | Frame selection (center view) | vim `zz` centers |
+| `zz` or `5` | Frame selection (center view) | vim `zz` centers; `5` sits with the ortho views on 1-4, the number-key habit every DCC has |
 | `zf` | Frame whole scene | fold-ish mnemonic: "frame" |
 | `i` | **Insert mode**: place new entities (palette picks what) | insert |
 | `a` | Insert as *child of selection* ("append into") | vim `a` appends after |

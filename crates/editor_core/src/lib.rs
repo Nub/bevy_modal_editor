@@ -144,7 +144,12 @@ impl EditorFeature for CoreFeature {
             ActionDef::new("camera.frame", "Frame Selection")
                 .describe("Pull the camera back until the selection fits the view")
                 .context("normal")
-                .bind("z z"),
+                // `zz` is the vim-shaped one; `5` sits with the ortho views on
+                // 1-4, where "put the camera somewhere useful" already lives —
+                // and centring the selection is the one every DCC puts on a
+                // number key.
+                .bind("z z")
+                .bind("5"),
         )
         .action(
             ActionDef::new("camera.frame-scene", "Frame Scene")

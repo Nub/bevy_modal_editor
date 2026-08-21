@@ -396,6 +396,40 @@ pub(crate) fn probe_user(world: &mut World) {
             );
             shot(world, "04b-framed");
         }
+        // …and so does `5`, the number-key habit every DCC has. Fly well away
+        // first, or a camera already framed would satisfy this without the key
+        // doing anything at all.
+        563 => {
+            let cameras: Vec<Entity> = world
+                .query::<(Entity, &bevy::camera::Camera)>()
+                .iter(world)
+                .filter(|(_, c)| c.is_active && c.order >= 0)
+                .map(|(e, _)| e)
+                .collect();
+            for camera in cameras {
+                if let Some(mut transform) = world.get_mut::<Transform>(camera) {
+                    *transform =
+                        Transform::from_xyz(90.0, 60.0, 90.0).looking_at(Vec3::ZERO, Vec3::Y);
+                }
+            }
+        }
+        565 => tap(world, KeyCode::Digit5, "5"),
+        580 => {
+            let camera_at = world
+                .query::<(&bevy::camera::Camera, &Transform)>()
+                .iter(world)
+                .find(|(c, _)| c.is_active && c.order >= 0)
+                .map(|(_, t)| t.translation);
+            let sphere_at = spheres(world)
+                .first()
+                .and_then(|e| world.get::<Transform>(*e))
+                .map(|t| t.translation);
+            let framed = match (camera_at, sphere_at) {
+                (Some(cam), Some(sphere)) => cam.distance(sphere) < 12.0,
+                _ => false,
+            };
+            check(world, framed, "5 centres the selection too");
+        }
         // ── Group everything into a prefab ─────────────────────────────────
         // Hold ctrl ACROSS frames — press+release in one frame never registers
         // as a held modifier (ButtonInput processes the whole batch at once).
