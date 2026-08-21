@@ -848,6 +848,10 @@ pub(crate) fn probe_material(world: &mut World) {
                 tap(world, code, ch);
             }
         }
+        // The picker OPEN, with a texture highlighted: this is the shot that
+        // shows what you are choosing, which is the whole reason it is a
+        // picker and not a cycle.
+        1630 => shot(world, "63-texture-picker-open"),
         1640 => tap_named(world, KeyCode::Enter, Key::Enter),
         1700 => {
             let bound = world

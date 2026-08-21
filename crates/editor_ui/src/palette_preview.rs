@@ -49,7 +49,7 @@ pub(crate) enum Subject {
 #[derive(Resource)]
 pub(crate) struct PreviewRig {
     pub image: Handle<Image>,
-    camera: Entity,
+    pub(crate) camera: Entity,
     root: Entity,
 }
 
@@ -311,13 +311,14 @@ pub(crate) fn sync_preview_content(world: &mut World) {
         }
     }
 
-    // Frame the content: fit distance from the content's bounding radius.
+    // A first, provisional frame from whatever the build could estimate. The
+    // real one comes from `frame_preview` below, once the meshes exist.
     if let Some(mut transform) = world.get_mut::<Transform>(camera) {
         let distance = radius * 2.2;
         *transform = Transform::from_translation(
             PREVIEW_HOME + Vec3::new(distance, distance * 0.75, distance),
         )
-        .looking_at(PREVIEW_HOME + Vec3::Y * (radius * 0.3), Vec3::Y);
+        .looking_at(PREVIEW_HOME, Vec3::Y);
     }
 }
 
@@ -465,4 +466,76 @@ pub(crate) fn preview_image(world: &World) -> Option<Handle<Image>> {
     world
         .get_resource::<PreviewRig>()
         .map(|rig| rig.image.clone())
+}
+
+/// Frame the preview on what is ACTUALLY there, every frame it is shown.
+///
+/// The build pass can only estimate: a prefab's radius came from its records'
+/// origins, a kind's from nothing at all, and an imported model's meshes do not
+/// exist yet on the frame the pane opens. So anything bigger than the guess
+/// clipped at the edges, and anything not modelled around its own origin sat
+/// off to one side.
+///
+/// Measuring the real world AABB each frame costs a walk over a handful of
+/// entities and is self-correcting: the moment a gltf finishes loading, the
+/// shot re-frames itself instead of staying wrong until the next highlight.
+pub(crate) fn frame_preview(
+    rig: Option<Res<PreviewRig>>,
+    subject: Res<PreviewSubject>,
+    content: Query<Entity, With<PreviewContent>>,
+    children: Query<&Children>,
+    shapes: Query<(&bevy::camera::primitives::Aabb, &GlobalTransform)>,
+    projections: Query<&Projection>,
+    mut transforms: Query<&mut Transform>,
+) {
+    let Some(rig) = rig else { return };
+    if subject.0.is_none() {
+        return;
+    }
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    let mut found = false;
+    for root in &content {
+        let mut stack = vec![root];
+        while let Some(entity) = stack.pop() {
+            if let Ok((aabb, global)) = shapes.get(entity) {
+                let centre = Vec3::from(aabb.center);
+                let half = Vec3::from(aabb.half_extents);
+                for corner in 0..8 {
+                    let sign = Vec3::new(
+                        if corner & 1 == 0 { -1.0 } else { 1.0 },
+                        if corner & 2 == 0 { -1.0 } else { 1.0 },
+                        if corner & 4 == 0 { -1.0 } else { 1.0 },
+                    );
+                    let point = global.transform_point(centre + half * sign);
+                    min = min.min(point);
+                    max = max.max(point);
+                    found = true;
+                }
+            }
+            if let Ok(kids) = children.get(entity) {
+                stack.extend(kids.iter());
+            }
+        }
+    }
+    if !found {
+        return;
+    }
+    // The bounding SPHERE of the box, so a rotated view cannot reveal a corner
+    // the framing did not pay for.
+    let centre = (min + max) * 0.5;
+    let radius = ((max - min).length() * 0.5).max(0.05);
+    // The render target is square and the pane renders it 1:1, so the
+    // horizontal and vertical half-angles are the same one.
+    let half_fov = match projections.get(rig.camera) {
+        Ok(Projection::Perspective(perspective)) => perspective.fov * 0.5,
+        _ => std::f32::consts::FRAC_PI_4,
+    };
+    // A little air so the silhouette never touches the edge.
+    let distance = (radius / half_fov.sin()) * 1.15;
+    let direction = Vec3::new(1.0, 0.75, 1.0).normalize();
+    if let Ok(mut transform) = transforms.get_mut(rig.camera) {
+        *transform =
+            Transform::from_translation(centre + direction * distance).looking_at(centre, Vec3::Y);
+    }
 }

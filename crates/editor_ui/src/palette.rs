@@ -1285,6 +1285,7 @@ fn rebuild_results(
     rig: Option<Res<crate::palette_preview::PreviewRig>>,
     registry: Res<AppTypeRegistry>,
     models: Res<editor_scene::models::ModelLibrary>,
+    assets: Res<AssetServer>,
     mut subject: ResMut<crate::palette_preview::PreviewSubject>,
     mut commands: Commands,
 ) {
@@ -1433,7 +1434,27 @@ fn rebuild_results(
                 Text::new(selected_label.clone().unwrap_or_default()),
                 style::sans_medium(&fonts, ui.font_size_m),
             ));
-            if let Some(rig) = &rig {
+            // A TEXTURE shows the file itself, flat. Wrapping a map on a ball
+            // asks you to judge a picture of a sphere when the question is
+            // what the image IS — and for a normal or ORM map, where the data
+            // is not a colour at all, the sphere is actively misleading.
+            let texture_image = match &selected_payload {
+                Some(PalettePayload::Texture(Some(id))) => models
+                    .get(id)
+                    .map(|entry| assets.load::<Image>(entry.asset_path.clone())),
+                _ => None,
+            };
+            if let Some(image) = texture_image {
+                pane.spawn((
+                    ImageNode::new(image),
+                    Node {
+                        width: percent(100),
+                        aspect_ratio: Some(1.0),
+                        margin: UiRect::vertical(px(style::space::XS)),
+                        ..default()
+                    },
+                ));
+            } else if let Some(rig) = &rig {
                 pane.spawn((
                     ImageNode::new(rig.image.clone()),
                     Node {

@@ -291,7 +291,11 @@ impl Plugin for EditorUiPlugin {
                 grid::sync_grid,
                 socket_gizmo::sync_socket_gizmos,
                 inspector::reveal_section,
-                palette_preview::sync_preview_content,
+                (
+                    palette_preview::sync_preview_content,
+                    palette_preview::frame_preview,
+                )
+                    .chain(),
                 palette_preview::contain_preview_content,
                 palette_preview::turn_preview,
                 probe_prefab::probe_prefab.run_if(|| std::env::var("PREFAB_PROBE").is_ok()),

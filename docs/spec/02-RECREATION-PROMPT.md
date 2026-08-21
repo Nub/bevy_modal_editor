@@ -1390,6 +1390,26 @@ asymmetry is deliberate: a copy can be declined and restructured, so silently
 changing the copied shape would be the worse answer. An undo cannot be
 declined — the delete already happened.
 
+
+**Previews frame what is there, and a texture is a texture (2026-08-21, owner
+direction).**
+
+A TEXTURE now shows the file itself, flat, in the palette's preview pane.
+Wrapping a map on a ball asked you to judge a picture of a sphere when the
+question is what the image IS — and for a normal or ORM map, whose data is not
+a colour at all, the sphere was actively misleading.
+
+Everything else still renders in 3D, but the shot is framed from the content's
+REAL world bounds, recomputed every frame it is shown. The build pass could only
+estimate: a prefab's radius came from its records' origins, a kind's from
+nothing at all, and an imported model's meshes do not exist on the frame the
+pane opens. So anything bigger than the guess clipped at the edges, and anything
+not modelled around its own origin sat off to one side. Measuring is
+self-correcting — the moment a gltf finishes loading the shot re-frames itself,
+instead of staying wrong until the next highlight — and it fits the bounding
+SPHERE against the camera's own half-angle, so no rotation can reveal a corner
+the framing did not pay for.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly
