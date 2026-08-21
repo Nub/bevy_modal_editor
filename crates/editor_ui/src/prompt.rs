@@ -129,6 +129,9 @@ pub(crate) fn sync_prompt(
                 PromptPurpose::Variant => "MAKE VARIANT — name it".into(),
                 PromptPurpose::Kit => "KIT — name it (empty clears)".into(),
                 PromptPurpose::Fill => "FILL RUN — how many pieces?".into(),
+                PromptPurpose::Array => {
+                    "ARRAY — how many copies? (a minus runs the other way)".into()
+                }
                 PromptPurpose::RenameMaterial => "RENAME MATERIAL".into(),
                 PromptPurpose::TimelineEvent => "EVENT AT THE PLAYHEAD — name it".into(),
             };

@@ -27,7 +27,10 @@ pub(crate) struct ClipboardRequests {
 
 /// New ids from the last paste — selected once the spawns have applied.
 #[derive(Resource, Default)]
-pub(crate) struct PendingPasteSelect(Vec<SceneId>);
+/// The kernel's "select what was just created" channel: paste, duplicate and
+/// array all hand new ids here and `select_pending` drains it once the spawns
+/// resolve.
+pub struct PendingPasteSelect(pub Vec<SceneId>);
 
 /// A duplicate hands the copies straight to a move gesture (the DCC idiom:
 /// duplicate, then place). It cannot start the gesture in the same frame that

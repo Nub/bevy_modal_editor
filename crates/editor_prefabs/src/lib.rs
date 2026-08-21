@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
 
+pub mod array;
 pub mod authoring;
 pub mod bake;
 pub mod open_mode;
@@ -511,6 +512,31 @@ impl EditorFeature for PrefabsFeature {
                     .describe("Chain N pieces at once — `o` repeated, in one undoable step")
                     .context("normal")
                     .bind("shift+o"),
+            )
+            .action(
+                ActionDef::new("transform.array-x", "Array along X")
+                    .describe(
+                        "Lay a run of copies along world X — the prompt takes the COUNT, \
+                         and a negative one runs the other way. Spacing is the selection's \
+                         own width, so pieces tile flush. array repeat run tile step",
+                    )
+                    .context("normal")
+                    .bind("space x x")
+                    .edit(),
+            )
+            .action(
+                ActionDef::new("transform.array-y", "Array along Y")
+                    .describe("Lay a run of copies along world Y, spaced by the selection's own height")
+                    .context("normal")
+                    .bind("space x y")
+                    .edit(),
+            )
+            .action(
+                ActionDef::new("transform.array-z", "Array along Z")
+                    .describe("Lay a run of copies along world Z, spaced by the selection's own depth")
+                    .context("normal")
+                    .bind("space x z")
+                    .edit(),
             )
             .action(
                 ActionDef::new("prefab.paint", "Paint With Piece")

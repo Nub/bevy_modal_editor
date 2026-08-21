@@ -34,6 +34,13 @@ pub(crate) struct HandsonProbe {
     /// Undo depth and dirty flag before a hide, so the probe can prove hide is
     /// not an edit.
     before_hide: Option<(usize, bool)>,
+    /// Undo depth, drum count and the source pose before an array.
+    array_before: Option<(usize, usize, Transform)>,
+    /// Which drums existed before an array, so the copies can be identified by
+    /// difference rather than by guessing at the level's own spacing.
+    array_roots_before: Vec<Entity>,
+    /// World poses before a mirror, to check the reflection exactly.
+    mirror_before: Vec<(Entity, Transform)>,
     /// Where the locked objects were before an edit was aimed at them.
     locked_before: Vec<Vec3>,
 }
@@ -1365,7 +1372,248 @@ pub(crate) fn probe_handson(world: &mut World) {
         // Nothing probe-owned outlives the run.
         3780 => tap_named(world, KeyCode::Space, Key::Space),
         3786 => tap(world, KeyCode::KeyU, "u"),
-        3800 => {
+        // ── ARRAY: a run of copies, spaced by the piece's own width ───────
+        3820 => invoke(world, "select.clear"),
+        3830 => {
+            let roots = drum_roots(world);
+            if let Some(first) = roots.first().copied() {
+                editor_core::selection::select_entity(world, first, false);
+                let pose = *world.get::<Transform>(first).unwrap();
+                let depth = world.resource::<History>().undo_depth();
+                world.resource_mut::<HandsonProbe>().array_before =
+                    Some((depth, roots.len(), pose));
+                world.resource_mut::<HandsonProbe>().array_roots_before = roots.clone();
+            }
+        }
+        // The gate: without it every assertion below is vacuous.
+        3840 => {
+            let selected = selected_entities(world);
+            check(
+                world,
+                selected.len() == 1,
+                &format!("one drum selected to array ({})", selected.len()),
+            );
+        }
+        3850 => tap_named(world, KeyCode::Space, Key::Space),
+        3856 => tap(world, KeyCode::KeyX, "x"),
+        3862 => tap(world, KeyCode::KeyX, "x"),
+        3890 => {
+            let open = world
+                .resource::<editor_prefabs::authoring::GroupPrompt>()
+                .open;
+            check(world, open, "space x x asks for a count");
+        }
+        3900 => tap(world, KeyCode::Digit3, "3"),
+        3910 => tap_named(world, KeyCode::Enter, Key::Enter),
+        3990 => {
+            let (depth, before, pose) = world.resource::<HandsonProbe>().array_before.unwrap_or((
+                0,
+                0,
+                Transform::IDENTITY,
+            ));
+            let roots = drum_roots(world);
+            check(
+                world,
+                roots.len() == before + 3,
+                &format!(
+                    "array laid exactly 3 copies ({} -> {})",
+                    before,
+                    roots.len()
+                ),
+            );
+            // The COPIES, identified by difference — the level's own drums have
+            // been moved around by earlier segments and are not part of this run.
+            let before_set = world.resource::<HandsonProbe>().array_roots_before.clone();
+            let mut deltas: Vec<f32> = roots
+                .iter()
+                .filter(|e| !before_set.contains(e))
+                .filter_map(|e| world.get::<Transform>(*e).map(|t| t.translation.x))
+                .map(|x| x - pose.translation.x)
+                .collect();
+            deltas.sort_by(f32::total_cmp);
+            let step = deltas.first().copied().unwrap_or(0.0);
+            let stepped = deltas.len() == 3
+                && step > 0.1
+                && (1..=3).all(|k| deltas.iter().any(|d| (d - step * k as f32).abs() < 1e-3));
+            check(
+                world,
+                stepped,
+                &format!(
+                    "the copies step by the piece's own width ({step:.3}m, offsets {deltas:?})"
+                ),
+            );
+            // Each copy is a real instance of THAT prefab, and visible — an
+            // array of husks would satisfy a count-only assertion.
+            let source_prefab = roots
+                .first()
+                .and_then(|e| world.get::<editor_prefabs::PrefabInstance>(*e))
+                .map(|i| i.0);
+            let all_real = roots.iter().all(|e| {
+                world.get::<editor_prefabs::PrefabInstance>(*e).map(|i| i.0) == source_prefab
+            });
+            check(
+                world,
+                all_real,
+                "every copy is an instance of the same prefab",
+            );
+            let all_drawn = roots
+                .iter()
+                .all(|e| mesh_descendant_visible(world, *e) == Some(true));
+            check(world, all_drawn, "every copy actually has geometry");
+            let source_put = roots.first().is_some_and(|e| {
+                world.get::<Transform>(*e).unwrap().translation == pose.translation
+            });
+            check(world, source_put, "array did not move its own source");
+            check(
+                world,
+                world.resource::<History>().undo_depth() == depth + 1,
+                "the whole run is ONE undo entry",
+            );
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.starts_with("arrayed 3"),
+                &format!("array says what it laid [{flash}]"),
+            );
+        }
+        4010 => invoke(world, "core.undo"),
+        4060 => {
+            let (_, before, pose) = world.resource::<HandsonProbe>().array_before.unwrap_or((
+                0,
+                0,
+                Transform::IDENTITY,
+            ));
+            let roots = drum_roots(world);
+            check(
+                world,
+                roots.len() == before,
+                &format!("one undo removes the whole run ({})", roots.len()),
+            );
+            check(
+                world,
+                roots.first().is_some_and(|e| {
+                    world.get::<Transform>(*e).unwrap().translation == pose.translation
+                }),
+                "the source survived the undo",
+            );
+        }
+        // ── MIRROR: two drums swap across their own centre ───────────────
+        4080 => {
+            let roots = drum_roots(world);
+            if roots.len() >= 2 {
+                editor_core::selection::select_entity(world, roots[0], false);
+                editor_core::selection::select_entity(world, roots[1], true);
+                let poses = roots
+                    .iter()
+                    .take(2)
+                    .map(|e| (*e, *world.get::<Transform>(*e).unwrap()))
+                    .collect();
+                world.resource_mut::<HandsonProbe>().mirror_before = poses;
+            }
+        }
+        4090 => {
+            let selected = selected_entities(world);
+            check(
+                world,
+                selected.len() == 2,
+                &format!("two drums selected to mirror ({})", selected.len()),
+            );
+        }
+        4100 => tap_named(world, KeyCode::Space, Key::Space),
+        4106 => tap(world, KeyCode::KeyX, "x"),
+        // Shift MUST be held across frames: injected keys reach ButtonInput
+        // only on the next frame, so a same-frame press+release never registers.
+        4110 => key(world, KeyCode::ShiftLeft, Key::Shift, None, true),
+        4114 => tap(world, KeyCode::KeyX, "x"),
+        4118 => key(world, KeyCode::ShiftLeft, Key::Shift, None, false),
+        4160 => {
+            let before = world.resource::<HandsonProbe>().mirror_before.clone();
+            let mid = before.iter().map(|(_, t)| t.translation.x).sum::<f32>()
+                / before.len().max(1) as f32;
+            let mut reflected = true;
+            let mut moved = true;
+            for (entity, was) in &before {
+                let Some(now) = world.get::<Transform>(*entity).map(|t| t.translation.x) else {
+                    reflected = false;
+                    continue;
+                };
+                if ((2.0 * mid - was.translation.x) - now).abs() > 1e-3 {
+                    reflected = false;
+                }
+                // Anti-vacuity: a no-op satisfies the reflection when a piece
+                // already sits on the plane, so demand real movement too.
+                if (now - was.translation.x).abs() < 0.5 {
+                    moved = false;
+                }
+            }
+            check(
+                world,
+                reflected,
+                "each drum reflected across the pair's centre",
+            );
+            check(world, moved, "the mirror actually moved them");
+            // THE invariant: no negative scale ever reaches the level.
+            let positive = before.iter().all(|(entity, _)| {
+                world
+                    .get::<Transform>(*entity)
+                    .is_some_and(|t| t.scale.x > 0.0 && t.scale.y > 0.0 && t.scale.z > 0.0)
+            });
+            check(world, positive, "no negative scale reached the level");
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.contains("geometry is not flipped"),
+                &format!("mirror tells the truth about what it did [{flash}]"),
+            );
+        }
+        4180 => invoke(world, "core.undo"),
+        4230 => {
+            let before = world.resource::<HandsonProbe>().mirror_before.clone();
+            let restored = before.iter().all(|(entity, was)| {
+                world
+                    .get::<Transform>(*entity)
+                    .is_some_and(|t| (t.translation - was.translation).length() < 1e-4)
+            });
+            check(world, restored, "one undo restores both poses exactly");
+        }
+        // ── A locked object refuses both verbs, and says which ───────────
+        4240 => {
+            if let Some(first) = drum_roots(world).first().copied() {
+                editor_core::selection::select_entity(world, first, false);
+            }
+        }
+        4246 => tap_named(world, KeyCode::Space, Key::Space),
+        4252 => tap(world, KeyCode::KeyL, "l"),
+        4270 => tap_named(world, KeyCode::Space, Key::Space),
+        4276 => tap(world, KeyCode::KeyX, "x"),
+        4280 => tap(world, KeyCode::KeyX, "x"),
+        // The count has to be TYPED, or perform_array never runs and the
+        // assertion below reads a flash left over from the lock itself.
+        4286 => tap(world, KeyCode::Digit2, "2"),
+        4292 => tap_named(world, KeyCode::Enter, Key::Enter),
+        4340 => {
+            let roots = drum_roots(world).len();
+            let flash = flash_text(world);
+            check(
+                world,
+                flash.contains("locked") && flash.contains("\u{2423}l"),
+                &format!("array refuses a locked source out loud [{flash}]"),
+            );
+            world.resource_mut::<HandsonProbe>().array_before =
+                Some((0, roots, Transform::IDENTITY));
+        }
+        4350 => {
+            let (_, after_refusal, _) = world.resource::<HandsonProbe>().array_before.unwrap_or((
+                0,
+                0,
+                Transform::IDENTITY,
+            ));
+            let now = drum_roots(world).len();
+            check(world, now == after_refusal, "a refused array lays nothing");
+        }
+        4360 => tap_named(world, KeyCode::Space, Key::Space),
+        4366 => tap(world, KeyCode::KeyL, "l"),
+        4400 => {
             let failures = world.resource::<HandsonProbe>().failures.clone();
             if failures.is_empty() {
                 info!("HANDSON-PROBE PASS: the owner hands-on checklist end-to-end");

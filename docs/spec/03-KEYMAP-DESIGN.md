@@ -46,7 +46,7 @@
 | `/` | **Contextual search** (see per-context tables) | search |
 | `n` / `N` | Next / previous search result | same |
 | `?` | Cheat sheet / keymap browser for current context | (help) |
-| `Space` | Leader menu (which-key): `Space f` find, `Space p` play controls, `Space t` toggles (grid, gizmos, physics debug, shading), `Space w` window/panel ops, `Space l` lock/unlock the selection, `Space h` / `Space H` hide / isolate the selection, `Space u` unhide all | leader |
+| `Space` | Leader menu (which-key): `Space f` find, `Space p` play controls, `Space t` toggles (grid, gizmos, physics debug, shading), `Space w` window/panel ops, `Space l` lock/unlock the selection, `Space h` / `Space H` hide / isolate the selection, `Space u` unhide all, `Space x` array & mirror (`x/y/z` array along that world axis, shifted mirrors across it) | leader |
 | `m{a-z}` / `'{a-z}` | Set / jump camera mark (marks store position + orientation) | marks |
 | `''` | Jump back to previous camera position (auto-stack) | `''` |
 | `'x` `'y` `'z` / `'X` `'Y` `'Z` | Ortho view down ±axis (orthographic toggle included) | mark-like |
@@ -190,6 +190,14 @@ rather than 0. Unconstrained scale is uniform; an axis constraint makes it **one
 without opening the inspector. The factor is floored just above zero: a zero scale makes
 degenerate colliders and NaN normals, and a mirror is not something a drag should be able to
 produce by accident — negative/mirror scale, if wanted, needs its own deliberate verb.
+
+**Mirror specifics.** That deliberate verb now exists, and it does NOT use a
+negative scale. `Space x ⇧x/⇧y/⇧z` reflects the selection's PLACEMENT across
+the plane through its own centre and CONJUGATES its orientation (`R·M·R`, which
+is proper for every rotation), so scale is never touched and winding, lighting
+and physics are never flipped. It is exact for anything symmetric about the
+plane's direction and does not claim to flip chirality — the feedback says so
+every time.
 
 **Multi-select pivot:** rotate/scale gestures pivot on the **selection median** by default
 (DCC convention); `,` mid-gesture — or `Space t p` globally — toggles individual-origins

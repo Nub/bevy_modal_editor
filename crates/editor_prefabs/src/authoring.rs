@@ -40,6 +40,9 @@ pub(crate) struct PrefabRequests {
     /// Pin the selected socket as the chain's IN end (owner ask).
     pin_chain_entry: bool,
     repeat: bool,
+    /// Which world axis the pending array runs along (0/1/2). READ, not taken,
+    /// at commit time: the prompt outlives the frame the action arrived in.
+    array_axis: Option<usize>,
     /// Enter socket mode, arming a socket to work from (owner ask).
     arm_socket: bool,
     /// Move to the next socket round the armed piece.
@@ -57,6 +60,9 @@ pub enum PromptPurpose {
     Group,
     Variant,
     Kit,
+    /// Not a name at all — a COUNT: how many COPIES to lay in the run, and a
+    /// negative one runs the other way.
+    Array,
     /// Not a name at all — a COUNT: how many pieces to lay in the run.
     Fill,
     /// Not a prefab flow: the ONE name prompt serves every rename, and the
@@ -71,7 +77,10 @@ pub enum PromptPurpose {
 impl PromptPurpose {
     /// Whether the prefab performer owns this prompt's committed name.
     pub fn is_prefab_flow(self) -> bool {
-        matches!(self, Self::Group | Self::Variant | Self::Kit | Self::Fill)
+        matches!(
+            self,
+            Self::Group | Self::Variant | Self::Kit | Self::Fill | Self::Array
+        )
     }
 }
 
@@ -143,6 +152,17 @@ pub(crate) fn collect_prefab_actions(
             "socket.next" => requests.next_socket = true,
             "socket.exit" => requests.exit_socket = true,
             "socket.insert" => requests.insert_at_socket = true,
+            "transform.array-x" | "transform.array-y" | "transform.array-z" => {
+                if !selection.is_empty() {
+                    requests.array_axis = Some(match invoked.action.as_str() {
+                        "transform.array-x" => 0,
+                        "transform.array-y" => 1,
+                        _ => 2,
+                    });
+                    prompt.open = true;
+                    prompt.purpose = PromptPurpose::Array;
+                }
+            }
             "prefab.fill" => {
                 if !selection.is_empty() {
                     prompt.open = true;
@@ -385,6 +405,18 @@ pub(crate) fn perform_prefab_actions(world: &mut World) {
             PromptPurpose::Kit => set_kit(world, name),
             // A count, not a name — anything unparsable lays nothing rather
             // than guessing a number.
+            PromptPurpose::Array => {
+                let axis = world.resource::<PrefabRequests>().array_axis.unwrap_or(0);
+                match name.trim().parse::<i32>() {
+                    Ok(count) if count != 0 => crate::array::perform_array(world, axis, count),
+                    _ => {
+                        world.write_message(editor_scene::SceneIoFeedback {
+                            message: format!("array needs a count, got {name:?}"),
+                            success: false,
+                        });
+                    }
+                }
+            }
             PromptPurpose::Fill => match name.trim().parse::<usize>() {
                 Ok(count) if count > 0 => fill_run(world, count),
                 _ => {

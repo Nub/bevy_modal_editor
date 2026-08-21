@@ -542,6 +542,9 @@ mod tests {
             ("select.hide", "space h"),
             ("select.isolate", "space shift+h"),
             ("select.unhide-all", "space u"),
+            ("transform.mirror-x", "space x shift+x"),
+            ("transform.mirror-y", "space x shift+y"),
+            ("transform.mirror-z", "space x shift+z"),
         ] {
             let binding: editor_api::keymap::Binding = spelling.parse().expect("parses");
             let rows = keymap

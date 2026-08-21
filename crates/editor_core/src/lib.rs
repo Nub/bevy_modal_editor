@@ -13,7 +13,9 @@ pub mod gesture;
 pub mod hide;
 pub mod insert;
 pub mod keymap_data;
+pub mod layout;
 pub mod lock;
+pub mod mirror;
 pub mod modes;
 pub mod panels;
 pub mod resolver;
@@ -326,6 +328,31 @@ impl EditorFeature for CoreFeature {
                 .edit(),
         )
         .action(
+            ActionDef::new("transform.mirror-x", "Mirror across X")
+                .describe(
+                    "Reflect the selection across the plane through its centre — \
+                     placement only, geometry is never flipped and scale never \
+                     goes negative. mirror flip symmetry",
+                )
+                .context("normal")
+                .bind("space x shift+x")
+                .edit(),
+        )
+        .action(
+            ActionDef::new("transform.mirror-y", "Mirror across Y")
+                .describe("Reflect the selection across the plane through its centre")
+                .context("normal")
+                .bind("space x shift+y")
+                .edit(),
+        )
+        .action(
+            ActionDef::new("transform.mirror-z", "Mirror across Z")
+                .describe("Reflect the selection across the plane through its centre")
+                .context("normal")
+                .bind("space x shift+z")
+                .edit(),
+        )
+        .action(
             ActionDef::new("transform.axis-x", "Constrain X")
                 .context("gesture-move")
                 .bind("x")
@@ -467,6 +494,7 @@ impl Plugin for EditorCorePlugin {
             .init_resource::<hide::Hidden>()
             .init_resource::<hide::HideRequests>()
             .init_resource::<similar::IdentityCatalog>()
+            .init_resource::<mirror::MirrorRequests>()
             .init_resource::<resolver::PointerOverChrome>()
             // Headless worlds have no `InputPlugin`, so the wheel message would
             // not exist and every system reading it would fail validation. The
@@ -556,6 +584,8 @@ impl Plugin for EditorCorePlugin {
                         hide::collect_hide_actions,
                         hide::perform_hide,
                         similar::perform_select_similar,
+                        mirror::collect_mirror_actions,
+                        mirror::perform_mirror,
                         gesture::handle_gesture_actions,
                         gesture::motion_from_cursor,
                         gesture::push_pull_gesture,

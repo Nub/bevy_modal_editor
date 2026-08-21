@@ -1125,6 +1125,52 @@ US-layout mapping would render the ortho-view bindings `shift+1/2/3` as `!@#`.
 Hide, isolate and unhide-all sit on the LEADER (`␣h`, `␣⇧h`, `␣u`) for the same
 reason lock does: the keymap design reserves `h j k l` for selection motion.
 
+
+**Array and mirror (2026-08-21).** The two blockout multipliers, and both are
+BAKES rather than modifiers: the copies are ordinary entities in one
+transaction, individually editable afterwards, and one undo removes the run. A
+live re-derivable array wants an authoring component and a preview that
+provably spawns nothing; this is the version that can be right today, and the
+parametric form stays deferred with a named follow-on.
+
+- **The step is the piece's own extent, never the grid.** That is the whole
+  value: a wall arrays flush against itself and the run comes out as a wall
+  rather than a dotted line. Quantizing a 0.98 m piece to a 1 m grid seams every
+  joint, and the grid is exactly what a designer is trying not to think about.
+  The measurement skips socket subtrees — a socket's gizmo is a real mesh cone,
+  and counting it would pad every kit piece by the width of something invisible
+  in the game. Objects with no geometry at all (a light, a spawn point) fall
+  back to the grid step, and the message says which it used.
+- **Array refuses what it cannot copy losslessly.** `Op::Spawn` carries
+  components and no parentage, so a copy is ONE entity — lossless only where
+  everything below the root regenerates (a prefab instance's members are
+  re-stamped, an import's gltf subtree carries no `SceneId` at all). A flattened
+  model, a hand-built group or a loose socketed piece has real child content a
+  single-entity copy would silently drop, so array refuses those out loud and
+  points at `g`. Duplicate has the same hole today and does not refuse; making
+  the copy hierarchy-aware needs one inverse op per spawned entity, which the
+  edit engine cannot express yet. That is the deferred work, and array's gate is
+  what makes shipping this first safe.
+- **Mirror reflects PLACEMENT and conjugates ORIENTATION.** A plane reflection
+  is improper — determinant −1 — and no `Transform` holds one without a negative
+  scale, which flips winding, breaks lighting and confuses physics. So the
+  position is a Householder reflection (exact) and the rotation is `R·M·R`,
+  which is proper for every M and is the exact answer whenever the piece is
+  symmetric about the plane's direction — every wall, floor, pillar and crate in
+  a blockout. It does NOT flip chirality: an L-corner comes out rotated. Bounds
+  cannot detect that (an L has symmetric bounds), so rather than guess, the
+  feedback says "placement only, geometry is not flipped" every single time. The
+  mirror-partner variant that would fix it properly is prefab kit metadata.
+- **The plane rides the selection.** Its origin is the subjects' centroid, so
+  mirroring a pair swaps them and mirroring one leaves it put. An arbitrary
+  plane wants a pivot concept the editor does not have yet.
+- **Both verbs skip locked and hidden roots and COUNT what they skipped.**
+  `Op::Spawn` is not an edit to anything, so the queue's lock would never stop
+  an array; and a layout verb must not be the one thing that materialises what
+  you took out of the view. `editor_core::layout` holds that rule once, because
+  two copies of "what does this selection name" is how `space h` and `*` start
+  disagreeing.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly
