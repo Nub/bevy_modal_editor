@@ -2459,6 +2459,76 @@ mod template_tests {
     use crate::template_mode::{TemplateEdit, TemplateRequests};
     use crate::tests::{barrel_prefab, test_app};
 
+    /// The edit must reach DISK. Bumping the generation updates the instances on
+    /// screen and says "every instance follows" — and then the next launch loads
+    /// the old file and the work is gone. Every other prefab-editing path saves;
+    /// this one did not, and nothing noticed because everything on screen looked
+    /// right.
+    #[test]
+    fn editing_the_template_writes_the_prefab_to_disk() {
+        let mut app = test_app();
+        let mut prefab = barrel_prefab();
+        // A name of our own, so the test owns its file.
+        prefab.name = format!("probe-template-{}", uuid::Uuid::new_v4().simple());
+        let prefab_id = prefab.id;
+        let path = crate::authoring::prefabs_dir().join(format!(
+            "{}.prefab.ron",
+            prefab.name.to_lowercase().replace(' ', "-")
+        ));
+        let before = prefab.template.records().count();
+        app.world_mut()
+            .resource_mut::<PrefabLibrary>()
+            .prefabs
+            .insert(prefab_id, prefab);
+        let instance = SceneId::random();
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "place".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: instance,
+                    components: vec![
+                        Box::new(PrefabInstance(prefab_id)).into_partial_reflect(),
+                        Box::new(Transform::default()).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+        let entity = app.world().resource::<SceneIndex>().get(&instance).unwrap();
+        app.world_mut().entity_mut(entity).insert(Selected);
+
+        invoke(&mut app, "prefab.edit-template");
+        app.world_mut()
+            .resource_mut::<EditQueue>()
+            .0
+            .push(Transaction {
+                label: "add a part".into(),
+                gesture: None,
+                ops: vec![Op::Spawn {
+                    id: SceneId::random(),
+                    components: vec![
+                        Box::new(Transform::from_xyz(0.0, 2.0, 0.0)).into_partial_reflect(),
+                    ],
+                }],
+            });
+        app.update();
+        app.update();
+        invoke(&mut app, "prefab.close-template");
+
+        let written = std::fs::read_to_string(&path);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("ron.bak"));
+        let written = written.expect("the prefab file exists after editing it");
+        // The added part is IN the file, not just in memory.
+        let records = written.matches("id:").count();
+        assert!(
+            records > before,
+            "the edit reached disk ({records} records for {before} before)"
+        );
+    }
     fn invoke(app: &mut App, action: &'static str) {
         app.world_mut().write_message(ActionInvoked {
             action: ActionId::new_static(action),

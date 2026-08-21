@@ -183,6 +183,35 @@ fn close_template(world: &mut World) {
     if changed {
         // The generation bump is what restamps every instance (D5 propagation).
         world.resource_mut::<PrefabLibrary>().generation += 1;
+        // AND IT GOES TO DISK. Every other path that edits a prefab — group,
+        // make-variant, apply-to-prefab — writes the file; this one bumped the
+        // generation, updated instances on screen, said "every instance
+        // follows", and discarded the work at the next launch. A tool that
+        // silently eats an edit is worse than one that refuses it.
+        let def = world
+            .resource::<PrefabLibrary>()
+            .prefabs
+            .get(&prefab)
+            .map(|def| crate::PrefabDef {
+                kit: def.kit.clone(),
+                id: def.id,
+                name: def.name.clone(),
+                template: editor_scene::snapshot_from_parts(
+                    def.template
+                        .records()
+                        .map(|(id, parent, components)| {
+                            (
+                                id,
+                                parent,
+                                components.iter().map(|c| c.to_dynamic()).collect(),
+                            )
+                        })
+                        .collect(),
+                ),
+            });
+        if let Some(def) = def {
+            crate::authoring::save_prefab_public(world, &def);
+        }
     }
     editor_scene::apply_scene(world, &level, true);
     world.write_message(editor_scene::SceneIoFeedback {
