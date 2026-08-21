@@ -102,6 +102,12 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
 }
 
 pub(crate) fn build_studio_cubemap() -> Image {
+    build_cubemap(studio_radiance)
+}
+
+/// The same six-face walk for any radiance function, so a second environment
+/// costs a function and nothing else.
+pub(crate) fn build_cubemap(radiance_of: impl Fn(Vec3) -> [f32; 3]) -> Image {
     let mut data: Vec<u8> = Vec::with_capacity((FACE * FACE * 6 * 4) as usize);
     for face in 0..6 {
         for y in 0..FACE {
@@ -110,7 +116,7 @@ pub(crate) fn build_studio_cubemap() -> Image {
                     (x as f32 + 0.5) / FACE as f32,
                     (y as f32 + 0.5) / FACE as f32,
                 );
-                let radiance = studio_radiance(face_direction(face, uv));
+                let radiance = radiance_of(face_direction(face, uv));
                 for channel in radiance {
                     // sRGB-encoded: the format says so, and the shader decodes.
                     let encoded = if channel <= 0.003_130_8 {

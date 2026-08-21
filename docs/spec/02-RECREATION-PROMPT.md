@@ -1410,6 +1410,45 @@ instead of staying wrong until the next highlight — and it fits the bounding
 SPHERE against the camera's own half-angle, so no rotation can reveal a corner
 the framing did not pay for.
 
+
+**Socket gizmos stopped drawing (2026-08-21) — a regression, and how.** Making
+socket cones `Visibility::Inherited` so they follow a hidden piece was right,
+and it broke them: `Visibility::Visible` had been unconditional, so the cone
+drew no matter what its ancestors were. Inheritance only works if there is a
+chain to inherit through, and propagation recurses only into children that
+carry the visibility components. A socket entity is a transform and a `Socket`
+— no mesh, so no `Visibility` — and one bare link orphans everything below it.
+
+So the chain above every cone is filled each frame. It has to be a system and
+not the add-observer: a socket is spawned and REPARENTED in the same
+transaction, so at `Add<Socket>` time there is no chain to walk yet.
+
+The assertion that missed it is the more useful lesson. It read
+`InheritedVisibility`, which goes STALE when propagation never visits — the
+cone reported "visible" while the viewport showed nothing. `ViewVisibility` is
+what actually gates drawing, but it is also false for anything outside the
+frustum, so it cannot tell "hidden" from "off camera". The probe now asserts
+the INVARIANT instead: the cone reads visible AND every link from it to the
+root carries the components propagation walks through.
+
+**Colliders are on by default (owner direction).** A collider that does not
+match its mesh is invisible until something falls through the floor, and the
+reason to look at a level in an editor is to see what the game sees. `␣tp`
+turns them off when the wireframe is in the way.
+
+**A prefab is edited in a lit room (owner direction).** `space e` parks the
+level, and most prefabs carry no lamp — so editing a barrel meant editing a
+black shape on black ground. The editor supplies the room: `␣b` while a
+template is open offers studio (neutral key and fill), overcast (soft dome, no
+key — for silhouette and colour), night (dim and cool, for anything that
+glows), and none (the prefab's own lights only). Studio is the default,
+because the default has to LIGHT something.
+
+The light is view state in the strictest sense: it carries no `SceneId`, so
+scene capture cannot see it, it never enters a transaction, and it is torn down
+when the template closes. A prefab must never acquire a light it did not ask
+for because someone looked at it.
+
 ### Rapid-prototyping toolkit (1.0-required, from the DoD)
 The DoD's "idea → playable trial in minutes" demands these as first-class feature crates:
 - **Assisted layout system** — the level-layout answer (in-editor mesh modeling explicitly

@@ -27,6 +27,9 @@ pub(crate) enum PalettePayload {
     /// `None` clears it. Five slots cycling blindly through every imported
     /// texture is not picking, it is guessing.
     Texture(Option<uuid::Uuid>),
+    /// Light the scene a prefab is being edited in. Not part of the prefab:
+    /// a piece must never acquire a light because someone looked at it.
+    Environment(crate::template_env::TemplateEnvironment),
     /// Insert this component (default value) onto every selected entity.
     AddComponent(std::any::TypeId),
     /// Remove this component (by type path) from every selected entity.

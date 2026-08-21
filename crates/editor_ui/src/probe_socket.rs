@@ -147,13 +147,23 @@ pub(crate) fn probe_socket(world: &mut World) {
             let socket = world.resource::<SocketProbe>().socket;
             let entity =
                 socket.and_then(|id| world.resource::<editor_api::edits::SceneIndex>().get(&id));
-            // Whether it DRAWS, not which enum variant it holds. The cone used
-            // to be `Visibility::Visible`, which is unconditional and kept it
-            // drawing over a hidden piece; it is `Inherited` now, so the real
-            // question is what propagation computed.
-            let visible_gizmo = entity.is_some_and(|entity| {
-                world
-                    .get::<Children>(entity)
+            // `ViewVisibility`, not `InheritedVisibility`. The latter goes
+            // STALE when propagation never visits the entity — it keeps
+            // whatever it last held while nothing renders — and that is
+            // exactly the failure this assertion missed: the cone read
+            // "inherited: visible" while the viewport showed no cones at all.
+            // `ViewVisibility` is recomputed per view per frame, so it is the
+            // only one that answers "does it draw".
+            // Whether the cone can DRAW, tested as the invariant rather than
+            // the symptom. `ViewVisibility` also goes false for anything
+            // outside the frustum, so it cannot tell "hidden" from "off
+            // camera"; `InheritedVisibility` goes STALE when propagation never
+            // visits, which is exactly how a broken chain hides. So: the cone
+            // reads visible AND every link from it to the root carries the
+            // components propagation walks through.
+            let drawable = entity.is_some_and(|socket| {
+                let cone_ok = world
+                    .get::<Children>(socket)
                     .map(|children| {
                         let kids: Vec<Entity> = children.iter().collect();
                         kids.into_iter().any(|child| {
@@ -163,9 +173,22 @@ pub(crate) fn probe_socket(world: &mut World) {
                                     .is_some_and(|v| v.get())
                         })
                     })
-                    .unwrap_or(false)
+                    .unwrap_or(false);
+                let mut chain_ok = true;
+                let mut current = socket;
+                loop {
+                    if world.get::<InheritedVisibility>(current).is_none() {
+                        chain_ok = false;
+                        break;
+                    }
+                    match world.get::<ChildOf>(current) {
+                        Some(parent) => current = parent.parent(),
+                        None => break,
+                    }
+                }
+                cone_ok && chain_ok
             });
-            check(world, visible_gizmo, "the socket draws a visible gizmo");
+            check(world, drawable, "the socket draws a visible gizmo");
         }
         320 => {
             let socket = world.resource::<SocketProbe>().socket.unwrap();

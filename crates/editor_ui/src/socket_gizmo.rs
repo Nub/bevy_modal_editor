@@ -46,6 +46,16 @@ pub(crate) fn on_socket_added(
             )
         })
         .clone();
+    // The socket itself needs the visibility components, or the chain BREAKS
+    // here: propagation only descends through entities that carry them, so a
+    // cone under a bare socket entity is never visited and keeps whatever it
+    // was born with — which is nothing. The cone used to be
+    // `Visibility::Visible`, unconditional, so it drew anyway; it is
+    // `Inherited` now so it can follow a hidden piece, and that only works if
+    // every link in the chain exists.
+    commands
+        .entity(add.entity)
+        .insert_if_new(Visibility::Inherited);
     commands.entity(add.entity).with_children(|socket| {
         socket.spawn((
             SocketGizmo,
@@ -66,8 +76,30 @@ pub(crate) fn on_socket_added(
 /// Editor-only visibility (grid discipline).
 pub(crate) fn sync_socket_gizmos(
     state: Res<EditorState>,
+    cones: Query<Entity, With<SocketGizmo>>,
+    parents: Query<&ChildOf>,
+    has_visibility: Query<(), With<Visibility>>,
     mut gizmos: Query<&mut Visibility, With<SocketGizmo>>,
+    mut commands: Commands,
 ) {
+    // Fill the visibility chain ABOVE every cone, every frame.
+    //
+    // Propagation only recurses through children that carry the components,
+    // so one bare link — a socket entity, a group that is just a transform —
+    // orphans everything below it, and the cone then keeps whatever value it
+    // was born with rather than what the piece says. It has to be a system
+    // and not the add-observer: a socket is spawned and REPARENTED in the
+    // same transaction, so at `Add<Socket>` time there is no chain to walk.
+    for cone in &cones {
+        let mut current = cone;
+        while let Ok(parent) = parents.get(current) {
+            let parent = parent.parent();
+            if has_visibility.get(parent).is_err() {
+                commands.entity(parent).try_insert(Visibility::Inherited);
+            }
+            current = parent;
+        }
+    }
     for mut visibility in &mut gizmos {
         let target = if state.active {
             // INHERITED, not Visible: `Visibility::Visible` is unconditional,

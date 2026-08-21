@@ -481,6 +481,16 @@ impl EditorFeature for PrefabsFeature {
                     .bind("escape"),
             )
             .action(
+                ActionDef::new("prefab.environment", "Light The Prefab")
+                    .describe(
+                        "Choose the room a prefab is edited in — most prefabs carry no \
+                         lamp of their own. Editor lighting only: it is never saved into \
+                         the piece",
+                    )
+                    .context("template")
+                    .bind("space b"),
+            )
+            .action(
                 ActionDef::new("prefab.open", "Open Prefab Instance")
                     .describe("Edit the selected instance in place — Escape closes and saves")
                     .context("normal")

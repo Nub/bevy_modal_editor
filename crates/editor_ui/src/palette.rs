@@ -46,6 +46,9 @@ pub enum PaletteFilter {
     Materials,
     /// Imported textures, for the slot the material panel is filling.
     Textures,
+    /// Lighting for a prefab being edited in its own scene — most prefabs
+    /// carry no lamp, so the editor supplies the room.
+    Environments,
 }
 
 #[derive(Resource, Default)]
@@ -356,6 +359,19 @@ fn build_palette_items(
                 suffix: String::new(),
                 payload: PalettePayload::Action(ActionId::new_static("material.new")),
             });
+        }
+        PaletteFilter::Environments => {
+            // Whole rooms rather than sliders: the question while modelling is
+            // "can I read this piece", not "what is my key intensity".
+            for room in crate::template_env::TemplateEnvironment::ALL {
+                items.0.push(PaletteEntry {
+                    label: room.label().into(),
+                    category: None,
+                    keywords: room.describe().into(),
+                    suffix: room.describe().into(),
+                    payload: PalettePayload::Environment(room),
+                });
+            }
         }
         PaletteFilter::Textures => {
             // Clearing is a choice like any other, so it lives in the same list
@@ -669,6 +685,7 @@ fn update_title(state: Res<PaletteState>, mut title: Query<&mut Text, With<Palet
         PaletteFilter::FindObject => "FIND OBJECT",
         PaletteFilter::Materials => "ASSIGN MATERIAL",
         PaletteFilter::Textures => "PICK TEXTURE",
+        PaletteFilter::Environments => "LIGHT THE PREFAB",
     };
     for mut text in &mut title {
         if text.0 != label {
@@ -697,6 +714,13 @@ fn handle_open_action(
             } else {
                 PaletteFilter::Commands
             };
+            if let Ok(mut text) = editable.get_mut(*input) {
+                text.clear();
+            }
+        }
+        if invoked.action.as_str() == "prefab.environment" && !state.open {
+            open_palette(&mut state, &mut capture, &mut focus, *input, &mut root);
+            state.filter = PaletteFilter::Environments;
             if let Ok(mut text) = editable.get_mut(*input) {
                 text.clear();
             }
@@ -1110,6 +1134,17 @@ fn palette_keys(
                             }
                             world.write_message(editor_scene::SceneIoFeedback {
                                 message: format!("placed {name}"),
+                                success: true,
+                            });
+                        });
+                    }
+                    PalettePayload::Environment(room) => {
+                        let room = *room;
+                        commands.queue(move |world: &mut World| {
+                            *world.resource_mut::<crate::template_env::TemplateEnvironment>() =
+                                room;
+                            world.write_message(editor_scene::SceneIoFeedback {
+                                message: format!("lighting: {}", room.label()),
                                 success: true,
                             });
                         });

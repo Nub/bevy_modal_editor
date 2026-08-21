@@ -316,7 +316,7 @@ impl Plugin for EditorOverlayPlugin {
         // toggle turns it on.
 
         app.add_plugins(avian3d::debug_render::PhysicsDebugPlugin);
-        app.add_systems(Startup, silence_collider_debug);
+        app.add_systems(Startup, show_colliders_by_default);
         app.add_observer(guard_collider_constructor);
         app.add_observer(mark_sockets_as_decoration);
         app.add_editor_feature(GameFeature);
@@ -398,10 +398,13 @@ fn mark_sockets_as_decoration(
         .insert(crate::game::BoundsIgnored);
 }
 
-/// Avian's gizmo group is enabled the moment its plugin lands; the debug view
-/// is opt-IN, so start it silent.
-fn silence_collider_debug(mut store: ResMut<GizmoConfigStore>) {
-    store.config_mut::<PhysicsGizmos>().0.enabled = false;
+/// Avian's gizmo group is enabled the moment its plugin lands, and the editor
+/// leaves it that way (owner direction): a collider that does not match its
+/// mesh is invisible until something falls through the floor, and the whole
+/// reason to look at a level in an editor is to see what the game will see.
+/// Toggle it off with `␣tp` when the wireframe is in the way.
+fn show_colliders_by_default(mut store: ResMut<GizmoConfigStore>) {
+    store.config_mut::<PhysicsGizmos>().0.enabled = true;
 }
 
 /// `view.toggle-colliders`: flip avian's gizmo group. The debug plugin's
@@ -921,36 +924,39 @@ pub(crate) fn probe_physics(world: &mut World) {
                 "Fit Collider sized the box from the mesh bounds",
             );
         }
-        // The collider debug view: off until asked for, on after the toggle,
-        // off again after a second press.
+        // The collider debug view: ON by default (owner direction), off after
+        // one toggle, on again after a second.
         424 => {
-            let off = !world
-                .resource::<GizmoConfigStore>()
-                .config::<PhysicsGizmos>()
-                .0
-                .enabled;
-            check(world, off, "collider debug starts off");
-            invoke(world, "view.toggle-colliders");
-        }
-        428 => {
             let on = world
                 .resource::<GizmoConfigStore>()
                 .config::<PhysicsGizmos>()
                 .0
                 .enabled;
-            check(world, on, "view.toggle-colliders turned the wireframes on");
+            check(world, on, "collider debug starts ON");
+            invoke(world, "view.toggle-colliders");
         }
-        432 => invoke(world, "view.toggle-colliders"),
-        436 => {
+        428 => {
             let off = !world
                 .resource::<GizmoConfigStore>()
                 .config::<PhysicsGizmos>()
                 .0
                 .enabled;
-            check(world, off, "toggling again turned them back off");
+            check(
+                world,
+                off,
+                "view.toggle-colliders turned the wireframes off",
+            );
+        }
+        432 => invoke(world, "view.toggle-colliders"),
+        436 => {
+            let on = world
+                .resource::<GizmoConfigStore>()
+                .config::<PhysicsGizmos>()
+                .0
+                .enabled;
+            check(world, on, "toggling again turned them back on");
             // Leave it ON for the play stage — the debug view must survive the
             // editor→game handoff, which is where colliders matter most.
-            invoke(world, "view.toggle-colliders");
         }
         // Authoring must not be able to crash the engine: the palette hands
         // every component its reflected DEFAULT, and avian's is a mesh-only

@@ -38,6 +38,7 @@ mod problems;
 mod prompt;
 mod socket_gizmo;
 mod statusbar;
+pub mod template_env;
 mod timeline_panel;
 mod view_gizmo;
 mod which_key;
@@ -231,6 +232,7 @@ impl Plugin for EditorUiPlugin {
         app.init_resource::<open_indicator::DimAssets>();
         app.init_resource::<inspector::InspectorReveal>();
         app.init_resource::<palette_preview::PreviewSubject>();
+        app.init_resource::<template_env::TemplateEnvironment>();
         app.init_resource::<material_editor::MaterialEditorState>();
         app.init_resource::<material_editor::MaterialHistory>();
         app.init_resource::<material_editor::PendingSeeds>();
@@ -293,6 +295,7 @@ impl Plugin for EditorUiPlugin {
                 inspector::reveal_section,
                 (
                     palette_preview::sync_preview_content,
+                    template_env::sync_template_environment,
                     palette_preview::frame_preview,
                 )
                     .chain(),
@@ -341,6 +344,7 @@ impl Plugin for EditorUiPlugin {
                 prompt::spawn_prompt,
                 grid::spawn_grid,
                 preview_env::setup_preview_environment,
+                template_env::setup_template_skies,
                 palette_preview::setup_preview_rig,
                 material_editor::setup_material_preview,
                 material_editor::spawn_editor_root,
