@@ -1,5 +1,5 @@
 (
-    format_version: 1,
+    format_version: 3,
     materials: [
         (
             id: "e311a80b-bd5d-4168-a01f-f64b5b3e6006",
@@ -14,6 +14,11 @@
             unlit: false,
             double_sided: false,
             base_color_texture: None,
+            textures: {},
+            uv_tiling: (1.0, 1.0),
+            uv_offset: (0.0, 0.0),
+            base: None,
+            overridden: [],
         ),
         (
             id: "4182a5ea-ba37-4e71-8393-c7ccab70cb8f",
@@ -27,7 +32,14 @@
             alpha_cutoff: 0.5,
             unlit: false,
             double_sided: false,
-            base_color_texture: Some("761a1de4-bb37-4226-9667-2c74875dd474"),
+            base_color_texture: None,
+            textures: {
+                BaseColor: "761a1de4-bb37-4226-9667-2c74875dd474",
+            },
+            uv_tiling: (1.0, 1.0),
+            uv_offset: (0.0, 0.0),
+            base: None,
+            overridden: [],
         ),
     ],
 )
